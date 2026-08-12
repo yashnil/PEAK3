@@ -358,14 +358,21 @@ async def _build_view(repo, mode, match: ArenaMatch, seat: Optional[ArenaSeat]):
 
     turn = await repo.get_open_turn(match.match_id)
     seconds_remaining = None
+    turn_seconds_remaining = None
     turn_phase = turn.phase if turn is not None else None
-    if turn is not None and seat_index is not None:
-        if turn.seat_index is None or turn.seat_index == seat_index:
-            from app.repositories.arena_protocols import _utc
+    if turn is not None:
+        from app.repositories.arena_protocols import _utc
 
-            seconds_remaining = max(
-                0.0, (_utc(turn.deadline_at) - _now()).total_seconds()
-            )
+        # THE OPEN TURN'S CLOCK, FOR EVERY SEAT. See
+        # `ArenaMatchView.turn_seconds_remaining` for why a turn deadline is
+        # public and why this is not folded into `seconds_remaining`.
+        turn_seconds_remaining = max(
+            0.0, (_utc(turn.deadline_at) - _now()).total_seconds()
+        )
+        if seat_index is not None and (
+            turn.seat_index is None or turn.seat_index == seat_index
+        ):
+            seconds_remaining = turn_seconds_remaining
 
     visible = await repo.list_events(match.match_id, for_seat=seat_index)
     latest_seq = max((e.seq for e in visible), default=-1)
@@ -396,6 +403,7 @@ async def _build_view(repo, mode, match: ArenaMatch, seat: Optional[ArenaSeat]):
         legal_commands=list(legal),
         current_turn_seat_index=turn.seat_index if turn else None,
         seconds_remaining=seconds_remaining,
+        turn_seconds_remaining=turn_seconds_remaining,
         turn_phase=turn_phase,
         latest_event_seq=latest_seq,
         # The room code goes only to a seat holder, and only while the room is

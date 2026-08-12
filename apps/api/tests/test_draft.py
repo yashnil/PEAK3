@@ -34,11 +34,22 @@ ALL_ROLES = ["lead_creator", "guard_wing", "wing_forward", "forward_big", "ancho
 
 
 def _play_full_game(client: TestClient, mode: str = "apex_1y") -> dict:
-    """Play a full game using a most-constrained-card-first heuristic.
+    """Play a full game along the path board generation GUARANTEES.
 
-    In each round, picks the card with the fewest eligible open roles (most
-    constrained). This avoids dead-ends caused by saving rare roles too late.
-    On a valid board, this always finds a feasible 5-round assignment.
+    `_greedy_playthrough_succeeds` (nba_peak/lineup/board.py) is the gate every
+    generated board must pass: each round, take the FIRST offered card with any
+    open-role match, and within it the first eligible role in ALL_ROLES order —
+    the exact no-lookahead path the real UI's DOM order produces. So this
+    helper cannot dead-end on any board the generator emits.
+
+    It used to play a "most constrained card first" heuristic instead, with a
+    fallback that sent an ILLEGAL (card, role) pair when the heuristic
+    cornered itself. Under the quality-derived roles of profiles v3 the corner
+    never happened in practice; under the honest position-derived roles of v4
+    (fewer roles per star card) it did — the heuristic burned the flexible
+    cards early and round 4's offers matched no open role, and the fallback
+    then asserted a 400 the API was right to return. The generator's own
+    guaranteed path needs no fallback at all.
     """
     state = _create_game(client, mode=mode)
     game_id = state["game_id"]
@@ -49,20 +60,12 @@ def _play_full_game(client: TestClient, mode: str = "apex_1y") -> dict:
         open_roles = state["open_roles"]
 
         card_id, role = None, None
-        best_constraint = float("inf")
-
-        # Pick the most constrained card (fewest eligible open roles)
         for offer in offers:
-            eligible_open = [r for r in offer["eligible_roles"] if r in open_roles]
-            if eligible_open and len(eligible_open) < best_constraint:
-                best_constraint = len(eligible_open)
+            eligible_open = [r for r in ALL_ROLES if r in offer["eligible_roles"] and r in open_roles]
+            if eligible_open:
                 card_id = offer["peak_window_id"]
                 role = eligible_open[0]
-
-        # Fallback: first open role with any offer (shouldn't happen on valid boards)
-        if card_id is None and open_roles and offers:
-            card_id = offers[0]["peak_window_id"]
-            role = open_roles[0]
+                break
 
         assert card_id is not None and role is not None, (
             f"No valid move in round {rnd+1}: open_roles={open_roles}, "
@@ -582,17 +585,14 @@ async def test_owner_sub_survives_actions_and_completion_is_recorded(client: Tes
             break
         offers = state["current_offers"]
         open_roles = state["open_roles"]
+        # The generator-guaranteed greedy path — see `_play_full_game`.
         card_id, role = None, None
-        best_constraint = float("inf")
         for offer in offers:
-            eligible_open = [r for r in offer["eligible_roles"] if r in open_roles]
-            if eligible_open and len(eligible_open) < best_constraint:
-                best_constraint = len(eligible_open)
+            eligible_open = [r for r in ALL_ROLES if r in offer["eligible_roles"] and r in open_roles]
+            if eligible_open:
                 card_id = offer["peak_window_id"]
                 role = eligible_open[0]
-        if card_id is None and open_roles and offers:
-            card_id = offers[0]["peak_window_id"]
-            role = open_roles[0]
+                break
         assert card_id is not None and role is not None
         state = _action(client, game_id, "select_card", card_id=card_id, role=role)
     assert state["status"] == "draft_complete"

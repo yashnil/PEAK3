@@ -81,11 +81,46 @@ rules_state.warm_pool()
 
 REJECT_UNKNOWN_COMMAND = "unknown_command"
 REJECT_NO_SEAT = "not_your_seat"
+REJECT_NOT_INTRO = "no_intro_open"
+REJECT_NOT_YOUR_TURN = "not_your_turn"
+
+#: THE PRE-MATCH INTRO, AS A REAL SERVER TURN.
+#:
+#: THE DEFECT. The room showed a competitive intro -- who you are playing, what
+#: a market skip is, what the budget is -- as a client-side beat, while the
+#: server had already stamped the first lot's 25-second deadline. So the intro
+#: was spending the player's own decision clock to tell them the rules, and the
+#: client could only paper over it: `affordableBeat` truncates or skips the
+#: intro whenever the human's remaining window would drop below
+#: `MIN_DECISION_SECONDS`. That is an honest workaround for a clock the client
+#: does not own, and it means the intro is shortest exactly when the player is
+#: newest to the mode.
+#:
+#: THE FIX IS THE ONE THREE-MAN WEAVE ALREADY USES for its franchise x decade
+#: ceremony: a real turn, in its own phase, belonging to NO seat and accepting
+#: no action from anybody. When it ends -- by its own deadline or because a
+#: player skipped it -- the first auction turn is opened with a FULL
+#: `TURN_SECONDS` measured from that instant. The intro therefore costs the
+#: player nothing at all, plays identically for both seats, and reconstructs
+#: correctly on reload because it is state rather than an animation a client
+#: happens to be part-way through.
+PHASE_INTRO = "intro"
+
+#: How long the intro holds. Long enough to read four lines, per the pass's
+#: "approximately 4-5 seconds"; skippable from the first frame.
+INTRO_SECONDS = 4.5
+
+#: End the intro early. See `_open_first_lot`.
+COMMAND_SKIP_INTRO = "showdown_skip_intro"
 
 EVENT_BID_PLACED = "bid_placed"
 EVENT_PASSED = "seat_passed"
 EVENT_LOT_RESOLVED = "lot_resolved"
 EVENT_MATCH_COMPLETED = "match_completed"
+EVENT_FORFEIT = "seat_forfeited"
+
+#: Concede the match. See `_forfeit`.
+COMMAND_FORFEIT = "showdown_forfeit"
 
 
 class TwentyDollarMode:
@@ -108,7 +143,26 @@ class TwentyDollarMode:
         return TURN_SECONDS
 
     def initial_phase(self) -> str:
-        return rules_state.PHASE_AUCTION
+        """A match opens on the INTRO, not on a live lot. See `PHASE_INTRO`."""
+        return PHASE_INTRO
+
+    def phase_seconds(self, phase: str) -> float:
+        """How long a turn in this phase lasts.
+
+        The intro is not a decision, so it does not get the decision window.
+        Matchmaking opens the first turn and reads this hook; every later turn
+        is opened by `_finish` with `turn_seconds`.
+        """
+        return INTRO_SECONDS if phase == PHASE_INTRO else self.turn_seconds
+
+    def phase_accepts_action(self, phase: str) -> bool:
+        """Whether a seat -- human or bot -- may play on a turn in this phase.
+
+        Read by `arena.bots.drive_pending_bots`. Without it the driver reads
+        the intro's `seat_index is None` as a SIMULTANEOUS turn and lets the bot
+        bid underneath an intro nobody has finished reading.
+        """
+        return phase != PHASE_INTRO
 
     # -- opening state ------------------------------------------------------
 
@@ -123,15 +177,23 @@ class TwentyDollarMode:
         return rules_state.initial_state(int(seed), len(seats) or SEAT_COUNT)
 
     def initial_turn_seat(self, snapshot: dict) -> Optional[int]:
-        """Which seat the FIRST turn belongs to.
+        """Which seat the FIRST turn belongs to: NOBODY.
 
-        The opening bidder is drawn from the match seed (brief rule 4), so it
-        is not always seat 0 -- and the foundation used to hardcode seat 0 when
-        opening play. That mismatch meant seat 1 could be the opener according
-        to the rules while the clock belonged to seat 0, which is exactly how a
-        player ends up watching a turn they were never given expire.
+        The match opens on the intro (`PHASE_INTRO`), which belongs to no seat
+        -- which is also what makes the foundation publish `seconds_remaining`
+        to BOTH participants, correct here because both are watching the same
+        intro.
+
+        The opening bidder is still drawn from the match seed (brief rule 4)
+        and is still `snapshot["active_seat"]`; `_open_first_lot` hands the
+        clock to exactly that seat when the intro ends. The foundation used to
+        hardcode seat 0 when opening play, which meant seat 1 could be the
+        opener according to the rules while the clock belonged to seat 0 -- a
+        player watching a turn they were never given expire. That is why the
+        first auction turn is seated from the snapshot rather than from a
+        constant, and it remains so.
         """
-        return snapshot.get("active_seat")
+        return None
 
     # -- the rules ----------------------------------------------------------
 
@@ -160,8 +222,15 @@ class TwentyDollarMode:
 
         command = data.command
         before = len(snapshot.get("history") or [])
+        in_intro = data.open_turn is not None and data.open_turn.phase == PHASE_INTRO
 
         if command.command_type == COMMAND_TYPE_TIMEOUT:
+            # A TIMEOUT ON THE INTRO IS NOT A PASS -- it is the intro ending.
+            # Handled before the pass path, which would otherwise burn the
+            # opening seat's first action for standing still through a beat
+            # they were never on the clock for.
+            if in_intro:
+                return self._open_first_lot(snapshot, data)
             actor = snapshot.get("active_seat")
             snapshot = rules_state.timeout_active_seat(snapshot)
             events: list[EventDraft] = [
@@ -180,6 +249,29 @@ class TwentyDollarMode:
                 accepted=False,
                 rejection_code=REJECT_NO_SEAT,
                 rejection_message="You do not hold a seat in this match.",
+            )
+
+        if command.command_type == COMMAND_SKIP_INTRO:
+            if not in_intro:
+                return ReducerOutput(
+                    accepted=False,
+                    rejection_code=REJECT_NOT_INTRO,
+                    rejection_message="There is no intro to skip.",
+                )
+            return self._open_first_lot(snapshot, data)
+
+        if command.command_type == COMMAND_FORFEIT:
+            return self._forfeit(snapshot, data, seat_index)
+
+        # NOBODY BIDS UNDER THE INTRO. The bot driver is also stopped upstream
+        # by `phase_accepts_action`; this is the rule itself, so a command
+        # arriving by any other route is refused rather than relying on the
+        # driver having been polite.
+        if in_intro:
+            return ReducerOutput(
+                accepted=False,
+                rejection_code=REJECT_NOT_YOUR_TURN,
+                rejection_message="The match has not started yet.",
             )
 
         if command.command_type == rules_state.COMMAND_PASS:
@@ -227,6 +319,119 @@ class TwentyDollarMode:
             ]
 
         return self._finish(snapshot, data, events, before, timed_out=False)
+
+    # -- intro --------------------------------------------------------------
+
+    def _open_first_lot(self, snapshot: dict, data: ReducerInput) -> ReducerOutput:
+        """End the intro and hand the opening seat a FULL decision window.
+
+        THE POINT OF THE WHOLE PHASE. `data.now` is the instant the intro ended
+        -- by its own deadline or because somebody skipped it -- so the first
+        lot's deadline is measured from there rather than from match creation.
+        The intro therefore costs the opening bidder nothing.
+
+        A CLOCK TRANSITION, NOT A GAME EVENT. The snapshot is returned
+        unchanged: no bid, no pass, no lot advance, no event. That is what makes
+        it safe to replay (the foundation's timeout key is deterministic per
+        turn) and what stops a player being charged an action for a beat they
+        were never on the clock for.
+        """
+        return ReducerOutput(
+            accepted=True,
+            snapshot=snapshot,
+            events=(),
+            resolve_turn=TURN_RESOLUTION_ACTION,
+            open_turn=TurnDraft(
+                phase=rules_state.PHASE_AUCTION,
+                # The opening bidder is the SEED's, not seat 0. See
+                # `initial_turn_seat`.
+                seat_index=snapshot.get("active_seat"),
+                deadline_at=data.now + timedelta(seconds=self.turn_seconds),
+            ),
+        )
+
+    # -- forfeit ------------------------------------------------------------
+
+    def _forfeit(
+        self, snapshot: dict, data: ReducerInput, seat_index: int
+    ) -> ReducerOutput:
+        """Concede the match. Resolves SERVER-SIDE and ends it immediately.
+
+        WHY IT IS A COMMAND AND NOT A NAVIGATION. A player who abandons a
+        Showdown mid-auction otherwise leaves the opponent watching a clock tick
+        out lot after lot; and a client that merely navigated away would leave
+        a live match on the server that the same player rejoins on their next
+        visit. Both are the same bug -- a match whose real state is "over"
+        while the server still thinks it is running.
+        Because it is an ordinary command it takes the match row lock like any
+        other, so it CANNOT corrupt an in-flight auction action: whichever
+        arrives first runs to completion, and if the forfeit lands first the
+        bid that follows finds a completed match and is refused.
+        It is also why a forfeit SURVIVES A RECONNECT and can never be revived
+        by a refresh: the match status is `completed` in the database, so every
+        subsequent read -- from either seat, from any tab -- projects a settled
+        receipt rather than a live board.
+
+        THE RECEIPT IS THE REAL ONE. Forfeiting does not fabricate a scoreline:
+        the rosters are scored exactly as they stand, so the receipt shows what
+        was actually bought. Only the OUTCOME is overridden -- the conceding
+        seat loses regardless of what the boards would have said -- because
+        that is what conceding means.
+        """
+        built = receipt_builder.build(snapshot)
+        results: list[ResultDraft] = []
+        for seat_report in built["seats"]:
+            index = seat_report["seat_index"]
+            conceded = index == seat_index
+            results.append(
+                ResultDraft(
+                    seat_index=index,
+                    placement=2 if conceded else 1,
+                    score=float(seat_report["roster_total"]),
+                    outcome="loss" if conceded else "win",
+                    detail={
+                        "spent": seat_report["spent"],
+                        "budget_remaining": seat_report["budget_remaining"],
+                        "peak3_per_dollar": seat_report["peak3_per_dollar"],
+                        "roster": seat_report["roster"],
+                        "components": seat_report["components"],
+                        "model_version": built["model_version"],
+                        # NAMED ON THE RESULT, so the receipt can say why the
+                        # match ended rather than presenting a half-built
+                        # roster as if the auction had run its course.
+                        "forfeited": conceded,
+                    },
+                )
+            )
+
+        # The snapshot records the concession so a projection built from it --
+        # on reconnect, in another tab, days later -- says the same thing.
+        settled = copy.deepcopy(snapshot)
+        settled["phase"] = rules_state.PHASE_COMPLETE
+        settled["forfeited_by"] = seat_index
+        settled["active_seat"] = None
+
+        return ReducerOutput(
+            accepted=True,
+            snapshot=settled,
+            events=(
+                EventDraft(
+                    event_type=EVENT_FORFEIT,
+                    payload={"seat_index": seat_index},
+                    actor_seat_index=seat_index,
+                    visibility=VISIBILITY_PUBLIC,
+                ),
+                EventDraft(
+                    event_type=EVENT_MATCH_COMPLETED,
+                    payload={"receipt": built, "forfeited_by": seat_index},
+                    visibility=VISIBILITY_PUBLIC,
+                ),
+            ),
+            resolve_turn=TURN_RESOLUTION_ACTION,
+            open_turn=None,
+            status=MATCH_STATUS_COMPLETED,
+            results=tuple(results),
+        )
 
     # -- turn plumbing ------------------------------------------------------
 
@@ -427,6 +632,17 @@ class TwentyDollarMode:
         """
         snapshot = match.snapshot or self.initial_snapshot(match.seed, seats)
         public, private, commands = rules_state.project(snapshot, seat_index)
+        # CONCEDING IS LEGAL FOR AS LONG AS THE MATCH IS LIVE, and is therefore
+        # NOT a function of whose turn it is -- a player abandoning a match is
+        # most likely to do it while waiting on somebody else. Added at the
+        # foundation boundary because the rules package knows nothing about
+        # match status; `_forfeit` re-checks it, so this is a hint to the
+        # client and not the gate.
+        if snapshot.get("phase") != rules_state.PHASE_COMPLETE:
+            commands = tuple(commands) + (COMMAND_FORFEIT,)
+        # Named so a surface can say the match ended by concession rather than
+        # presenting a half-built roster as a finished auction.
+        public["forfeited_by"] = snapshot.get("forfeited_by")
         # Display names are the foundation's to know, not the rules package's.
         public["seat_names"] = [seat.display_name for seat in seats]
         public["seat_is_bot"] = [seat.is_bot for seat in seats]

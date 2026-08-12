@@ -26,6 +26,7 @@ import { test, expect, Page, APIRequestContext } from "@playwright/test";
 // "yesterday" means. See the comment in the streak test for what mixing two
 // calendars actually cost.
 import { shiftDailyKey, todayPacific } from "@/lib/daily-time";
+import { mintTestAccessToken } from "./helpers/test-jwt";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -974,7 +975,11 @@ test.describe("Daily Grid — search says what a result is", () => {
 });
 
 test.describe("Daily Grid — timer", () => {
-  test("does not run until the first move, then starts and survives a refresh", async ({ page }) => {
+  // NOTE: this is an ARCHIVE board (?date=), which is untimed and unranked —
+  // its local clock still starts on the first move. TODAY's board anchors its
+  // authoritative clock at reveal instead; see "the clock anchors at board
+  // reveal" below (final integrity closure, gap 2).
+  test("an archive board's local clock waits for the first move, then survives a refresh", async ({ page }) => {
     await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
@@ -1069,8 +1074,11 @@ test.describe("Daily Grid — completed result screen", () => {
     const perfect = page.getByTestId("complete-perfect");
     expect((await miss.count()) + (await perfect.count())).toBe(1);
 
-    // No invented standing anywhere on the screen.
-    await expect(panel).not.toContainText(/percentile|leaderboard/i);
+    // No INVENTED standing anywhere on the screen. The panel now hosts the
+    // real server-ranked daily leaderboard (A2), so the word "leaderboard" is
+    // legitimate — what must never appear is a fabricated percentile/rank
+    // claim, and any rank shown must live inside the server-fed section.
+    await expect(panel).not.toContainText(/percentile|global rank|you beat \d+%/i);
   });
 
   test("the share button copies a result summary", async ({ page, request, context }) => {
@@ -1272,9 +1280,11 @@ test.describe("Daily Grid — streak, history and the daily loop", () => {
     await expect(page.getByTestId("complete-come-back")).toContainText(/next board in/i);
     await expect(page.getByTestId("recent-results")).toBeVisible();
 
-    // Local-only, and no invented standing anywhere on the screen.
+    // Local-only, and the LOCAL record block claims no ranking of any kind.
+    // (The panel as a whole hosts the real server leaderboard now — A2 — so
+    // the no-ranking claim is scoped to the local-history block.)
     await expect(page.getByTestId("complete-local-only")).toContainText(/this device/i);
-    await expect(page.getByTestId("daily-grid-complete")).not.toContainText(
+    await expect(page.getByTestId("complete-retention")).not.toContainText(
       /percentile|leaderboard|global rank/i,
     );
   });
@@ -1741,5 +1751,556 @@ test.describe("Daily Grid — the optimal comparison is a legal grid", () => {
       return el.scrollWidth - panel.clientWidth;
     });
     expect(overflow, "the optimal 3x3 overflows the completion panel").toBeLessThanOrEqual(1);
+  });
+});
+
+/**
+ * FINAL POLISH PASS — A1 (visual share image) and A2 (daily leaderboard).
+ *
+ * The share tests make the Web Share environment DETERMINISTIC per test via
+ * addInitScript rather than trusting whatever the host browser exposes:
+ * desktop Chromium on macOS has a real `navigator.share`, Linux CI does not,
+ * and a test that depends on which machine it runs on is not a test.
+ *
+ * The leaderboard tests run against the live API. Qualification is only ever
+ * possible for TODAY's Pacific board (an archive replay is not today's
+ * competition), so the signed-in test plays today's board; the empty state is
+ * asserted on an archive date, where entries are impossible by construction.
+ */
+test.describe("Daily Grid — share image (A1)", () => {
+  async function seedCompletedBoard(page: Page, request: APIRequestContext) {
+    const filled = await solveBoardViaApi(request);
+    const board = await (
+      await request.get(`${API_BASE}/api/v1/daily-grid/board`, { params: { date: FIXED_DATE } })
+    ).json();
+    await page.addInitScript(
+      ([boardId, date, cells]) => {
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
+        window.localStorage.setItem(
+          `peak3.daily-grid.${boardId}`,
+          JSON.stringify({
+            board_id: boardId,
+            date,
+            schema_version: 3,
+            filled: cells,
+            incorrect_attempts: 1,
+            started_at: "2026-03-14T12:00:00.000Z",
+            completed_at: "2026-03-14T12:06:30.000Z",
+          }),
+        );
+      },
+      [board.board_id, FIXED_DATE, filled] as const,
+    );
+  }
+
+  test("Download image saves a real PNG named after the board date", async ({
+    page,
+    request,
+  }) => {
+    test.slow();
+    await seedCompletedBoard(page, request);
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-complete")).toBeVisible({ timeout: 15_000 });
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByTestId("daily-grid-download-image").click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe(`peak3-daily-grid-${FIXED_DATE}.png`);
+    await expect(page.getByTestId("daily-grid-share-outcome")).toHaveText(/image saved/i);
+
+    // The image is generated locally from the canvas — a real file with real
+    // PNG bytes, not a navigation to some remote renderer.
+    const path = await download.path();
+    expect(path).toBeTruthy();
+  });
+
+  test("Share image uses native file sharing when the browser supports it", async ({
+    page,
+    request,
+  }) => {
+    test.slow();
+    await seedCompletedBoard(page, request);
+    // A deterministic Web Share stub that records what was shared.
+    await page.addInitScript(() => {
+      (window as unknown as { __sharedFiles: string[] }).__sharedFiles = [];
+      Object.defineProperty(navigator, "canShare", {
+        configurable: true,
+        value: (data?: { files?: File[] }) => Boolean(data?.files?.length),
+      });
+      Object.defineProperty(navigator, "share", {
+        configurable: true,
+        value: async (data: { files: File[] }) => {
+          (window as unknown as { __sharedFiles: string[] }).__sharedFiles.push(
+            ...data.files.map((f) => `${f.name}:${f.type}`),
+          );
+        },
+      });
+    });
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-complete")).toBeVisible({ timeout: 15_000 });
+
+    await page.getByTestId("daily-grid-share-image").click();
+    await expect(page.getByTestId("daily-grid-share-outcome")).toHaveText(/shared/i, {
+      timeout: 10_000,
+    });
+    const shared = await page.evaluate(
+      () => (window as unknown as { __sharedFiles: string[] }).__sharedFiles,
+    );
+    expect(shared).toEqual([`peak3-daily-grid-${FIXED_DATE}.png:image/png`]);
+  });
+
+  test("Share image falls back to a download when native sharing is unavailable", async ({
+    page,
+    request,
+  }) => {
+    test.slow();
+    await seedCompletedBoard(page, request);
+    // No Web Share at all — the primary button must still produce the image.
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "share", { configurable: true, value: undefined });
+      Object.defineProperty(navigator, "canShare", { configurable: true, value: undefined });
+    });
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-complete")).toBeVisible({ timeout: 15_000 });
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByTestId("daily-grid-share-image").click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe(`peak3-daily-grid-${FIXED_DATE}.png`);
+    await expect(page.getByTestId("daily-grid-share-outcome")).toHaveText(/image saved/i);
+  });
+});
+
+test.describe("Daily Grid — daily leaderboard (A2)", () => {
+  test("a signed-in player with a handle appears on today's board with a server rank", async ({
+    page,
+    request,
+  }) => {
+    test.slow();
+    const today = todayPacific();
+    // A subject unique to this run: the shared dev API on :8000 keeps its
+    // in-memory board across tests and local runs.
+    const sub = `dg-lb-${Date.now().toString(36)}`;
+    // Handle rules: ^[a-z0-9][a-z0-9_]{1,18}[a-z0-9]$ — underscores, not hyphens.
+    const handle = `run_${Date.now().toString(36)}`.slice(0, 20);
+
+    // Sign in through the test-auth bridge, then claim a public handle — the
+    // existing rule: only handle-holders are listed.
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => typeof window.__peak3TestAuth !== "undefined");
+    const token = mintTestAccessToken(sub, `${sub}@e2e.test`);
+    await page.evaluate(
+      ([t, s]) => {
+        window.__peak3TestAuth!.setSession(t as string, {
+          id: s as string,
+          email: `${s}@e2e.test`,
+          isAnonymous: false,
+        });
+      },
+      [token, sub],
+    );
+    const profileUpdate = await request.put(`${API_BASE}/api/v1/profiles/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { handle },
+    });
+    expect(profileUpdate.ok()).toBe(true);
+
+    // Play today's board (the only board that can qualify) and land on the
+    // completed page; the app itself posts the official result, which is the
+    // ONLY path onto the leaderboard.
+    const filled = await solveBoardViaApi(request, today);
+    const board = await (
+      await request.get(`${API_BASE}/api/v1/daily-grid/board`, { params: { date: today } })
+    ).json();
+    await page.addInitScript(
+      ([boardId, date, cells]) => {
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
+        window.localStorage.setItem(
+          `peak3.daily-grid.${boardId}`,
+          JSON.stringify({
+            board_id: boardId,
+            date,
+            schema_version: 3,
+            filled: cells,
+            incorrect_attempts: 0,
+            started_at: new Date(Date.now() - 300_000).toISOString(),
+            completed_at: new Date().toISOString(),
+          }),
+        );
+      },
+      [board.board_id, today, filled] as const,
+    );
+
+    // Watch the qualifying POST itself, so a silent official-save failure
+    // reports its status code instead of a bare attribute timeout.
+    const officialResponse = page.waitForResponse(
+      (r) => r.url().includes("/daily-grid/official") && r.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await page.goto(`/daily/grid?date=${today}`, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-complete")).toBeVisible({ timeout: 15_000 });
+    const official = await officialResponse;
+    expect(official.status(), await official.text()).toBe(200);
+    // The durable, server-validated copy saved — the qualifying event.
+    await expect(page.getByTestId("complete-local-only")).toHaveAttribute(
+      "data-official",
+      "true",
+      { timeout: 15_000 },
+    );
+
+    // The board shows this player's REAL server-computed standing: either a
+    // highlighted row in the top ten or the separated "You" row below it —
+    // never both, never neither, and always with a numeric rank.
+    const section = page.getByTestId("daily-leaderboard");
+    await expect(section).toBeVisible({ timeout: 15_000 });
+    const myRow = section.locator('[data-you="true"]');
+    const youRow = page.getByTestId("daily-leaderboard-you");
+    await expect(myRow.or(youRow).first()).toBeVisible({ timeout: 15_000 });
+    expect((await myRow.count()) + (await youRow.count())).toBe(1);
+    if ((await myRow.count()) === 1) {
+      await expect(myRow).toContainText(handle);
+      await expect(myRow).toContainText(/#\d+/);
+    } else {
+      await expect(youRow).toContainText(/#\d+/);
+    }
+  });
+
+  test("an anonymous player is invited to sign in, with no fake placement", async ({
+    page,
+    request,
+  }) => {
+    test.slow();
+    const today = todayPacific();
+    const filled = await solveBoardViaApi(request, today);
+    const board = await (
+      await request.get(`${API_BASE}/api/v1/daily-grid/board`, { params: { date: today } })
+    ).json();
+    await page.addInitScript(
+      ([boardId, date, cells]) => {
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
+        window.localStorage.setItem(
+          `peak3.daily-grid.${boardId}`,
+          JSON.stringify({
+            board_id: boardId,
+            date,
+            schema_version: 3,
+            filled: cells,
+            incorrect_attempts: 0,
+            started_at: new Date(Date.now() - 300_000).toISOString(),
+            completed_at: new Date().toISOString(),
+          }),
+        );
+      },
+      [board.board_id, today, filled] as const,
+    );
+
+    await page.goto(`/daily/grid?date=${today}`, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-complete")).toBeVisible({ timeout: 15_000 });
+
+    const section = page.getByTestId("daily-leaderboard");
+    await expect(section).toBeVisible({ timeout: 15_000 });
+    // Anonymous play still finished, still shares — but never places.
+    await expect(page.getByTestId("daily-leaderboard-signin-cta")).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("daily-leaderboard-signin-cta")).toContainText(/sign in/i);
+    await expect(section.locator('[data-you="true"]')).toHaveCount(0);
+    await expect(page.getByTestId("daily-leaderboard-you")).toHaveCount(0);
+  });
+
+  test("an archive day shows that day's (empty) board — no entries can exist for it", async ({
+    page,
+    request,
+  }) => {
+    test.slow();
+    const filled = await solveBoardViaApi(request);
+    const board = await (
+      await request.get(`${API_BASE}/api/v1/daily-grid/board`, { params: { date: FIXED_DATE } })
+    ).json();
+    await page.addInitScript(
+      ([boardId, date, cells]) => {
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
+        window.localStorage.setItem(
+          `peak3.daily-grid.${boardId}`,
+          JSON.stringify({
+            board_id: boardId,
+            date,
+            schema_version: 3,
+            filled: cells,
+            incorrect_attempts: 0,
+            started_at: "2026-03-14T12:00:00.000Z",
+            completed_at: "2026-03-14T12:05:00.000Z",
+          }),
+        );
+      },
+      [board.board_id, FIXED_DATE, filled] as const,
+    );
+
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-complete")).toBeVisible({ timeout: 15_000 });
+
+    const section = page.getByTestId("daily-leaderboard");
+    await expect(section).toBeVisible({ timeout: 15_000 });
+    // Labeled as that day's board, not "today's".
+    await expect(section).toContainText(`Leaderboard · ${FIXED_DATE}`);
+    // Only server-authoritative completions of TODAY's board qualify, so an
+    // archive day's board is empty by construction — and says so honestly.
+    await expect(page.getByTestId("daily-leaderboard-empty")).toBeVisible({ timeout: 15_000 });
+    // An archive day can never gain entries, so its empty state must not
+    // invite one — that copy is reserved for today's board.
+    await expect(page.getByTestId("daily-leaderboard-empty")).toContainText(/no entries for this day/i);
+    await expect(section.locator("[data-testid^='daily-leaderboard-row-']")).toHaveCount(0);
+  });
+});
+
+/**
+ * FINAL INTEGRITY CLOSURE — gap 2: the clock anchors at board reveal.
+ *
+ * Today's board only (a fresh browser context per test = a fresh anonymous
+ * identity, so each test owns a fresh attempt). The pre-study loophole under
+ * test: it must NOT be possible to read the revealed board on a stopped
+ * clock and only then make a first move.
+ */
+test.describe("Daily Grid — the clock anchors at board reveal", () => {
+  test("a revealed board is already on the clock — waiting before the first move costs time", async ({
+    page,
+  }) => {
+    test.slow();
+    await skipRules(page);
+    // Wait for the handshake RESPONSE, not just for a running display: the
+    // server's answer re-anchors the local clock (floor-of-seconds), so the
+    // stopwatch below must start only after that anchor has landed.
+    const startResponse = page.waitForResponse(
+      (r) => r.url().includes("/start") && r.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await page.goto("/daily/grid", { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+    expect((await startResponse).status()).toBe(200);
+
+    // The authoritative handshake fired at reveal; the timer is running with
+    // ZERO moves made, and staring at the board costs time.
+    const timer = page.getByTestId("daily-grid-timer");
+    await expect(timer).toHaveText(/^\d+:\d{2}$/, { timeout: 10_000 });
+    const baseline = toSeconds((await timer.textContent())!);
+    // The display advances on a 1-second interval, so it may lag real time by
+    // up to a second at either end — a 5.2s wait therefore proves at least
+    // +4 on the display, tick-phase-proof under full-suite load.
+    await page.waitForTimeout(5_200);
+    const shown = await timer.textContent();
+    expect(toSeconds(shown!)).toBeGreaterThanOrEqual(baseline + 4);
+
+    // And a reload rejoins the SAME clock rather than minting a fresh one.
+    await page.reload({ waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+    await expect(timer).toHaveText(/^\d+:\d{2}$/, { timeout: 10_000 });
+    const afterReload = await timer.textContent();
+    expect(toSeconds(afterReload!)).toBeGreaterThanOrEqual(toSeconds(shown!));
+  });
+
+  test("a second tab joins the running attempt — never an untimed copy of the board", async ({
+    page,
+    context,
+  }) => {
+    test.slow();
+    await skipRules(page);
+    await page.goto("/daily/grid", { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("daily-grid-timer")).toHaveText(/^\d+:\d{2}$/, {
+      timeout: 10_000,
+    });
+    await page.waitForTimeout(2_100);
+
+    // Same browser context = same identity = the idempotent /start resolves
+    // to the ORIGINAL instant. The second tab's board arrives already timed.
+    const tab2 = await context.newPage();
+    await tab2.goto("/daily/grid", { waitUntil: "load" });
+    await expect(tab2.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+    const tab2Timer = tab2.getByTestId("daily-grid-timer");
+    await expect(tab2Timer).toHaveText(/^\d+:\d{2}$/, { timeout: 10_000 });
+    const shown = await tab2Timer.textContent();
+    expect(toSeconds(shown!)).toBeGreaterThanOrEqual(2);
+    await tab2.close();
+  });
+});
+
+/**
+ * FINAL INTEGRITY CLOSURE — gap 1: better retries are real through the
+ * public product flow. Attempt 1 (slow) qualifies; attempt 2 (same score,
+ * faster, started from the UI's own replay button) replaces it; attempt 3
+ * (slower again) changes nothing; and the canonical official result never
+ * moves through any of it.
+ */
+test.describe("Daily Grid — leaderboard retries", () => {
+  test("a faster retry improves the entry, a worse one never does, and the official result is untouched", async ({
+    page,
+    request,
+  }) => {
+    test.slow();
+    const today = todayPacific();
+    const sub = `dg-retry-${Date.now().toString(36)}`;
+    const handle = `rt_${Date.now().toString(36)}`.slice(0, 20);
+
+    // Sign in and claim a handle (only handle-holders are listed).
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => typeof window.__peak3TestAuth !== "undefined");
+    const token = mintTestAccessToken(sub, `${sub}@e2e.test`);
+    await page.evaluate(
+      ([t, s]) => {
+        window.__peak3TestAuth!.setSession(t as string, {
+          id: s as string,
+          email: `${s}@e2e.test`,
+          isAnonymous: false,
+        });
+      },
+      [token, sub],
+    );
+    const auth = { Authorization: `Bearer ${token}` };
+    expect((await request.put(`${API_BASE}/api/v1/profiles/me`, { headers: auth, data: { handle } })).ok()).toBe(true);
+
+    // ---- Attempt 1: deliberately slow. Start the canonical clock, then
+    // pad it before solving, so the first qualifying time is beatable.
+    expect(
+      (await request.post(`${API_BASE}/api/v1/daily-grid/${today}/start`, { headers: auth })).ok(),
+    ).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    const filled = await solveBoardViaApi(request, today);
+    const board = await (
+      await request.get(`${API_BASE}/api/v1/daily-grid/board`, { params: { date: today } })
+    ).json();
+    await page.addInitScript(
+      ([boardId, date, cells]) => {
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
+        window.localStorage.setItem(
+          `peak3.daily-grid.${boardId}`,
+          JSON.stringify({
+            board_id: boardId,
+            date,
+            schema_version: 3,
+            filled: cells,
+            incorrect_attempts: 0,
+            started_at: new Date(Date.now() - 300_000).toISOString(),
+            completed_at: new Date().toISOString(),
+          }),
+        );
+      },
+      [board.board_id, today, filled] as const,
+    );
+
+    await page.goto(`/daily/grid?date=${today}`, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-complete")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("complete-local-only")).toHaveAttribute(
+      "data-official",
+      "true",
+      { timeout: 15_000 },
+    );
+
+    const you = async () => {
+      const res = await request.get(
+        `${API_BASE}/api/v1/daily-grid/leaderboard?date=${today}`,
+        { headers: auth },
+      );
+      return (await res.json()).you;
+    };
+    const first = await you();
+    expect(first.has_entry).toBe(true);
+    expect(first.completion_time_ms).toBeGreaterThanOrEqual(2_500);
+
+    // ---- Attempt 2: the UI's own replay button opens the fresh server
+    // clock; the completion is posted immediately, so it is FASTER at the
+    // same score.
+    await page.getByTestId("daily-grid-replay").click();
+    await expect(page.getByTestId("daily-grid-progress")).toHaveText(/0\/9/, {
+      timeout: 15_000,
+    });
+    const attempt2 = await request.post(`${API_BASE}/api/v1/daily-grid/retry/complete`, {
+      headers: auth,
+      data: {
+        date: today,
+        filled: filled.map((c) => ({
+          row: c.row,
+          col: c.col,
+          answer_id: (c as unknown as { player_season: { id: string } }).player_season.id,
+        })),
+        incorrect_attempts: 0,
+      },
+    });
+    expect(attempt2.status(), await attempt2.text()).toBe(200);
+    const attempt2Body = await attempt2.json();
+    expect(attempt2Body.score).toBe(first.score);
+    expect(attempt2Body.improved).toBe(true);
+    expect(attempt2Body.completion_time_ms).toBeLessThan(first.completion_time_ms);
+
+    const second = await you();
+    expect(second.completion_time_ms).toBe(attempt2Body.completion_time_ms);
+
+    // ---- Attempt 3: a fresh retry clock left running longer — equal score,
+    // slower. The board must not move.
+    expect(
+      (await request.post(`${API_BASE}/api/v1/daily-grid/${today}/retry`, { headers: auth })).ok(),
+    ).toBe(true);
+    await new Promise((resolve) =>
+      setTimeout(resolve, attempt2Body.completion_time_ms + 1_500),
+    );
+    const attempt3 = await request.post(`${API_BASE}/api/v1/daily-grid/retry/complete`, {
+      headers: auth,
+      data: {
+        date: today,
+        filled: filled.map((c) => ({
+          row: c.row,
+          col: c.col,
+          answer_id: (c as unknown as { player_season: { id: string } }).player_season.id,
+        })),
+        incorrect_attempts: 0,
+      },
+    });
+    expect(attempt3.status()).toBe(200);
+    expect((await attempt3.json()).improved).toBe(false);
+    const third = await you();
+    expect(third.completion_time_ms).toBe(attempt2Body.completion_time_ms);
+
+    // ---- The canonical official record: still exactly one result, still
+    // the original save.
+    const history = await request.get(`${API_BASE}/api/v1/daily-grid/results`, {
+      headers: auth,
+    });
+    const rows = (await history.json()).results;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].score).toBe(first.score);
   });
 });

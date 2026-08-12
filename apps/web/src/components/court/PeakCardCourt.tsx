@@ -31,6 +31,9 @@ interface Props {
   /** Phase 9B rearrange mode: this slot is a candidate destination for the
    * card currently being moved -- render it as a labeled target button. */
   onSwapTarget?: () => void;
+  /** E3: set on the card currently BEING moved — clicking it again cancels
+   *  the move, beside Escape and the banner's Cancel control. */
+  onCancelMove?: () => void;
   /** The slot whose card is currently being moved (for the target's label). */
   movingFromSlotLabel?: string | null;
   /** Launch-polish §5, gap 3. True for a FILLED slot while a fresh selection
@@ -104,6 +107,7 @@ export default function PeakCardCourt({
   pendingPrimaryPosition,
   onMove,
   onSwapTarget,
+  onCancelMove,
   movingFromSlotLabel,
   blockedDuringPlacement,
 }: Props) {
@@ -147,7 +151,12 @@ export default function PeakCardCourt({
       </div>
 
       {slot.filled ? (
-        <div className="flex items-center gap-2.5 w-full min-w-0">
+        /* `pr-7` only while the Move affordance is present: the pill rides the
+           card's bottom-right corner (E2 — absolutely positioned so it cannot
+           change the slot's bounds), and on a narrow corner slot the season
+           line's second row would otherwise run underneath it. Padding inside
+           the fixed box changes text wrap, never geometry. */
+        <div className={`flex items-center gap-2.5 w-full min-w-0 ${onMove ? "pr-7" : ""}`}>
           {/* Phase 8C: portrait "medallion" -- a colored ring in the
               player's real team color (never a logo) instead of a plain
               inline avatar, so the card reads as a collectible object with
@@ -259,8 +268,12 @@ export default function PeakCardCourt({
                 type="button"
                 data-testid="slot-move-btn"
                 onClick={onMove}
-                className="mt-1.5 -mb-1 flex items-center justify-center"
-                style={{ minWidth: 44, minHeight: 44 }}
+                /* E2: absolutely positioned inside the FIXED-HEIGHT card
+                   (.court-slot-move) — the full 44x44 hit target is intact,
+                   but the button no longer adds height, so entering/leaving
+                   rearrange availability cannot change the slot's bounds.
+                   The court's geometry is the invariant; this is paint. */
+                className="court-slot-move"
                 aria-label={`Move ${slot.player_name ?? "player"} out of ${SLOT_LABELS[slot.slot_type]}`}
               >
                 <span
@@ -329,7 +342,10 @@ export default function PeakCardCourt({
     // things that actually change here are `border`/background, both
     // colour-bearing, whether from this component's own inline `style` swap
     // or from the `roster-board-slot-card-*` class swap below.
-    className: `rounded-xl px-2.5 py-2.5 flex flex-col items-start justify-center gap-1 min-h-[72px] w-full transition-colors ${isPendingTarget ? "court-slot-drop-target" : ""} ${slot.filled ? "roster-board-slot-card-filled" : "roster-board-slot-card-open"}`,
+    // E2: `roster-board-slot-card-fixed` (height:100% + overflow:hidden) —
+    // the slot CELL owns the geometry (`--court-slot-h` in globals.css) and
+    // the card fills it exactly, so no content state can reflow the court.
+    className: `rounded-xl px-2.5 py-2.5 flex flex-col items-start justify-center gap-1 roster-board-slot-card-fixed w-full transition-colors ${isPendingTarget ? "court-slot-drop-target" : ""} ${slot.filled ? "roster-board-slot-card-filled" : "roster-board-slot-card-open"}`,
     style: {
       // Phase 8C: empty slots get a dashed border -- reads as an active
       // draft target waiting for a card, not an inert disabled box.
@@ -363,8 +379,34 @@ export default function PeakCardCourt({
         }}
       >
         {content}
-        <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
+        {/* E2/E3: pinned to the card's bottom edge (.court-slot-footnote), so
+            entering move mode changes paint, never the slot's bounds. */}
+        <span className="court-slot-footnote text-[9px] font-bold uppercase tracking-wide" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
           {slot.filled ? "Swap here" : "Move here"}
+        </span>
+      </button>
+    );
+  }
+
+  // E3: the card being MOVED. A real button whose whole face cancels the
+  // move — the most discoverable of the three cancel paths (the others are
+  // Escape and the banner's Cancel control). Paint-only lift, no transform:
+  // this card must not move under the pointer (the TMW picker lesson) and
+  // must not change the court's geometry (E2).
+  if (onCancelMove) {
+    return (
+      <button
+        {...sharedProps}
+        type="button"
+        data-testid="slot-moving-source"
+        onClick={onCancelMove}
+        aria-label={`Cancel moving ${slot.player_name ?? "this player"} — they stay at ${SLOT_LABELS[slot.slot_type]}`}
+        className={`${sharedProps.className} court-slot-moving`}
+        style={{ ...sharedProps.style, cursor: "pointer" }}
+      >
+        {content}
+        <span className="court-slot-footnote text-[9px] font-bold uppercase tracking-wide" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
+          Moving — click to cancel
         </span>
       </button>
     );
@@ -394,7 +436,7 @@ export default function PeakCardCourt({
       slot.player_name ?? "a player"
     }. Place your new pick in an open slot instead.`;
     const fullNote = (
-      <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+      <span className="court-slot-footnote text-[9px] font-bold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
         Full — place in an open slot
       </span>
     );

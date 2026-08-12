@@ -284,3 +284,111 @@ def test_the_skip_economy_is_not_drained_by_dead_lots(pool):
         f"only {both_declined} follows across the sweep; the rule change is "
         "not being exercised meaningfully"
     )
+
+
+# ---------------------------------------------------------------------------
+# C5 — the opener/skip state machine, as one deterministic matrix
+# ---------------------------------------------------------------------------
+
+
+def test_the_opener_skip_decline_sequence_end_to_end(pool):
+    """THE WHOLE C5 CONTRACT IN ONE SEQUENCE, on a real board.
+
+    The individual rules are asserted above and in `test_ascending_auction`.
+    This walks the exact sequence the polish pass names, in order, because the
+    defect it guards against is a rule that is correct in isolation and wrong in
+    combination:
+
+        1. Lot N's OPENER acts first, and the non-opener cannot act before them.
+        2. The opener spends a MARKET SKIP to take the lot off the board.
+        3. The decision passes to the opponent.
+        4. The opponent DECLINES the already-skipped lot -- and is charged
+           NOTHING, because the player was gone either way.
+        5. The lot resolves and Lot N+1's opener is the OTHER seat.
+
+    Step 4 is the one that used to be wrong, and step 5 is the one that makes
+    step 4 matter: without alternation the same seat would eat every step-2
+    charge for the whole match.
+    """
+    state = _first_contestable(pool)
+    opener = state["opening_seat"]
+    other = 1 - opener
+    lot = state["lot_index"]
+
+    # 1. THE OPENER IS ON THE CLOCK, AND ONLY THE OPENER.
+    assert state["active_seat"] == opener
+    assert S.legal_commands(state, other, pool) == (), (
+        "the non-opener was offered a move before the opener had acted"
+    )
+    refused, code, _msg = S.submit_action(state, other, S.COMMAND_PASS, 0)
+    assert code is not None, "the non-opener was allowed to act first"
+
+    # 2. THE OPENER SKIPS, AND IS CHARGED.
+    assert S.pass_kind(state, opener, pool) == S.PASS_MARKET_SKIP
+    before_opener = S.market_skips(state, opener)
+    before_other = S.market_skips(state, other)
+    state, code, message = S.submit_action(state, opener, S.COMMAND_PASS, 0)
+    assert code is None, message
+    assert S.market_skips(state, opener) == before_opener - 1
+
+    # 3. THE DECISION IS NOW THE OPPONENT'S.
+    assert state["active_seat"] == other
+    assert state["lot_index"] == lot, "the lot resolved before the opponent answered"
+
+    # 4. DECLINING AN ALREADY-SKIPPED LOT IS FREE, and is named as a different
+    #    action from a market skip so the control can say which it is.
+    assert S.lot_has_prior_rejection(state)
+    assert S.pass_kind(state, other, pool) == S.PASS_FOLLOW
+    assert not S.pass_consumes_skip(state, other, pool)
+    state, code, message = S.submit_action(state, other, S.COMMAND_PASS, 0)
+    assert code is None, message
+    assert S.market_skips(state, other) == before_other, (
+        "the second seat was charged for following a rejection it did not make"
+    )
+
+    # 5. THE LOT IS GONE AND THE OPENER HAS FLIPPED.
+    assert state["lot_index"] == lot + 1
+    assert state["opening_seat"] == other
+    assert state["active_seat"] == other or state["passed"][other], (
+        "the new lot did not open on the seat whose turn it is to open"
+    )
+
+
+@pytest.mark.parametrize("seed", [1, 7, 19, 42, 101])
+def test_opener_parity_holds_across_consecutive_lots(seed, pool):
+    """Lot 1 seat A, lot 2 seat B, lot 3 seat A... whatever resolved each lot.
+
+    Deterministic over five seeds rather than random repetition: the property is
+    a state-machine invariant, so what matters is that it holds for every path
+    through it, not that it holds many times on one path.
+    """
+    state = S.initial_state(seed=seed)
+    first = state["opening_seat"]
+    seen: list[tuple[int, int]] = []
+
+    for _ in range(6):
+        if state["phase"] != S.PHASE_AUCTION:
+            break
+        seen.append((state["lot_index"], state["opening_seat"]))
+        # Resolve the lot the cheapest legal way, whatever that is for whoever
+        # is on the clock, so the parity claim is not conditional on the path.
+        guard = 0
+        lot = state["lot_index"]
+        while state["lot_index"] == lot and state["phase"] == S.PHASE_AUCTION:
+            guard += 1
+            assert guard < 10, "a lot never resolved"
+            actor = state["active_seat"]
+            if actor is None:
+                break
+            legal = S.legal_commands(state, actor, pool)
+            command = S.COMMAND_PASS if S.COMMAND_PASS in legal else S.COMMAND_BID
+            amount = 0 if command == S.COMMAND_PASS else int(state["current_bid"]) + 1
+            state, code, message = S.submit_action(state, actor, command, amount)
+            assert code is None, message
+
+    assert len(seen) >= 4, "not enough lots ran to test parity"
+    for index, opening_seat in seen:
+        assert opening_seat == (first + index) % 2, (
+            f"lot {index} opened on seat {opening_seat}; parity from {first} says "
+            f"{(first + index) % 2}"
+        )

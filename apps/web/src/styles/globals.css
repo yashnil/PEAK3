@@ -2798,3 +2798,176 @@ html, body {
 /* ================================================================
    === END VISUAL IDENTITY + GAME-FEEL PASS ===
    ================================================================ */
+
+/* ================================================================
+   === 82-0 PEAK SEASON — INTERACTION SHELL (E1/E2, polish pass) ===
+   ================================================================
+   E1: THE COURT IS THE STABLE PRIMARY CANVAS. The pre-result layout used to
+   be a two-column `.arena-shell` — spin/candidates in the main column, the
+   court in a 460px sticky rail — so building a roster meant managing two
+   competing scroll surfaces and the primary object of the game lived in the
+   sidebar. The court now renders centered as the page's one canvas, and the
+   whole selection step (roll ceremony, respins, search, candidate list)
+   opens in a viewport-level overlay above it. The candidate LIST scrolls
+   inside the overlay; the document does not scroll to make a selection.
+
+   THE OVERLAY WRAPPER STAYS MOUNTED FOR THE WHOLE ROUND and is hidden with
+   `[hidden]` while a selection is being placed. That is load-bearing, not a
+   styling nicety: SpinStage owns the round's reveal ceremony and replays it
+   if remounted, so "cancel this selection and choose someone else" must not
+   unmount it (see CourtBuilder's lastSpinRef comment). */
+
+.courtb-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  /* Wide enough to engage the 4-column diagonal court silhouette (the
+     `court-panel (max-width: 900px)` container query collapses anything
+     narrower to the stacked 2-column form). As the page's primary canvas the
+     court finally has the room the diagonal layout was reserved for. */
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.courtb-overlay-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: color-mix(in srgb, var(--bg-page) 62%, transparent);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+.courtb-overlay-scrim[hidden] {
+  display: none;
+}
+
+.courtb-overlay {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(880px, 100%);
+  /* The hard viewport promise: at any desktop size the overlay fits, and the
+     one thing that scrolls is the candidate list inside it. */
+  max-height: min(88vh, 900px);
+  padding: 16px 18px;
+  border-radius: var(--pk-r-lg, 14px);
+  border: 1px solid var(--border-emphasis);
+  background: var(--bg-elevated);
+  box-shadow: var(--pk-elev-4, 0 24px 60px -12px rgba(0, 0, 0, 0.55));
+}
+
+/* Header row: round · team · season · eligible count on the left, the two
+   respin controls pinned right — visible WITHOUT scrolling a long candidate
+   list, which is the E1 requirement the old layout failed (the respin row sat
+   between the reel and the list, and scrolled away with them). */
+.courtb-overlay-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Everything below the header shares one scroll region so the reel and the
+   list read as one surface; the list itself is the part that grows. */
+.courtb-overlay-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 640px) {
+  /* A phone gets a full-screen sheet rather than a floating panel. */
+  .courtb-overlay-scrim {
+    padding: 0;
+    align-items: stretch;
+  }
+  .courtb-overlay {
+    width: 100%;
+    max-height: 100dvh;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+}
+
+/* ----------------------------------------------------------------
+   E2: COURT GEOMETRY IS IMMUTABLE. Slots size CARDS; cards never size slots.
+   ----------------------------------------------------------------
+   Every slot cell is a fixed-height box and the card inside fills it exactly,
+   so no state a card can be in — empty, filled, selected, move mode, swap
+   target, pending placement, blocked — changes the court's outer dimensions,
+   any slot's bounds, or the relative slot coordinates. The height-variable
+   decorations that used to grow a card (the Move button, the "Swap here" /
+   "Full" footers) are absolutely positioned INSIDE the fixed box (see
+   PeakCardCourt), so they change paint, never geometry.
+
+   One custom property per breakpoint, because "immutable" is a promise about
+   states WITHIN a layout, not about responsive layouts being identical. */
+.court-panel-wrapper {
+  --court-slot-h: 108px;
+}
+
+@container court-panel (max-width: 380px) {
+  .court-panel-wrapper {
+    --court-slot-h: 100px;
+  }
+}
+
+.roster-board-starters > div,
+.roster-board-bench > div {
+  height: var(--court-slot-h);
+  min-height: var(--court-slot-h);
+  max-height: var(--court-slot-h);
+}
+
+/* The card fills its fixed cell. `overflow: hidden` is the guarantee that a
+   content change can only ever clip, never reflow the court. */
+.roster-board-slot-card-fixed {
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+/* The Move affordance, riding INSIDE the fixed card: full 44x44 hit target
+   (the button), small pill of paint (the span), zero height contribution. */
+.court-slot-move {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* Footer strips ("Swap here" / "Move here" / "Full — place in an open slot"):
+   pinned to the card's bottom edge, never stacked under the content. */
+.court-slot-footnote {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 3px;
+  z-index: 1;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* The card being moved: kept visibly "lifted" (paint only — border and
+   glow, no transform that would move a hit target) and clickable to cancel. */
+.court-slot-moving {
+  border: 1px solid var(--peak-accent, #f5c842) !important;
+  box-shadow: 0 0 0 1px var(--peak-accent), var(--pk-elev-3, 0 8px 24px -8px rgba(0, 0, 0, 0.5));
+}

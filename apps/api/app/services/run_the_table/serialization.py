@@ -52,9 +52,21 @@ from nba_peak.run_the_table.state import VersionMismatch
 # rather than minting another -- so a snapshot that dropped it would silently
 # re-enable the double-create it exists to prevent.
 #
-# TWO BUMPS, ONE EVENT. Nothing is deployed and no data exists at either
-# version, so these read as a single release rather than two migrations.
-SNAPSHOT_SCHEMA_VERSION = 5
+# 5 -> 6 (F4). `LaneResult` gained `starters_only_rating`,
+# `bench_contribution` and `bench_suppressed_by`. The receipt used to print
+# "+ Bench 0.00" beside a populated bench, because its only bench line was
+# `bench_adjustment` -- the PERK residual, which is correctly zero when no perk
+# or boss rule has moved the weight. The bench was contributing the whole time,
+# inside `pre_perk_rating`, since `lane_score` is a weighted mean over starters
+# AND bench; the receipt simply had no line for it. A v5 snapshot loaded under
+# this schema would default all three, producing a receipt that says the bench
+# was worth exactly nothing on a battle where it may have been worth a lane.
+# Refused rather than guessed, exactly as every bump above.
+#
+# THREE BUMPS, ONE EVENT. Nothing is deployed and no data exists at any of
+# these versions, so they read as a single release rather than three
+# migrations.
+SNAPSHOT_SCHEMA_VERSION = 6
 
 
 class SnapshotSchemaMismatch(VersionMismatch):
@@ -105,6 +117,13 @@ def _lane_to_dict(l: LaneResult) -> dict:
         # since changed.
         "pre_perk_rating": l.pre_perk_rating,
         "bench_adjustment": l.bench_adjustment,
+        # v5 (F4): the bench's OWN contribution, and the rule that removed it if
+        # one did. `bench_adjustment` is the perk residual and is legitimately
+        # 0.00 with no perk, which is what made the receipt read "+ Bench 0.00"
+        # beside a bench the player had deliberately built. See `LaneResult`.
+        "starters_only_rating": l.starters_only_rating,
+        "bench_contribution": l.bench_contribution,
+        "bench_suppressed_by": l.bench_suppressed_by,
     }
 
 

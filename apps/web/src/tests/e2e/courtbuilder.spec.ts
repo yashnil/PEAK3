@@ -819,7 +819,9 @@ test.describe("CourtBuilder drafting flow", () => {
 
     const placingBanner = page.locator('[data-testid="placing-banner"]');
     await expect(placingBanner).toBeVisible();
-    await expect(placingBanner).toContainText(/step 2/i);
+    // E1: the placement step names the SELECTION rather than a step number --
+    // the overlay has closed and the court is the placement surface.
+    await expect(placingBanner).toContainText(/Selected:/);
     // The candidate panel is gone once a pick is pending -- selection and
     // placement never overlap visually.
     await expect(candidatePanel).toHaveCount(0);
@@ -969,6 +971,9 @@ test.describe("CourtBuilder respins", () => {
       page.waitForResponse((r) => r.url().includes("/respin-season") && r.status() === 200),
       page.locator('[data-testid="respin-season-btn"]').click(),
     ]);
+    // The receipt disclosure lives on the page, under the selection overlay
+    // (E1) — step aside to the court to read it.
+    await minimizeOverlay(page);
     const receipt = page.locator('[data-testid="board-receipt"]');
     await receipt.locator("summary").click();
     await expect(page.locator('[data-testid="respin-receipt-count"]')).toContainText("1 respin used");
@@ -1946,6 +1951,9 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
     const seedBefore = await page.locator('[data-testid="result-receipt"], body').first().isVisible();
     expect(seedBefore).toBeTruthy();
 
+    // Round 3's selection overlay is up (E1) — the court work happens under it.
+    await minimizeOverlay(page);
+
     const filledBefore = await page.locator('[data-testid="court-slot"][data-filled="true"]').count();
     expect(filledBefore).toBe(2);
 
@@ -1960,17 +1968,15 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
 
     // Both slots filled by `playOneRound` are the ones this destination
     // list contains, so the first target is itself occupied -- a genuine
-    // swap of two already-placed cards, which launch-polish §5 gap 1 gates
-    // behind a "Swap A <-> B?" confirmation rather than committing on this
-    // click (a move into an open slot still commits immediately -- see the
-    // Undo-toast test below for that path).
-    await targets.first().click();
-    const confirmBanner = page.locator('[data-testid="swap-confirm-banner"]');
-    await expect(confirmBanner).toBeVisible();
-
+    // swap of two already-placed cards. E3 (polish pass): this commits
+    // IMMEDIATELY -- the separate "Swap A <-> B?" confirmation banner is
+    // gone. It rendered elsewhere on the page and was easy to miss, and the
+    // click it demanded protected nothing the Undo toast below does not
+    // protect better: a confirmation guards a click not yet made, Undo
+    // reverses the one actually made, through the server's own undo window.
     await Promise.all([
       page.waitForResponse((r) => r.url().includes("/swap-slots") && r.status() === 200),
-      page.locator('[data-testid="swap-confirm-btn"]').click(),
+      targets.first().click(),
     ]);
 
     // Roster count is conserved -- no duplicate, no lost card, no empty
@@ -1979,7 +1985,8 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
     // And the spin ceremony did NOT replay: we are still mid-round, not
     // back in a spinning phase for a new roll.
     await expect(page.locator('[data-testid="slot-swap-target"]')).toHaveCount(0);
-    await expect(confirmBanner).toHaveCount(0);
+    // The confirmation step no longer exists, in any state.
+    await expect(page.locator('[data-testid="swap-confirm-banner"]')).toHaveCount(0);
 
     // The Undo toast follows the swap it just confirmed. Launch-polish
     // LP2-2: reversing it now goes through the authoritative
@@ -2002,6 +2009,7 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
   test("moving a card into an open slot commits immediately, with an Undo toast", async ({ page }) => {
     await startCourtBuilder(page);
     await playOneRound(page);
+    await minimizeOverlay(page);
 
     const moveBtn = page.locator('[data-testid="slot-move-btn"]').first();
     await moveBtn.waitFor({ state: "visible", timeout: 10_000 });
@@ -2062,6 +2070,7 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
   test("rearranging can be cancelled with the cancel button and with Escape", async ({ page }) => {
     await startCourtBuilder(page);
     await playOneRound(page);
+    await minimizeOverlay(page);
 
     const moveBtn = page.locator('[data-testid="slot-move-btn"]').first();
     await moveBtn.waitFor({ state: "visible", timeout: 10_000 });
@@ -2394,5 +2403,249 @@ test.describe("W5: respin quality and idempotency", () => {
     // reading all along.
     await expect(page.locator('[data-testid="team-wheel"]')).toHaveAttribute("data-selected-team", landed[0]);
     await expect(page.locator('[data-testid="respin-team-btn"]')).toContainText("2 left");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// E1/E2/E3 (gameplay polish pass): the selection overlay, immutable court
+// geometry, and direct move/swap.
+// ---------------------------------------------------------------------------
+
+
+/** E1: the overlay covers the court while a roll is open — step aside to
+ *  work the court (rearranging is still a mid-run capability). */
+async function minimizeOverlay(page: Page): Promise<void> {
+  await page.locator('[data-testid="minimize-overlay-btn"]').click();
+  await expect(page.locator('[data-testid="selection-overlay"]')).toBeHidden();
+}
+
+test.describe("selection overlay (E1)", () => {
+  test("the selection step is a viewport overlay over the court, and the page does not scroll to choose", async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    try {
+      await startCourtBuilder(page);
+
+      // The overlay is up, over a still-rendered court.
+      const overlay = page.locator('[data-testid="selection-overlay"]');
+      await expect(overlay).toBeVisible();
+      await expect(page.locator('[data-testid="court-panel"]')).toBeVisible();
+
+      // Round context + respins live in the overlay header — reachable
+      // without scrolling to the bottom of a long candidate list.
+      await expect(overlay).toContainText(/Round 1 \/ 8/);
+      await expect(page.locator('[data-testid="respin-controls"]')).toBeVisible();
+      await expect(page.locator('[data-testid="overlay-roll-summary"]')).toContainText(/eligible/);
+
+      // The candidate list scrolls INSIDE the overlay; the document did not
+      // grow a scrollbar for the selection step.
+      await page.locator('[data-testid="candidate-card"]').first().waitFor({ timeout: 10_000 });
+      expect(await page.evaluate(() => window.scrollY)).toBe(0);
+      const overlayBox = (await overlay.boundingBox())!;
+      expect(overlayBox.height).toBeLessThanOrEqual(900);
+
+      // Selecting closes the overlay (variant B): the court underneath is
+      // the placement surface, with the selection named and switchable.
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
+        page.locator('[data-testid="candidate-card"]').first().click(),
+      ]);
+      await expect(overlay).toBeHidden();
+      await expect(page.locator('[data-testid="placing-banner"]')).toContainText(/Selected:/);
+      await expect(page.locator('[data-testid="cancel-selection-btn"]')).toContainText(/Switch selection/i);
+
+      // SWITCH SELECTION returns to the SAME roll — same round, overlay back,
+      // no respin consumed, no new ceremony (the reel does not replay:
+      // spin-stage is already in its revealed state the moment it reopens).
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes("/cancel") && r.status() === 200),
+        page.locator('[data-testid="cancel-selection-btn"]').click(),
+      ]);
+      await expect(overlay).toBeVisible();
+      await expect(page.locator('[data-testid="spin-stage"]')).toHaveAttribute("data-phase", "revealed");
+      await expect(page.locator('[data-testid="respin-team-btn"]')).toContainText("3 left");
+
+      // MINIMIZE: the court is workable underneath without losing the roll,
+      // and the round's outstanding decision has a prominent way back.
+      await minimizeOverlay(page);
+      await expect(page.locator('[data-testid="resume-selection-banner"]')).toContainText(/Round 1 of 8/);
+      await page.locator('[data-testid="resume-selection-btn"]').click();
+      await expect(overlay).toBeVisible();
+      await expect(page.locator('[data-testid="respin-team-btn"]')).toContainText("3 left");
+    } finally {
+      await context.close();
+    }
+  });
+});
+
+test.describe("court geometry is immutable (E2)", () => {
+  /** Bounding boxes of the court shell and every slot, keyed for comparison. */
+  async function geometry(page: Page): Promise<Record<string, { x: number; y: number; w: number; h: number }>> {
+    return page.evaluate(() => {
+      const out: Record<string, { x: number; y: number; w: number; h: number }> = {};
+      const round = (v: number) => Math.round(v * 100) / 100;
+      const record = (key: string, el: Element | null) => {
+        if (!el) return;
+        const r = (el as HTMLElement).getBoundingClientRect();
+        // Positions relative to the court panel, so page-level layout above
+        // the court (banners appearing) does not read as court movement.
+        out[key] = { x: round(r.x - base.x), y: round(r.y - base.y), w: round(r.width), h: round(r.height) };
+      };
+      const panel = document.querySelector('[data-testid="court-panel"]')!;
+      const base = panel.getBoundingClientRect();
+      out["panel"] = { x: 0, y: 0, w: Math.round(base.width * 100) / 100, h: Math.round(base.height * 100) / 100 };
+      // By `data-slot-type`, not by testid: a slot's testid changes with its
+      // interactive role (court-slot / slot-swap-target / slot-moving-source),
+      // and the whole point is that its BOUNDS do not.
+      for (const slot of Array.from(panel.parentElement!.querySelectorAll("[data-slot-type]"))) {
+        record(`slot:${slot.getAttribute("data-slot-type")}`, slot);
+      }
+      record("markings", document.querySelector('[data-testid="court-paint"]'));
+      record("arc", document.querySelector('[data-testid="court-arc"]'));
+      return out;
+    });
+  }
+
+  /** Tight tolerance: browser sub-pixel rounding only, never a reflow. */
+  function expectSameGeometry(
+    before: Record<string, { x: number; y: number; w: number; h: number }>,
+    after: Record<string, { x: number; y: number; w: number; h: number }>,
+    label: string,
+  ) {
+    const TOLERANCE = 1.0;
+    for (const key of Object.keys(before)) {
+      const a = before[key];
+      const b = after[key];
+      expect(b, `${label}: ${key} disappeared`).toBeTruthy();
+      for (const dim of ["x", "y", "w", "h"] as const) {
+        expect(
+          Math.abs(b[dim] - a[dim]),
+          `${label}: ${key}.${dim} moved ${a[dim]} -> ${b[dim]}`,
+        ).toBeLessThanOrEqual(TOLERANCE);
+      }
+    }
+  }
+
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 1728, height: 1000 },
+  ]) {
+    test(`slots and court lines hold their exact bounds through every state at ${viewport.width}x${viewport.height}`, async ({
+      browser,
+    }) => {
+      test.setTimeout(120_000);
+      const context = await browser.newContext({ viewport });
+      const page = await context.newPage();
+      try {
+        await startCourtBuilder(page);
+
+        // 1. Empty court, overlay up.
+        const empty = await geometry(page);
+
+        // 2/3. Two placements (via the full select+place flow).
+        await playOneRound(page);
+        expectSameGeometry(empty, await geometry(page), "after first placement");
+        await playOneRound(page);
+        expectSameGeometry(empty, await geometry(page), "after second placement");
+
+        // 4. Move mode: legal destinations lit, source lifted. (The next
+        //    round's overlay is up — step aside to the court first.)
+        await minimizeOverlay(page);
+        expectSameGeometry(empty, await geometry(page), "overlay minimized");
+        await page.locator('[data-testid="slot-move-btn"]').first().click();
+        await page.locator('[data-testid="slot-swap-target"]').first().waitFor({ timeout: 5_000 });
+        expectSameGeometry(empty, await geometry(page), "in move mode");
+
+        // 5. A committed swap between two filled slots.
+        await Promise.all([
+          page.waitForResponse((r) => r.url().includes("/swap-slots") && r.status() === 200),
+          page
+            .locator('[data-testid="slot-swap-target"][data-filled="true"]')
+            .first()
+            .click(),
+        ]);
+        expectSameGeometry(empty, await geometry(page), "after a swap");
+
+        // 6. With the Undo toast up.
+        await page.locator('[data-testid="court-action-toast"]').waitFor({ timeout: 5_000 });
+        expectSameGeometry(empty, await geometry(page), "with the undo toast visible");
+      } finally {
+        await context.close();
+      }
+    });
+  }
+
+  test("@mobile the mobile court keeps its own geometry stable across the same states", async ({ page }) => {
+    test.setTimeout(120_000);
+    await startCourtBuilder(page);
+    const empty = await geometry(page);
+    await playOneRound(page);
+    expectSameGeometry(empty, await geometry(page), "after first placement (mobile)");
+    await playOneRound(page);
+    await minimizeOverlay(page);
+    await page.locator('[data-testid="slot-move-btn"]').first().click();
+    await page.locator('[data-testid="slot-swap-target"]').first().waitFor({ timeout: 5_000 });
+    expectSameGeometry(empty, await geometry(page), "in move mode (mobile)");
+  });
+});
+
+test.describe("direct move and swap (E3)", () => {
+  test("clicking the moving card again cancels, and Escape cancels", async ({ page }) => {
+    await startCourtBuilder(page);
+    await playOneRound(page);
+    await minimizeOverlay(page);
+
+    // Enter move mode, cancel by clicking the source card's own face.
+    await page.locator('[data-testid="slot-move-btn"]').first().click();
+    const source = page.locator('[data-testid="slot-moving-source"]');
+    await expect(source).toBeVisible();
+    await expect(source).toContainText(/click to cancel/i);
+    await source.click();
+    await expect(page.locator('[data-testid="slot-swap-target"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(1);
+
+    // Enter again, cancel with Escape.
+    await page.locator('[data-testid="slot-move-btn"]').first().click();
+    await page.locator('[data-testid="slot-swap-target"]').first().waitFor({ timeout: 5_000 });
+    await page.keyboard.press("Escape");
+    await expect(page.locator('[data-testid="slot-swap-target"]')).toHaveCount(0);
+  });
+
+  test("undoing a direct swap restores both players to their exact previous slots", async ({ page }) => {
+    await startCourtBuilder(page);
+    await playOneRound(page);
+    await playOneRound(page);
+    await minimizeOverlay(page);
+
+    // Record who is where.
+    const before = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-testid="court-slot"][data-filled="true"]')).map((el) => ({
+        slot: el.getAttribute("data-slot-type"),
+        text: (el.textContent ?? "").slice(0, 60),
+      })),
+    );
+    expect(before).toHaveLength(2);
+
+    await page.locator('[data-testid="slot-move-btn"]').first().click();
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/swap-slots") && r.status() === 200),
+      page.locator('[data-testid="slot-swap-target"][data-filled="true"]').first().click(),
+    ]);
+
+    // Undo through the toast — the server's own undo endpoint.
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/undo") && r.status() === 200),
+      page.locator('[data-testid="court-action-toast-action"]').click(),
+    ]);
+
+    const after = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-testid="court-slot"][data-filled="true"]')).map((el) => ({
+        slot: el.getAttribute("data-slot-type"),
+        text: (el.textContent ?? "").slice(0, 60),
+      })),
+    );
+    expect(after).toEqual(before);
   });
 });

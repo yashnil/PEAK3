@@ -35,11 +35,11 @@ function input(overrides: Partial<ShowdownPhaseInput> = {}): ShowdownPhaseInput 
     activeSeat: 0,
     yourSeat: 0,
     actionCount: 0,
-    historyLength: 0,
     secondsRemaining: 25,
     deadlineAt: 1_000,
     pending: false,
     complete: false,
+    introOpen: false,
     ...overrides,
   };
 }
@@ -86,13 +86,13 @@ describe("a submitted action freezes the countdown", () => {
     vi.useFakeTimers();
     const { result, rerender } = renderHook(
       (props: ShowdownPhaseInput) => useShowdownPhase(props),
-      { initialProps: input({ historyLength: 3, lotIndex: 3 }) },
+      { initialProps: input({ lotIndex: 3 }) },
     );
     // Not a fresh match, so no intro: the human is on the clock.
     expect(result.current.phase).toBe("decide");
     expect(result.current.clockDeadlineAt).toBe(1_000);
 
-    rerender(input({ historyLength: 3, lotIndex: 3, pending: true }));
+    rerender(input({ lotIndex: 3, pending: true }));
     expect(result.current.phase).toBe("pending");
     // THE DEFECT: this used to stay at 1_000 and keep counting down behind the
     // request, then fire `onExpire` against a bid the server was accepting.
@@ -104,9 +104,9 @@ describe("a submitted action freezes the countdown", () => {
     vi.useFakeTimers();
     const { result, rerender } = renderHook(
       (props: ShowdownPhaseInput) => useShowdownPhase(props),
-      { initialProps: input({ historyLength: 2, lotIndex: 2 }) },
+      { initialProps: input({ lotIndex: 2 }) },
     );
-    rerender(input({ historyLength: 2, lotIndex: 2, actionCount: 1, pending: true }));
+    rerender(input({ lotIndex: 2, actionCount: 1, pending: true }));
     expect(result.current.phase).toBe("pending");
   });
 
@@ -114,12 +114,12 @@ describe("a submitted action freezes the countdown", () => {
     vi.useFakeTimers();
     const { result, rerender } = renderHook(
       (props: ShowdownPhaseInput) => useShowdownPhase(props),
-      { initialProps: input({ historyLength: 2, lotIndex: 2, pending: true }) },
+      { initialProps: input({ lotIndex: 2, pending: true }) },
     );
     expect(result.current.clockDeadlineAt).toBeNull();
     // A rejected command returns the same board: the deadline is unchanged and
     // the true remaining time is what reappears.
-    rerender(input({ historyLength: 2, lotIndex: 2, pending: false }));
+    rerender(input({ lotIndex: 2, pending: false }));
     expect(result.current.clockDeadlineAt).toBe(1_000);
   });
 });
@@ -129,41 +129,57 @@ describe("a submitted action freezes the countdown", () => {
 // ---------------------------------------------------------------------------
 
 describe("the pre-match intro", () => {
-  it("opens on a fresh match and holds the clock closed", () => {
+  /*
+   * THE INTRO IS THE SERVER'S TURN PHASE NOW, NOT A LOCAL BEAT.
+   *
+   * It used to be started from "this looks like a fresh match"
+   * (`historyLength === 0 && lotIndex === 0 && actionCount === 0`) and priced
+   * against the human's own running clock by `affordableBeat`, because the
+   * server had already stamped the first lot's 25-second deadline when the
+   * match was created. So the briefing was TRUNCATED OR SKIPPED exactly when
+   * the player was newest to the mode, and it was spending their decision time
+   * to explain the rules either way.
+   *
+   * `mode.PHASE_INTRO` is a real turn belonging to no seat and accepting no
+   * bid; the first auction turn is opened with a full window measured from the
+   * moment the intro ends. So these tests now assert the two properties that
+   * actually matter, and the "does it replay on a resume" question is answered
+   * by the server rather than re-derived here.
+   */
+  it("holds the clock closed for as long as the server says the intro is open", () => {
     vi.useFakeTimers();
-    const { result } = renderHook(() => useShowdownPhase(input()));
+    const { result } = renderHook(() => useShowdownPhase(input({ introOpen: true })));
     expect(result.current.phase).toBe("intro");
     expect(result.current.clockDeadlineAt).toBeNull();
     expect(result.current.controlsLive).toBe(false);
   });
 
-  it("clears itself after its beat, and the clock opens", () => {
+  it("does not end on a local timer — only the server closes it", () => {
     vi.useFakeTimers();
-    const { result } = renderHook(() => useShowdownPhase(input()));
+    const { result, rerender } = renderHook(
+      (props: ShowdownPhaseInput) => useShowdownPhase(props),
+      { initialProps: input({ introOpen: true }) },
+    );
     act(() => {
-      vi.advanceTimersByTime(INTRO_MS + 50);
+      vi.advanceTimersByTime(INTRO_MS * 4);
     });
+    expect(result.current.phase).toBe("intro");
+    expect(result.current.controlsLive).toBe(false);
+
+    // The server closed the intro turn and opened the first lot.
+    rerender(input({ introOpen: false }));
     expect(result.current.phase).toBe("decide");
     expect(result.current.clockDeadlineAt).toBe(1_000);
     expect(result.current.controlsLive).toBe(true);
   });
 
-  it("can be dismissed early by the player", () => {
-    vi.useFakeTimers();
-    const { result } = renderHook(() => useShowdownPhase(input()));
-    act(() => {
-      result.current.dismissIntro();
-    });
-    expect(result.current.phase).toBe("decide");
-  });
-
   it("does NOT replay on a resume three lots in", () => {
     vi.useFakeTimers();
     const { result } = renderHook(() =>
-      useShowdownPhase(input({ historyLength: 3, lotIndex: 3 })),
+      useShowdownPhase(input({ lotIndex: 3 })),
     );
-    // Replaying it would be spending the player's clock to tell them something
-    // they already know.
+    // The server does not reopen an intro turn mid-match, so the room simply
+    // never sees `introOpen` again.
     expect(result.current.phase).toBe("decide");
   });
 
@@ -185,11 +201,11 @@ describe("a new lot gets a readable beat before the decision opens", () => {
     vi.useFakeTimers();
     const { result, rerender } = renderHook(
       (props: ShowdownPhaseInput) => useShowdownPhase(props),
-      { initialProps: input({ historyLength: 2, lotIndex: 2 }) },
+      { initialProps: input({ lotIndex: 2 }) },
     );
     expect(result.current.phase).toBe("decide");
 
-    rerender(input({ historyLength: 3, lotIndex: 3 }));
+    rerender(input({ lotIndex: 3 }));
     expect(result.current.phase).toBe("reveal");
     expect(result.current.clockDeadlineAt).toBeNull();
     expect(result.current.controlsLive).toBe(false);
@@ -205,9 +221,9 @@ describe("a new lot gets a readable beat before the decision opens", () => {
     vi.useFakeTimers();
     const { result, rerender } = renderHook(
       (props: ShowdownPhaseInput) => useShowdownPhase(props),
-      { initialProps: input({ historyLength: 2, lotIndex: 2, secondsRemaining: 12 }) },
+      { initialProps: input({ lotIndex: 2, secondsRemaining: 12 }) },
     );
-    rerender(input({ historyLength: 3, lotIndex: 3, secondsRemaining: 12 }));
+    rerender(input({ lotIndex: 3, secondsRemaining: 12 }));
     act(() => {
       // The effect that measures affordability runs and finds nothing to spend.
       vi.advanceTimersByTime(0);
@@ -219,10 +235,10 @@ describe("a new lot gets a readable beat before the decision opens", () => {
     vi.useFakeTimers();
     const { result, rerender } = renderHook(
       (props: ShowdownPhaseInput) => useShowdownPhase(props),
-      { initialProps: input({ historyLength: 1, lotIndex: 1, actionCount: 0 }) },
+      { initialProps: input({ lotIndex: 1, actionCount: 0 }) },
     );
     // The bot raised: one more action on the same lot.
-    rerender(input({ historyLength: 1, lotIndex: 1, actionCount: 1 }));
+    rerender(input({ lotIndex: 1, actionCount: 1 }));
     expect(result.current.phase).toBe("handoff");
 
     act(() => {
@@ -240,7 +256,7 @@ describe("the phases that are not a decision", () => {
   it("reports `settling` when no seat is active", () => {
     vi.useFakeTimers();
     const { result } = renderHook(() =>
-      useShowdownPhase(input({ historyLength: 2, lotIndex: 2, activeSeat: null })),
+      useShowdownPhase(input({ lotIndex: 2, activeSeat: null })),
     );
     expect(result.current.phase).toBe("settling");
     expect(result.current.clockDeadlineAt).toBeNull();
@@ -249,7 +265,7 @@ describe("the phases that are not a decision", () => {
   it("never opens the human's controls on the opponent's turn", () => {
     vi.useFakeTimers();
     const { result } = renderHook(() =>
-      useShowdownPhase(input({ historyLength: 2, lotIndex: 2, activeSeat: 1 })),
+      useShowdownPhase(input({ lotIndex: 2, activeSeat: 1 })),
     );
     expect(result.current.phase).toBe("decide");
     expect(result.current.controlsLive).toBe(false);

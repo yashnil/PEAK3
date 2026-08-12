@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import ArenaTimer from "@/components/shared/ArenaTimer";
+import ArenaTimer, { useRemainingSeconds } from "@/components/shared/ArenaTimer";
 import { TURN_SECONDS, formatDollars } from "@/lib/twenty-dollar-api";
 import type { ShowdownPhase } from "./useShowdownPhase";
 
@@ -27,10 +27,12 @@ import type { ShowdownPhase } from "./useShowdownPhase";
  *   countdown — we hold a real server deadline for our own decision. The one
  *               mode with `td-timer-value`, delegated to `ArenaTimer` so the
  *               tick still re-renders four characters rather than the board.
- *   elapsed   — somebody else is on the clock. We do NOT have their deadline
- *               and must not invent one, so this counts UP from when the turn
- *               was first seen. Three-Man Weave reached the same conclusion for
- *               the same reason.
+ *   elapsed   — somebody else is on the clock. This COUNTS DOWN against the
+ *               server's own deadline for that seat, published to every seat as
+ *               `turn_seconds_remaining`. It used to count UP, because the API
+ *               gave `seconds_remaining` only to the seat holding the turn and
+ *               inventing a deadline would have been worse; the fix was to
+ *               publish the fact. See `OpponentClock`.
  *   held      — a decision is coming but has not opened: the intro, a lot
  *               reveal, an inter-turn handoff, or the beat before the first
  *               deadline arrives. It states the window length rather than
@@ -68,6 +70,12 @@ export interface ShowdownClockProps {
    * than accumulating across the match.
    */
   turnKey: string;
+  /**
+   * The open turn's deadline when it belongs to the OPPONENT, as a local
+   * monotonic instant. Null when the server published none, in which case the
+   * opponent's panel falls back to counting up. See `OpponentClock`.
+   */
+  opponentDeadlineAt?: number | null;
   /** What this client has in flight, if anything. */
   pendingCommand: "bid" | "pass" | null;
   pendingAmount: number;
@@ -81,6 +89,7 @@ export default function ShowdownClock({
   yourSeat,
   consequence,
   turnKey,
+  opponentDeadlineAt = null,
   pendingCommand,
   pendingAmount,
   onExpire,
@@ -88,13 +97,20 @@ export default function ShowdownClock({
   const yours = activeSeat !== null && activeSeat === yourSeat;
 
   const mode: ShowdownClockMode =
-    phase === "pending" && pendingCommand
-      ? "pending"
-      : phase === "decide" && yours && deadlineAt !== null
-        ? "countdown"
-        : activeSeat !== null && !yours
-          ? "elapsed"
-          : "held";
+    // NOBODY IS DECIDING DURING THE INTRO. The snapshot already names the
+    // opening bidder in `active_seat` — that is who will be handed the first
+    // lot — but the OPEN TURN is the intro, which accepts no action. Without
+    // this branch the panel read as "the opponent is on the clock" and counted
+    // down the briefing as if it were their decision time.
+    phase === "intro"
+      ? "held"
+      : phase === "pending" && pendingCommand
+        ? "pending"
+        : phase === "decide" && yours && deadlineAt !== null
+          ? "countdown"
+          : activeSeat !== null && !yours
+            ? "elapsed"
+            : "held";
 
   if (mode === "pending") {
     return (
@@ -131,8 +147,15 @@ export default function ShowdownClock({
 
   if (mode === "elapsed") {
     return (
-      <div className="td-clock" data-testid="td-clock" data-mode="elapsed">
-        <ElapsedClock key={turnKey} />
+      <div
+        className="td-clock"
+        data-testid="td-clock"
+        data-mode="elapsed"
+        // WHICH DIRECTION THIS IS COUNTING, as data rather than as an inference
+        // from a number that happens to be rising or falling.
+        data-direction={opponentDeadlineAt === null ? "up" : "down"}
+      >
+        <OpponentClock key={turnKey} deadlineAt={opponentDeadlineAt} />
       </div>
     );
   }
@@ -146,13 +169,17 @@ export default function ShowdownClock({
             deciding". Two identical sentences stacked is the same defect as
             four different ones. */}
         <span className="td-clock-held-label">
-          {activeSeat === null ? "Next clock" : "Your clock"}
+          {activeSeat === null || phase === "intro" ? "Next clock" : "Your clock"}
         </span>
         <span className="td-clock-held-value pk-numeral">{TURN_SECONDS}s</span>
         <span className="td-clock-held-sub">
-          {activeSeat === null
-            ? "Starts when the next lot opens."
-            : "Opens in a moment — you get the full window."}
+          {phase === "intro"
+            ? // THE PROMISE THE INTRO PHASE MAKES, said out loud. It is a real
+              // server turn, so reading all of it costs nothing.
+              "Starts when the first lot opens — the intro costs you none of it."
+            : activeSeat === null
+              ? "Starts when the next lot opens."
+              : "Opens in a moment — you get the full window."}
         </span>
       </div>
     </div>
@@ -160,37 +187,60 @@ export default function ShowdownClock({
 }
 
 /**
- * Counting UP, because we do not have the other seat's deadline.
+ * THE OPPONENT'S CLOCK. It counts DOWN, like the human's. (C3)
  *
- * `arena.py` reports `seconds_remaining` to exactly one seat — the one on the
- * clock — so the opponent's remaining time is information this client has never
- * been given. Rendering a countdown here would mean manufacturing a deadline
- * out of `TURN_SECONDS` and hoping it matched; what is actually knowable is how
- * long we have been waiting, so that is what is shown.
+ * WHAT THIS USED TO BE, AND WHY. It counted UP — "TIME ELAPSED 2s" — for an
+ * honest reason: `arena.py` reported `seconds_remaining` to exactly one seat,
+ * the one on the clock, so the opponent's remaining time was information this
+ * client had never been given. Manufacturing a deadline out of `TURN_SECONDS`
+ * and hoping it matched would have been worse than counting what was knowable.
+ *
+ * THE FIX WAS TO PUBLISH THE FACT rather than to keep working around its
+ * absence. A turn deadline is not hidden information: whose turn it is and the
+ * mode's turn length are both already public, and nothing about a bid, a
+ * budget or a card can be inferred from a clock. The API now sends
+ * `turn_seconds_remaining` to every seat, so a player watching the other side
+ * think sees "TIME REMAINING 8s, 7s, 6s" against the SERVER's own deadline,
+ * in the same direction and the same language as their own countdown.
+ *
+ * THE COUNT-UP SURVIVES AS THE FALLBACK for a turn whose remaining time the
+ * server did not publish. Showing nothing would be worse than showing what is
+ * known, and the mode still refuses to invent a deadline it does not hold.
  *
  * A SEPARATE VALUE TESTID from the countdown's, deliberately: `td-timer-value`
- * means "the human's remaining decision time" to the browser suite, and an
- * elapsed count answering to the same name would let a bot turn satisfy an
+ * means "the human's remaining decision time" to the browser suite, and the
+ * opponent's clock answering to the same name would let a bot turn satisfy an
  * assertion about the human's window.
  */
-function ElapsedClock() {
-  const [seconds, setSeconds] = useState(0);
+function OpponentClock({ deadlineAt }: { deadlineAt: number | null }) {
+  const remaining = useRemainingSeconds(deadlineAt);
+  const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
+    if (deadlineAt !== null) return;
     const startedAt = performance.now();
     const id = window.setInterval(() => {
-      setSeconds(Math.floor((performance.now() - startedAt) / 1000));
+      setElapsed(Math.floor((performance.now() - startedAt) / 1000));
     }, 250);
     return () => window.clearInterval(id);
-  }, []);
+  }, [deadlineAt]);
+
+  const counting = deadlineAt !== null && remaining !== null;
+  const fraction = counting ? Math.max(0, Math.min(1, remaining / TURN_SECONDS)) : 1;
 
   return (
-    <div className="td-clock-elapsed pk-crown" data-testid="td-timer">
-      {/* "Time elapsed", not "PEAK3 Bot is deciding" — the banner above says
-          who, and this said the same sentence again, verbatim. */}
-      <span className="td-clock-elapsed-label">Time elapsed</span>
+    <div
+      className="td-clock-elapsed pk-crown"
+      data-testid="td-timer"
+      style={{ ["--td-opponent-fraction" as string]: String(fraction) }}
+    >
+      {/* Time domain only. `TurnBanner` directly above already names the seat,
+          and this panel's first draft repeated it word for word. */}
+      <span className="td-clock-elapsed-label">
+        {counting ? "Time remaining" : "Time elapsed"}
+      </span>
       <span className="td-clock-elapsed-value pk-numeral" data-testid="td-elapsed-value">
-        {seconds}s
+        {counting ? remaining : elapsed}s
       </span>
       <span className="td-clock-elapsed-track" aria-hidden="true">
         <span className="td-clock-elapsed-fill" />

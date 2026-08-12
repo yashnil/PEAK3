@@ -163,6 +163,39 @@ export default function ArenaTimer({
 }
 
 /**
+ * WHOLE SECONDS LEFT ON A DEADLINE, or null when there is no deadline.
+ *
+ * The same tick this component runs for the local player's clock, extracted so
+ * that an OPPONENT's clock is the identical mechanism rather than a second
+ * implementation that happens to look similar. Both game rooms previously
+ * timed an opponent's turn by counting UP from the moment they noticed it,
+ * because the API published no deadline for a seat that was not yours; it does
+ * now (`turn_seconds_remaining`), and this is what those surfaces count with.
+ *
+ * Deliberately NOT a whole component: an opponent's clock is a different
+ * object in each room -- the Showdown's seat panel, the Weave's deliberation
+ * chip -- and only the number is shared. See section G of the polish pass:
+ * a small shared utility, not an abstraction over two different designs.
+ */
+export function useRemainingSeconds(deadlineAt: number | null): number | null {
+  const [remaining, setRemaining] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (deadlineAt === null) {
+      setRemaining(null);
+      return;
+    }
+    const tick = () =>
+      setRemaining(Math.max(0, Math.ceil((deadlineAt - performance.now()) / 1000)));
+    tick();
+    const id = window.setInterval(tick, 250);
+    return () => window.clearInterval(id);
+  }, [deadlineAt]);
+
+  return remaining;
+}
+
+/**
  * Convert the server's `seconds_remaining` duration into a local monotonic
  * deadline, at the instant the response is applied.
  *

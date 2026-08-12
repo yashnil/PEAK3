@@ -52,6 +52,18 @@ export interface ArenaMatchView<TPublic = TmwPublicState, TPrivate = TmwPrivateS
    * field removes. `null` when no turn is open.
    */
   turn_phase: string | null;
+  /**
+   * THE OPEN TURN'S REMAINING TIME, WHOEVER IS ON IT.
+   *
+   * `seconds_remaining` above is null while somebody else is deciding, which
+   * is why both rooms used to time an opponent's turn locally and render it as
+   * a count-UP — "Deliberating 3s" beside the human's own counting-DOWN clock,
+   * with no way to tell whether the opponent had eight seconds left or eighty.
+   * A turn deadline is not hidden information (whose turn it is and the mode's
+   * turn length are both already public), so the server publishes it to every
+   * seat and an opponent's wait is now a countdown like any other.
+   */
+  turn_seconds_remaining: number | null;
   latest_event_seq: number;
   room_code: string | null;
 }
@@ -123,6 +135,17 @@ export const TMW_MODE = "three_man_weave";
 export const TMW_COMMAND_PICK = "tmw_pick";
 /** Repositioning your OWN roster. Does not consume a turn. */
 export const TMW_COMMAND_REARRANGE = "tmw_rearrange";
+/**
+ * End the round-opening ceremony early.
+ *
+ * A SERVER COMMAND, not a client dismiss, because the pick turn does not open
+ * until the reveal turn closes — hiding the overlay locally would show a board
+ * that still refuses every action. It ends the ceremony for the table (the roll
+ * is one shared fact) and grants no extra decision time: the pick turn opens
+ * with a full `TURN_SECONDS` measured from the moment it lands, exactly as the
+ * ceremony's own expiry would.
+ */
+export const TMW_COMMAND_SKIP_REVEAL = "tmw_skip_reveal";
 
 /**
  * THE OPEN TURN'S PHASE, and the two values this mode publishes.
@@ -144,7 +167,16 @@ export const TMW_TURN_PHASE_PICK = "pick";
  * when the server sent no duration at all. The instant the ceremony ends is
  * always the server's, never this number.
  */
-export const TMW_REVEAL_SECONDS = 3.2;
+export const TMW_REVEAL_SECONDS = 4.6;
+
+/**
+ * The opening ceremony's window, mirroring `OPENING_REVEAL_SECONDS`.
+ *
+ * Round one runs the matchup card before the reel, so it gets a longer window.
+ * Both numbers exist on this side only as the DENOMINATOR for "how far into the
+ * ceremony are we"; the instant it ends is always the server's.
+ */
+export const TMW_OPENING_REVEAL_SECONDS = 9.2;
 
 export const TMW_STARTER_SLOTS = ["PG", "SG", "SF", "PF", "C"] as const;
 export const TMW_BENCH_SLOTS = ["bench_1"] as const;

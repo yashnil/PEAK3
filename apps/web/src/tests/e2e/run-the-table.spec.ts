@@ -612,8 +612,12 @@ test.describe("RUN THE TABLE full run", () => {
     await expect(page.locator('[data-testid="rtt-result-verdict"]')).toBeVisible();
     // The replay affordances the receipt promises must actually be there.
     await expect(page.locator('[data-testid="rtt-run-it-back"]')).toBeVisible();
-    await expect(page.locator('[data-testid="rtt-replay-seed"]')).toBeVisible();
     await expect(page.locator('[data-testid="rtt-challenge"]')).toBeVisible();
+    // ...and "Replay this seed" must NOT be (F2). Deterministic seeds still
+    // drive the engine and the challenge link; only the player-facing button
+    // is gone, because re-dealing the identical board beside "Run it back"
+    // offered a choice between two things a player could not tell apart.
+    await expect(page.locator('[data-testid="rtt-replay-seed"]')).toHaveCount(0);
   });
 
   test("@mobile an anonymous visitor plays a whole run without horizontal overflow", async ({

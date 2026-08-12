@@ -79,6 +79,77 @@ interface Props {
   children?: React.ReactNode;
 }
 
+/**
+ * THE ROLE ELIGIBILITY CHIPS, ALWAYS VISIBLE. (F6)
+ *
+ * WHERE THIS INFORMATION USED TO LIVE: behind the "Full breakdown"
+ * `<details>` disclosure, with every non-primary role in muted gray — which
+ * is the reported defect verbatim: a player deciding whether to acquire,
+ * trade for, or re-slot a card had to open a disclosure to learn where the
+ * card can legally play. Role eligibility is a DECISION input, not a receipt
+ * detail, so it renders on the card body for every caller of this primitive
+ * (Draft Room, Trade Desk both columns, Scout & Prepare's previews).
+ *
+ * VISUAL WEIGHT, deliberately calibrated: stronger than the muted prose it
+ * replaces (each chip carries its role family's colour as a dot and a tinted
+ * border), weaker than the player name and the prime score (9px caps, no
+ * fill). The role COLOUR is never used as text — the role hexes are only
+ * defined for the dark palette and mid-hue-as-text fails contrast on Arena
+ * Day, the same reason the lane colours render as dots beside token-coloured
+ * text above.
+ *
+ * The data is `card.eligible_roles` from the server's projection — which is
+ * the committed roles-v4 pool, derived from real career positions — never a
+ * per-player table in the client.
+ */
+export function RoleChips({
+  roles,
+  primary,
+  compact = false,
+}: {
+  roles: readonly string[];
+  primary?: string | null;
+  compact?: boolean;
+}) {
+  if (roles.length === 0) return null;
+  return (
+    <div
+      className="flex flex-wrap items-center gap-1"
+      data-testid="rtt-role-chips"
+      role="list"
+      aria-label="Eligible roles"
+    >
+      {roles.map((role) => {
+        const color = ROLE_COLOR_VARS[role as keyof typeof ROLE_COLOR_VARS] ?? "var(--peak-accent)";
+        const isPrimary = role === primary;
+        return (
+          <span
+            key={role}
+            role="listitem"
+            data-testid={`rtt-role-chip-${role}`}
+            data-primary={isPrimary ? "true" : "false"}
+            className={`inline-flex items-center gap-1 rounded font-semibold uppercase tracking-wider ${
+              compact ? "px-1 py-px text-[8px]" : "px-1.5 py-0.5 text-[9px]"
+            }`}
+            style={{
+              color: "var(--text-secondary)",
+              background: "var(--bg-surface)",
+              border: `1px solid color-mix(in srgb, ${color} ${isPrimary ? 55 : 35}%, transparent)`,
+            }}
+          >
+            <span
+              aria-hidden="true"
+              className="inline-block h-1.5 w-1.5 rounded-full shrink-0"
+              style={{ background: color }}
+            />
+            {ROLE_LABELS[role as keyof typeof ROLE_LABELS] ?? role}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function RunCard({
   card,
   cost = null,
@@ -91,7 +162,6 @@ export default function RunCard({
   bossRelevance = null,
   children,
 }: Props) {
-  const roleColor = ROLE_COLOR_VARS[card.primary_role] ?? "var(--peak-accent)";
   const shape = cardLaneSummary(card.lane_percentiles);
   return (
     <div className="flex flex-col gap-2 min-w-0" data-testid="rtt-run-card">
@@ -166,6 +236,14 @@ export default function RunCard({
           </div>
         )}
       </div>
+
+      {/* WHERE THIS CARD CAN LEGALLY PLAY — on the body, not behind the
+          disclosure (F6). See `RoleChips`. */}
+      <RoleChips
+        roles={card.eligible_roles}
+        primary={card.primary_role}
+        compact={compact}
+      />
 
       {/* DECISION-FIRST (brief §E): upside and weakness, promoted ABOVE the
           role chips and every other receipt-shaped detail — this is the
@@ -276,31 +354,11 @@ export default function RunCard({
           Full breakdown
         </summary>
         <div className="mt-1.5 flex flex-col gap-1.5">
-          <div className="flex flex-wrap items-center gap-1" data-testid="rtt-card-roles">
-            <span className="sr-only">Eligible roles: </span>
-            <span
-              className="text-[9px] font-semibold uppercase tracking-wider rounded px-1.5 py-0.5"
-              style={{
-                color: roleColor,
-                background: "var(--bg-surface)",
-                border: `1px solid color-mix(in srgb, ${roleColor} 40%, transparent)`,
-              }}
-            >
-              {ROLE_LABELS[card.primary_role] ?? card.primary_role}
-            </span>
-            {card.eligible_roles
-              .filter((r) => r !== card.primary_role)
-              .map((role) => (
-                <span
-                  key={role}
-                  className="text-[9px] uppercase tracking-wider rounded px-1.5 py-0.5"
-                  style={{ color: "var(--text-muted)", background: "var(--bg-surface)" }}
-                >
-                  {ROLE_LABELS[role] ?? role}
-                </span>
-              ))}
-          </div>
-
+          {/* The eligible-role chips used to be the first row here — the
+              defect F6 names: a legality input a player needed BEFORE choosing,
+              behind a disclosure they had to know to open. They render on the
+              card body now (`RoleChips` above); the disclosure keeps only the
+              genuinely receipt-shaped detail. */}
           {showFingerprint && (
             <>
               <div className="flex items-end gap-1" aria-hidden="true" data-testid="rtt-card-fingerprint">

@@ -265,6 +265,11 @@ function battleFixture(over: Partial<BattlePublic> = {}): BattlePublic {
       pre_perk_rating: 55 + i,
       perk_adjustment: 2.5,
       bench_adjustment: (60 + i) - (55 + i) - 2.5,
+      // F4: the bench's own contribution, signed. `starters_only_rating +
+      // bench_contribution === pre_perk_rating` by construction.
+      starters_only_rating: 58 + i,
+      bench_contribution: -3,
+      bench_suppressed_by: null,
       final_rating: 60 + i,
       top_contributor: { name: "Tim Duncan", own_lane_index_value: 72 },
       opponent_top_contributor: { name: "Kevin Garnett", own_lane_index_value: 72 },
@@ -1229,16 +1234,54 @@ describe("RunCard", () => {
     );
   });
 
-  it("still renders the eligible-role chips and any cost modifier behind disclosure when showFingerprint is off", () => {
+  it("still renders the role chips and any cost modifier when showFingerprint is off", () => {
     // TradeDesk's outgoing column passes `compact showFingerprint={false}`
     // — `showFingerprint` turns off the fingerprint BARS, never the whole
-    // receipt (see the trade-desk.test.tsx regression this fixes).
+    // receipt (see the trade-desk.test.tsx regression this fixes). The role
+    // chips moved OUT of the disclosure and onto the card body (F6), so they
+    // are asserted on the body here.
     render(<RunCard card={discountedCard()} cost={19} showFingerprint={false} />);
     expect(screen.getByTestId("rtt-card-breakdown")).toBeInTheDocument();
-    expect(screen.getByTestId("rtt-card-roles")).toBeInTheDocument();
+    expect(screen.getByTestId("rtt-role-chips")).toBeInTheDocument();
     expect(screen.getByTestId("rtt-card-modifier-moneyball")).toBeInTheDocument();
     expect(screen.queryByTestId("rtt-card-fingerprint")).not.toBeInTheDocument();
     expect(screen.queryByTestId("rtt-card-fingerprint-sr")).not.toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // F6 — role eligibility chips, always visible
+  // -------------------------------------------------------------------------
+
+  it("renders a chip for EVERY eligible role, on the card body, not behind disclosure", () => {
+    // The defect: legal roles lived behind "Full breakdown" in muted prose, so
+    // a player deciding an acquisition or trade had to know to open a
+    // disclosure to learn where the card can play. The chips are a decision
+    // input and render unconditionally.
+    render(<RunCard card={card()} cost={10} />);
+    const chips = screen.getByTestId("rtt-role-chips");
+    // NOT inside the <details> receipt.
+    expect(chips.closest("details")).toBeNull();
+    for (const role of card().eligible_roles) {
+      expect(within(chips).getByTestId(`rtt-role-chip-${role}`)).toBeInTheDocument();
+    }
+    // Accessible as a named list, not decorative spans.
+    expect(chips).toHaveAttribute("aria-label", "Eligible roles");
+  });
+
+  it("chips come from the card's own eligibility, never a hardcoded set", () => {
+    const single = card({ eligible_roles: ["anchor"], primary_role: "anchor" });
+    render(<RunCard card={single} cost={10} />);
+    const chips = screen.getAllByTestId("rtt-role-chips").at(-1)!;
+    expect(within(chips).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(chips).getByTestId("rtt-role-chip-anchor")).toHaveTextContent("Anchor");
+    expect(within(chips).queryByTestId("rtt-role-chip-guard_wing")).toBeNull();
+  });
+
+  it("marks the primary role's chip distinctly", () => {
+    render(<RunCard card={card()} cost={10} />);
+    const chips = screen.getAllByTestId("rtt-role-chips").at(-1)!;
+    const primary = within(chips).getByTestId(`rtt-role-chip-${card().primary_role}`);
+    expect(primary).toHaveAttribute("data-primary", "true");
   });
 });
 
@@ -1839,7 +1882,22 @@ describe("BattleReveal", () => {
     expect(contributors).not.toBe(lane.firstElementChild);
   });
 
-  it("expandable receipt: pre_perk_rating + bench_adjustment + perk_adjustment sums to final_rating, behind disclosure", () => {
+  it("expandable receipt: starters + bench + perk sums to final_rating, behind disclosure", () => {
+    /*
+     * F4. THIS ROW USED TO READ "Before perk 55.00 + Bench 0.00 + Perk 0.00"
+     * beside a fully populated bench, which reads as a bug. It was a MISSING
+     * LINE rather than bad arithmetic: the only bench figure the receipt had
+     * was `bench_adjustment`, the PERK residual, which is correctly zero when
+     * nothing has moved the bench weight. The bench was inside
+     * `pre_perk_rating` all along, because the lane rating is a weighted MEAN
+     * over starters AND bench.
+     *
+     * So the sum now starts one step earlier, at the starters alone, and the
+     * bench gets a line of its own:
+     *
+     *   starters_only_rating + bench_contribution  === pre_perk_rating
+     *   pre_perk_rating + bench_adjustment + perk  === final_rating
+     */
     render(
       <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
     );
@@ -1847,12 +1905,53 @@ describe("BattleReveal", () => {
     expect(receipt.tagName).toBe("DETAILS");
     // Collapsed by default — it must not compete with the at-a-glance numbers.
     expect(receipt).not.toHaveAttribute("open");
-    // battleFixture's lane 0: pre_perk_rating 55, bench_adjustment 2.5,
-    // perk_adjustment 2.5 → sums to final_rating 60 (player_lineup_rating).
-    expect(screen.getByTestId("rtt-lane-receipt-pre-statistical_impact")).toHaveTextContent("55.00");
-    expect(screen.getByTestId("rtt-lane-receipt-bench-statistical_impact")).toHaveTextContent("2.50");
-    expect(screen.getByTestId("rtt-lane-receipt-perk-statistical_impact")).toHaveTextContent("2.50");
+    // battleFixture lane 0: starters 58, bench -3 (=> pre_perk 55),
+    // bench_adjustment 2.5 + perk 2.5 => 5.00, final 60.
+    expect(
+      screen.getByTestId("rtt-lane-receipt-starters-statistical_impact"),
+    ).toHaveTextContent("58.00");
+    expect(screen.getByTestId("rtt-lane-receipt-bench-statistical_impact")).toHaveTextContent(
+      "-3.00",
+    );
+    expect(screen.getByTestId("rtt-lane-receipt-perk-statistical_impact")).toHaveTextContent("5.00");
     expect(screen.getByTestId("rtt-lane-receipt-final-statistical_impact")).toHaveTextContent("60.00");
+  });
+
+  it("a populated bench never reports a bare 0.00, and a suppressing rule is named", () => {
+    // THE REPORTED DEFECT AND ITS ONE HONEST EXCEPTION.
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    expect(
+      screen.getByTestId("rtt-lane-receipt-bench-statistical_impact").textContent,
+    ).not.toMatch(/Bench\s*0\.00/);
+
+    const suppressed = battleFixture({
+      lanes: battleFixture().lanes.map((lane) => ({
+        ...lane,
+        bench_contribution: 0,
+        bench_suppressed_by: "top_heavy",
+      })),
+    });
+    render(
+      <BattleReveal battle={suppressed} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    expect(
+      screen.getAllByTestId("rtt-lane-receipt-bench-statistical_impact").at(-1),
+    ).toHaveTextContent("Bench suppressed by top_heavy");
+  });
+
+  it("says in words that the lane is decided by the lineup ratings, not the contributors", () => {
+    // F5. "Your top contributor Shaq 71.2 / their top contributor Hakeem 49.5"
+    // printed above a LOST lane is not a bug — the lane is won by the
+    // depth-weighted team rating — but a screen that never says which number
+    // decided it is asking the player to infer the rule.
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    const note = screen.getByTestId("rtt-lane-contributor-note-statistical_impact");
+    expect(note).toHaveTextContent(/decided by the lineup ratings/i);
+    expect(note).toHaveTextContent(/not by these/i);
   });
 
   // -------------------------------------------------------------------
@@ -2130,9 +2229,21 @@ describe("RunResult", () => {
       />,
     );
     await userEvent.click(screen.getByTestId("rtt-run-it-back"));
-    await userEvent.click(screen.getByTestId("rtt-replay-seed"));
     expect(onRunItBack).toHaveBeenCalledTimes(1);
-    expect(onReplaySeed).toHaveBeenCalledTimes(1);
+    // F1: the result offers a way OUT as well as ways onward — real
+    // navigation, not a button, so new-tab/middle-click behave.
+    const back = screen.getByTestId("rtt-back-to-arena");
+    expect(back.tagName).toBe("A");
+    expect(back).toHaveAttribute("href", "/arena");
+    // "REPLAY THIS SEED" IS NO LONGER OFFERED (F2). It was a developer
+    // affordance wearing a player's button: a run is a sequence of decisions,
+    // and re-dealing the identical board beside "Run it back" asked the player
+    // to choose between two things they had no way to tell apart.
+    // Deterministic seeds are untouched — they still drive the engine, the
+    // challenge link, the share card and every reproduction test — so the
+    // handler stays on the contract and only the control is gone.
+    expect(screen.queryByTestId("rtt-replay-seed")).not.toBeInTheDocument();
+    expect(onReplaySeed).not.toHaveBeenCalled();
   });
 
   it("makes the verdict the largest, first-in-DOM-order element — never a caption under the headline", () => {

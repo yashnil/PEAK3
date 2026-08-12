@@ -13,11 +13,14 @@ import {
   PlayerSeasonSearchHit,
 } from "@/types/daily-grid";
 import {
+  completeDailyGridRetry,
   getDailyGridBoard,
   getDailyGridResult,
   saveOfficialDailyGridResult,
   startDailyGridAttempt,
+  startDailyGridRetry,
   submitDailyGridAnswer,
+  type DailyGridRetryCompleteResponse,
 } from "@/lib/daily-grid-api";
 import { GuidedTour, useGuidedTour } from "@/components/ui/GuidedTour";
 import {
@@ -43,6 +46,7 @@ import {
 import { useDailyReset } from "@/lib/use-daily-reset";
 import {
   TOTAL_CELLS,
+  clearProgress,
   elapsedMs,
   emptyProgress,
   filledCoords,
@@ -80,6 +84,17 @@ interface Props {
 // `StatTile`'s `accent` prop is used both as a decorative `borderTop` AND as
 // the tile's own value-text color -- so this needs the text-safe siblings,
 // not the frozen tokens directly (P3-G3: same rule as componentTextColor()).
+/**
+ * The localStorage identity of a RETRY run of a board (final integrity
+ * closure). A retry persists under its own key so the player's real completed
+ * board — the one their official result and local archive describe — is never
+ * overwritten by a replay, and a stale retry can be discarded without
+ * touching anything canonical.
+ */
+function retryStorageId(board: Pick<DailyGridBoard, "board_id">): string {
+  return `${board.board_id}::retry`;
+}
+
 const DIFFICULTY_COLOR: Record<string, string> = {
   easy: "var(--comp-team-text)",
   medium: "var(--peak-accent-text)",
@@ -189,6 +204,19 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
   // The board whose official save has already been attempted, so a re-render
   // (or the archive effect firing again) cannot re-POST it.
   const officialSavedRef = useRef<string | null>(null);
+  // --- leaderboard retries (final integrity closure) ----------------------
+  // True while the player is replaying today's board to challenge their own
+  // leaderboard entry. A retry run lives under its own storage key, never
+  // records into the local archive, never posts /official, and its completion
+  // goes to /daily-grid/retry/complete — where the server re-validates the
+  // board, recomputes the score and times it against the retry clock IT
+  // stamped. The canonical first result is untouchable from this path.
+  const [retryRun, setRetryRun] = useState(false);
+  const [retryOutcome, setRetryOutcome] = useState<
+    DailyGridRetryCompleteResponse | "failed" | null
+  >(null);
+  const [retryStarting, setRetryStarting] = useState(false);
+  const retryPostedRef = useRef(false);
   // Launch-polish §4: whether the completion recap overlay is open. Starts
   // false and an effect below flips it true the moment `complete` becomes
   // true -- including on a mount that restores an already-finished board, so
@@ -225,10 +253,36 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
     setArchive(loadArchive());
   }, []);
 
+  // Which board's localStorage restore has actually completed. The reveal
+  // clock effect below keys on this rather than on `progress` alone, because
+  // the FIRST render's progress is a synchronous empty placeholder — starting
+  // the clock against it would re-anchor a restored mid-board timer and ping
+  // /start for boards that are already finished.
+  const [restoredBoardId, setRestoredBoardId] = useState<string | null>(null);
+
+  // Restore a board's progress, preferring an UNFINISHED retry run: a reload
+  // mid-retry resumes that retry (the server's clock for it was stamped once,
+  // at its explicit start, and keeps running regardless of what the client
+  // does). A finished or stale retry record is discarded — its qualification,
+  // if any, already happened server-side — and the canonical board loads.
+  const restoreProgress = useCallback((b: DailyGridBoard) => {
+    const retryResume = loadProgress(retryStorageId(b));
+    if (retryResume && !isComplete(retryResume)) {
+      setRetryRun(true);
+      setProgress(retryResume);
+      setRestoredBoardId(b.board_id);
+      return;
+    }
+    if (retryResume) clearProgress(retryStorageId(b));
+    setRetryRun(false);
+    setProgress(loadProgress(b.board_id) ?? emptyProgress(b));
+    setRestoredBoardId(b.board_id);
+  }, []);
+
   // --- board + restore ----------------------------------------------------
   useEffect(() => {
     if (initialBoard) {
-      setProgress(loadProgress(initialBoard.board_id) ?? emptyProgress(initialBoard));
+      restoreProgress(initialBoard);
       return;
     }
     let cancelled = false;
@@ -240,7 +294,9 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
         setWindow(extractDailyWindow(b));
         // A new date means a new board_id means a new storage key, so
         // yesterday's grid can never bleed into today's.
-        setProgress(loadProgress(b.board_id) ?? emptyProgress(b));
+        restoreProgress(b);
+        setRetryOutcome(null);
+        retryPostedRef.current = false;
         setLoadError(null);
         setResult(null);
         setResultError(null);
@@ -271,7 +327,7 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
     return () => {
       cancelled = true;
     };
-  }, [date, initialBoard, reloadToken]);
+  }, [date, initialBoard, reloadToken, restoreProgress]);
 
   // --- the rollover -------------------------------------------------------
   // Fires when this board's window closes -- either because the countdown ran
@@ -299,7 +355,12 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
     onReset: useCallback(() => {
       if (date) return; // an explicit archive board has nothing to roll over to
       const current = progressRef.current;
-      const untouched = !current || (current.filled.length === 0 && !current.started_at);
+      // "Untouched" = no squares placed. `started_at` no longer counts as
+      // investment: the reveal effect stamps it automatically on every
+      // today's-board load (gap 2), so a tab merely left open overnight
+      // always has one — what the player would actually lose in a silent
+      // swap is placed squares, and only those.
+      const untouched = !current || current.filled.length === 0;
       if (untouched) {
         setReloadToken((t) => t + 1);
         return;
@@ -341,11 +402,18 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
   /**
    * Start (or resume) the timed attempt. The ONLY thing that starts the clock.
    *
-   * Never called on page load and never called when the walkthrough opens --
-   * that is the whole contract of the start gate. It is called from exactly two
-   * places: the gate's two start actions, and a returning player's first move
-   * on a board whose gate was dismissed on an earlier day (there is no gate to
-   * press then, and charging them for the page load instead would be worse).
+   * THE CLOCK ANCHORS AT BOARD REVEAL (final integrity closure, gap 2). Time
+   * is a public leaderboard tiebreaker now, so the rule is: the instant the
+   * puzzle is on screen and studyable, the authoritative clock is already
+   * running. Three callers, all of them "the board is about to be actionable":
+   * the gate's two start actions (a first-visit board is hidden behind the
+   * gate until pressed), the reveal effect below (a returning player has no
+   * gate, so the page load that shows them the board IS the reveal — letting
+   * them study it and start the clock with their first move later was the
+   * loophole this closes), and a belt-and-braces retry on the first move for
+   * the case where the reveal-time call failed. What is still never charged:
+   * the gate itself, the walkthrough read from the gate, and page loading
+   * before the board exists.
    *
    * FALLBACK BEHAVIOUR. The local clock is started FIRST and unconditionally,
    * so a player whose network is slow or whose API is down still sees an honest
@@ -382,6 +450,26 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
       setStarting(false);
     }
   }, [attemptKey]);
+
+  // BOARD REVEAL => CLOCK RUNNING (gap 2). A returning player has no gate, so
+  // the moment today's board renders studyable, the attempt starts — they can
+  // no longer read the whole puzzle untimed and only then make a first move.
+  // Scoped to boards with a timed attempt at all (`attemptKey()`): archive
+  // replays stay untimed and keep their move-started local clock, and a
+  // RETRY's clock is stamped by its own explicit start action, not by this.
+  // While the handshake is in flight, `starting` holds the board
+  // un-actionable (see `handleSelect`), so play begins only once the
+  // authoritative `started_at` exists — or the call has settled as failed, in
+  // which case the local clock stands and play proceeds (the documented
+  // degradation; the leaderboard simply gets no witnessed time).
+  useEffect(() => {
+    if (loading || showGate !== false) return;
+    if (!board || restoredBoardId !== board.board_id) return;
+    if (!progress || progress.started_at || progress.completed_at) return;
+    if (retryRun) return;
+    if (attemptKey() === null) return;
+    void beginAttempt();
+  }, [loading, showGate, board, restoredBoardId, progress, retryRun, attemptKey, beginAttempt]);
 
   // --- the walkthrough -----------------------------------------------------
   // Mirrors RunTheTableGame's `tourBlocked`: no spotlight while the surface is
@@ -453,6 +541,11 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
   // finished a grid. Guarded by a ref so a re-render cannot re-POST.
   useEffect(() => {
     if (!board || !progress || !result || !user) return;
+    // A retry run is NOT an official result and must never post as one. Its
+    // completion goes to /retry/complete below; the canonical record was
+    // written by the first run and is immutable server-side anyway — this
+    // guard keeps the client from even asking.
+    if (retryRun) return;
     if (officialSavedRef.current === board.board_id) return;
     officialSavedRef.current = board.board_id;
 
@@ -484,7 +577,7 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
     return () => {
       cancelled = true;
     };
-  }, [board, progress, result, user]);
+  }, [board, progress, result, user, retryRun]);
 
   // --- record the finished board into the local archive --------------------
   // Runs on completion and again when the comparison lands a moment later.
@@ -493,15 +586,64 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
   // which is also what makes this safe to re-run on every mount of a finished
   // board. Uses a functional update so `archive` stays out of the dependency
   // array and cannot drive a render loop.
+  //
+  // NEVER for a retry run: the archive row for this board describes the
+  // player's real, recorded daily — replacing it with a replay (which could
+  // score LOWER) would rewrite their history to improve a leaderboard.
   useEffect(() => {
     if (!board || !progress || !isComplete(progress)) return;
+    if (retryRun) return;
     setArchive((current) => {
       const base = current ?? loadArchive();
       const next = recordCompletedBoard(base, buildArchiveEntry(board, progress, result));
       saveArchive(next);
       return next;
     });
-  }, [board, progress, result]);
+  }, [board, progress, result, retryRun]);
+
+  // --- retry completion (final integrity closure, gap 1) -------------------
+  // The one write a retry run makes: the finished board goes to
+  // /daily-grid/retry/complete, where the server revalidates it, recomputes
+  // the score, times it against the retry clock IT stamped, and lets the
+  // outcome challenge the leaderboard's better-only upsert. Nothing here can
+  // touch the official result. The stored retry progress is cleared once the
+  // server has answered — its qualification, better or worse, is recorded —
+  // so a later reload lands back on the canonical result.
+  useEffect(() => {
+    if (!retryRun || !board || !progress || !isComplete(progress) || !user) return;
+    if (retryPostedRef.current) return;
+    retryPostedRef.current = true;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getAccessToken();
+        if (!token) throw new Error("session_expired");
+        const res = await completeDailyGridRetry(
+          {
+            date: board.date,
+            filled: progress.filled.map((c) => ({
+              row: c.row,
+              col: c.col,
+              answer_id: c.player_season.id,
+            })),
+            incorrect_attempts: progress.incorrect_attempts,
+          },
+          token,
+        );
+        if (!cancelled) setRetryOutcome(res);
+        clearProgress(retryStorageId(board));
+      } catch {
+        // An honest failed state, not silence: the player ran a timed replay
+        // specifically to move a leaderboard, so "it did not count" is the
+        // one thing they need to hear.
+        if (!cancelled) setRetryOutcome("failed");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [retryRun, board, progress, user]);
 
   // --- the completion overlay ----------------------------------------------
   // Launch-polish §4. Opens once, the moment `progress` becomes complete --
@@ -524,17 +666,81 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
 
   const handleSelect = useCallback(
     (row: number, col: number) => {
+      // Gap 2: the board is not actionable while the start handshake is in
+      // flight — a square can be selected only once the server has stamped
+      // `started_at` (or the call has settled as failed and the local clock
+      // stands). Sub-second in practice; what it guarantees is that no move
+      // can ever precede the authoritative clock.
+      if (starting) return;
       setSelected((cur) => (cur && cur.row === row && cur.col === col ? null : { row, col }));
       setCellMessage(null);
-      // A returning player has no start gate to press -- the gate is shown
-      // once, not once a day -- so their first MOVE is the explicit action that
-      // starts the attempt. Still never the page load, and still never the
-      // walkthrough. `beginAttempt` is a no-op once the clock is running, so
-      // every later square costs nothing.
+      // Belt-and-braces only: the clock started at reveal (or from the gate),
+      // so this is a guaranteed no-op whenever a timestamp exists. It remains
+      // as the last-resort starter for an archive replay's local clock, whose
+      // untimed boards the reveal effect deliberately skips.
       void beginAttempt();
     },
-    [beginAttempt],
+    [beginAttempt, starting],
   );
+
+  /**
+   * "Replay this board" (final integrity closure, gap 1). Opens a FRESH
+   * server retry clock, then resets the board locally under the retry storage
+   * key. The clock is running from the server's stamp — before the emptied
+   * board is even on screen — so a replay can never study first and time
+   * later. The official result, the archive row and the canonical attempt
+   * clock are all untouched; if the retry-start call fails, nothing at all
+   * has changed.
+   */
+  const beginRetry = useCallback(async () => {
+    const b = boardRef.current;
+    // NOT `attemptKey()`: that helper answers "should THIS route auto-start
+    // the canonical clock" and says no to every explicit `?date=` route —
+    // but a replay is an explicit act on a board whose window is open, and
+    // today's board reached via `?date=today` is still today's board. The
+    // server refuses anything that is not today's key regardless.
+    const key = isArchiveBoard ? null : b?.daily_key ?? window_?.daily_key ?? b?.date;
+    if (!b || !key || retryStarting) return;
+    setRetryStarting(true);
+    try {
+      const token = await getAccessToken();
+      if (!token) return;
+      await startDailyGridRetry(key, token);
+      retryPostedRef.current = false;
+      setRetryOutcome(null);
+      setRetryRun(true);
+      setResult(null);
+      setResultError(null);
+      setSelected(null);
+      setCellMessage(null);
+      setResultModalOpen(false);
+      // The local timestamp is display-only (the authoritative clock is the
+      // server's); stamped here so the on-screen timer runs from the start.
+      setProgress(
+        withTimerStarted(emptyProgress({ board_id: retryStorageId(b), date: b.date })),
+      );
+    } catch {
+      // The retry never began; the completed board stays on screen unchanged.
+    } finally {
+      setRetryStarting(false);
+    }
+  }, [isArchiveBoard, window_, retryStarting]);
+
+  /** Back from a retry run to the recorded official result. Discards only
+   *  the retry's local board — the server keeps whatever it already ranked. */
+  const exitRetry = useCallback(() => {
+    const b = boardRef.current;
+    if (!b) return;
+    clearProgress(retryStorageId(b));
+    retryPostedRef.current = false;
+    setRetryRun(false);
+    setRetryOutcome(null);
+    setResult(null);
+    setResultError(null);
+    setSelected(null);
+    setCellMessage(null);
+    setProgress(loadProgress(b.board_id) ?? emptyProgress(b));
+  }, []);
 
   async function handleSubmit(hit: PlayerSeasonSearchHit) {
     if (!board || !progress || !selected) return;
@@ -971,6 +1177,12 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
             archive={archive}
             isArchiveBoard={isArchiveBoard}
             officialSaved={officialSaved}
+            canReplay={!isArchiveBoard && !!user && (officialSaved || retryRun)}
+            onReplay={() => void beginRetry()}
+            replayStarting={retryStarting}
+            retryRun={retryRun}
+            retryOutcome={retryOutcome}
+            onExitRetry={exitRetry}
           />
         </>
       )}

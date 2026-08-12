@@ -118,16 +118,44 @@ PHASE_PICK = "pick"
 #: rather than an animation a client happens to be part-way through.
 PHASE_REVEAL = "reveal"
 
-#: How long the ceremony holds, in seconds.
+#: THE CEREMONY'S LENGTH ON ROUNDS TWO THROUGH SIX, in seconds.
 #:
-#: Covers the spec's reveal animation plus its resolved hold (roughly 1.5-2.5s
-#: then 0.8-1.3s). `clock.enforce` charges no action-grace to a turn nobody can
-#: act on, so this is the whole wall-clock duration rather than a floor.
+#: `clock.enforce` charges no action-grace to a turn nobody can act on, so this
+#: is the whole wall-clock duration rather than a floor. Reduced motion does not
+#: shorten it: the ceremony still has to be READ, and cutting the hold would
+#: give a reduced-motion player less time to take in the same information. The
+#: client drops the movement, not the beat.
 #:
-#: Reduced motion does not shorten it: the ceremony still has to be READ, and
-#: cutting the hold would give a reduced-motion player less time to take in the
-#: same information. The client drops the movement, not the beat.
-REVEAL_SECONDS = 3.2
+#: Was 3.2s, which had to cover the reel's own ~1.6s of travel AND the hold in
+#: which the answer is actually read. The franchise x decade is the single fact
+#: the entire round is played against and it was on screen, settled, for under
+#: a second and a half before the pick panel opened over it -- players reported
+#: the roll "flashing past". The reveal is now split so the settled pair holds
+#: for ~3.0s on its own.
+#:
+#: IT COSTS THE DRAFTER NOTHING, which is the property that makes lengthening
+#: it safe. The reveal is its own server turn; the pick turn is opened
+#: afterwards with a FULL `TURN_SECONDS` measured from the moment the reveal
+#: ended (`_open_pick_turn`), so ceremony time is never decision time.
+REVEAL_SECONDS = 4.6
+
+#: THE CEREMONY'S LENGTH ON ROUND ONE, which also carries the matchup card.
+#:
+#: Round one opens on the match itself -- the title, the three competitors with
+#: the human marked, and the objective -- before the reel. That intro was a 30%
+#: share of a 3.2s window, i.e. under a second: not enough to read three seat
+#: names, let alone the objective. It gets ~4.6s of its own here.
+#:
+#: WHY THIS IS A DIFFERENT CONSTANT RATHER THAN A LONGER `REVEAL_SECONDS`.
+#: Only the first turn of a match runs the intro, and only the first turn is
+#: stamped by `phase_seconds` (matchmaking opens it; the reducer opens every
+#: later round and uses `REVEAL_SECONDS` directly). So the two lengths fall out
+#: of the two code paths that already existed, and no round-number test is
+#: needed anywhere.
+OPENING_REVEAL_SECONDS = 9.2
+
+#: The command a client sends to end the ceremony early. See `_reduce_skip_reveal`.
+COMMAND_SKIP_REVEAL = "tmw_skip_reveal"
 
 COMMAND_PICK = "tmw_pick"
 #: Repositioning your OWN roster. Does not consume a turn -- see
@@ -184,8 +212,13 @@ class ThreeManWeaveMode:
         reducer, and without this hook it was stamped with `turn_seconds` --
         so the first reveal of every match ran for 45 seconds while rounds two
         through six correctly ran for `REVEAL_SECONDS`.
+
+        AND BECAUSE ONLY ROUND ONE COMES THROUGH HERE, this is also where the
+        opening ceremony gets its longer window: it is the only one that runs
+        the matchup card before the reel. Every later round is opened by
+        `_reduce_pick` with `REVEAL_SECONDS`.
         """
-        return REVEAL_SECONDS if phase == PHASE_REVEAL else TURN_SECONDS
+        return OPENING_REVEAL_SECONDS if phase == PHASE_REVEAL else TURN_SECONDS
 
     def phase_accepts_action(self, phase: str) -> bool:
         """Whether a seat -- human or bot -- may play on a turn in this phase.
@@ -300,6 +333,8 @@ class ThreeManWeaveMode:
                     "The franchise and decade are still being revealed.",
                 )
             return self._reduce_pick(data, state)
+        if command.command_type == COMMAND_SKIP_REVEAL:
+            return self._reduce_skip_reveal(data, state)
         if command.command_type == COMMAND_REARRANGE:
             return self._reduce_rearrange(data, state)
         return _reject(
@@ -533,6 +568,44 @@ class ThreeManWeaveMode:
             ),
             status=MATCH_STATUS_ACTIVE,
         )
+
+    def _reduce_skip_reveal(
+        self, data: ReducerInput, state: D.DraftState
+    ) -> ReducerOutput:
+        """End the ceremony NOW, on a player's say-so.
+
+        WHY THE PRODUCT NEEDS IT. The reveal is deliberately long enough to be
+        read -- an intro that cannot be read is not an intro. A returning player
+        has read it, and making them sit through it every match is the reason
+        skippable intros exist at all.
+
+        WHY IT IS A SERVER COMMAND AND NOT A CLIENT DISMISS. The ceremony is a
+        real turn with a real deadline, and the pick turn does not open until it
+        ends. A client that merely hid the overlay would show a player a board
+        they still could not act on, with a "Draft now" button that drafts
+        nothing -- the exact class of client/server disagreement the reveal
+        phase was introduced to remove.
+
+        WHAT IT DOES NOT GRANT. It calls `_open_pick_turn`, the same path the
+        ceremony's own expiry takes, so the pick deadline is `data.now +
+        TURN_SECONDS`. Skipping therefore buys the drafter no extra decision
+        time -- it only stops spending real time on an animation -- and it
+        cannot be used to shorten anybody's clock, because it cannot run once
+        the pick turn is open.
+
+        IT ENDS THE CEREMONY FOR THE TABLE, which is correct rather than
+        merely convenient: the roll is one shared fact revealed to all three
+        seats at once, and the alternative (a per-seat reveal) would put seats
+        on different clocks for the same turn. Any seated participant may call
+        it; there is nothing to gain by calling it early, since the seat that
+        picks first is decided by the draft order and not by this.
+        """
+        if data.open_turn is None or data.open_turn.phase != PHASE_REVEAL:
+            return _reject(
+                REJECT_NOT_YOUR_TURN,
+                "There is no reveal to skip.",
+            )
+        return self._open_pick_turn(data, state)
 
     def _open_pick_turn(self, data: ReducerInput, state: D.DraftState) -> ReducerOutput:
         """End the ceremony and hand the first seat a FULL decision window.
@@ -1101,6 +1174,10 @@ register_bot()
 
 __all__ = [
     "COMMAND_PICK",
+    "COMMAND_SKIP_REVEAL",
+    "OPENING_REVEAL_SECONDS",
+    "REVEAL_SECONDS",
+    "PHASE_REVEAL",
     "ThreeManWeaveBot",
     "bot",
     "register_bot",

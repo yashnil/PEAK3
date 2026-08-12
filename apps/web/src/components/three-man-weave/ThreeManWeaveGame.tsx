@@ -9,6 +9,8 @@ import type {
 import {
   TMW_COMMAND_PICK,
   TMW_COMMAND_REARRANGE,
+  TMW_COMMAND_SKIP_REVEAL,
+  TMW_OPENING_REVEAL_SECONDS,
   TMW_REVEAL_SECONDS,
 } from "@/types/three-man-weave";
 import {
@@ -144,23 +146,87 @@ export default function ThreeManWeaveGame({
   const [deadlineAt, setDeadlineAt] = useState<number | null>(
     deadlineFromSeconds(initialMatch.seconds_remaining),
   );
+  // THE OPEN TURN'S DEADLINE, WHOEVER IS ON IT. Distinct from `deadlineAt`,
+  // which is null while somebody else is deciding — that null is why the
+  // opponent's wait used to be timed locally and drawn as a count-UP. See
+  // `TurnStatus`.
+  const [turnDeadlineAt, setTurnDeadlineAt] = useState<number | null>(
+    deadlineFromSeconds(initialMatch.turn_seconds_remaining),
+  );
 
   // Guards a poll landing while a command is in flight from overwriting the
   // newer state the command already returned.
   const inFlight = useRef(false);
+  /**
+   * The last state the client applied, readable without re-arming the poll.
+   *
+   * `refresh` must be able to compare the response against what is already on
+   * screen, and it must NOT take `match` as a dependency to do it: that would
+   * re-create the callback on every state change and restart the poll interval
+   * with it, so the interval would never actually run to completion during an
+   * active turn.
+   */
+  const applied = useRef<{
+    version: number;
+    phase: string | null;
+    deadlineAt: number | null;
+    turnDeadlineAt: number | null;
+  }>({
+    version: initialMatch.state_version,
+    phase: initialMatch.turn_phase ?? null,
+    deadlineAt: deadlineFromSeconds(initialMatch.seconds_remaining),
+    turnDeadlineAt: deadlineFromSeconds(initialMatch.turn_seconds_remaining),
+  });
 
   const phase = phaseOf(match);
   const complete = phase === "complete";
   const revealing = isRevealing(match);
   const state = match.public_state;
 
+  /**
+   * A POLL THAT CHANGED NOTHING MUST CHANGE NOTHING. (TMW-D3)
+   *
+   * The match object was replaced wholesale on every 2s poll, so `candidates`
+   * — a `useMemo` on `match` — produced a brand new array of brand new
+   * candidate objects, and the entire pick list re-rendered twice a minute-long
+   * turn, under a clock, while the player was aiming at a row. Re-seeding
+   * `deadlineAt` from every response did the same thing a second way: a fresh
+   * number every two seconds re-ran `ArenaTimer`'s effect and re-rendered every
+   * consumer of the deadline.
+   *
+   * Neither is needed. `state_version` is the server's own answer to "did
+   * anything happen", and the deadline is a duration converted at the instant
+   * it lands, so two conversions of the same live turn differ only by the round
+   * trip. So: replace the match only when the version or the phase actually
+   * moved, and re-seed the deadline only when it has drifted far enough to be
+   * worth a repaint.
+   *
+   * THIS IS NOT A CACHE AND IT CANNOT GO STALE. Every real transition — a pick,
+   * a timeout sweep, the reveal ending — increments `state_version`, so it is
+   * exactly the no-op polls that are dropped.
+   */
   const refresh = useCallback(async () => {
     if (inFlight.current) return;
     try {
-      const next = await getMatch(match.match_id);
+      const next = (await getMatch(match.match_id)) as TmwMatchView;
       if (!inFlight.current) {
-        setMatch(next as TmwMatchView);
-        setDeadlineAt(deadlineFromSeconds(next.seconds_remaining));
+        const phase = next.turn_phase ?? null;
+        const moved =
+          next.state_version !== applied.current.version || phase !== applied.current.phase;
+        if (moved) {
+          applied.current = { ...applied.current, version: next.state_version, phase };
+          setMatch(next);
+        }
+        const fresh = deadlineFromSeconds(next.seconds_remaining);
+        if (driftExceeded(applied.current.deadlineAt, fresh) || moved) {
+          applied.current = { ...applied.current, deadlineAt: fresh };
+          setDeadlineAt(fresh);
+        }
+        const freshTurn = deadlineFromSeconds(next.turn_seconds_remaining);
+        if (driftExceeded(applied.current.turnDeadlineAt, freshTurn) || moved) {
+          applied.current = { ...applied.current, turnDeadlineAt: freshTurn };
+          setTurnDeadlineAt(freshTurn);
+        }
       }
       setFailures(0);
     } catch {
@@ -213,8 +279,18 @@ export default function ThreeManWeaveGame({
             payload,
           ),
         );
-        setMatch(response.match as TmwMatchView);
-        setDeadlineAt(deadlineFromSeconds(response.match.seconds_remaining));
+        const next = response.match as TmwMatchView;
+        const fresh = deadlineFromSeconds(next.seconds_remaining);
+        const freshTurn = deadlineFromSeconds(next.turn_seconds_remaining);
+        applied.current = {
+          version: next.state_version,
+          phase: next.turn_phase ?? null,
+          deadlineAt: fresh,
+          turnDeadlineAt: freshTurn,
+        };
+        setMatch(next);
+        setDeadlineAt(fresh);
+        setTurnDeadlineAt(freshTurn);
         setFailures(0);
         return response;
       } finally {
@@ -281,6 +357,27 @@ export default function ThreeManWeaveGame({
     [busy, send],
   );
 
+  /**
+   * END THE CEREMONY EARLY.
+   *
+   * A REAL COMMAND, not a local dismiss: the pick turn does not exist until the
+   * reveal turn closes, so hiding the overlay here would hand the player a
+   * board that refuses every action. A rejection is swallowed rather than
+   * shown — the only way this fails is that the ceremony already ended, which
+   * is what the player asked for.
+   */
+  const skipReveal = useCallback(async () => {
+    if (busy || inFlight.current) return;
+    setBusy(true);
+    try {
+      await send(TMW_COMMAND_SKIP_REVEAL, {});
+    } catch {
+      /* the ceremony expires on its own a moment later */
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, send]);
+
   const connection = connectionState(failures);
   const yourTurn = isYourTurn(match);
   const candidates = useMemo(() => candidatesForSeat(match), [match]);
@@ -297,6 +394,9 @@ export default function ThreeManWeaveGame({
   // it": the ceremony is open exactly while the server says the open turn is
   // the reveal. Every seat, every round.
   const ceremonyOpen = revealing && !complete;
+  /** Round one, before anybody has drafted: the ceremony that runs the matchup
+   *  card first, and therefore the one the server gave a longer window. */
+  const openingCeremony = picksMade === 0 && state.current_round === 1;
 
   // ...and therefore the decision surface is closed while it is. `canPick`
   // already subtracts the reveal phase; `revealing` is repeated here because
@@ -389,11 +489,19 @@ export default function ThreeManWeaveGame({
             handoffLabel={nextUp ?? undefined}
             // Round one opens on the matchup: title, the three competitors with
             // you marked, the objective, then the roll (TMW-13).
-            showIntro={picksMade === 0 && state.current_round === 1}
+            showIntro={openingCeremony}
             // THE CEREMONY'S CLOCK IS THE SERVER'S. Both of these come from the
             // reveal turn, so a reload mid-ceremony resumes at the right beat.
             deadlineAt={deadlineAt}
-            revealSeconds={TMW_REVEAL_SECONDS}
+            // THE DENOMINATOR MUST BE THE WINDOW THE SERVER ACTUALLY OPENED.
+            // Round one's ceremony carries the matchup card and is longer
+            // (`OPENING_REVEAL_SECONDS`); using one number for both would put
+            // every stage boundary in the wrong place on one of them.
+            revealSeconds={
+              openingCeremony ? TMW_OPENING_REVEAL_SECONDS : TMW_REVEAL_SECONDS
+            }
+            onSkip={skipReveal}
+            skipping={busy}
           />
 
           <TurnStatus
@@ -405,6 +513,7 @@ export default function ThreeManWeaveGame({
             pickNumber={picksMade + 1}
             totalPicks={state.total_rounds * match.seat_count}
             deadlineAt={deadlineAt}
+            opponentDeadlineAt={turnDeadlineAt}
             turnSeconds={TURN_SECONDS}
             timeoutConsequence={TMW_TIMEOUT_CONSEQUENCE}
             // Expiry is not a resolution -- it is a prompt to go and read the
@@ -452,6 +561,24 @@ export default function ThreeManWeaveGame({
       )}
     </div>
   );
+}
+
+/**
+ * How far two conversions of the same live deadline may differ before the
+ * newer one is worth applying, in milliseconds.
+ *
+ * Both are `performance.now() + seconds_remaining * 1000`, computed one poll
+ * apart, so on a healthy connection they differ only by the round trip. Below
+ * this the "correction" would move the displayed number by less than the tick
+ * it is drawn at, while re-rendering every consumer of the deadline. Above it
+ * something real happened — a new turn, a suspended tab, a slow request — and
+ * the server's number wins.
+ */
+const DEADLINE_DRIFT_MS = 750;
+
+function driftExceeded(current: number | null, next: number | null): boolean {
+  if (current === null || next === null) return current !== next;
+  return Math.abs(next - current) > DEADLINE_DRIFT_MS;
 }
 
 function describe(error: unknown, action: string): string {

@@ -17,7 +17,12 @@ import json
 import uuid
 from typing import Any, Optional
 
-from app.repositories.daily_grid_protocols import DailyGridAttempt, DailyGridResult
+from app.repositories.daily_grid_protocols import (
+    DailyGridAttempt,
+    DailyGridLeaderboardEntry,
+    DailyGridResult,
+    DailyGridRetryAttempt,
+)
 
 try:
     import asyncpg  # type: ignore[import]
@@ -65,6 +70,21 @@ def _row_to_result(row: Any) -> DailyGridResult:
         elapsed_seconds=row["elapsed_seconds"],
         played_on_board_date=row["played_on_board_date"],
         answers=_json_str_list(row["answers"]),
+        created_at=row["created_at"],
+    )
+
+
+def _row_to_leaderboard_entry(row: Any) -> DailyGridLeaderboardEntry:
+    return DailyGridLeaderboardEntry(
+        id=str(row["id"]),
+        owner_sub=row["owner_sub"],
+        daily_key=row["daily_key"],
+        board_id=row["board_id"],
+        board_version=row["board_version"],
+        score=row["score"],
+        completion_time_ms=row["completion_time_ms"],
+        result_id=str(row["result_id"]),
+        completed_at=row["completed_at"],
         created_at=row["created_at"],
     )
 
@@ -218,6 +238,166 @@ class PostgresDailyGridResultRepository:
                 owner_sub, limit,
             )
             return [_row_to_result(row) for row in rows]
+
+    # -- Leaderboard (public best-per-user-per-day) ------------------------
+
+    #: The ranking, as ORDER BY — the SQL spelling of
+    #: `daily_grid_protocols.leaderboard_sort_key`, kept adjacent to its
+    #: WHERE so the paired partial index below stays the obvious plan.
+    _LEADERBOARD_ORDER = (
+        "ORDER BY score DESC, completion_time_ms ASC NULLS LAST, "
+        "completed_at ASC, id ASC"
+    )
+
+    async def upsert_leaderboard_best(
+        self, entry: DailyGridLeaderboardEntry
+    ) -> tuple[DailyGridLeaderboardEntry, bool]:
+        """One statement, atomic under concurrency (A2.5).
+
+        The better-only rule lives in the `WHERE` of `ON CONFLICT DO UPDATE`
+        — the SQL spelling of `daily_grid_protocols.is_strictly_better` — so
+        two simultaneous submissions serialise on the unique index and the
+        loser of the race is compared against the winner's ROW, not against a
+        stale read. `RETURNING` is non-empty only when the insert or the
+        qualified update actually applied; an empty return means the incumbent
+        stood, and it is read back unchanged.
+        """
+        entry_id = entry.id or str(uuid.uuid4())
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO daily_grid_leaderboard_entries (
+                    id, owner_sub, daily_key, board_id, board_version,
+                    score, completion_time_ms, result_id, completed_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                ON CONFLICT (owner_sub, daily_key, board_version) DO UPDATE SET
+                    score = EXCLUDED.score,
+                    completion_time_ms = EXCLUDED.completion_time_ms,
+                    result_id = EXCLUDED.result_id,
+                    board_id = EXCLUDED.board_id,
+                    completed_at = EXCLUDED.completed_at,
+                    updated_at = NOW()
+                WHERE
+                    EXCLUDED.score > daily_grid_leaderboard_entries.score
+                    OR (
+                        EXCLUDED.score = daily_grid_leaderboard_entries.score
+                        AND EXCLUDED.completion_time_ms IS NOT NULL
+                        AND (
+                            daily_grid_leaderboard_entries.completion_time_ms IS NULL
+                            OR EXCLUDED.completion_time_ms
+                                < daily_grid_leaderboard_entries.completion_time_ms
+                        )
+                    )
+                RETURNING *
+                """,
+                entry_id, entry.owner_sub, entry.daily_key, entry.board_id,
+                entry.board_version, entry.score, entry.completion_time_ms,
+                entry.result_id, entry.completed_at,
+            )
+            if row is not None:
+                return _row_to_leaderboard_entry(row), True
+            existing = await conn.fetchrow(
+                """
+                SELECT * FROM daily_grid_leaderboard_entries
+                WHERE owner_sub = $1 AND daily_key = $2 AND board_version = $3
+                """,
+                entry.owner_sub, entry.daily_key, entry.board_version,
+            )
+        if existing is None:
+            # The incumbent vanished between statements — retry-once territory,
+            # but honesty beats loops: report the caller's entry as unapplied.
+            entry.id = entry_id
+            return entry, False
+        return _row_to_leaderboard_entry(existing), False
+
+    async def leaderboard_top(
+        self, daily_key: str, limit: int = 25
+    ) -> list[DailyGridLeaderboardEntry]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT * FROM daily_grid_leaderboard_entries
+                WHERE daily_key = $1
+                {self._LEADERBOARD_ORDER}
+                LIMIT $2
+                """,
+                daily_key, limit,
+            )
+            return [_row_to_leaderboard_entry(r) for r in rows]
+
+    async def leaderboard_entry_for_owner(
+        self, owner_sub: str, daily_key: str
+    ) -> Optional[DailyGridLeaderboardEntry]:
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT * FROM daily_grid_leaderboard_entries
+                WHERE owner_sub = $1 AND daily_key = $2
+                """,
+                owner_sub, daily_key,
+            )
+            return _row_to_leaderboard_entry(row) if row is not None else None
+
+    async def leaderboard_all_for_day(
+        self, daily_key: str
+    ) -> list[DailyGridLeaderboardEntry]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT * FROM daily_grid_leaderboard_entries
+                WHERE daily_key = $1
+                {self._LEADERBOARD_ORDER}
+                """,
+                daily_key,
+            )
+            return [_row_to_leaderboard_entry(r) for r in rows]
+
+    async def start_retry_attempt(
+        self, attempt: DailyGridRetryAttempt
+    ) -> DailyGridRetryAttempt:
+        """Plain INSERT, no conflict clause: every retry is its own clock and
+        `started_at` is the database's NOW(), never a caller-supplied value."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO daily_grid_retry_attempts (id, owner_sub, daily_key)
+                VALUES ($1, $2, $3)
+                RETURNING *
+                """,
+                attempt.id or str(uuid.uuid4()),
+                attempt.owner_sub,
+                attempt.daily_key,
+            )
+        return DailyGridRetryAttempt(
+            id=str(row["id"]),
+            owner_sub=row["owner_sub"],
+            daily_key=row["daily_key"],
+            started_at=row["started_at"],
+            created_at=row["created_at"],
+        )
+
+    async def latest_retry_attempt(
+        self, owner_sub: str, daily_key: str
+    ) -> Optional[DailyGridRetryAttempt]:
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT * FROM daily_grid_retry_attempts
+                WHERE owner_sub = $1 AND daily_key = $2
+                ORDER BY started_at DESC, created_at DESC
+                LIMIT 1
+                """,
+                owner_sub, daily_key,
+            )
+        if row is None:
+            return None
+        return DailyGridRetryAttempt(
+            id=str(row["id"]),
+            owner_sub=row["owner_sub"],
+            daily_key=row["daily_key"],
+            started_at=row["started_at"],
+            created_at=row["created_at"],
+        )
 
     async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
         """Reassign this owner's results to `to_sub` -- the guest-claim path.

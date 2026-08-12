@@ -2329,5 +2329,93 @@
       "policies: DROP POLICY IF EXISTS guard before CREATE POLICY",
       "triggers: DROP TRIGGER IF EXISTS guard before CREATE TRIGGER"
     ]
+  },
+  {
+    "filename": "20260811090000_daily_grid_leaderboard.sql",
+    "identifier": "20260811090000_daily_grid_leaderboard",
+    "tables_created": {
+      "daily_grid_leaderboard_entries": [
+        "id",
+        "owner_sub",
+        "daily_key",
+        "board_id",
+        "board_version",
+        "score",
+        "completion_time_ms",
+        "result_id",
+        "completed_at",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "daily_grid_leaderboard_rank_idx",
+        "table": "daily_grid_leaderboard_entries"
+      }
+    ],
+    "constraints": [
+      "daily_grid_leaderboard_unique_owner_day"
+    ],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [
+      "daily_grid_leaderboard_entries"
+    ],
+    "policies": [
+      {
+        "name": "daily_grid_leaderboard_public_read",
+        "table": "daily_grid_leaderboard_entries"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
+    ]
+  },
+  {
+    "filename": "20260811130000_daily_grid_retry_attempts.sql",
+    "identifier": "20260811130000_daily_grid_retry_attempts",
+    "tables_created": {
+      "daily_grid_retry_attempts": [
+        "id",
+        "owner_sub",
+        "daily_key",
+        "started_at",
+        "created_at"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "daily_grid_retry_attempts_latest_idx",
+        "table": "daily_grid_retry_attempts"
+      }
+    ],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [
+      "daily_grid_retry_attempts"
+    ],
+    "policies": [
+      {
+        "name": "daily_grid_retry_attempts_owner_read",
+        "table": "daily_grid_retry_attempts"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
+    ]
   }
 ]

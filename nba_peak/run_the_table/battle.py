@@ -221,6 +221,16 @@ def resolve_battle(
     lanes_needed = lanes_to_win_for(opponent.rule_id)
     bonuses = {k: float(v) for k, v in (lane_bonuses or {}).items() if v}
 
+    # A RULE THAT TAKES THE BENCH OUT SAYS SO, BY NAME (F4). Printing an
+    # unexplained 0.00 for a bench a player deliberately built is the same
+    # defect as printing it when the bench IS counting: in both cases the
+    # receipt is silent about the one thing the player wants to know.
+    bench_suppressed_by = (
+        opponent.rule_id
+        if opponent.rule_id and BOSS_BENCH_WEIGHT.get(opponent.rule_id) == 0.0
+        else None
+    )
+
     lanes: list[LaneResult] = []
     p_wins = o_wins = ties = 0
     summed_margin = 0.0
@@ -247,6 +257,16 @@ def resolve_battle(
             pool, player_starters, player_bench, lane, BENCH_WEIGHT_DEFAULT
         )
         bench_adjustment = round(p - bonus - pre_perk_rating, LANE_ROUNDING)
+
+        # WHAT THE BENCH IS ACTUALLY WORTH (F4). See `LaneResult`: the receipt
+        # used to print "+ Bench 0.00" beside a populated bench, because the
+        # only bench line it had was `bench_adjustment` -- the PERK residual,
+        # which is correctly zero when no perk or boss rule has moved the
+        # weight. The bench's real contribution lives inside `pre_perk_rating`,
+        # since `lane_score` is a weighted mean over starters AND bench, so it
+        # is recovered by scoring the starters alone and taking the difference.
+        starters_only = lane_score(pool, player_starters, (), lane, BENCH_WEIGHT_DEFAULT)
+        bench_contribution = round(pre_perk_rating - starters_only, LANE_ROUNDING)
 
         # `tie_broken_by_rule` means "the boss rule, not the raw margin,
         # determined this lane's result". Under a lane-margin rule that means
@@ -275,6 +295,9 @@ def resolve_battle(
                 player_prep_bonus=bonus,
                 pre_perk_rating=pre_perk_rating,
                 bench_adjustment=bench_adjustment,
+                starters_only_rating=starters_only,
+                bench_contribution=bench_contribution,
+                bench_suppressed_by=bench_suppressed_by,
                 player_top_card_id=_top_contributor(
                     pool, list(player_starters) + list(player_bench), lane
                 ),

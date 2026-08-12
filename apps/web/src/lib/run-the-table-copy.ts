@@ -608,6 +608,22 @@ export const LANE_RATING_LABELS = {
   /** The second, separately-attributed number on a lane row: one player's OWN
    *  value in that lane, from `card.lane_index` — never the lineup rating. */
   topContributor: "Top contributor",
+  /**
+   * SAID OUT LOUD, ON THE ROW (F5).
+   *
+   * THE CONFUSING SCREEN. "Your top contributor Shaq 71.2 / their top
+   * contributor Hakeem 49.5" sitting above a lane the player had just LOST.
+   * That is not a bug — the lane is won by the depth-weighted team rating, and
+   * `tests/run_the_table/test_team_scoring_matrix.py` pins that — but a screen
+   * that shows a 21.7-point individual edge next to a defeat and never says
+   * which number decided it is asking the player to infer the rule.
+   *
+   * So the two numbers now carry their own relationship in words rather than
+   * relying on type size to imply it.
+   */
+  decidesLane: "This decides the lane",
+  contributorIsExplanatory:
+    "Biggest single contributor on each side. The lane is decided by the lineup ratings above, not by these.",
 } as const;
 
 /**

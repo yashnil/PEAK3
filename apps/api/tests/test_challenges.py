@@ -35,7 +35,7 @@ ALL_ROLES = ["lead_creator", "guard_wing", "wing_forward", "forward_big", "ancho
 
 
 def _play_full_game(client: TestClient, mode: str = "apex_1y", seed: int = 42) -> dict:
-    """Play a full game using a most-constrained-first greedy heuristic."""
+    """Play a full game along the greedy path board generation guarantees."""
     resp = client.post("/api/v1/draft/games", json={"mode": mode, "board_type": "practice", "seed": seed})
     assert resp.status_code == 200, resp.text
     state = resp.json()
@@ -48,18 +48,19 @@ def _play_full_game(client: TestClient, mode: str = "apex_1y", seed: int = 42) -
         offers = state["current_offers"]
         open_roles = state["open_roles"]
 
+        # THE GENERATOR-GUARANTEED PATH (see test_draft.py's helper of the
+        # same name): first offered card with any open-role match, first
+        # eligible role in ALL_ROLES order — the exact greedy walk
+        # `_greedy_playthrough_succeeds` gates every generated board on. The
+        # old most-constrained heuristic could corner itself under the honest
+        # window-scoped roles and its fallback then sent an ILLEGAL pair.
         card_id, role = None, None
-        best_constraint = float("inf")
         for offer in offers:
-            eligible_open = [r for r in offer["eligible_roles"] if r in open_roles]
-            if eligible_open and len(eligible_open) < best_constraint:
-                best_constraint = len(eligible_open)
+            eligible_open = [r for r in ALL_ROLES if r in offer["eligible_roles"] and r in open_roles]
+            if eligible_open:
                 card_id = offer["peak_window_id"]
                 role = eligible_open[0]
-
-        if card_id is None and open_roles and offers:
-            card_id = offers[0]["peak_window_id"]
-            role = open_roles[0]
+                break
 
         assert card_id is not None and role is not None
         state = _action(client, game_id, "select_card", card_id=card_id, role=role)
@@ -68,7 +69,7 @@ def _play_full_game(client: TestClient, mode: str = "apex_1y", seed: int = 42) -
 
 
 def _play_game_by_id(client: TestClient, game_id: str) -> dict:
-    """Play an existing game to completion using greedy most-constrained heuristic."""
+    """Play an existing game to completion along the guaranteed greedy path."""
     for _ in range(5):
         state = client.get(f"/api/v1/draft/games/{game_id}").json()
         if state["status"] == "draft_complete":
@@ -76,18 +77,19 @@ def _play_game_by_id(client: TestClient, game_id: str) -> dict:
         offers = state["current_offers"]
         open_roles = state["open_roles"]
 
+        # THE GENERATOR-GUARANTEED PATH (see test_draft.py's helper of the
+        # same name): first offered card with any open-role match, first
+        # eligible role in ALL_ROLES order — the exact greedy walk
+        # `_greedy_playthrough_succeeds` gates every generated board on. The
+        # old most-constrained heuristic could corner itself under the honest
+        # window-scoped roles and its fallback then sent an ILLEGAL pair.
         card_id, role = None, None
-        best_constraint = float("inf")
         for offer in offers:
-            eligible_open = [r for r in offer["eligible_roles"] if r in open_roles]
-            if eligible_open and len(eligible_open) < best_constraint:
-                best_constraint = len(eligible_open)
+            eligible_open = [r for r in ALL_ROLES if r in offer["eligible_roles"] and r in open_roles]
+            if eligible_open:
                 card_id = offer["peak_window_id"]
                 role = eligible_open[0]
-
-        if card_id is None and open_roles and offers:
-            card_id = offers[0]["peak_window_id"]
-            role = open_roles[0]
+                break
 
         assert card_id is not None and role is not None
         resp = client.post(

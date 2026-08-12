@@ -437,13 +437,60 @@
 
 /* An indeterminate sweep: it says "something is happening" without implying a
    remaining time this client has not been told. */
+/* THE OPPONENT'S TRACK DRAINS, it does not sweep — the panel is a countdown
+   now, and an indeterminate barber-pole beside a real number said two
+   different things about the same clock. The sweep survives as the fallback
+   for a turn whose deadline the server did not publish, which is the one case
+   where the client genuinely does not know how much is left. */
 .td-clock-elapsed-fill {
   display: block;
-  width: 35%;
+  width: calc(var(--td-opponent-fraction, 0.35) * 100%);
   height: 100%;
   border-radius: 999px;
   background: var(--seat-b-fill);
+  transition: width 250ms linear;
+}
+
+.td-clock[data-direction="up"] .td-clock-elapsed-fill {
+  width: 35%;
+  transition: none;
   animation: td-sweep 1.4s ease-in-out infinite;
+}
+
+/* -- forfeit (C2) ---------------------------------------------------------
+   A secondary control in the room header, a short distance from "How to play".
+   It ends the match with a loss and cannot be undone, so it is never one click
+   and the destructive choice is never the one under the cursor. */
+.td-forfeit {
+  color: var(--text-secondary);
+}
+
+.td-forfeit:hover {
+  color: var(--incorrect);
+  border-color: var(--incorrect);
+}
+
+.td-forfeit-confirm {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--incorrect);
+  border-radius: var(--pk-r-sm, 6px);
+  background: var(--incorrect-bg);
+}
+
+.td-forfeit-question {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.td-forfeit-go {
+  border-color: var(--incorrect);
+  color: var(--incorrect);
+  font-weight: 700;
 }
 
 /* -- pending: we have submitted (S20-08) ----------------------------------- */
@@ -2059,6 +2106,62 @@
    restarts it. */
 .td-enter {
   animation: td-enter var(--pk-dur-reveal, 400ms) var(--pk-ease-out, ease-out) both;
+}
+
+/* ============================================================================
+   THE LOT ON THE BLOCK ARRIVES BY MOVING, NEVER BY FADING UP FROM NOTHING (C4)
+   ============================================================================
+   THE DEFECT. "During manual play, an active auction player appeared and then
+   visually disappeared during state transitions." It was not a polling race, a
+   stale response or a null in the projection -- the server never publishes a
+   null candidate for a live match; `_resolve_lot` clears
+   `current_candidate` and `_advance_lot` sets the next one inside the SAME
+   reducer call, so no persisted snapshot has an empty block.
+
+   It was these animations. `AuctionStage` keys its card on `lot_index`, so a
+   new lot REMOUNTS the element, and both `.td-enter` and the `.pk-reveal`
+   blocks nested inside it animate `opacity: 0 -> 1` with `fill-mode: both`.
+   The card was therefore painted at zero opacity for the first frames of every
+   single lot, and the player's own name and headshot -- a `.pk-reveal` with a
+   stagger delay on top -- for longer still.
+
+   Instrumented over a full auction, sampling every animation frame: 13 windows
+   in which the lot card was live but invisible, one per lot transition, 24-47ms
+   each at the >0.05-opacity threshold and the whole 400ms fade below it. That
+   is a card blinking out and coming back on every lot, which is exactly the
+   report.
+
+   THE INVARIANT. Once a lot is on the block its player is painted in EVERY
+   frame until the next lot replaces them. An arrival gesture is still wanted --
+   this is the room's decision surface and it should announce itself -- so the
+   gesture is now movement and scale, which carry the same "this just landed"
+   reading and cannot make anything disappear. Opacity is left alone.
+
+   Scoped to the lot card rather than changing `.td-enter` or `.pk-reveal`
+   globally: a result header fading in is fine, because nothing is being decided
+   against it under a clock. */
+@keyframes td-lot-arrive {
+  from {
+    transform: translateY(0.75rem) scale(0.985);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.td-candidate.td-enter {
+  animation-name: td-lot-arrive;
+}
+
+.td-candidate .pk-reveal {
+  animation-name: td-lot-arrive;
+}
+
+/* The staggered rhythm inside the card survives — it is the reading order of
+   identity, then price, then verdict — it simply no longer starts from
+   invisible. */
+.td-candidate .pk-reveal {
+  animation-duration: var(--pk-dur-base, 200ms);
 }
 
 /* The card flight into a roster slot. */

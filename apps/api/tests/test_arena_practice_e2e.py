@@ -112,18 +112,28 @@ def _age_open_turn(match_id: str, seconds: float) -> None:
 
 
 def _expire_ceremony(match_id: str) -> None:
-    """Let a Three-Man Weave franchise x decade REVEAL run out.
+    """Let a SEATLESS turn -- a ceremony or a pre-match intro -- run out.
 
-    THE CEREMONY IS A TURN NOW, so a driver that only advanced a bot's think
-    delay stopped dead at the top of every round: the reveal belongs to no seat,
-    nobody may act on it, and it ends only when its own deadline passes. The
-    foundation's sweep is lazy -- it fires on a read -- so a test that wants the
-    next pick turn has to let the ceremony expire first, exactly as a real
-    client's polling does 3.2 seconds later.
+    THE CEREMONY IS A TURN, so a driver that only advanced a bot's think delay
+    stopped dead at the top of every round: it belongs to no seat, nobody may
+    act on it, and it ends only when its own deadline passes. The foundation's
+    sweep is lazy -- it fires on a read -- so a test that wants the next
+    playable turn has to let the ceremony expire first, exactly as a real
+    client's polling does a few seconds later.
 
-    ONLY THE REVEAL'S DEADLINE IS MOVED. Pulling a PICK turn's deadline back
-    would forfeit that seat to the auto-pick, which would quietly turn every
-    driver below into a test of the timeout path instead of the one it names.
+    KEYED ON `seat_index is None` RATHER THAN ON A PHASE NAME. It used to name
+    Three-Man Weave's `PHASE_REVEAL` specifically, and the $20 Showdown's new
+    pre-match intro (`twenty_dollar.mode.PHASE_INTRO`) is exactly the same kind
+    of turn for exactly the same reason -- so every driver in this file hung on
+    it until the phase list was updated. "A turn nobody is on the clock for" is
+    the property that actually matters and it is the one the foundation itself
+    keys on (`clock.enforce` charges no action-grace to such a turn), so this
+    now needs no maintenance when the next mode adds one.
+
+    ONLY A SEATLESS TURN'S DEADLINE IS MOVED. Pulling a seated turn's deadline
+    back would forfeit that seat to its auto-resolution, which would quietly
+    turn every driver below into a test of the timeout path instead of the one
+    it names.
 
     Moved to an instant already past rather than shifted by a fixed amount, so
     the helper works for a ceremony of ANY length -- see
@@ -131,7 +141,7 @@ def _expire_ceremony(match_id: str) -> None:
     """
     past = datetime.now(timezone.utc) - timedelta(seconds=1)
     for turn in _memory_arena_repo._turns.get(match_id, []):
-        if turn.resolved_at is None and turn.phase == tmw_module.PHASE_REVEAL:
+        if turn.resolved_at is None and turn.seat_index is None:
             turn.deadline_at = past
 
 
@@ -224,7 +234,14 @@ def test_no_seat_name_leaks_an_implementation_label(mode):
 
 def test_the_showdowns_first_turn_belongs_to_the_seed_drawn_opener():
     """`_open_play` used to hardcode seat 0. Over enough matches the opener
-    must be seat 1 sometimes, and the clock must be on whoever it is."""
+    must be seat 1 sometimes, and the clock must be on whoever it is.
+
+    A MATCH NOW OPENS ON THE INTRO, which belongs to no seat -- that is what
+    makes the briefing cost the opening bidder none of their own 25 seconds.
+    So the guarantee is asserted one step later, on the first turn anybody is
+    actually handed, which is a stricter place for it than the hook's return
+    value: it is the turn a player really receives.
+    """
     client = _client_as("user-a")
     seen = set()
     for _ in range(25):
@@ -234,7 +251,13 @@ def test_the_showdowns_first_turn_belongs_to_the_seed_drawn_opener():
         opener = view["public_state"]["opening_seat"]
         seen.add(opener)
         assert view["public_state"]["active_seat"] == opener
-        assert view["current_turn_seat_index"] == opener
+        # The intro turn names nobody, so BOTH seats see its clock.
+        assert view["turn_phase"] == td_module.PHASE_INTRO
+        assert view["current_turn_seat_index"] is None
+        # ...and when it ends, the auction turn is the seed-drawn opener's.
+        after = _poll(client, view["match_id"])
+        assert after["turn_phase"] != td_module.PHASE_INTRO
+        assert after["current_turn_seat_index"] == opener
     assert seen == {0, 1}, "the opening bidder never varied"
 
 
@@ -253,6 +276,9 @@ def test_the_human_gets_the_full_window_when_their_turn_opens():
     view = client.post(
         "/api/v1/arena/matches/practice", json={"mode": TWENTY}
     ).json()
+    # END THE INTRO FIRST. It is a real turn belonging to no seat, so no
+    # auction clock exists until it closes -- which is the whole point of it.
+    view = _poll(client, view["match_id"])
     if view["your_seat_index"] != view["public_state"]["active_seat"]:
         # The bot opens. Poll until the clock comes back to the human.
         view = _poll(client, view["match_id"])
@@ -737,7 +763,14 @@ def test_round_ones_ceremony_is_the_modes_own_length():
     turn = _open_turn(view["match_id"])
     assert turn.phase == tmw_module.PHASE_REVEAL
     held = (turn.deadline_at - turn.opened_at).total_seconds()
-    assert held == pytest.approx(tmw_module.REVEAL_SECONDS, abs=0.5), held
+    # ROUND ONE'S CEREMONY IS THE LONGER ONE, and deliberately so: it runs the
+    # matchup card -- title, the three competitors with the human marked, the
+    # objective -- BEFORE the franchise x decade reel. That intro used to be a
+    # 30% share of a 3.2s window, i.e. under a second for three seat names, and
+    # `OPENING_REVEAL_SECONDS` is the constant that fixed it. Rounds two
+    # through six run `REVEAL_SECONDS` and are covered by the sweep above.
+    assert held == pytest.approx(tmw_module.OPENING_REVEAL_SECONDS, abs=0.5), held
+    assert tmw_module.OPENING_REVEAL_SECONDS > tmw_module.REVEAL_SECONDS
     # And emphatically NOT the decision window, which is what it used to be.
     assert held < tmw_module.TURN_SECONDS / 2, (
         f"round one held the ceremony for {held}s against a "
