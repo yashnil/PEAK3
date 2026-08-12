@@ -192,15 +192,29 @@ describe("the clock anchors at board reveal (gap 2)", () => {
 
   it("the board is not actionable until the authoritative started_at exists", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    // A deterministic deferred: the handshake stays open until THIS test
+    // resolves it, so "in flight" is a controlled fact.
     let releaseStart!: (value: unknown) => void;
     mockStart.mockReturnValue(new Promise((resolve) => (releaseStart = resolve)));
     render(<DailyGridGame skipRulesGate />);
 
+    // OBSERVE the handshake before touching anything. The first version of
+    // this test clicked as soon as the cells existed and merely ASSUMED the
+    // reveal effect had already fired — but React commits the board a tick
+    // before that commit's passive effects run, and under fake timers with
+    // `shouldAdvanceTime` the find can return inside that tick on a slow
+    // machine (CI run 31556826178: the click landed pre-effect, selected a
+    // square, and the held promise proved the handshake hadn't even been
+    // REQUESTED yet). `mockStart` having been called strictly follows the
+    // pending-state commit, so after this wait the guard is provably armed.
     const cells = await screen.findAllByTestId("grid-cell");
-    // Handshake in flight: a click selects nothing.
+    await waitFor(() => expect(mockStart).toHaveBeenCalledTimes(1));
+
+    // Handshake in flight (held by the deferred): a click selects nothing.
     await user.click(cells[0]);
     expect(screen.queryByTestId("cell-panel")).not.toBeInTheDocument();
 
+    // The server answers with the authoritative clock; React flushes.
     await act(async () => {
       releaseStart({
         daily_key: TODAY_KEY,
@@ -210,8 +224,13 @@ describe("the clock anchors at board reveal (gap 2)", () => {
         attempt_status: "in_progress",
       });
     });
+
+    // Actionable now: the SAME cell opens the panel.
     await user.click(cells[0]);
     expect(await screen.findByTestId("cell-panel")).toBeInTheDocument();
+    // And the blocked click never even reached the belt-and-braces starter —
+    // exactly one handshake for the whole reveal.
+    expect(mockStart).toHaveBeenCalledTimes(1);
   });
 
   it("waiting five seconds before the first move costs five seconds", async () => {
