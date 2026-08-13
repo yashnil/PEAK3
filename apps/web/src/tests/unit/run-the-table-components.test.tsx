@@ -511,8 +511,18 @@ describe("RunTheTableGame — the ?start= contract (plan §5.1)", () => {
     render(<RunTheTableGame />);
     await screen.findByTestId("rtt-shell");
     expect(mockCreateRun).not.toHaveBeenCalled();
-    // The param is still consumed and stripped — it just creates nothing.
-    expect(window.location.search).toBe("");
+    // The param is still consumed and stripped — it just creates nothing. Here
+    // (unlike the "starts exactly ONE run" test above) the resumed `state` and
+    // `booting: false` land in the SAME commit, since both come from the one
+    // `boot()` continuation with no await between them. That means the strip —
+    // which runs inside the `?start=` effect gated on `booting` — fires from
+    // the same commit that first renders `rtt-shell`, as a passive effect
+    // scheduled *after* that commit, not synchronously within it. `findByTestId`
+    // resolves off a MutationObserver callback watching the DOM, which races
+    // React's own passive-effect flush with no ordering guarantee between the
+    // two queues. So wait for the contract explicitly rather than asserting
+    // immediately after the shell appears.
+    await waitFor(() => expect(window.location.search).toBe(""));
     at("");
   });
 
