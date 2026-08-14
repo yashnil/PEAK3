@@ -269,8 +269,8 @@ class ThreeManWeaveMode:
     def bot_display_names(self, seed: int, count: int) -> tuple[str, ...]:
         """Distinct, human-facing names for this match's bot seats.
 
-        Archetypes rather than "PEAK3 Bot 1" and "PEAK3 Bot 2", which read as
-        placeholders in a mode whose whole surface is otherwise full of real
+        Archetypes rather than a numbered generic placeholder, which reads as
+        unfinished work in a mode whose whole surface is otherwise full of real
         people's names. Never a real player's name -- see `bot.py`.
         """
         return archetype_names(seed, count)

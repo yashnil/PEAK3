@@ -124,7 +124,7 @@ export function TurnBanner({
  *   4. the last meaningful action
  *
  * The time, the controls and the budgets follow, in the room. What is gone is
- * the row of micro-chips (`You $1 · PEAK3 Bot $2 · You $3 …`) that used to
+ * the row of micro-chips (`You $1 · Opponent $2 · You $3 …`) that used to
  * carry the whole bid history at 11 px; the full walk-up now lives in
  * `AuctionLog`, behind a disclosure.
  *

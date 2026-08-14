@@ -165,9 +165,9 @@ export default function ShowdownClock({
       <div className="td-clock-held pk-crown" data-testid="td-timer">
         {/* EVERY LABEL HERE IS IN THE TIME DOMAIN. `TurnBanner` directly above
             already names the seat, and this panel's first draft repeated it
-            word for word — "PEAK3 Bot is deciding" under "PEAK3 Bot is
-            deciding". Two identical sentences stacked is the same defect as
-            four different ones. */}
+            word for word — the opponent's name and "is deciding" stacked
+            twice. Two identical sentences stacked is the same defect as four
+            different ones. */}
         <span className="td-clock-held-label">
           {activeSeat === null || phase === "intro" ? "Next clock" : "Your clock"}
         </span>

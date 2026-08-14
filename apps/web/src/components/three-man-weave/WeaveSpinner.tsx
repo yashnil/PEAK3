@@ -298,7 +298,7 @@ export default function WeaveSpinner({
                     {seat.seat_index === yourSeatIndex
                       ? "You"
                       : seat.is_bot
-                        ? "PEAK3 bot"
+                        ? "Bot"
                         : "Drafter"}
                   </span>
                 </li>

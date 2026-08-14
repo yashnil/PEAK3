@@ -32,6 +32,34 @@
 
 import type { ArenaModeInfo } from "@/lib/arena-lobby-api";
 
+/**
+ * What a bot seat is called when nothing more specific is available. Mirrors
+ * `bots.BOT_DISPLAY_NAME` -- an implementation id must never reach a screen.
+ *
+ * EMERGENCY FALLBACK ONLY. Every seat a real match deals gets its own
+ * memorable name from the server (`bots.curated_bot_names` for most modes,
+ * Three-Man Weave's own archetypes for its draft) via `ArenaSeatPublic
+ * .display_name`, which is what components should read. This constant exists
+ * for the one case a seat's name is genuinely unavailable client-side (a
+ * lookup miss, not the normal path), so an opponent is never rendered with no
+ * name at all.
+ */
+export const BOT_DISPLAY_NAME = "PEAK3 Opponent";
+
+/**
+ * Mode-neutral prose for copy that talks ABOUT bot opponents in general,
+ * without naming any specific seat -- entry-path descriptions, capability
+ * banners, disabled-state reasons. Used to be six independent hardcoded
+ * literals that had to be kept in sync by hand; now there is one place this
+ * wording lives.
+ */
+export const BOT_OPPONENT_COPY = "a bot opponent";
+
+/** Same idea as `BOT_OPPONENT_COPY`, shaped as a noun for copy that names the
+ *  practice entry path itself rather than describing an opponent (e.g. "public
+ *  matchmaking, private rooms and bot practice"). */
+export const BOT_PRACTICE_LABEL = "bot practice";
+
 export interface ArenaModeMeta {
   /** Must match the server's registered mode id exactly. */
   id: string;
@@ -169,7 +197,7 @@ export const ENTRY_PATHS: readonly EntryPathMeta[] = [
   {
     id: "practice",
     name: "Play bots",
-    description: "Start now against PEAK3 Bot.",
+    description: `Start now against ${BOT_OPPONENT_COPY}.`,
     rated: false,
   },
 ] as const;
@@ -183,7 +211,3 @@ export function entryPath(id: EntryPathId): EntryPathMeta {
 /** The window the matchmaker holds out for humans, mirrored from
  *  `matchmaking.HUMAN_PREFERENCE_WINDOW` for display copy only. */
 export const HUMAN_PREFERENCE_SECONDS = 30;
-
-/** What the product calls the house opponent. Mirrors `bots.BOT_DISPLAY_NAME`;
- *  an implementation id must never reach a screen. */
-export const BOT_DISPLAY_NAME = "PEAK3 Bot";

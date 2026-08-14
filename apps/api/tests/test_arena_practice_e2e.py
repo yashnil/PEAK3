@@ -226,9 +226,12 @@ def test_no_seat_name_leaks_an_implementation_label(mode):
         assert "(" not in name
         if seat["is_bot"]:
             bot_names.append(name)
-            # Never a numbered placeholder. A two-seat mode says "PEAK3 Bot";
-            # a mode that names its own bots supplies real archetypes.
-            assert not any(name == f"PEAK3 Bot {n}" for n in range(10)), name
+            # Never the emergency-fallback label, numbered or not. Every live
+            # seating path supplies a seed-derived name instead -- this mode's
+            # own scheme (Three-Man Weave's archetypes) or the shared curated
+            # pool (`bots.BOT_NAME_POOL`) -- so the fallback should not be
+            # reachable here at all.
+            assert bot_service.BOT_DISPLAY_NAME not in name, name
     assert len(set(bot_names)) == len(bot_names), f"duplicate bot names: {bot_names}"
 
 

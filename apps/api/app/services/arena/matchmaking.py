@@ -480,16 +480,25 @@ async def fill_private_room_with_bots(
 
     policy = bot_service.registry.default_for(mode.mode)
     taken = {s.seat_index for s in seats}
-    for index in range(match.seat_count):
-        if index in taken:
-            continue
+    empty_indexes = [index for index in range(match.seat_count) if index not in taken]
+    # Named for every empty seat UP FRONT, the same reason `bot_seat_names` is
+    # always called for the whole match rather than seat by seat: distinctness
+    # needs the full set. A seat lost to a human between here and the insert
+    # below just leaves its precomputed name unused -- nothing keys on it
+    # until `bot_seat` is actually called with it.
+    names = bot_service.bot_seat_names(mode, match.seed, empty_indexes)
+    for index in empty_indexes:
         # Lost to a human who joined in between: their seat stands, this bot
         # does not take it, and the loop moves on to the next empty index.
         # Never both, and never a rollback of the human's join.
         try:
             await repo.add_seat(
                 bot_service.bot_seat(
-                    match.match_id, index, policy, seat_count=match.seat_count
+                    match.match_id,
+                    index,
+                    policy,
+                    display_name=names.get(index),
+                    seat_count=match.seat_count,
                 )
             )
         except SeatUnavailable:
