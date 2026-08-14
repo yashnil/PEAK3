@@ -138,14 +138,25 @@ async function assertNoLegacyModeLabels(page: Page): Promise<void> {
 }
 
 /** Exactly one card on a hub may carry the flagship treatment, and it must be
- *  the one named. A second gold card is the failure mode this guards. */
+ *  the one named. A second gold card is the failure mode this guards.
+ *
+ * gameplay-experience-polish (compliance pass): the gold surface alone was
+ * judged not to be a sufficient flagship SIGNAL on its own -- there must be
+ * an explicit, player-facing "Flagship" badge too (`GameCard`'s
+ * `data-testid="flagship-badge"`, rendered only when `featured` is set).
+ * Checked here, in the one shared helper every flagship-card assertion
+ * already goes through, rather than once per call site. */
 async function assertSoleFeaturedCard(page: Page, testId: string): Promise<void> {
   const featured = page.locator('[data-featured="true"]');
   await expect(featured, "exactly one featured card per hub").toHaveCount(1);
-  await expect(page.locator(`[data-testid="${testId}"]`)).toHaveAttribute(
-    "data-featured",
-    "true",
-  );
+  const card = page.locator(`[data-testid="${testId}"]`);
+  await expect(card).toHaveAttribute("data-featured", "true");
+  const badge = card.locator('[data-testid="flagship-badge"]');
+  await expect(badge, "the featured card must carry an explicit Flagship badge, not just gold styling").toBeVisible();
+  await expect(badge).toContainText(/flagship/i);
+  // The badge must be the ONLY one on the hub too, same "exactly one" rule
+  // as the gold treatment itself.
+  await expect(page.locator('[data-testid="flagship-badge"]')).toHaveCount(1);
 }
 
 test.describe("Navbar Play", () => {

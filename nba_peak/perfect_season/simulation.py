@@ -103,6 +103,38 @@ def _weighted_starter_talent(scores: list[float]) -> float:
     return sum(s * w for s, w in zip(ranked, weights)) / total_weight
 
 
+# gameplay-experience-polish: extracted from simulate_season/simulate_exact_
+# season, which previously each inlined this identical six-line weighted
+# combination (and a THIRD copy lived in apps/api/app/services/
+# perfect_season/state.py's mid-run `_provisional_expected_wins` projection).
+# Talent dominates by design (module docstring); every other term is a small,
+# honest nudge -- see each of those functions' own history for why. This is
+# the ONE place the weights (1.0 / 0.12 / 0.08 / 0.05 / 0.05 / 0.05) live now,
+# so a lineup's "resulting quality" can be asked for anywhere a real or
+# hypothetical `LineupFitComponents` exists -- a completed 8-card roster
+# (simulate_season/simulate_exact_season), or a partial one being projected
+# mid-run or evaluated for a what-if placement (state.py's hint/projection
+# helpers) -- without a fourth copy of this arithmetic ever being written.
+# `team_context_depth` is deliberately never referenced here: neither
+# simulator has ever weighted it into the win formula (it is display-only,
+# surfaced separately as a decisive factor).
+def expected_wins_base(fit: LineupFitComponents) -> float:
+    """The weighted lineup-quality value before the win-floor, the 82-game
+    cap and the deterministic per-board noise are applied. NOT itself a win
+    total -- callers that need one still apply their own floor/cap/noise
+    (see simulate_season/simulate_exact_season); callers that only need to
+    RANK lineups against each other (a what-if projection) can use this
+    value directly, exactly as `SimulationResult.lineup_quality` already
+    does for the exact-season path."""
+    base = 41.0 + (fit.talent_core - 50.0) * 1.0
+    base += (fit.bench_strength - 50.0) * 0.12
+    base += (fit.positional_fit - 50.0) * 0.08
+    base += (fit.creation_coverage - 50.0) * 0.05
+    base += (fit.scoring_coverage - 50.0) * 0.05
+    base += (fit.postseason_pedigree - 50.0) * 0.05
+    return base
+
+
 def compute_fit_components(cards: list[CardProfile], slot_types: list[str]) -> LineupFitComponents:
     """Derive lineup-fit components from each card's existing LineupDNA.
 
@@ -281,12 +313,7 @@ def simulate_season(cards: list[CardProfile], board_seed: int, slot_types: list[
     # penalty (see this module's docstring). Purely a v0 heuristic -- not
     # calibrated against real historical win distributions (master plan
     # Sec 12.8).
-    base = 41.0 + (fit.talent_core - 50.0) * 1.0
-    base += (fit.bench_strength - 50.0) * 0.12
-    base += (fit.positional_fit - 50.0) * 0.08
-    base += (fit.creation_coverage - 50.0) * 0.05
-    base += (fit.scoring_coverage - 50.0) * 0.05
-    base += (fit.postseason_pedigree - 50.0) * 0.05
+    base = expected_wins_base(fit)
     # Phase 8F: this path (career-peak-window mode: apex_1y/prime_3y/
     # foundation_5y) is what COURTBUILDER ACTUALLY RUNS BY DEFAULT --
     # COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED defaults off, so nearly
@@ -349,6 +376,16 @@ def simulate_season(cards: list[CardProfile], board_seed: int, slot_types: list[
         is_perfect_season=(wins >= 82),
         experimental_notice=SIMULATOR_EXPERIMENTAL_NOTICE,
         lineup_peak_score=lineup_peak_score,
+        # gameplay-experience-polish: previously only set on the exact-season
+        # path (simulate_exact_season below). Additive -- `lineup_quality`
+        # already defaults to 0.0 on SimulationResult, and nothing reads it
+        # as a proxy for "unset" -- so exposing the real value here for the
+        # career-peak-window path (the one COURTBUILDER_EXPERIMENTAL_TEAM_
+        # YEAR_ENABLED=false actually runs by default) does not change any
+        # other field. Same value `base` already was before the win-floor/
+        # cap/noise, i.e. the value a caller should use to RANK lineups
+        # rather than to project a record.
+        lineup_quality=round(base, 3),
         best_pick=_best_pick(cards),
         structural_weakness=weakness_text,
         structural_weakness_detail=weakness_detail,
@@ -1144,12 +1181,7 @@ def simulate_exact_season(cards: list[PlayerSeasonCard], board_seed: int, slot_t
     fit = compute_exact_fit_components(cards, slot_types)
     weak_positions = _off_position_starter_slots_exact(cards, slot_types)
 
-    base = 41.0 + (fit.talent_core - 50.0) * 1.0
-    base += (fit.bench_strength - 50.0) * 0.12
-    base += (fit.positional_fit - 50.0) * 0.08
-    base += (fit.creation_coverage - 50.0) * 0.05
-    base += (fit.scoring_coverage - 50.0) * 0.05
-    base += (fit.postseason_pedigree - 50.0) * 0.05
+    base = expected_wins_base(fit)
     is_catastrophe = _is_catastrophe_roster(cards, fit)
     is_generational = _is_generational_core(cards)
     if is_catastrophe:

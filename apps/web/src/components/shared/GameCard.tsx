@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
+import { StatusChip } from "@/components/ui/StatusChip";
 
 /**
  * Surface tier. Three visibly different treatments so a grid of modes is not
@@ -192,7 +193,30 @@ export default function GameCard({
             </h3>
           </div>
         </div>
-        {status && <div className="shrink-0 text-right">{status}</div>}
+        {(featured || status) && (
+          <div className="flex shrink-0 flex-col items-end gap-1.5 text-right">
+            {/* gameplay-experience-polish: the gold surface treatment alone
+                was judged not to be a sufficient flagship signal on its own
+                -- this is the explicit, player-facing "FLAGSHIP" badge the
+                product brief asked for. `StatusChip`'s `accent` tone is the
+                exact same frozen gold pair (`--peak-accent-text`/`-bg`/
+                `-dim`) already audited for WCAG AA in both themes (see that
+                component's own P3-G2 comment), so this introduces no new
+                colour and no new contrast risk. A `title` attribute states
+                what the badge means for anyone landing on it without
+                reading the rest of the card. */}
+            {featured && (
+              <StatusChip
+                tone="accent"
+                data-testid="flagship-badge"
+                title="PEAK3's flagship mode"
+              >
+                Flagship
+              </StatusChip>
+            )}
+            {status}
+          </div>
+        )}
       </div>
 
       <p
