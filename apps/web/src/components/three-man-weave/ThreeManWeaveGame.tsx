@@ -35,12 +35,49 @@ import {
 import { modeMeta } from "@/lib/arena-modes";
 import HowToPlay from "@/components/arena/HowToPlay";
 import { deadlineFromSeconds } from "@/components/shared/ArenaTimer";
+import GameIntro from "@/components/shared/GameIntro";
 import IdentityLockPanel from "./IdentityLockPanel";
 import PickOverlay from "./PickOverlay";
 import PodiumReceipt from "./PodiumReceipt";
 import RosterBoard from "./RosterBoard";
 import TurnStatus from "./TurnStatus";
 import WeaveSpinner from "./WeaveSpinner";
+
+const TMW_INTRO_RULES = [
+  { label: "Shared roll", detail: "one real franchise and decade, rolled once for all three drafters" },
+  { label: "Snake order", detail: "pick order reverses every round, so nobody drafts last twice" },
+  { label: "Beat the clock", detail: "click a legal player before time runs out, or a weak fallback is assigned for you" },
+];
+
+/**
+ * Has this browser already dismissed the briefing for this specific match?
+ *
+ * Scoped to `matchId` rather than to the mode in general, so it reads
+ * exactly once per match (round 1 of a fresh draft) and never again on a
+ * reload/resume mid-draft -- the same "resume is safe" guarantee the rest
+ * of this component already gives the server-driven state. Resilient to
+ * blocked storage the same way `twenty-dollar-seen.ts` is: a read failure
+ * is "not seen yet" (never crashes into showing nothing), a write failure
+ * is silently swallowed (the intro just reappears next visit, not a
+ * functional bug).
+ */
+const TMW_INTRO_SEEN_PREFIX = "peak3.tmw.intro-seen.";
+
+function hasSeenIntro(matchId: string): boolean {
+  try {
+    return window.localStorage.getItem(TMW_INTRO_SEEN_PREFIX + matchId) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markIntroSeen(matchId: string): void {
+  try {
+    window.localStorage.setItem(TMW_INTRO_SEEN_PREFIX + matchId, "1");
+  } catch {
+    // Blocked storage: the intro will simply show again next visit.
+  }
+}
 
 /** How often to re-read the match while it is someone else's turn. */
 const POLL_MS = 2000;
@@ -135,6 +172,21 @@ export default function ThreeManWeaveGame({
 }) {
   const router = useRouter();
   const [match, setMatch] = useState<TmwMatchView>(initialMatch);
+  // Gameplay-polish: the shared briefing, shown once per match regardless of
+  // how the player reached it (this mode's own lobby, the Arena hub's quick-
+  // practice flow, a direct link, a resume). Rendered as an OVERLAY on top of
+  // the room below, not as a gate on what mounts -- `WeaveSpinner`'s opening
+  // reveal is a real, already-ticking server turn (`TMW_OPENING_REVEAL_
+  // SECONDS`), and delaying its mount behind this dialog would decouple its
+  // visual ceremony from that clock, exactly the class of bug this pass was
+  // told not to recreate. The dialog's focus trap and backdrop already
+  // prevent any actual interaction with the room while it's open; the
+  // ceremony underneath is free to keep running its own real clock.
+  const [introOpen, setIntroOpen] = useState(() => !hasSeenIntro(initialMatch.match_id));
+  const dismissIntro = useCallback(() => {
+    markIntroSeen(initialMatch.match_id);
+    setIntroOpen(false);
+  }, [initialMatch.match_id]);
   const [results, setResults] = useState<ArenaResultView[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [rejection, setRejection] = useState<string | null>(null);
@@ -406,6 +458,23 @@ export default function ThreeManWeaveGame({
 
   const meta = modeMeta("three_man_weave");
   const hasBots = match.seats.some((seat) => seat.is_bot);
+  const introVisual = (
+    <div className="tmw-intro-visual" aria-hidden="true">
+      {match.seats.map((seat) => (
+        <div
+          className="tmw-intro-seat"
+          key={seat.seat_index}
+          data-you={seat.seat_index === match.your_seat_index}
+        >
+          <span className="tmw-intro-seat-order">{seat.seat_index + 1}</span>
+          <span className="tmw-intro-seat-name">
+            {seat.seat_index === match.your_seat_index ? "You" : seat.display_name}
+          </span>
+        </div>
+      ))}
+      <span className="tmw-intro-clock">⏱</span>
+    </div>
+  );
   // WHO PICKS WHEN THE CEREMONY ENDS. The reveal turn names no seat, so
   // `current_turn_seat_index` is null throughout it -- and the handoff line is
   // most useful precisely then. The snapshot's `current_seat` is the seat the
@@ -431,6 +500,19 @@ export default function ThreeManWeaveGame({
       // is on screen AGAINST what the server said rather than against a timer.
       data-turn-phase={match.turn_phase ?? "none"}
     >
+      <GameIntro
+        open={introOpen}
+        onStart={dismissIntro}
+        onSkip={dismissIntro}
+        eyebrow="Multiplayer · Rapid draft"
+        title="Three-Man Weave"
+        objective="Three drafters, six rounds, one shared franchise and decade per round — build the best three-player lineup PEAK3 can rate."
+        rules={TMW_INTRO_RULES}
+        visual={introVisual}
+        accent="var(--comp-rec)"
+        startLabel="Enter the draft room"
+        testId="tmw-game-intro"
+      />
       <header className="ar-room-head">
         <div className="ar-room-meta">
           <h1 className="ar-room-title">Three-Man Weave</h1>

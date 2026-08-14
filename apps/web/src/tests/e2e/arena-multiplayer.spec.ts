@@ -57,6 +57,27 @@ async function expectNotAGeneric404(page: Page): Promise<void> {
   await expect(page.locator("body")).not.toContainText("404");
 }
 
+/**
+ * Dismiss Three-Man Weave's shared `GameIntro` briefing, if it's up.
+ *
+ * gameplay-experience-polish: the briefing now shows once per match
+ * regardless of entry point (this file's own quick-practice button included
+ * — see `ThreeManWeaveGame.tsx`'s docstring on why it moved there from the
+ * lobby). It is a real focus-trapped dialog, so every test that navigates
+ * straight into a match must dismiss it before the room underneath is
+ * interactable at all — `count() > 0` rather than a bare `.click()` because
+ * a slow-loading run could already have it dismissed (a fresh browser
+ * context never has, but this keeps the helper honest either way) and
+ * because "not present" must not read as a failure here.
+ */
+async function dismissTmwIntro(page: Page): Promise<void> {
+  const start = page.getByTestId("game-intro-start");
+  if ((await start.count()) > 0) {
+    await start.click();
+    await expect(page.getByTestId("tmw-game-intro")).toHaveCount(0);
+  }
+}
+
 async function axeClean(page: Page, context: string): Promise<void> {
   // WAIT FOR MOTION TO SETTLE FIRST. Contrast is a property of the resting
   // state, and axe measures the COMPOSITED colour — so a card caught halfway
@@ -307,6 +328,7 @@ test.describe("Three-Man Weave", () => {
 
       // THE ROUTE THAT 404'D. The match id lands in the path, not a query.
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+      await dismissTmwIntro(page);
       await expectNotAGeneric404(page);
 
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
@@ -381,6 +403,7 @@ test.describe("Three-Man Weave", () => {
       await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
       await page.getByTestId("lobby-three_man_weave-practice").click();
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+      await dismissTmwIntro(page);
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
 
       // THE CEREMONY IS THE SERVER'S REVEAL PHASE.
@@ -464,7 +487,7 @@ test.describe("Three-Man Weave", () => {
           page.getByTestId(`tmw-seat-court-${seat}`).first(),
         ).toBeVisible();
       }
-      await expect(page.getByTestId("tmw-room")).not.toContainText(/PEAK3 Bot \d/);
+      await expect(page.getByTestId("tmw-room")).not.toContainText(/\bBot\s+\d+\b/);
 
       // The human's seat is drawn from the match seed, so the first turn may
       // belong to a bot. Wait for the overlay rather than assuming seat A.
@@ -489,24 +512,24 @@ test.describe("Three-Man Weave", () => {
       await expect.poll(async () => list.locator("button").count()).toBe(before);
 
       // DIRECT PLACEMENT. Selecting a candidate lights up its legal slots on
-      // the roster; clicking one stages the player there; the primary button
-      // names the whole decision. The previous flow was a `<select>` and a
-      // button that read "Draft <name>" with the slot left implicit.
+      // the roster; clicking one stages the player there. The previous flow
+      // was a `<select>` and a button that read "Draft <name>" with the slot
+      // left implicit.
+      //
+      // 3.2 (gameplay-experience-polish): a legal click now COMMITS
+      // immediately instead of only staging -- a single-slot candidate
+      // commits on this very click, a multi-slot one commits the instant its
+      // slot is chosen below. Either way the overlay can close (the server
+      // accepts the pick and hands the turn to the next seat) before this
+      // test would reach a later assertion, so the structural "real button"
+      // check happens HERE, right after staging and before any click that
+      // might commit and close the overlay -- the one moment guaranteed safe
+      // for every candidate shape.
       const candidate = list.locator('button:not([disabled])').first();
       await candidate.click();
 
-      const legalSlot = page
-        .locator('[data-testid^="tmw-place-"][data-legal="true"]')
-        .first();
-      await expect(legalSlot).toBeVisible();
-      // A legal destination is a REAL BUTTON, not a div that happens to have a
-      // click handler -- so the keyboard and the accessibility tree agree with
-      // what the eye sees.
-      expect(await legalSlot.evaluate((node) => node.tagName)).toBe("BUTTON");
-      await legalSlot.click();
-
       const confirm = page.getByTestId("tmw-confirm-pick");
-      await expect(confirm).toContainText(/Draft .+ at /);
+      await expect(confirm).toBeVisible();
       // A REAL BUTTON, NOT TEXT. `btn-primary` was defined in no stylesheet, so
       // under Tailwind Preflight this control painted with no background, no
       // border and no padding.
@@ -522,8 +545,23 @@ test.describe("Three-Man Weave", () => {
       expect(styles.minHeight).toBeGreaterThanOrEqual(40);
       expect(styles.padding).toBeGreaterThan(4);
 
-      await confirm.click();
+      // If a slot still needs choosing (the multi-slot case; a single-slot
+      // candidate already committed on the press above), choose one -- an
+      // enabled legal slot means the pick has not committed yet.
+      const legalSlot = page
+        .locator('[data-testid^="tmw-place-"][data-legal="true"]')
+        .first();
+      if ((await legalSlot.count()) > 0 && !(await legalSlot.isDisabled())) {
+        // A legal destination is a REAL BUTTON, not a div that happens to have
+        // a click handler -- so the keyboard and the accessibility tree agree
+        // with what the eye sees.
+        expect(await legalSlot.evaluate((node) => node.tagName)).toBe("BUTTON");
+        await legalSlot.click();
+      }
 
+      // No separate confirm press is made here on purpose -- the click(s)
+      // above already committed the pick. The identity lock is the server's
+      // own record of it landing.
       await expect(page.getByTestId("tmw-identity-lock")).toContainText(/\S/, {
         timeout: 20_000,
       });
@@ -601,6 +639,7 @@ test.describe("Three-Man Weave", () => {
       await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
       await page.getByTestId("lobby-three_man_weave-practice").click();
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+      await dismissTmwIntro(page);
 
       const overlay = page.getByTestId("tmw-pick-overlay");
       await overlay.waitFor({ timeout: 60_000 });
@@ -715,14 +754,20 @@ test.describe("Three-Man Weave", () => {
 
       const intended = await pressRow(0);
       expect(intended.ok, `"${intended.name}" did not stage in the final seconds`).toBe(true);
-      await expect(confirm).toContainText(intended.name);
-      // A candidate with more than one legal slot stages no destination on
-      // its own, by design — the drafter chooses. Supply one if it is needed.
+
+      // 3.2 (gameplay-experience-polish): a legal candidate clicked before
+      // the deadline now COMMITS on the click itself, not on a separate
+      // confirm press. With exactly one legal slot the press above already
+      // submitted the pick. With more than one legal slot, the drafter still
+      // has to choose which — but clicking that slot now commits it
+      // immediately too. Either way, this test intentionally never presses
+      // "confirm": the overlay may already be advancing to the next turn by
+      // the time a further click would land, and asserting on a button that
+      // might not exist anymore would defeat the point of the fix. See
+      // `PickOverlay`'s `select`/`selectPlacementSlot` docstrings.
       if (await confirm.isDisabled()) {
         await page.locator('[data-testid^="tmw-place-"][data-legal="true"]').first().click();
       }
-      await expect(confirm).toBeEnabled();
-      await confirm.click();
 
       // ---- 3. THAT EXACT PLAYER, AND NOT A FALLBACK ------------------------
       // The identity lock is the server's own record of who came off the board.
@@ -730,6 +775,65 @@ test.describe("Three-Man Weave", () => {
         timeout: 20_000,
       });
       await expect(page.getByTestId("tmw-courts")).toContainText(intended.name);
+    } finally {
+      await context.close();
+    }
+  });
+
+  /**
+   * 3.2 (gameplay-experience-polish): CLICK PLAYER -> COMMIT PLAYER.
+   *
+   * The reported bug: a player clicked a legal candidate (Amar'e Stoudemire,
+   * on a 2000s Suns offer) WELL BEFORE the deadline, never pressed a separate
+   * "Lock In Selection" action, and the timeout fallback assigned a
+   * different, weaker legal player (Brevin Knight) instead of honoring the
+   * click. This test reproduces the shape of that report end-to-end: click a
+   * legal candidate with time to spare, touch NOTHING else, let the full
+   * clock (and the server's grace window) run out, and assert the exact
+   * player clicked is who the server actually drafted — never a fallback.
+   */
+  test("3.2: a candidate clicked well before the deadline is the pick, even if the clock runs all the way out", async ({
+    browser,
+  }) => {
+    test.setTimeout(120_000);
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
+      await signInAs(context, page, uniqueSub("tmw-early-click"));
+      await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
+      await page.getByTestId("lobby-three_man_weave-practice").click();
+      await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+      await dismissTmwIntro(page);
+
+      const overlay = page.getByTestId("tmw-pick-overlay");
+      await overlay.waitFor({ timeout: 60_000 });
+      const list = page.getByTestId("tmw-candidate-list");
+      const confirm = page.getByTestId("tmw-confirm-pick");
+
+      // Plenty of time left — this is deliberately NOT the near-deadline case
+      // covered above.
+      const secondsLeft = Number(await page.getByTestId("tmw-overlay-clock-value").innerText());
+      expect(secondsLeft, "this test needs to start with real time on the clock").toBeGreaterThan(10);
+
+      const row = list.locator("button:not([disabled])").first();
+      const clicked = (await row.locator(".tmw-candidate-name").innerText()).trim();
+      await row.click();
+      await expect(row).toHaveAttribute("data-selected", "true");
+
+      // A multi-slot candidate still needs its destination chosen — but
+      // choosing it commits immediately (3.2), same as a single-slot press.
+      // Beyond that, NOTHING is pressed: no "confirm", no second action.
+      if (await confirm.isDisabled()) {
+        await page.locator('[data-testid^="tmw-place-"][data-legal="true"]').first().click();
+      }
+
+      // Let the clock run all the way out, past the server's own grace
+      // window too — the exact window in which the old code discarded a
+      // clicked-but-unconfirmed player and substituted a fallback.
+      await expect(page.getByTestId("tmw-identity-lock")).toContainText(clicked, {
+        timeout: 90_000,
+      });
+      await expect(page.getByTestId("tmw-courts")).toContainText(clicked);
     } finally {
       await context.close();
     }
@@ -743,6 +847,7 @@ test.describe("Three-Man Weave", () => {
       await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
       await page.getByTestId("lobby-three_man_weave-practice").click();
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+      await dismissTmwIntro(page);
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
       // WAIT FOR THE BOARD, NOT FOR THE CEREMONY. The round-opening ceremony is
       // the server's `reveal` turn and it is a few seconds long, so whether it
@@ -1320,6 +1425,7 @@ test.describe("@mobile the draft board on a phone", () => {
       await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
       await page.getByTestId("lobby-three_man_weave-practice").click();
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+      await dismissTmwIntro(page);
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
 
       // THE CEREMONY OWNS THE SCREEN FIRST, and that is the product working:

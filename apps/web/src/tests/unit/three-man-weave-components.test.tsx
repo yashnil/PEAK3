@@ -962,16 +962,22 @@ describe("PickOverlay", () => {
     expect(row.className).not.toMatch(/pk-lift|pk-press/);
   });
 
-  it("stages a selection on the PRESS, so a click that splits across elements still lands", () => {
+  it("stages (and, with one legal slot, commits) on the PRESS, so a click that splits across elements still lands", () => {
     // A `click` is only delivered when mousedown and mouseup resolve to the
     // same element. Staging on pointerdown removes that dependency for the one
-    // interaction the whole mode runs on.
-    renderOverlay();
+    // interaction the whole mode runs on. kyle-lowry has exactly one legal
+    // slot (PG), so the press both stages AND commits (3.2) -- onPick fires
+    // immediately, with no separate confirm press required.
+    const { onPick } = renderOverlay();
     const row = screen.getByTestId("tmw-candidate-kyle-lowry");
     fireEvent.pointerDown(row, { button: 0 });
     expect(row).toHaveAttribute("data-selected", "true");
     expect(screen.getByTestId("tmw-confirm-pick")).toHaveTextContent(
       /Draft Kyle Lowry at Point guard/,
+    );
+    expect(onPick).toHaveBeenCalledWith(
+      expect.objectContaining({ player_slug: "kyle-lowry" }),
+      "PG",
     );
   });
 
@@ -1038,8 +1044,14 @@ describe("PickOverlay", () => {
     expect(select.closest("label")).toHaveTextContent(/Or choose a slot from a list/);
   });
 
-  it("stages the only legal slot immediately, so one candidate is one click", async () => {
-    renderOverlay({
+  it("3.2: commits the only legal slot immediately, with NO separate confirm press — one candidate is one click", async () => {
+    // This is the regression test for the reported bug: a legal candidate
+    // clicked before the deadline must BE the pick, not merely a staged
+    // suggestion that a second, separate confirm press turns into one. Before
+    // the fix, this scenario left onPick uncalled until "Draft ... at ..."
+    // was also pressed -- exactly the gap that let a timeout fallback
+    // discard an already-clicked player.
+    const { onPick } = renderOverlay({
       candidates: [
         candidate("kawhi-leonard", {
           fit: {
@@ -1057,6 +1069,39 @@ describe("PickOverlay", () => {
     expect(screen.getByTestId("tmw-staged-SF")).toBeInTheDocument();
     expect(screen.queryByTestId("tmw-place-select")).toBeNull();
     expect(screen.getByTestId("tmw-confirm-pick")).toBeEnabled();
+    // The whole point: committed WITHOUT touching "tmw-confirm-pick" at all.
+    expect(onPick).toHaveBeenCalledWith(
+      expect.objectContaining({ player_slug: "kawhi-leonard" }),
+      "SF",
+    );
+  });
+
+  it("3.2: a multi-slot candidate commits the instant a legal slot is clicked, with no separate confirm press", async () => {
+    const { onPick } = renderOverlay({
+      candidates: [
+        candidate("kawhi-leonard", {
+          fit: {
+            player_slug: "kawhi-leonard",
+            state: "fits_now",
+            direct_slots: ["SF", "PF"],
+            plan: null,
+            moves: [],
+            reason: null,
+          },
+        }),
+      ],
+    });
+    // Clicking the candidate alone must NOT commit -- which slot is a real,
+    // unmade decision when there is more than one legal option.
+    await userEvent.click(screen.getByTestId("tmw-candidate-kawhi-leonard"));
+    expect(onPick).not.toHaveBeenCalled();
+    // But clicking the SLOT is the whole decision, and commits immediately --
+    // no "tmw-confirm-pick" press required.
+    await userEvent.click(screen.getByTestId("tmw-place-PF"));
+    expect(onPick).toHaveBeenCalledWith(
+      expect.objectContaining({ player_slug: "kawhi-leonard" }),
+      "PF",
+    );
   });
 
   it("uses real buttons, not text, for both actions", async () => {

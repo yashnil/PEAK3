@@ -126,6 +126,16 @@ export default function ThreeManWeaveLoader({ matchId }: { matchId?: string }) {
 
   return (
     <div className="ar-lobby">
+      {/* The game briefing lives in `ThreeManWeaveGame` now, not here.
+          gameplay-experience-polish: this lobby's own "Play bots" button is
+          only ONE of the ways a player reaches a match -- the Arena hub's
+          "quick practice" flow (`ArenaLobby.tsx`) creates a practice match
+          and navigates straight to `/arena/three-man-weave/[matchId]`,
+          skipping this component's "no match yet" branch entirely. An intro
+          gated here would simply never show for that path. Putting it in
+          `ThreeManWeaveGame` instead means every entry point -- this button,
+          the Arena hub, a direct link, a resume -- shows the exact same
+          briefing exactly once per match. */}
       <header className="ar-lobby-head">
         <p className="ar-eyebrow">PEAK3 Arena · Multiplayer</p>
         <h1 className="ar-lobby-title">Three-Man Weave</h1>
@@ -160,7 +170,7 @@ export default function ThreeManWeaveLoader({ matchId }: { matchId?: string }) {
           <>
             <h2 className="ar-panel-title">Start a draft</h2>
             <p className="ar-panel-body">
-              Practice starts immediately against two PEAK3 Bots. For a public match
+              Practice starts immediately against two bot opponents. For a public match
               or a match with friends, use the multiplayer lobby.
             </p>
             <div className="ar-panel-actions">
