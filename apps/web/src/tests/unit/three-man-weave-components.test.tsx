@@ -403,8 +403,17 @@ describe("the ceremony is the server's reveal phase, and nothing else", () => {
     expect(nearlyDone.queryByTestId("tmw-pick-overlay")).toBeNull();
     nearlyDone.unmount();
 
-    // ...whereas a match that has only just opened the reveal is at its start.
-    const justOpened = render(<ThreeManWeaveGame initialMatch={ceremonyView()} />);
+    // ...whereas a match that has only just opened the reveal is at its
+    // start. `ceremonyView()`'s bare default is round 1 (the opening
+    // ceremony), so "just opened" means the FULL `TMW_OPENING_REVEAL_
+    // SECONDS` window remains -- its own default of `TMW_REVEAL_SECONDS`
+    // (4.6s) is a later-round amount, which against the opening window's
+    // 25.0s total reads as most of it already elapsed, not none of it.
+    const justOpened = render(
+      <ThreeManWeaveGame
+        initialMatch={ceremonyView({ seconds_remaining: TMW_OPENING_REVEAL_SECONDS })}
+      />,
+    );
     expect(justOpened.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "false");
   });
 
@@ -1407,10 +1416,22 @@ describe("WeaveSpinner", () => {
 
   it("holds the matchup card long enough to read it", () => {
     // D1. The intro used to be a 30% share of a 3.2s window — under a second
-    // for three seat names and an objective. It now gets ~4.6s of a 9.2s
-    // opening window, and none of it comes out of anybody's decision clock:
-    // the reveal is its own server turn and the pick turn opens afterwards
-    // with a full one.
+    // for three seat names and an objective. It gets `INTRO_SHARE` (half) of
+    // `TMW_OPENING_REVEAL_SECONDS`, and none of it comes out of anybody's
+    // decision clock: the reveal is its own server turn and the pick turn
+    // opens afterwards with a full one.
+    //
+    // gameplay-experience-polish (final verification pass): the opening
+    // window was lengthened from 9.2s to 20.0s -- see that constant's own
+    // docstring -- so a player reading the pre-match briefing (`GameIntro`,
+    // which overlays this exact ceremony non-blockingly on round 1) never
+    // has the pick turn open, unseen, behind it. `WeaveSpinner` deliberately
+    // scales the matchup card's hold time as a SHARE of the total window
+    // rather than a fixed duration -- decoupling it would be the same class
+    // of bug this ceremony pattern exists to prevent -- so the card's own
+    // hold time grew to 10.0s (20.0 * 0.5) along with it. The checkpoints
+    // below moved with it; the SHAPE of the assertion (still there shortly
+    // before the boundary, gone shortly after) is unchanged.
     vi.useFakeTimers();
     try {
       render(
@@ -1425,14 +1446,15 @@ describe("WeaveSpinner", () => {
         />,
       );
       expect(screen.getByTestId("tmw-intro")).toBeInTheDocument();
-      // Four seconds in it is STILL readable.
+      // Shortly before the boundary (10.0s = TMW_OPENING_REVEAL_SECONDS *
+      // INTRO_SHARE) it is STILL readable.
       act(() => {
-        vi.advanceTimersByTime(4000);
+        vi.advanceTimersByTime(9000);
       });
       expect(screen.getByTestId("tmw-intro")).toBeInTheDocument();
       // ...and then it hands over to the reel rather than outstaying it.
       act(() => {
-        vi.advanceTimersByTime(1000);
+        vi.advanceTimersByTime(1500);
       });
       expect(screen.queryByTestId("tmw-intro")).toBeNull();
       expect(screen.getByTestId("tmw-roll-franchise")).toBeInTheDocument();

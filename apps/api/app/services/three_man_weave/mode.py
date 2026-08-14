@@ -152,7 +152,34 @@ REVEAL_SECONDS = 4.6
 #: later round and uses `REVEAL_SECONDS` directly). So the two lengths fall out
 #: of the two code paths that already existed, and no round-number test is
 #: needed anywhere.
-OPENING_REVEAL_SECONDS = 9.2
+#:
+#: ALSO THE ONLY WINDOW THE CLIENT'S PRE-MATCH BRIEFING (`GameIntro`,
+#: `ThreeManWeaveGame.tsx`) OVERLAPS. That dialog is deliberately mounted as a
+#: non-blocking overlay rather than gating the ceremony's own mount -- gating
+#: it would decouple the ceremony's reel animation from its own server clock,
+#: which is the exact bug this phase exists to prevent (see this constant's
+#: sibling `REVEAL_SECONDS` and `PHASE_REVEAL`'s docstring). But a ceremony
+#: sized only for its OWN content (the matchup card + reel) is not sized for
+#: reading a SEPARATE dialog's rules text on top of it: at the previous 9.2s,
+#: a normal first read of that dialog could still be open when this window's
+#: deadline passed, and because the pick turn opens automatically on THIS
+#: phase's timeout, the pick turn's real 45s clock would then start ticking
+#: unseen behind a dialog the player had not yet closed -- decision time lost
+#: to a briefing, which is the invariant this whole ceremony pattern exists to
+#: protect in every other case. Sized here to comfortably outlast a normal,
+#: unhurried read of that dialog's eyebrow/title/objective/rules, so a player
+#: who is still reading when this window would otherwise have closed never
+#: loses pick time to it. `ThreeManWeaveGame.tsx`'s `dismissIntro` sends the
+#: same `COMMAND_SKIP_REVEAL` the ceremony's own skip control does the moment
+#: the dialog closes, so a player who reads quickly is not penalized by the
+#: longer number here -- this is a ceiling for the slow case, not a floor
+#: everyone waits out. Kept comfortably under `TURN_SECONDS / 2` (the sanity
+#: bound `test_round_ones_ceremony_is_the_modes_own_length` holds every
+#: ceremony to -- "emphatically not the decision window, which is what it
+#: used to be"): 20.0s is better than double the old 9.2s, which is well past
+#: a normal read of four short lines, while staying well clear of reading as
+#: a decision-length wait in its own right.
+OPENING_REVEAL_SECONDS = 20.0
 
 #: The command a client sends to end the ceremony early. See `_reduce_skip_reveal`.
 COMMAND_SKIP_REVEAL = "tmw_skip_reveal"

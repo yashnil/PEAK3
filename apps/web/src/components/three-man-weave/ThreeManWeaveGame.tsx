@@ -183,10 +183,6 @@ export default function ThreeManWeaveGame({
   // prevent any actual interaction with the room while it's open; the
   // ceremony underneath is free to keep running its own real clock.
   const [introOpen, setIntroOpen] = useState(() => !hasSeenIntro(initialMatch.match_id));
-  const dismissIntro = useCallback(() => {
-    markIntroSeen(initialMatch.match_id);
-    setIntroOpen(false);
-  }, [initialMatch.match_id]);
   const [results, setResults] = useState<ArenaResultView[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [rejection, setRejection] = useState<string | null>(null);
@@ -429,6 +425,34 @@ export default function ThreeManWeaveGame({
       setBusy(false);
     }
   }, [busy, send]);
+
+  /**
+   * DISMISSING THE INTRO ALSO ENDS THE CEREMONY, if it is still running.
+   *
+   * The ceremony being free to run its own clock underneath the dialog (see
+   * the comment by `introOpen` above) does not by itself guarantee a player
+   * never loses decision time to it: `OPENING_REVEAL_SECONDS` is a real,
+   * finite server deadline, sized generously enough to cover reading this
+   * dialog at a normal pace (see that constant's own docstring), but a
+   * player who dismisses FASTER than that would otherwise sit through the
+   * remainder of a ceremony they have already finished reading, and one
+   * genuinely slower would have had the pick turn open, unseen, behind a
+   * dialog they had not yet closed if the deadline were any shorter.
+   * Calling `skipReveal` here closes both gaps the same way the ceremony's
+   * own "skip" control already does: it is the real server command, not a
+   * local dismiss, so the pick turn's full clock is measured from THIS
+   * moment for whoever actually engaged, never from whenever the ceremony
+   * happened to have been opened. A no-op once the ceremony has already
+   * ended on its own (`skipReveal` swallows that rejection), so this is
+   * safe to call unconditionally.
+   */
+  const dismissIntro = useCallback(() => {
+    markIntroSeen(initialMatch.match_id);
+    setIntroOpen(false);
+    if (match.turn_phase === "reveal") {
+      void skipReveal();
+    }
+  }, [initialMatch.match_id, match.turn_phase, skipReveal]);
 
   const connection = connectionState(failures);
   const yourTurn = isYourTurn(match);

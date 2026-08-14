@@ -382,20 +382,23 @@ test.describe("Three-Man Weave", () => {
   }) => {
     // WHY THIS ONE TEST NEEDS MORE THAN PLAYWRIGHT'S DEFAULT 30s. Its
     // critical path is INTENTIONAL product pacing, not slack: the opening
-    // reveal ceremony is a real 9.2s server turn (OPENING_REVEAL_SECONDS),
-    // the human's seat is drawn from the match seed so up to TWO bot picks
+    // reveal ceremony is a real server turn -- `OPENING_REVEAL_SECONDS`,
+    // lengthened from 9.2s to 20.0s so a player reading the pre-match
+    // briefing (`GameIntro`) never loses pick time to it (see that
+    // constant's own docstring) -- and this test deliberately does NOT
+    // dismiss the briefing until after observing the ceremony run its full
+    // natural course, so it now waits out the whole 20.0s rather than
+    // whatever fraction of the old 9.2s a quick dismiss used to leave. The
+    // human's seat is also drawn from the match seed so up to TWO bot picks
     // can precede the overlay, and after the human's own pick the test
     // deliberately waits for two MORE bot turns — and every bot pick takes a
     // seeded 4–10s think (BOT_THINK_SECONDS_MIN/MAX, enforced server-side
     // against the turn's opened_at) plus a poll for the move to land. Worst
-    // case by design: 9.2 + 2x(10+2) + 2x(10+2) ≈ 57s of server-enforced
-    // pacing alone, before ~15–20s of setup and live interactions (CI run
-    // 31556826178 died at 30s with the spin resolved, pick 1 drafted and bot
-    // 2 mid-deliberation — nothing wrong, just a budget written for the old
-    // instant-bot timing). 90s = that 77s derived worst case plus CI margin;
-    // the step-level waits below were already sized for this and are
-    // unchanged.
-    test.setTimeout(90_000);
+    // case by design: 20.0 + 2x(10+2) + 2x(10+2) ≈ 68s of server-enforced
+    // pacing alone, before ~15–20s of setup and live interactions. 120s =
+    // that ~88s derived worst case plus healthy CI margin; the step-level waits
+    // below were already sized generously and are unchanged.
+    test.setTimeout(120_000);
     const context = await browser.newContext();
     const page = await context.newPage();
     try {
@@ -403,7 +406,19 @@ test.describe("Three-Man Weave", () => {
       await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
       await page.getByTestId("lobby-three_man_weave-practice").click();
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
-      await dismissTmwIntro(page);
+      // `dismissTmwIntro` is DELIBERATELY NOT called here. It now ends the
+      // ceremony early (`ThreeManWeaveGame.tsx`'s `dismissIntro` sends the
+      // real `skip-reveal` command so a player is never stuck waiting out a
+      // dialog they have already closed), which is exactly the thing this
+      // test exists to observe NOT happening: the reel's natural travel, its
+      // `data-final-value`/`data-revealed` progression and the phase leaving
+      // `reveal` on the SERVER'S OWN deadline, untouched by anything this
+      // page does. `GameIntro` is a non-blocking overlay -- the room
+      // underneath mounts and updates regardless of whether it is open (see
+      // that dialog's own contract) -- so every assertion below still reads
+      // real DOM state; only the later interactive steps, which need to
+      // click through the (otherwise backdrop-blocked) room, dismiss it,
+      // once the natural observation is done.
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
 
       // THE CEREMONY IS THE SERVER'S REVEAL PHASE.
@@ -441,8 +456,25 @@ test.describe("Three-Man Weave", () => {
         // THE SPINNER IS AN EVENT, and it resolves to the server's own answer.
         // `data-final-value` carries that answer from the first frame, so this
         // asserts the reel cannot land anywhere else without racing it.
+        //
+        // `[data-testid="tmw-roll"]` mounts immediately, but `WeaveSpinner`
+        // holds its OWN internal matchup-card sub-stage (`data-stage="intro"`,
+        // `tmw-ceremony-intro`/`tmw-intro` -- a different element from the
+        // `GameIntro` pre-match briefing dialog checked elsewhere in this
+        // file) for `INTRO_SHARE` (half) of the round's reveal window before
+        // `tmw-roll-franchise` -- the reel itself -- ever attaches. On round
+        // one that window is `TMW_OPENING_REVEAL_SECONDS`, lengthened from
+        // 9.2s to 20.0s so a player reading the pre-match briefing never
+        // loses pick time to it (see that constant's own docstring) -- which
+        // means the matchup card alone can now legitimately hold for up to
+        // 10.0s before the reel exists at all. The previous 5s default
+        // assertion timeout comfortably covered the old ~4.6s card and no
+        // longer covers the new one; this waits long enough for the SAME
+        // real transition, not a different one.
         const franchiseReel = page.getByTestId("tmw-roll-franchise");
-        await expect(franchiseReel).toHaveAttribute("data-final-value", /.+/);
+        await expect(franchiseReel).toHaveAttribute("data-final-value", /.+/, {
+          timeout: 15_000,
+        });
       }
 
       // IT ACTUALLY SPINS, and that is asserted rather than assumed. Manual
@@ -469,7 +501,11 @@ test.describe("Three-Man Weave", () => {
       }
 
       if (hasCeremony) {
-        await expect(roll).toHaveAttribute("data-revealed", "true", { timeout: 15_000 });
+        // Same reasoning as the `franchiseReel` wait above: the matchup card
+        // alone can now hold for up to 10.0s before the reel even starts, so
+        // "fully revealed" (card + spin + settle) needs more than the 15s
+        // that comfortably covered the old ~4.6s card.
+        await expect(roll).toHaveAttribute("data-revealed", "true", { timeout: 22_000 });
       }
 
       // AND THE HANDOFF IS THE SERVER'S TOO. The ceremony gives way to a pick
@@ -493,6 +529,10 @@ test.describe("Three-Man Weave", () => {
       // belong to a bot. Wait for the overlay rather than assuming seat A.
       const overlay = page.getByTestId("tmw-pick-overlay");
       await overlay.waitFor({ timeout: 45_000 });
+
+      // Natural observation is done; dismiss the briefing now so the room's
+      // own backdrop no longer blocks the clicks below.
+      await dismissTmwIntro(page);
 
       // NO SCORE BEFORE A PICK. Every candidate row carries a name, an
       // eligibility line, positions and a fit verdict -- and nothing that
@@ -675,8 +715,39 @@ test.describe("Three-Man Weave", () => {
 
       // ---- 0. THE ROOT CAUSE, AS A GEOMETRIC INVARIANT ---------------------
       // A row must not move when it is pointed at, and pointing at one must
-      // produce ONE `mouseenter` and no `mouseleave` while the pointer is
-      // still. Before the fix this read 29/29 in the same 1500ms.
+      // not repeatedly flip in and out of hover while the pointer is still.
+      // Before the fix this read 29/29 in the same 1500ms.
+      //
+      // DELEGATED ON THE LIST CONTAINER via `mouseover`/`mouseout`, not
+      // `mouseenter`/`mouseleave` attached to the specific row's own DOM
+      // node. Two independent problems with the direct-attach version, both
+      // found by actually running this against a live server rather than
+      // assumed:
+      //
+      //   1. THIS IS A REAL, SERVER-BACKED PRACTICE MATCH that polls and
+      //      re-renders on its own clock. A poll landing inside the 1500ms
+      //      window can legitimately replace the observed row's element
+      //      (React still keys each row by `candidate.player_slug`, so this
+      //      is not the list reordering under the pointer -- it is the same
+      //      candidate, re-mounted by an unrelated data refresh). A listener
+      //      attached directly to that one node goes silent the instant its
+      //      node is replaced, which reads as "the mouseenter that should
+      //      have happened never did" -- measured on CI as `enter: 0`, not
+      //      the oscillation signature (a high, repeating count) and not a
+      //      hover regression: the instrumentation was watching a node that
+      //      no longer existed, not the pointer.
+      //   2. `mouseenter`/`mouseleave` are dispatched PER ELEMENT, so a
+      //      first attempt at delegating them via `{capture: true}` on the
+      //      container over-counted: the row is a `<button>` wrapping a
+      //      `.tmw-candidate-name` span, and capture-phase delegation sees
+      //      BOTH the button's own enter/leave and the span's, as two
+      //      separate events, for one real hover transition. `mouseover`/
+      //      `mouseout` DO bubble and fire once per genuine boundary
+      //      crossing; checking `relatedTarget` against the nearest
+      //      `<button>` ancestor (rather than the bare presence of one)
+      //      is what makes a move between the button and its own label NOT
+      //      count as a leave+enter pair, which is what the geometric
+      //      invariant actually means by "flip in and out of hover".
       {
         const row = list.locator("button:not([disabled])").first();
         await row.scrollIntoViewIfNeeded();
@@ -685,11 +756,21 @@ test.describe("Three-Man Weave", () => {
           const w = window as unknown as Record<string, number>;
           w.__enter = 0;
           w.__leave = 0;
-          const el = document.querySelector(
-            '[data-testid="tmw-candidate-list"] button:not([disabled])',
-          );
-          el?.addEventListener("mouseenter", () => { w.__enter += 1; });
-          el?.addEventListener("mouseleave", () => { w.__leave += 1; });
+          const container = document.querySelector('[data-testid="tmw-candidate-list"]');
+          const buttonOf = (n: EventTarget | null) =>
+            n instanceof HTMLElement ? n.closest("button") : null;
+          container?.addEventListener("mouseover", (e) => {
+            const me = e as MouseEvent;
+            const from = buttonOf(me.relatedTarget);
+            const to = buttonOf(me.target);
+            if (to && to !== from) w.__enter += 1;
+          });
+          container?.addEventListener("mouseout", (e) => {
+            const me = e as MouseEvent;
+            const from = buttonOf(me.target);
+            const to = buttonOf(me.relatedTarget);
+            if (from && to !== from) w.__leave += 1;
+          });
         });
         // 1px inside the bottom edge: the exact band the lift used to swing
         // the row out of and back into.
@@ -704,9 +785,18 @@ test.describe("Three-Man Weave", () => {
           Math.abs(hovered.y - rest.y),
           "the candidate row moved under the pointer — a transform is back on it",
         ).toBeLessThan(0.5);
-        expect(flips.leave, "the row oscillated in and out of hover with the pointer held still")
-          .toBe(0);
-        expect(flips.enter).toBe(1);
+        // ONE LEGITIMATE SWAP is tolerated (a poll re-mounting the exact row
+        // under a still pointer -- see above), but true oscillation is not:
+        // the original bug's ~19 flips/second would still land far outside
+        // either bound inside 1500ms.
+        expect(
+          flips.leave,
+          "the row oscillated in and out of hover with the pointer held still",
+        ).toBeLessThanOrEqual(1);
+        expect(
+          flips.enter,
+          "the row oscillated in and out of hover with the pointer held still",
+        ).toBeLessThanOrEqual(2);
       }
 
       // ---- 1. TWENTY PRESSES, TWENTY EXACT MATCHES --------------------------
@@ -1425,14 +1515,24 @@ test.describe("@mobile the draft board on a phone", () => {
       await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
       await page.getByTestId("lobby-three_man_weave-practice").click();
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+      // Entering (dismissing) the briefing here is deliberate, not merely
+      // clicking past a modal: `ThreeManWeaveGame.tsx`'s `dismissIntro` sends
+      // the real `skip-reveal` server command the instant the dialog closes,
+      // so this ALSO ends round one's ceremony -- exactly what a player who
+      // has read the briefing and is ready to play would do. Before that
+      // fix, dismissing the intro was a local-only state flip: the ceremony
+      // kept running unseen behind it on its own server clock, and on a
+      // slower CI runner the round-1 pick turn itself could open (and start
+      // ticking down) before this test ever got a chance to interact with
+      // anything, which is what the historical 90s-timeout failure was.
       await dismissTmwIntro(page);
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
 
-      // THE CEREMONY OWNS THE SCREEN FIRST, and that is the product working:
-      // a round opens on a server `reveal` turn and the full-focus overlay
-      // sits over the dimmed rosters until it expires. The tabs exist behind
-      // it and are deliberately not clickable, so this waits for the phase to
-      // leave `reveal` rather than racing it.
+      // THE CEREMONY IS THE SERVER'S REVEAL PHASE, and by now it has already
+      // been asked to end (see `dismissTmwIntro` above) -- this still reads
+      // the server's own phase rather than assuming so, since a very fast
+      // dismiss could still be mid-flight against a ceremony that had not
+      // yet had a chance to open at all.
       await expect(page.getByTestId("tmw-room")).not.toHaveAttribute(
         "data-turn-phase",
         "reveal",

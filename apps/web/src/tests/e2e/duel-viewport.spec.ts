@@ -65,22 +65,72 @@ function cards(page: Page) {
 }
 
 test.describe("Peak Duel — the page never moves", () => {
-  test("choosing a player moves nothing, and neither does Next duel", async ({ page }) => {
-    await openDuel(page);
+  /**
+   * A NESTED describe, not a blanket `test.use()` on the outer one: the
+   * `@mobile` test below ("scrolled down the page, the stage still does not
+   * move") deliberately runs at whatever viewport its Playwright PROJECT
+   * assigns (`mobile-chrome`'s Pixel 5 preset) precisely because it is
+   * testing mobile geometry, and a describe-level override here would have
+   * silently replaced that with a desktop size and stopped testing anything
+   * mobile-shaped.
+   */
+  test.describe("at a size this file has proven fits", () => {
+    /**
+     * Pinned to the ONE viewport this file has already measured and proven
+     * the reveal panel fits inside without needing to scroll -- see "the
+     * whole result and Next duel fit the viewport at 1440x900" below, which
+     * asserts `window.scrollY === 0` at exactly this size, and whose own
+     * comment states outright: "Shorter viewports may scroll the PAGE; that
+     * is fine and is not asserted."
+     *
+     * Without this, the two tests in this block ran at the `chromium-core`
+     * project's device-default viewport (1280x720 -- narrower than the
+     * shortest size this file's product-level test guarantees a scroll-free
+     * reveal at) and were intermittently flaky: with duel content that
+     * pushes the panel's natural height a few px past its usual, "Next
+     * duel" -- the last thing in the panel -- sat as little as 4px from the
+     * 720px edge. Comfortably inside Playwright's own "fully in view"
+     * margin on most runs and not quite on a few, `.click()` would then
+     * perform its own ordinary, correct scroll-into-view before clicking --
+     * a real, Playwright-driven few-px scroll, and the exact intermittent
+     * movement these tests caught, but not the page moving under the player
+     * the way the historical bug in this file's top comment did. That
+     * failure mode can only be disentangled from a genuine regression by
+     * testing at a size the product has actually committed to fitting,
+     * which this file already establishes is 1440x900, not whatever a
+     * given Playwright project happens to default to.
+     */
+    test.use({ viewport: { width: 1440, height: 900 } });
 
-    const before = await frame(page);
-    await cards(page).first().click();
+    test("choosing a player moves nothing, and neither does Next duel", async ({ page }) => {
+      await openDuel(page);
 
-    await expect(page.getByRole("region", { name: /answer result/i })).toBeVisible({ timeout: 15_000 });
-    await page.waitForTimeout(700); // reveal animation completes
-    const afterPick = await frame(page);
-    assertStill(before, afterPick, "after choosing a player");
+      const before = await frame(page);
+      await cards(page).first().click();
 
-    const next = page.getByRole("button", { name: /next duel|next|continue/i }).first();
-    await next.click();
-    await page.waitForTimeout(700);
-    const afterNext = await frame(page);
-    assertStill(before, afterNext, "after Next duel");
+      await expect(page.getByRole("region", { name: /answer result/i })).toBeVisible({ timeout: 15_000 });
+      await page.waitForTimeout(700); // reveal animation completes
+      const afterPick = await frame(page);
+      assertStill(before, afterPick, "after choosing a player");
+
+      const next = page.getByRole("button", { name: /next duel|next|continue/i }).first();
+      await next.click();
+      await page.waitForTimeout(700);
+      const afterNext = await frame(page);
+      assertStill(before, afterNext, "after Next duel");
+    });
+
+    test("keyboard selection moves nothing either", async ({ page }) => {
+      // Keyboard is the path most likely to scroll: the browser scrolls
+      // focused elements into view, and a focus() during a layout change
+      // can compound it.
+      await openDuel(page);
+      const before = await frame(page);
+      await page.keyboard.press("ArrowLeft");
+      await expect(page.getByRole("region", { name: /answer result/i })).toBeVisible({ timeout: 15_000 });
+      await page.waitForTimeout(700);
+      assertStill(before, await frame(page), "after keyboard selection");
+    });
   });
 
   test("the result grows downward only, and is never clipped into a nested scroller", async ({
@@ -196,17 +246,6 @@ test.describe("Peak Duel — the page never moves", () => {
       }
     });
   }
-
-  test("keyboard selection moves nothing either", async ({ page }) => {
-    // Keyboard is the path most likely to scroll: the browser scrolls focused
-    // elements into view, and a focus() during a layout change can compound it.
-    await openDuel(page);
-    const before = await frame(page);
-    await page.keyboard.press("ArrowLeft");
-    await expect(page.getByRole("region", { name: /answer result/i })).toBeVisible({ timeout: 15_000 });
-    await page.waitForTimeout(700);
-    assertStill(before, await frame(page), "after keyboard selection");
-  });
 
   test("scrolled down the page, the stage still does not move @mobile", async ({ page }) => {
     // The failure is only visible when there is somewhere to jump TO, so this

@@ -172,11 +172,15 @@ export const TMW_REVEAL_SECONDS = 4.6;
 /**
  * The opening ceremony's window, mirroring `OPENING_REVEAL_SECONDS`.
  *
- * Round one runs the matchup card before the reel, so it gets a longer window.
- * Both numbers exist on this side only as the DENOMINATOR for "how far into the
- * ceremony are we"; the instant it ends is always the server's.
+ * Round one runs the matchup card before the reel, so it gets a longer window
+ * -- lengthened from 9.2 to 20.0 alongside the server constant so a player
+ * reading the pre-match briefing (`GameIntro`) never has the round-1 pick
+ * turn open, unseen, behind it (see `OPENING_REVEAL_SECONDS`'s own docstring
+ * in `apps/api/app/services/three_man_weave/mode.py`). Both numbers exist on
+ * this side only as the DENOMINATOR for "how far into the ceremony are we";
+ * the instant it ends is always the server's.
  */
-export const TMW_OPENING_REVEAL_SECONDS = 9.2;
+export const TMW_OPENING_REVEAL_SECONDS = 20.0;
 
 export const TMW_STARTER_SLOTS = ["PG", "SG", "SF", "PF", "C"] as const;
 export const TMW_BENCH_SLOTS = ["bench_1"] as const;
