@@ -26,6 +26,7 @@ from app.repositories.arena_protocols import (
     COMMAND_TYPE_TIMEOUT,
     MATCH_STATUS_ACTIVE,
     MATCH_STATUS_COMPLETED,
+    OCCUPANT_BOT,
     OCCUPANT_HUMAN,
     VISIBILITY_PUBLIC,
     ArenaMatch,
@@ -39,11 +40,15 @@ from app.services.twenty_dollar.mode import (
     COMMAND_FORFEIT,
     COMMAND_SKIP_INTRO,
     INTRO_SECONDS,
+    LOT_UNWINNABLE_SECONDS,
     PHASE_INTRO,
+    PHASE_LOT_UNWINNABLE,
 )
 from app.services.twenty_dollar.mode import bot as td_bot
 from app.services.twenty_dollar.mode import mode as td_mode
 from app.services.arena.modes import ArenaMode, initial_turn_seat
+
+from nba_peak.twenty_dollar import state as S
 
 NOW = datetime(2026, 8, 4, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -117,6 +122,27 @@ def intro_turn(seq: int = 0) -> ArenaTurn:
 
 def active(match) -> int:
     return match.snapshot["active_seat"]
+
+
+def unwinnable_turn(seq: int = 0) -> ArenaTurn:
+    """The seatless "nobody can use this candidate" beat.
+
+    Mirrors `intro_turn`: the reducer only routes `COMMAND_TYPE_TIMEOUT` into
+    `_resolve_unwinnable_lot` when the OPEN TURN it is handed actually names
+    this phase (`reduce`'s `in_unwinnable_beat` check) -- a bare timeout with
+    no open turn falls through to `rules_state.timeout_active_seat`, which is
+    a no-op when `active_seat` is already `None`. A driver walking a match
+    through the reducer past this beat has to construct this turn, exactly as
+    the foundation's own clock sweep would have opened it.
+    """
+    return ArenaTurn(
+        match_id="m1",
+        turn_seq=seq,
+        phase=PHASE_LOT_UNWINNABLE,
+        seat_index=None,
+        deadline_at=NOW,
+        opened_at=NOW,
+    )
 
 
 def all_values(node) -> list:
@@ -199,12 +225,19 @@ class TestContract:
         assert isolated.default_for("twenty_dollar") is td_bot
 
     def test_the_bot_seat_name_is_never_an_implementation_label(self):
-        """"PEAK3 bot (random_legal_v1)" reached the live lobby. The id lives on
-        the seat row where ratings need it, and the NAME is authored."""
-        from app.services.arena.bots import bot_seat
+        """An implementation id once reached the live lobby. The id lives on
+        the seat row where ratings need it, and the NAME is authored.
+
+        `bot_seat` called with no `display_name` and no seed (the shape this
+        test exercises) is the emergency fallback path -- every live seating
+        call in `matchmaking.py` supplies a seed-derived curated name instead
+        -- so this only has to prove the fallback label is itself never an
+        implementation id, not that it matches the curated pool.
+        """
+        from app.services.arena.bots import BOT_DISPLAY_NAME, bot_seat
 
         seat = bot_seat("m1", 1, td_bot, seat_count=2)
-        assert seat.display_name == "PEAK3 Bot"
+        assert seat.display_name == BOT_DISPLAY_NAME
         assert td_bot.bot_id not in seat.display_name
         assert "(" not in seat.display_name
         assert seat.bot_id == td_bot.bot_id  # still recorded, just not shown
@@ -775,14 +808,33 @@ class TestBot:
 
 class TestFullMatch:
     def _play(self, seed: int):
-        """Drive a whole match through the reducer, one ACTION at a time."""
+        """Drive a whole match through the reducer, one ACTION at a time.
+
+        `active_seat` can legitimately be `None` mid-match now (the
+        phantom-lot fix): the rules parked on a candidate neither seat can
+        act on, and the mode is holding open the short, seatless
+        `PHASE_LOT_UNWINNABLE` beat. That is not match completion -- it is
+        walked forward the same way the foundation's own clock sweep would,
+        by submitting a timeout against a turn naming that phase.
+        """
         match = make_match(seed=seed)
         rng = random.Random(seed)
         final = None
         for step in range(2000):
             seat = active(match)
             if seat is None:
-                break
+                out = td_mode.reduce(
+                    ReducerInput(
+                        match=match, seats=SEATS, open_turn=unwinnable_turn(step),
+                        command=TIMEOUT_CMD, now=NOW,
+                    )
+                )
+                assert out.accepted, out.rejection_code
+                match = make_match(snapshot=out.snapshot, seed=seed)
+                if out.status == MATCH_STATUS_COMPLETED:
+                    final = out
+                    break
+                continue
             public, private, legal = td_mode.project(match, SEATS, seat)
             command, payload = td_bot.decide(public, private, rng)
             out = reduce(match, cmd(seat, command, payload, key=f"k-idem-{step:04d}"))
@@ -804,12 +856,37 @@ class TestFullMatch:
         assert final.open_turn is None
 
     def test_every_turn_before_completion_names_exactly_one_seat(self):
+        """Every per-seat AUCTION turn before completion names exactly one
+        seat. The one legitimate exception is the seatless
+        `PHASE_LOT_UNWINNABLE` beat (the phantom-lot fix): a candidate neither
+        seat can act on opens as a real turn belonging to no seat, not a
+        per-seat turn with no seat to hand it to. That beat is walked forward
+        via its own timeout, exactly as the foundation's clock sweep would,
+        and is asserted here to never masquerade as a normal seat turn.
+        """
         match = make_match(seed=555)
         rng = random.Random(555)
         for step in range(2000):
             seat = active(match)
             if seat is None:
-                break
+                out = td_mode.reduce(
+                    ReducerInput(
+                        match=match, seats=SEATS, open_turn=unwinnable_turn(step),
+                        command=TIMEOUT_CMD, now=NOW,
+                    )
+                )
+                assert out.accepted, out.rejection_code
+                if out.status == MATCH_STATUS_COMPLETED:
+                    assert out.open_turn is None
+                    break
+                assert out.open_turn is not None
+                assert out.open_turn.phase in ("auction", PHASE_LOT_UNWINNABLE)
+                if out.open_turn.phase == PHASE_LOT_UNWINNABLE:
+                    assert out.open_turn.seat_index is None
+                else:
+                    assert out.open_turn.seat_index in (0, 1)
+                match = make_match(snapshot=out.snapshot, seed=555)
+                continue
             public, private, _ = td_mode.project(match, SEATS, seat)
             command, payload = td_bot.decide(public, private, rng)
             out = reduce(match, cmd(seat, command, payload, key=f"k-idem-{step:04d}"))
@@ -817,7 +894,10 @@ class TestFullMatch:
                 assert out.open_turn is None
                 break
             assert out.open_turn is not None
-            assert out.open_turn.seat_index in (0, 1)
+            if out.open_turn.phase == PHASE_LOT_UNWINNABLE:
+                assert out.open_turn.seat_index is None
+            else:
+                assert out.open_turn.seat_index in (0, 1)
             assert out.open_turn.deadline_at > NOW
             match = make_match(snapshot=out.snapshot, seed=555)
 
@@ -838,3 +918,368 @@ class TestFullMatch:
         public, _, legal = td_mode.project(match, SEATS, 0)
         assert public["receipt"]["settlement"] is not None
         assert legal == ()
+
+
+# ---------------------------------------------------------------------------
+# The phantom-lot fix, at the orchestration seam.
+# ---------------------------------------------------------------------------
+#
+# THE INVARIANT THESE TESTS PROVE, stated once here rather than in each one:
+# for every settled lot a receipt reports, there must have been a real,
+# observable moment -- reachable by an ordinary client poll, not merely by
+# code that never ran -- where that exact candidate was `current_candidate`
+# with the match still live. The bug this fixes made that false for any
+# candidate neither seat could act on: `_advance_lot` drew it and settled it
+# unsold inside one Python call, so no read at any polling cadence could ever
+# have caught it live. The fix is `PHASE_LOT_UNWINNABLE`, a real turn that
+# belongs to no seat, is readable like any other turn, and resolves only on
+# its own short deadline (`_resolve_unwinnable_lot`).
+#
+# These tests drive the REAL orchestration path -- `td_mode.reduce`, exactly
+# as the foundation calls it -- rather than the pure engine tested in
+# `tests/twenty_dollar/test_phantom_lot_fix.py`. That file proves the rules;
+# this one proves the seam a client actually reads through.
+
+
+BOT_SEATS = (
+    ArenaSeat(
+        match_id="m1", seat_index=0, occupant_kind=OCCUPANT_BOT,
+        occupant_sub=None, bot_id="td-bot-0", display_name="PEAK3 player",
+    ),
+    ArenaSeat(
+        match_id="m1", seat_index=1, occupant_kind=OCCUPANT_BOT,
+        occupant_sub=None, bot_id="td-bot-1", display_name="PEAK3 player",
+    ),
+)
+
+
+def _status_after(out) -> str:
+    return MATCH_STATUS_COMPLETED if out.status == MATCH_STATUS_COMPLETED else MATCH_STATUS_ACTIVE
+
+
+def _drive_until_unwinnable_beat(seed: int, seats=SEATS):
+    """Drive a real match through `td_mode.reduce`, both seats played by the
+    shipped bot, until the reducer itself opens the seatless
+    `PHASE_LOT_UNWINNABLE` turn.
+
+    Returns `(parked_match, out)` -- `parked_match` is a FRESH `ArenaMatch`
+    built from `out.snapshot`, i.e. exactly what any later read (a poll, a
+    reconnect) would be handed -- or `None` if this seed's match completes
+    without ever reaching that beat.
+    """
+    match = make_match(seed=seed)
+    rng = random.Random(seed ^ 0x20D0)
+    for step in range(2000):
+        seat = active(match)
+        assert seat is not None, (
+            f"seed {seed}: active_seat is None at the top of the loop, which "
+            "should be unreachable -- the loop always stops the instant the "
+            "reducer opens the unwinnable beat, before looping again"
+        )
+        public, private, _ = td_mode.project(match, seats, seat)
+        command, payload = td_bot.decide(public, private, rng)
+        out = td_mode.reduce(
+            ReducerInput(
+                match=match, seats=seats,
+                open_turn=None, command=cmd(seat, command, payload, key=f"k-idem-{step:04d}"),
+                now=NOW,
+            )
+        )
+        assert out.accepted, out.rejection_code
+        if out.open_turn is not None and out.open_turn.phase == PHASE_LOT_UNWINNABLE:
+            parked = make_match(snapshot=out.snapshot, seed=seed, status=_status_after(out))
+            return parked, out
+        if out.status == MATCH_STATUS_COMPLETED:
+            return None
+        match = make_match(snapshot=out.snapshot, seed=seed)
+    raise AssertionError(f"seed {seed}: match did not terminate")
+
+
+def _find_unwinnable_beat(seeds=range(60), seats=SEATS):
+    for seed in seeds:
+        found = _drive_until_unwinnable_beat(seed, seats=seats)
+        if found is not None:
+            return seed, found[0], found[1]
+    raise AssertionError(
+        f"no seed in {seeds.start}..{seeds.stop - 1} reached the unwinnable "
+        "beat through the real reducer -- widen the search range"
+    )
+
+
+class TestPhantomLotFixRequestCycle:
+    """Part 3.2: the full request-cycle proof.
+
+    A candidate neither seat can act on is drawn mid-match, surfaces as a
+    real seatless turn, is readable exactly as any other turn while it is
+    open, and settles only once -- via its own deadline -- after which the
+    match proceeds normally.
+    """
+
+    def test_the_reducer_opens_the_beat_as_a_real_seatless_turn(self):
+        _seed, _parked, out = _find_unwinnable_beat()
+        assert out.accepted
+        assert out.open_turn is not None
+        assert out.open_turn.phase == PHASE_LOT_UNWINNABLE
+        assert out.open_turn.seat_index is None
+        assert out.open_turn.deadline_at == NOW + timedelta(seconds=LOT_UNWINNABLE_SECONDS)
+
+        # THE RULE UNDER IT: neither seat could, in fact, act on this
+        # candidate -- restated at the rules level so this is not merely
+        # trusting the phase name.
+        slug = out.snapshot["current_candidate"]
+        assert slug is not None
+        from nba_peak.twenty_dollar.pool import get_pool
+
+        candidate = get_pool().get(slug)
+        pool = get_pool()
+        for seat_index in range(len(out.snapshot["seats"])):
+            assert not S.can_seat_acquire(out.snapshot, seat_index, candidate, pool)
+
+    def test_a_client_read_during_the_beat_sees_the_parked_candidate_not_a_gap(self):
+        """A GET-equivalent projection taken while the beat is open must show
+        `current_candidate` populated and `active_seat` null -- a real,
+        readable turn, not an internal-only detail and not a silent skip."""
+        _seed, parked, out = _find_unwinnable_beat()
+        slug = out.snapshot["current_candidate"]
+
+        for seat_index in (0, 1):
+            public, _private, commands = td_mode.project(parked, SEATS, seat_index)
+            assert public["phase"] == "auction"
+            assert public["candidate"] is not None
+            assert public["candidate"]["player_slug"] == slug
+            assert public["active_seat"] is None
+            # Nobody has a move on this beat -- conceding is still legal for
+            # as long as the match is live (`project`'s own rule), and
+            # nothing else is.
+            assert commands == (COMMAND_FORFEIT,)
+            # And the candidate's hidden score still has not crossed, exactly
+            # as it would not have for an ordinary live lot.
+            assert "prime_score" not in public["candidate"]
+
+    def test_advancing_past_the_deadline_settles_exactly_one_lot_unsold_then_continues(self):
+        """The beat's OWN timeout -- and only it -- settles the lot. One new
+        `lot_resolved` event, `decided_by == "unsold"`, for that candidate,
+        and the match opens whatever real turn comes next."""
+        seed, parked, out = _find_unwinnable_beat()
+        slug = out.snapshot["current_candidate"]
+        history_before = len(parked.snapshot["history"])
+        deadline = out.open_turn.deadline_at
+
+        resolved = td_mode.reduce(
+            ReducerInput(
+                match=parked, seats=SEATS, open_turn=out.open_turn,
+                command=TIMEOUT_CMD, now=deadline,
+            )
+        )
+        assert resolved.accepted, resolved.rejection_code
+        assert resolved.resolve_turn == "timeout"
+
+        lot_events = [e for e in resolved.events if e.event_type == "lot_resolved"]
+        assert len(lot_events) == 1, "exactly one lot must settle from this beat"
+        settled = lot_events[0].payload
+        assert settled["candidate"]["player_slug"] == slug
+        assert settled["decided_by"] == "unsold"
+        assert settled["winner_seat"] is None
+        assert settled["price"] == 0
+
+        history_after = resolved.snapshot["history"]
+        assert len(history_after) == history_before + 1
+        assert history_after[history_before]["candidate"]["player_slug"] == slug
+
+        # The match proceeds normally: complete, a real per-seat turn, or --
+        # unluckily but correctly -- another unwinnable beat. Never a dead
+        # turn and never a per-seat turn naming no seat.
+        if resolved.status == MATCH_STATUS_COMPLETED:
+            assert resolved.open_turn is None
+        else:
+            assert resolved.open_turn is not None
+            if resolved.open_turn.phase == PHASE_LOT_UNWINNABLE:
+                assert resolved.open_turn.seat_index is None
+            else:
+                assert resolved.open_turn.phase == "auction"
+                assert resolved.open_turn.seat_index in (0, 1)
+
+
+class TestPhantomLotFixReconnect:
+    def test_a_fresh_reconnect_mid_beat_sees_the_identical_parked_state(self):
+        """A client that loads the match state fresh WHILE the beat is open
+        -- a reconnect, a second tab, a page reload -- must see the same
+        parked-but-real state a continuously-connected client saw, not an
+        error and not a state that has quietly moved on without an event."""
+        _seed, parked, out = _find_unwinnable_beat()
+
+        before = copy.deepcopy(parked.snapshot)
+        first_read = td_mode.project(parked, SEATS, 0)
+
+        # A SEPARATE, freshly constructed match object from the same
+        # persisted snapshot -- exactly what a reconnecting client's own GET
+        # would build server-side, independent of whatever object reference
+        # produced the beat in the first place.
+        reconnected = make_match(
+            snapshot=copy.deepcopy(out.snapshot), seed=out.snapshot["seed"],
+            status=_status_after(out),
+        )
+        second_read = td_mode.project(reconnected, SEATS, 0)
+
+        assert first_read[0] == second_read[0], "a reconnect saw a different public state"
+        assert second_read[0]["active_seat"] is None
+        assert second_read[0]["candidate"] is not None
+        assert second_read[0]["candidate"]["player_slug"] == out.snapshot["current_candidate"]
+
+        # Reading -- polling, reconnecting -- must never itself mutate the
+        # persisted snapshot. Only an accepted command may.
+        assert parked.snapshot == before
+
+    def test_repeated_reads_of_the_parked_beat_are_idempotent(self):
+        """Two polls a client makes seconds apart during the same beat must
+        agree with each other, since nothing but the beat's own timeout can
+        move this state."""
+        _seed, parked, _out = _find_unwinnable_beat()
+        first = td_mode.project(parked, SEATS, 1)
+        second = td_mode.project(parked, SEATS, 1)
+        assert first[0] == second[0]
+        assert first[1] == second[1]
+        assert first[2] == second[2]
+
+
+class TestPhantomLotFixBotPractice:
+    def test_a_bot_versus_bot_practice_match_completes_normally_through_the_beat(self):
+        """Bot practice (both seats bots) must complete with two legal,
+        five-player rosters even when the market draws a candidate neither
+        bot can act on mid-match -- and neither bot may be asked to act on
+        that beat at all (`phase_accepts_action` blocks it; this proves the
+        block actually holds for a real match that reaches the beat, not
+        merely in isolation)."""
+        seed, parked, first_beat = _find_unwinnable_beat(seats=BOT_SEATS)
+        assert td_mode.phase_accepts_action(first_beat.open_turn.phase) is False
+
+        match = parked
+        open_turn = first_beat.open_turn
+        rng = random.Random(seed ^ 0x5CA1E)
+        beats_seen = 1
+        for step in range(2000):
+            if match.snapshot.get("phase") == "complete":
+                break
+            if open_turn.phase == PHASE_LOT_UNWINNABLE:
+                out = td_mode.reduce(
+                    ReducerInput(
+                        match=match, seats=BOT_SEATS, open_turn=open_turn,
+                        command=TIMEOUT_CMD, now=open_turn.deadline_at,
+                    )
+                )
+            else:
+                seat = active(match)
+                # STRUCTURAL PROOF a bot never acts on the seatless beat: this
+                # branch, the only place a bot command is ever built, is only
+                # reached when the open turn names a real seat.
+                assert seat is not None
+                public, private, _ = td_mode.project(match, BOT_SEATS, seat)
+                command, payload = td_bot.decide(public, private, rng)
+                out = td_mode.reduce(
+                    ReducerInput(
+                        match=match, seats=BOT_SEATS, open_turn=None,
+                        command=cmd(seat, command, payload, key=f"k-idem-{step:04d}"),
+                        now=NOW,
+                    )
+                )
+            assert out.accepted, out.rejection_code
+            if out.status == MATCH_STATUS_COMPLETED:
+                match = make_match(snapshot=out.snapshot, seed=seed, status=MATCH_STATUS_COMPLETED)
+                break
+            assert out.open_turn is not None
+            if out.open_turn.phase == PHASE_LOT_UNWINNABLE:
+                beats_seen += 1
+            match = make_match(snapshot=out.snapshot, seed=seed)
+            open_turn = out.open_turn
+        else:
+            raise AssertionError(f"seed {seed}: bot practice match did not terminate")
+
+        assert match.snapshot["phase"] == "complete"
+        assert beats_seen >= 1
+        for seat_report in match.snapshot["seats"]:
+            assert len(seat_report["roster"]) == 5
+            assert seat_report["budget"] >= 0
+
+
+class TestPhantomLotFixInvariant:
+    """Part 3.3: THE PRODUCT OWNER'S INVARIANT, proven directly.
+
+    'For every settled lot visible in a completed/mid-game history, there
+    must have been a corresponding surfaced active-lot state in the player's
+    observable sequence.'
+
+    Played through the real orchestration path (`td_mode.reduce` plus a
+    simulated timeout sweep for the seatless beats -- never the raw pure
+    engine), recording every `current_candidate` a client's own poll could
+    have read at each step, live, before that candidate's lot appears
+    settled in history.
+    """
+
+    @staticmethod
+    def _play_recording_observations(seed: int):
+        match = make_match(seed=seed)
+        rng = random.Random(seed ^ 0x0BCE)
+        observed: set[tuple[str, object]] = set()
+
+        for step in range(4000):
+            # THE CLIENT'S OWN READ, taken before anything this iteration
+            # does. This is what makes the recording honest: it is exactly
+            # the projection `GET /matches/{id}` would hand back at this
+            # instant, for THIS match value, before any further reducer call.
+            public, _private, _commands = td_mode.project(match, SEATS, 0)
+            if public["candidate"] is not None:
+                observed.add((public["candidate"]["player_slug"], public["active_seat"]))
+            if public["phase"] == "complete":
+                return match, observed
+
+            seat = public["active_seat"]
+            if seat is None:
+                out = td_mode.reduce(
+                    ReducerInput(
+                        match=match, seats=SEATS, open_turn=unwinnable_turn(step),
+                        command=TIMEOUT_CMD, now=NOW,
+                    )
+                )
+            else:
+                _pub, private, _ = td_mode.project(match, SEATS, seat)
+                command, payload = td_bot.decide(public, private, rng)
+                out = reduce(match, cmd(seat, command, payload, key=f"k-idem-{step:04d}"))
+            assert out.accepted, out.rejection_code
+            match = make_match(snapshot=out.snapshot, seed=seed, status=_status_after(out))
+
+        raise AssertionError(f"seed {seed}: match did not terminate")
+
+    def test_every_settled_lot_was_observed_live_before_it_settled(self):
+        phantom_parked_total = 0
+        for seed in (3, 11, 33, 91, 202, 333, 555, 777, 3003, 40404):
+            match, observed_slugs_with_seat = self._play_recording_observations(seed)
+            observed_slugs = {slug for slug, _active in observed_slugs_with_seat}
+            history = match.snapshot["history"]
+            auctioned = [r for r in history if r["decided_by"] != S.DECIDED_BY_AUTOFILL]
+            assert auctioned, f"seed {seed}: nothing was auctioned"
+
+            for record in auctioned:
+                slug = record["candidate"]["player_slug"]
+                assert slug in observed_slugs, (
+                    f"seed {seed}: lot {record['lot_index']} ({slug}) settled "
+                    f"as {record['decided_by']!r} but was never observed as "
+                    "the live current lot by any client read -- this is "
+                    "exactly the phantom-settled-lot bug the fix removes"
+                )
+
+            # A record with NO recorded actions and `decided_by == 'unsold'`
+            # is the specific phantom-lot shape: nobody was ever handed a
+            # turn to act on it, because neither seat legally could. Counted
+            # across seeds so the test proves it actually exercised the path
+            # the fix exists for, not merely a property that happens to hold
+            # vacuously.
+            phantom_parked_total += sum(
+                1
+                for r in auctioned
+                if r["decided_by"] == S.DECIDED_BY_UNSOLD and not r["actions"]
+            )
+
+        assert phantom_parked_total > 0, (
+            "no seed in the sweep ever produced a phantom-parked lot -- the "
+            "invariant was proven vacuously; widen the seed list"
+        )

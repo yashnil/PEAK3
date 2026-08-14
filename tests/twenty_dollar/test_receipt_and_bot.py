@@ -189,6 +189,15 @@ class TestBotPlaysARealAuction:
             while not S.is_complete(state) and guard < 2000:
                 guard += 1
                 seat_index = state["active_seat"]
+                if seat_index is None:
+                    # Nobody can act on the drawn candidate (the phantom-lot
+                    # fix): resolve the parked lot unsold immediately, as
+                    # that beat's own short server timeout eventually would.
+                    assert S.is_unwinnable_lot_pending(state), (
+                        "active_seat is None but no unwinnable lot is pending"
+                    )
+                    S.resolve_unwinnable_lot(state, pool)
+                    continue
                 public, private, legal = S.project(state, seat_index, pool)
                 command, payload = bot.decide(public, private, rng)
                 assert command in legal, (command, legal)

@@ -481,6 +481,17 @@ class TestTermination:
         while not S.is_complete(state) and guard < 4000:
             guard += 1
             seat_index = state["active_seat"]
+            if seat_index is None:
+                # Nobody can act on the drawn candidate (the phantom-lot
+                # fix): resolve the parked lot unsold immediately, exactly
+                # as that beat's own short server timeout eventually would.
+                assert S.is_unwinnable_lot_pending(state), (
+                    "active_seat is None but no unwinnable lot is pending"
+                )
+                S.resolve_unwinnable_lot(state, pool)
+                for seat in state["seats"]:
+                    assert rules.is_solvent(seat["budget"], len(seat["roster"]))
+                continue
             command, amount = always_min_raise(state, seat_index, pool, rng)
             S.submit_action(state, seat_index, command, amount, pool)
             for seat in state["seats"]:

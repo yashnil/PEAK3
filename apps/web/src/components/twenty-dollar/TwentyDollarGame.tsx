@@ -17,7 +17,7 @@ import {
   type AttemptedAction,
   type RejectionExplanation,
 } from "@/lib/arena-rejection";
-import { modeMeta } from "@/lib/arena-modes";
+import { BOT_DISPLAY_NAME, modeMeta } from "@/lib/arena-modes";
 import HowToPlay from "@/components/arena/HowToPlay";
 import { deadlineFromSeconds } from "@/components/shared/ArenaTimer";
 import {
@@ -447,7 +447,7 @@ function AuctionRoom({
   );
   const receipt = publicState.receipt as TwentyDollarReceiptData | undefined;
 
-  const { recap, reveal, queued, acknowledgeRecap } = useLotLedger(
+  const { recap, reveal, queued, revealedHistory, acknowledgeRecap } = useLotLedger(
     view.match_id,
     publicState,
   );
@@ -474,7 +474,7 @@ function AuctionRoom({
   );
   const yourSeatPublic = publicState.seats[yourSeat ?? 0];
   const opponentName =
-    seatNames[opponentSeats[0]?.seat_index ?? 1] ?? "PEAK3 Bot";
+    seatNames[opponentSeats[0]?.seat_index ?? 1] ?? BOT_DISPLAY_NAME;
 
   if (complete && receipt) {
     return (
@@ -690,7 +690,7 @@ function AuctionRoom({
       </div>
 
       <SettledLotTray
-        history={publicState.history}
+        history={revealedHistory}
         seatNames={seatNames}
         yourSeat={yourSeat}
       />

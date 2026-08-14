@@ -112,7 +112,18 @@ def play_match(
         actions += 1
         assert actions < max_actions, "match did not terminate"
         seat_index = state["active_seat"]
-        assert seat_index is not None, "a live match always has a seat on the clock"
+        if seat_index is None:
+            # Nobody can act on the drawn candidate (the phantom-lot fix):
+            # the pure engine parks here instead of resolving inline. A
+            # driver with no clock resolves it immediately -- exactly what
+            # that beat's own short timeout would eventually do -- rather
+            # than treating a live, incomplete match as always having a
+            # seat on the clock, which is no longer true.
+            assert S.is_unwinnable_lot_pending(state), (
+                "active_seat is None but no unwinnable lot is pending"
+            )
+            S.resolve_unwinnable_lot(state, pool)
+            continue
         play = (seat_strategies or {}).get(seat_index, strategy)
         command, amount = play(state, seat_index, pool, rng)
         _, code, message = S.submit_action(state, seat_index, command, amount, pool)

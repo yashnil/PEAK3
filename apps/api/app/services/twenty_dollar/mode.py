@@ -113,6 +113,36 @@ INTRO_SECONDS = 4.5
 #: End the intro early. See `_open_first_lot`.
 COMMAND_SKIP_INTRO = "showdown_skip_intro"
 
+#: THE "NOBODY CAN USE THIS CANDIDATE" BEAT, AS A REAL SERVER TURN.
+#:
+#: THE BUG THIS FIXES (phantom settled lots). The market draws from all 500
+#: qualified players regardless of either roster, so a candidate neither seat
+#: can legally acquire is common, not rare, once rosters start filling
+#: position needs. `nba_peak.twenty_dollar.state._advance_lot` used to settle
+#: that candidate as unsold INSIDE THE SAME CALL that drew it -- so
+#: `current_candidate` was set and cleared again before this file, or any
+#: client poll, ever had a chance to observe it. A player reporting a star
+#: appearing in "Settled Lots" that they never saw live and never had a
+#: chance to bid on was reporting exactly that, correctly, every time.
+#:
+#: THE FIX IS THE SAME PATTERN `PHASE_INTRO` ALREADY ESTABLISHES: a real turn,
+#: in its own phase, belonging to NO seat, accepting no action from anybody,
+#: that resolves only on its own (short) deadline. `_advance_lot` now stops
+#: instead of resolving inline (`rules_state.is_unwinnable_lot_pending`), this
+#: phase surfaces that exact candidate as `current_candidate` for a genuine,
+#: externally observable beat, and only ITS OWN timeout actually settles it
+#: (`_resolve_unwinnable_lot`, calling `rules_state.resolve_unwinnable_lot`).
+#: The candidate was always going to be unsold -- nobody could ever have bid
+#: on it, by the rules -- but now every settled lot in history corresponds to
+#: a state the client actually had the opportunity to observe as current,
+#: which is the literal invariant this fixes.
+PHASE_LOT_UNWINNABLE = "lot_unwinnable"
+
+#: Short on purpose: nobody is deciding anything during this beat, so it
+#: should not cost either player real time, but it has to be long enough that
+#: an ordinary poll cadence can actually land inside it at least once.
+LOT_UNWINNABLE_SECONDS = 1.6
+
 EVENT_BID_PLACED = "bid_placed"
 EVENT_PASSED = "seat_passed"
 EVENT_LOT_RESOLVED = "lot_resolved"
@@ -160,9 +190,12 @@ class TwentyDollarMode:
 
         Read by `arena.bots.drive_pending_bots`. Without it the driver reads
         the intro's `seat_index is None` as a SIMULTANEOUS turn and lets the bot
-        bid underneath an intro nobody has finished reading.
+        bid underneath an intro nobody has finished reading. `PHASE_LOT_
+        UNWINNABLE` is the same shape of turn for the same reason: it also
+        belongs to no seat, and a bot must not "act" on a candidate nobody --
+        bot or human -- can legally acquire.
         """
-        return phase != PHASE_INTRO
+        return phase not in (PHASE_INTRO, PHASE_LOT_UNWINNABLE)
 
     # -- opening state ------------------------------------------------------
 
@@ -223,6 +256,9 @@ class TwentyDollarMode:
         command = data.command
         before = len(snapshot.get("history") or [])
         in_intro = data.open_turn is not None and data.open_turn.phase == PHASE_INTRO
+        in_unwinnable_beat = (
+            data.open_turn is not None and data.open_turn.phase == PHASE_LOT_UNWINNABLE
+        )
 
         if command.command_type == COMMAND_TYPE_TIMEOUT:
             # A TIMEOUT ON THE INTRO IS NOT A PASS -- it is the intro ending.
@@ -231,6 +267,11 @@ class TwentyDollarMode:
             # they were never on the clock for.
             if in_intro:
                 return self._open_first_lot(snapshot, data)
+            # A TIMEOUT ON THE "NOBODY CAN USE THIS CANDIDATE" BEAT IS ALSO
+            # NOT A PASS -- there is no seat to pass. It is that beat ending,
+            # which is what actually settles the lot (the phantom-lot fix).
+            if in_unwinnable_beat:
+                return self._resolve_unwinnable_lot(snapshot, data)
             actor = snapshot.get("active_seat")
             snapshot = rules_state.timeout_active_seat(snapshot)
             events: list[EventDraft] = [
@@ -341,13 +382,67 @@ class TwentyDollarMode:
             snapshot=snapshot,
             events=(),
             resolve_turn=TURN_RESOLUTION_ACTION,
-            open_turn=TurnDraft(
-                phase=rules_state.PHASE_AUCTION,
-                # The opening bidder is the SEED's, not seat 0. See
-                # `initial_turn_seat`.
-                seat_index=snapshot.get("active_seat"),
-                deadline_at=data.now + timedelta(seconds=self.turn_seconds),
-            ),
+            # Almost always a normal per-seat auction turn for the opening
+            # bidder (the SEED's, not seat 0 -- see `initial_turn_seat`). In
+            # the edge case where the very first candidate drawn is already
+            # unwinnable by both seats, `_open_turn_for_snapshot` opens the
+            # seatless beat instead of a per-seat turn with no seat.
+            open_turn=self._open_turn_for_snapshot(snapshot, data),
+        )
+
+    def _open_turn_for_snapshot(self, snapshot: dict, data: ReducerInput) -> TurnDraft:
+        """The one place that decides what turn comes next, given a snapshot
+        the rules engine has already fully advanced for the current lot.
+
+        Centralizing this is what makes the phantom-lot fix actually hold:
+        every caller that opens a turn after a rules call (`_open_first_lot`,
+        `_finish`, `_resolve_unwinnable_lot`) goes through here, so a
+        candidate neither seat can act on is NEVER handed a normal per-seat
+        turn (which would have no seat to belong to) and is ALWAYS surfaced
+        as the short, seatless `PHASE_LOT_UNWINNABLE` beat instead.
+        """
+        if rules_state.is_unwinnable_lot_pending(snapshot):
+            return TurnDraft(
+                phase=PHASE_LOT_UNWINNABLE,
+                seat_index=None,
+                deadline_at=data.now + timedelta(seconds=LOT_UNWINNABLE_SECONDS),
+            )
+        return TurnDraft(
+            phase=rules_state.PHASE_AUCTION,
+            seat_index=snapshot.get("active_seat"),
+            deadline_at=data.now + timedelta(seconds=self.turn_seconds),
+        )
+
+    def _resolve_unwinnable_lot(self, snapshot: dict, data: ReducerInput) -> ReducerOutput:
+        """The seatless `PHASE_LOT_UNWINNABLE` beat has run its own (short)
+        course. Settle it unsold now -- nobody was ever on the clock for it,
+        so this is not a timeout in the ordinary sense -- and open whatever
+        comes next, which may itself be another unwinnable beat if the
+        following draw is ALSO unusable by both rosters. That is an ordinary,
+        if unlucky, sequence, not a special case: each one is still a real
+        beat the client observes before it resolves.
+        """
+        before = len(snapshot.get("history") or [])
+        snapshot = rules_state.resolve_unwinnable_lot(snapshot)
+        events: list[EventDraft] = []
+        for record in (snapshot.get("history") or [])[before:]:
+            events.append(
+                EventDraft(
+                    event_type=EVENT_LOT_RESOLVED,
+                    payload=dict(record),
+                    visibility=VISIBILITY_PUBLIC,
+                )
+            )
+
+        if rules_state.is_complete(snapshot):
+            return self._complete(snapshot, data, events, TURN_RESOLUTION_TIMEOUT)
+
+        return ReducerOutput(
+            accepted=True,
+            snapshot=snapshot,
+            events=tuple(events),
+            resolve_turn=TURN_RESOLUTION_TIMEOUT,
+            open_turn=self._open_turn_for_snapshot(snapshot, data),
         )
 
     # -- forfeit ------------------------------------------------------------
@@ -463,21 +558,21 @@ class TwentyDollarMode:
         if rules_state.is_complete(snapshot):
             return self._complete(snapshot, data, events, resolution)
 
+        # NAMED SEAT, NEW DEADLINE -- ORDINARILY. The seat that must act next
+        # gets a full `turn_seconds` measured from this instant, and no other
+        # seat is on a clock at all. `project_seat_view` therefore reports
+        # `seconds_remaining` to exactly one seat, and a timeout can only ever
+        # pass that seat. But the rules call that produced this snapshot may
+        # have advanced onto a candidate NEITHER seat can act on (the
+        # phantom-lot fix) -- `_open_turn_for_snapshot` is what makes sure
+        # that case gets the short seatless beat instead of a per-seat turn
+        # naming no seat.
         return ReducerOutput(
             accepted=True,
             snapshot=snapshot,
             events=tuple(events),
             resolve_turn=resolution,
-            open_turn=TurnDraft(
-                phase=rules_state.PHASE_AUCTION,
-                # NAMED SEAT, NEW DEADLINE. The seat that must act next gets a
-                # full `turn_seconds` measured from this instant, and no other
-                # seat is on a clock at all. `project_seat_view` therefore
-                # reports `seconds_remaining` to exactly one seat, and a
-                # timeout can only ever pass that seat.
-                seat_index=snapshot.get("active_seat"),
-                deadline_at=data.now + timedelta(seconds=self.turn_seconds),
-            ),
+            open_turn=self._open_turn_for_snapshot(snapshot, data),
         )
 
     def _complete(

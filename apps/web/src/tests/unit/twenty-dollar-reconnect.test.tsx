@@ -114,7 +114,7 @@ function Probe({ history, phase = "auction" as const }: {
   history: ResolvedLot[];
   phase?: "auction" | "complete";
 }) {
-  const { recap, reveal, queued, acknowledgeRecap } = useLotLedger(
+  const { recap, reveal, queued, revealedHistory, acknowledgeRecap } = useLotLedger(
     MATCH,
     state(history, { phase }),
   );
@@ -123,6 +123,9 @@ function Probe({ history, phase = "auction" as const }: {
       <span data-testid="recap">{recap.map((l) => l.lot_index).join(",")}</span>
       <span data-testid="reveal">{reveal ? reveal.lot_index : "none"}</span>
       <span data-testid="queued">{queued}</span>
+      <span data-testid="revealed-history">
+        {revealedHistory.map((l) => l.lot_index).join(",")}
+      </span>
       <ResumeRecap
         lots={recap}
         seatNames={["You", "Floor General"]}
@@ -279,6 +282,43 @@ describe("lots that settle while the client is live", () => {
     render(<Probe history={[]} />);
     expect(screen.getByTestId("recap")).toHaveTextContent("");
     expect(screen.getByTestId("reveal")).toHaveTextContent("none");
+  });
+
+  // gameplay-experience-polish 4.2: `revealedHistory` is what
+  // `SettledLotTray` is now fed instead of raw server history, specifically
+  // so a lot still mid-reveal on stage cannot ALSO already be sitting in the
+  // (collapsed) tray -- "no visual flash of the next lot before its
+  // introduction."
+  it("excludes a lot from the settled-lots tray's own view until its reveal has actually held", () => {
+    vi.useFakeTimers();
+    writeSeenCursor(MATCH, 0);
+    const { rerender } = render(<Probe history={[lot(0)]} />);
+    expect(screen.getByTestId("revealed-history")).toHaveTextContent("0");
+
+    // Three more lots settle in one command. All three are still queued/on
+    // stage -- none of them belongs in the tray yet, even though the server
+    // already reports them as settled history.
+    rerender(<Probe history={[lot(0), lot(1), lot(2), lot(3)]} />);
+    expect(screen.getByTestId("reveal")).toHaveTextContent("1");
+    expect(screen.getByTestId("revealed-history")).toHaveTextContent("0");
+
+    // Lot 1's hold expires -- it joins the tray, lot 2 takes the stage, lots
+    // 2 and 3 are still absent.
+    act(() => {
+      vi.advanceTimersByTime(REVEAL_HOLD_MS + 50);
+    });
+    expect(screen.getByTestId("reveal")).toHaveTextContent("2");
+    expect(screen.getByTestId("revealed-history")).toHaveTextContent("0,1");
+
+    // Once the whole queue has played, every lot is in the tray.
+    act(() => {
+      vi.advanceTimersByTime(REVEAL_HOLD_MS + 50);
+    });
+    act(() => {
+      vi.advanceTimersByTime(REVEAL_HOLD_MS + 50);
+    });
+    expect(screen.getByTestId("reveal")).toHaveTextContent("none");
+    expect(screen.getByTestId("revealed-history")).toHaveTextContent("0,1,2,3");
   });
 });
 
