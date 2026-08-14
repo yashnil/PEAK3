@@ -5,9 +5,11 @@
  */
 import {
   CourtBuilderReadiness,
+  CourtDifficulty,
   CourtLineupPublicState,
   CourtMode,
   DailyChallenge,
+  HintResponse,
   LeaderboardResponse,
   MyRunsResponse,
   PersonalBests,
@@ -99,8 +101,11 @@ export async function createCourtGame(
   seed?: number,
   /** Phase 9A: pass "daily" to start today's shared challenge. The seed is
    * always re-derived server-side for a daily board, so any `seed` passed
-   * alongside it is ignored by design (see the API's own comment). */
-  options: { challengeKind?: "free_play" | "daily"; challengeDate?: string } = {},
+   * alongside it is ignored by design (see the API's own comment).
+   * Gameplay-polish: `difficulty` is chosen at the pre-game gate
+   * (PeakSeasonStartGate) and frozen server-side for the life of the run --
+   * defaults to "easy" when omitted, matching the API's own default. */
+  options: { challengeKind?: "free_play" | "daily"; challengeDate?: string; difficulty?: CourtDifficulty } = {},
 ): Promise<CourtLineupPublicState> {
   return apiFetch<CourtLineupPublicState>("/perfect-season/games", {
     method: "POST",
@@ -109,6 +114,7 @@ export async function createCourtGame(
       seed,
       challenge_kind: options.challengeKind ?? "free_play",
       challenge_date: options.challengeDate,
+      difficulty: options.difficulty ?? "easy",
     }),
   });
 }
@@ -146,6 +152,21 @@ export async function selectPlayer(gameId: string, playerSlug: string): Promise<
 
 export async function cancelSelection(gameId: string): Promise<CourtLineupPublicState> {
   return apiFetch<CourtLineupPublicState>(`/perfect-season/games/${gameId}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ game_id: gameId }),
+  });
+}
+
+/**
+ * Gameplay-polish: "Give me a suggestion" -- Easy mode only, once per run.
+ * The server computes the recommendation entirely itself (raw score + best
+ * position fit across the currently open slots -- never in this file, never
+ * in TypeScript at all); the response carries ONLY the recommended player's
+ * identity, never a score or a comparison of the other candidates (ADR-005
+ * Decision 6 -- see HintResponse's own docstring).
+ */
+export async function requestHint(gameId: string): Promise<HintResponse> {
+  return apiFetch<HintResponse>(`/perfect-season/games/${gameId}/hint`, {
     method: "POST",
     body: JSON.stringify({ game_id: gameId }),
   });

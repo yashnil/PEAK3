@@ -99,6 +99,10 @@ TEAM_YEAR_SPIN_TYPE = "team_year"
 
 VALID_MODES = {"apex_1y": 1, "prime_3y": 3, "foundation_5y": 5}
 
+# Gameplay-polish: per-run difficulty. Chosen once, at creation, and frozen
+# for the life of the run -- see CourtLineupState.difficulty's own docstring.
+VALID_DIFFICULTIES = ("easy", "hard")
+
 
 class CourtError(ValueError):
     """A CourtBuilder state-machine validation error with a stable code."""
@@ -120,9 +124,12 @@ def create_perfect_season_game(
     board_type: str = "practice",
     team_year_enabled: bool = False,
     challenge_date: Optional[str] = None,
+    difficulty: str = "easy",
 ) -> CourtLineupState:
     if mode not in VALID_MODES:
         raise ValueError(f"Invalid mode '{mode}'. Valid: {list(VALID_MODES.keys())}")
+    if difficulty not in VALID_DIFFICULTIES:
+        raise ValueError(f"Invalid difficulty '{difficulty}'. Valid: {list(VALID_DIFFICULTIES)}")
     # Phase 9A: "daily" joins "practice" as a supported board_type. A daily
     # board is NOT a different engine or a different rule set -- it is the
     # same generator on a seed derived from the calendar date
@@ -168,6 +175,7 @@ def create_perfect_season_game(
         duration_years=VALID_MODES[mode],
         challenge_kind=challenge_kind,
         challenge_date=challenge_date,
+        difficulty=difficulty,
     )
 
 
@@ -751,6 +759,29 @@ MAX_TEAM_RESPINS = 3
 MAX_SEASON_RESPINS = 3
 _MAX_RESPIN_PICK_ATTEMPTS = 30
 
+# Gameplay-polish: Hard difficulty's reduced run-level respin budget -- 1
+# team + 1 season for the WHOLE 8-round run (down from 3+3). A single
+# constant rather than inlining `1` at each call site below, so the value is
+# named once and easy to audit.
+HARD_MODE_MAX_RESPINS = 1
+
+
+def _max_team_respins(state: CourtLineupState) -> int:
+    """The effective per-run team-respin cap for THIS state's difficulty.
+
+    The one place that decides the cap -- every gate that used to compare
+    directly against MAX_TEAM_RESPINS (the budget check in
+    action_respin_team, the per-spin public payload, and the top-level
+    receipt in get_public_state) now reads it through here, so Hard mode's
+    1-respin budget is enforced everywhere the Easy 3-respin budget was,
+    not just at creation."""
+    return HARD_MODE_MAX_RESPINS if state.difficulty == "hard" else MAX_TEAM_RESPINS
+
+
+def _max_season_respins(state: CourtLineupState) -> int:
+    """See `_max_team_respins` -- the season-respin counterpart."""
+    return HARD_MODE_MAX_RESPINS if state.difficulty == "hard" else MAX_SEASON_RESPINS
+
 
 def _respin_rng(state: CourtLineupState, kind: str, count: int) -> random.Random:
     """Deterministic per-respin seed, derived from the board seed + round +
@@ -1142,7 +1173,7 @@ def action_respin_team(
     if _replayed_respin(state, "team", idempotency_key):
         return state
     spin = _assert_respin_allowed(state)
-    if state.team_respins_used >= MAX_TEAM_RESPINS:
+    if state.team_respins_used >= _max_team_respins(state):
         raise CourtError("respin_limit_reached", "No team respins left this round")
 
     rng = _respin_rng(state, "team", state.team_respins_used)
@@ -1189,7 +1220,7 @@ def action_respin_season(
     if _replayed_respin(state, "season", idempotency_key):
         return state
     spin = _assert_respin_allowed(state)
-    if state.season_respins_used >= MAX_SEASON_RESPINS:
+    if state.season_respins_used >= _max_season_respins(state):
         raise CourtError("respin_limit_reached", "No season respins left this round")
 
     rng = _respin_rng(state, "season", state.season_respins_used)
@@ -1218,6 +1249,158 @@ def action_respin_season(
     if new_entry is None:
         raise CourtError("respin_no_valid_option", "No valid team-season available for a respin right now")
     return _apply_respin(state, spin, "season", new_entry, policy_meta, idempotency_key)
+
+
+# ---------------------------------------------------------------------------
+# Gameplay-polish: the one-time "Give me a suggestion" hint (Easy mode only).
+#
+# WHAT "BEST" MEANS HERE, DELIBERATELY NOT "HIGHEST RAW SCORE". The product
+# ask is the candidate that maximizes the actual resulting roster outcome --
+# raw player rating AND how well they fit an open slot -- never a bare
+# highest-score pick (that is what _compute_peak_picks_recap already computes
+# for the DIFFERENT, post-completion "what PEAK3 would have picked" recap,
+# which is explicitly not fit-aware and is never reused here). The formula is
+# exactly the one the real simulator scores position fit with --
+# `_fit_points` (nba_peak.perfect_season.simulation) -- applied against every
+# CURRENTLY OPEN slot type, taking the best (slot, fit) pairing for each
+# candidate: `raw_score + max(fit_points across open slots)`. Reusing the
+# simulator's own fit-point scale, rather than inventing a separate "hint
+# score", is what keeps the recommendation honestly tied to what actually
+# changes the resulting roster's projection.
+#
+# ADR-005 Decision 6, extended: the hint reveals ONLY the recommended
+# player's identity (slug + name) -- never a number, never a ranking of the
+# other candidates, and never the winning combined value itself. See the
+# route (apps/api/app/api/v1/perfect_season.py) and PublicCourtStateResponse
+# siblings for the response-shape side of that same rule.
+# ---------------------------------------------------------------------------
+
+def _true_open_slot_types(state: CourtLineupState) -> list[str]:
+    """Slot types with no card of EITHER kind placed yet.
+
+    Deliberately NOT `get_open_slot_types` (which checks only
+    `peak_window_id` and is therefore imprecise for team_year boards once
+    any slot has been filled -- a team_year placement sets
+    `exact_player_season_key`, never `peak_window_id`). The hint's fit
+    computation must never credit a candidate for "fitting" a slot that is
+    actually already occupied, so this checks both fields -- the same test
+    `action_place_card` itself uses to decide whether a slot is open."""
+    return [s.slot_type for s in state.slots if s.peak_window_id is None and s.exact_player_season_key is None]
+
+
+def _hint_candidate_value(
+    state: CourtLineupState, spin, player_slug: str, open_slot_types: list[str]
+) -> Optional[float]:
+    """`raw_score + max(fit_points across open_slot_types)` for one candidate,
+    or None if the candidate cannot be resolved at all (an honest data gap,
+    never a fabricated value -- same discipline as _compute_peak_picks_recap
+    skipping an unresolvable candidate)."""
+    if _is_team_year_spin(spin):
+        card = resolve_player_season_card(player_slug, spin.team_id, spin.era_label)
+        if card is None:
+            return None
+        raw = card.season_score if card.season_score is not None else provisional_unscored_impact(card)
+        # NOT floored at 0.0 -- if every open slot is a genuine mismatch for
+        # this candidate, the true max across them can be (and should stay)
+        # negative. Flooring at 0.0 here would silently give an off-position
+        # candidate a free pass whenever the only open slot(s) hurt it,
+        # which is exactly the raw-score-only behavior this hint is supposed
+        # to NOT have.
+        fit_values = []
+        for slot_type in open_slot_types:
+            role_fit, severity = _exact_fit(card, slot_type)
+            fit_values.append(_fit_points(role_fit or "off_position", severity))
+        best_fit = max(fit_values) if fit_values else 0.0
+    else:
+        card = resolve_card(player_slug, state.duration_years)
+        if card is None:
+            return None
+        raw = card.individual_peak_score
+        fit_values = [
+            _fit_points(*_legacy_fit(card.player_slug, card.primary_role, slot_type))
+            for slot_type in open_slot_types
+        ]
+        best_fit = max(fit_values) if fit_values else 0.0
+    if raw is None:
+        return None
+    return raw + best_fit
+
+
+def _compute_hint_candidate(state: CourtLineupState) -> tuple[str, str]:
+    """(player_slug, player_name) of the single best candidate from the
+    CURRENT round's legal offer -- excludes players already on the roster,
+    exactly like the live candidate list the player is actually offered
+    (get_public_state filters the same set). Deterministic tie-break: the
+    higher combined value wins; an exact tie is broken by player_slug
+    ascending, so the same board/round always recommends the same player.
+
+    Raises `hint_unavailable` only in the practically-unreachable case where
+    the current spin's entire candidate pool is already used/unresolvable --
+    never returns a fabricated recommendation."""
+    spin = find_spin(state.board, state.current_round)
+    if spin is None:
+        raise CourtError("round_not_found", f"No spin for round {state.current_round}")
+
+    open_slot_types = _true_open_slot_types(state)
+    used_slugs = _used_player_slugs(state)
+
+    best_slug: Optional[str] = None
+    best_name: Optional[str] = None
+    best_value: Optional[float] = None
+    for slug in spin.candidate_player_slugs:
+        if slug in used_slugs:
+            continue
+        value = _hint_candidate_value(state, spin, slug, open_slot_types)
+        if value is None:
+            continue
+        if (
+            best_value is None
+            or value > best_value
+            or (value == best_value and slug < (best_slug or slug))
+        ):
+            best_slug, best_value = slug, value
+            best_name = _candidate_name_for_hint(state, spin, slug)
+
+    if best_slug is None or best_name is None:
+        raise CourtError("hint_unavailable", "No candidates are available to recommend right now")
+    return best_slug, best_name
+
+
+def _candidate_name_for_hint(state: CourtLineupState, spin, player_slug: str) -> Optional[str]:
+    if _is_team_year_spin(spin):
+        card = resolve_player_season_card(player_slug, spin.team_id, spin.era_label)
+        return card.player_name if card else None
+    card = resolve_card(player_slug, state.duration_years)
+    return card.player_name if card else None
+
+
+def action_get_hint(state: CourtLineupState) -> tuple[CourtLineupState, str, str]:
+    """Reveal the single best candidate from the current round's offer
+    (Easy mode only, once per run). Returns (state, player_slug, player_name)
+    -- never a score, never a ranking, never touching any candidate other
+    than the one recommendation (see this section's own module comment).
+
+    Rejects (CourtError) when: difficulty is not "easy"; the hint has
+    already been used this run; the game is already complete; or the current
+    round has no active, pickable spin (status must be "selection_pending" --
+    the same phase respins require, since a hint is a pre-pick aid, not a
+    post-pick one)."""
+    _assert_active(state)
+    if state.difficulty != "easy":
+        raise CourtError("hint_not_available", "Hints are only available on Easy difficulty")
+    if state.hint_used:
+        raise CourtError("hint_already_used", "You've already used this run's hint")
+    if state.status != "selection_pending":
+        raise CourtError(
+            "hint_not_allowed",
+            "A hint is only available before you select a candidate for this round",
+        )
+
+    player_slug, player_name = _compute_hint_candidate(state)
+
+    state.hint_used = True
+    _touch(state)
+    return state, player_slug, player_name
 
 
 def _compute_peak_picks_recap(state: CourtLineupState, team_year_board: bool) -> list[dict]:
@@ -1677,9 +1860,9 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
             # are locked for THIS round without needing a separate flag,
             # even though the budget itself carries over.
             current_spin_public["team_respins_used"] = state.team_respins_used
-            current_spin_public["team_respins_max"] = MAX_TEAM_RESPINS
+            current_spin_public["team_respins_max"] = _max_team_respins(state)
             current_spin_public["season_respins_used"] = state.season_respins_used
-            current_spin_public["season_respins_max"] = MAX_SEASON_RESPINS
+            current_spin_public["season_respins_max"] = _max_season_respins(state)
 
     pending_card_public = None
     if state.pending_selection_exact_season_key:
@@ -1893,9 +2076,14 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
         # has advanced past the last team_year spin) and name the budget
         # unambiguously.
         "team_respins_used_total": state.team_respins_used,
-        "team_respins_remaining_total": max(0, MAX_TEAM_RESPINS - state.team_respins_used),
+        "team_respins_remaining_total": max(0, _max_team_respins(state) - state.team_respins_used),
         "season_respins_used_total": state.season_respins_used,
-        "season_respins_remaining_total": max(0, MAX_SEASON_RESPINS - state.season_respins_used),
+        "season_respins_remaining_total": max(0, _max_season_respins(state) - state.season_respins_used),
+        # Gameplay-polish: the run's frozen difficulty and whether its
+        # one-time hint (easy mode only) has already been used -- see
+        # CourtLineupState's own docstrings for both fields.
+        "difficulty": state.difficulty,
+        "hint_used": state.hint_used,
         # launch-polish IMPLEMENTATION_CONTRACT.md §5: the client sends this
         # BACK as `expected_state_version` on an undo request -- optimistic
         # concurrency, same shape any "reject this if something changed"

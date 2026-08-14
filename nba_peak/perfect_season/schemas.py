@@ -375,6 +375,20 @@ class CourtLineupState:
     # new placement/swap happens, both this and undo_snapshot move on
     # together.
     last_undo_key: Optional[str] = None
+    # Gameplay-polish: per-run difficulty, chosen at the pre-game gate and
+    # frozen for the life of the run -- "easy" (default: today's 3 team + 3
+    # season respins, plus the one-time hint below) or "hard" (1 team + 1
+    # season respin for the WHOLE run, no hint). Never switchable mid-run --
+    # a reload/resume must see the same difficulty it started with. Read
+    # through state.py's _max_team_respins/_max_season_respins helpers at
+    # every respin gate (creation is not the only enforcement point), never
+    # compared against MAX_TEAM_RESPINS/MAX_SEASON_RESPINS directly.
+    difficulty: str = "easy"
+    # Gameplay-polish: the one-time "Give me a suggestion" hint (easy mode
+    # only -- see state.py::action_get_hint). True once the hint has been
+    # successfully used this run; never resets, and hard mode never sets it
+    # (the hint is simply unavailable there, not consumed-and-refunded).
+    hint_used: bool = False
 
 
 # Re-exported so callers of this module do not need to import

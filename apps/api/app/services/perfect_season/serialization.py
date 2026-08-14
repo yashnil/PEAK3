@@ -118,4 +118,9 @@ def court_state_from_dict(d: dict) -> CourtLineupState:
         state_version=d.get("state_version", 0),
         undo_snapshot=undo_snapshot,
         last_undo_key=d.get("last_undo_key"),
+        # Gameplay-polish: an older stored payload predates both fields --
+        # defaults to "easy"/False, same discipline as every other field
+        # added to this dataclass since (see this module's own docstring).
+        difficulty=d.get("difficulty", "easy"),
+        hint_used=d.get("hint_used", False),
     )

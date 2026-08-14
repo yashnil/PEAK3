@@ -638,24 +638,16 @@ test.describe("CourtBuilder spin ceremony", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Phase 6G Part B: "Team + Season Reel Spinner v2" -- coverage proof,
-  // reel-strip test ids, locked state, reduced motion, mobile overflow.
+  // Phase 6G Part B: "Team + Season Reel Spinner v2" -- reel-strip test ids,
+  // locked state, reduced motion, mobile overflow.
+  //
+  // The gameplay-experience-polish pass (2.8) removed the always-visible
+  // "X rollable team-seasons · 1979-80 to 2025-26" coverage line entirely --
+  // it never affected which player to pick, the definition of low-value
+  // microcopy the pass called out for removal -- along with the two tests
+  // that existed solely to prove that line was real. There is no replacement
+  // assertion: the feature is gone, not weakened.
   // -------------------------------------------------------------------------
-
-  test("spinner renders real coverage text (rollable team-seasons count)", async ({ page }) => {
-    await startCourtBuilder(page);
-    const coverageLine = page.locator('[data-testid="spin-coverage-line"]');
-    await expect(coverageLine).toBeVisible();
-    // Real, non-fabricated coverage count -- proves this isn't a hardcoded
-    // "1,310" string but an actual number from the readiness dataset.
-    await expect(coverageLine).toContainText(/[\d,]+ rollable team-seasons/, { timeout: 5_000 });
-  });
-
-  test("spinner renders the eligible season range 1979-80 to 2025-26", async ({ page }) => {
-    await startCourtBuilder(page);
-    const coverageLine = page.locator('[data-testid="spin-coverage-line"]');
-    await expect(coverageLine).toContainText("1979-80 to 2025-26", { timeout: 5_000 });
-  });
 
   test("spin stage shows reel-strip test ids while spinning (team and season reels)", async ({ page }) => {
     // Fresh navigation lands in the "spinning" phase for a moment before
@@ -1051,6 +1043,133 @@ test.describe("CourtBuilder respins", () => {
     const summary = page.locator('[data-testid="roll-summary"]');
     await expect(summary).toContainText(teamBefore!);
     await expect(summary).toContainText(body.current_spin.era_label);
+  });
+
+  // ---------------------------------------------------------------------
+  // gameplay-experience-polish 2.6: the respin result must not leak before
+  // the reel visually lands. `state.current_spin` becomes the new,
+  // authoritative spin the instant a respin request resolves -- these
+  // tests prove CourtBuilder's own directly-rendered text (the overlay
+  // header line, the candidate list) still shows the PREVIOUS team/season/
+  // candidates for the whole time the reel is still animating, and only
+  // switches to the new ones once SpinStage reports the respin settled.
+  // ---------------------------------------------------------------------
+
+  test("2.6: a team respin does not leak the new team or candidates before the reel lands", async ({ page }) => {
+    await startCourtBuilder(page);
+    const teamBtn = page.locator('[data-testid="respin-team-btn"]');
+    await expect(teamBtn).toBeVisible();
+    await waitForReelsSettled(page);
+
+    const summary = page.locator('[data-testid="overlay-roll-summary"]');
+    const firstCandidateBefore = await page
+      .locator('[data-testid="candidate-card"]')
+      .first()
+      .getAttribute("data-player-slug");
+    const teamBefore = await summary.innerText();
+
+    const [respinResponse] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-team") && r.status() === 200),
+      teamBtn.click(),
+    ]);
+    const body = await respinResponse.json();
+    const newTeam = body.current_spin.franchise_display_name as string;
+    const newFirstCandidate = body.current_spin.candidates[0].player_slug as string;
+
+    // The instant the response lands, the reel is still ticking
+    // (`era-wheel-locked-badge`/`team-wheel-locked-badge` still visible from
+    // the tests above prove this window is real). Everything CourtBuilder
+    // renders directly must still read the PREVIOUS roll -- the new team
+    // name and the new first candidate must not appear yet.
+    await expect(summary).toContainText(teamBefore.split(" · ")[0]);
+    await expect(summary).not.toContainText(newTeam);
+    expect(
+      await page.locator('[data-testid="candidate-card"]').first().getAttribute("data-player-slug"),
+      "the candidate list must still show the PRE-respin roll while the reel is mid-flight",
+    ).toBe(firstCandidateBefore);
+
+    // Once the reel has actually settled, the leak-safe values catch up.
+    await expect(page.locator('[data-testid="team-wheel-locked-badge"]')).toHaveCount(0, { timeout: 3_500 });
+    await waitForReelsSettled(page);
+    await expect(summary).toContainText(newTeam);
+    expect(
+      await page.locator('[data-testid="candidate-card"]').first().getAttribute("data-player-slug"),
+    ).toBe(newFirstCandidate);
+  });
+
+  test("2.6: a season respin does not leak the new season or candidates before the reel lands", async ({ page }) => {
+    await startCourtBuilder(page);
+    const seasonBtn = page.locator('[data-testid="respin-season-btn"]');
+    await expect(seasonBtn).toBeVisible();
+    await waitForReelsSettled(page);
+
+    const summary = page.locator('[data-testid="overlay-roll-summary"]');
+    const firstCandidateBefore = await page
+      .locator('[data-testid="candidate-card"]')
+      .first()
+      .getAttribute("data-player-slug");
+
+    const [respinResponse] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-season") && r.status() === 200),
+      seasonBtn.click(),
+    ]);
+    const body = await respinResponse.json();
+    const newEra = body.current_spin.era_label as string;
+    const newFirstCandidate = body.current_spin.candidates[0].player_slug as string;
+
+    await expect(summary).not.toContainText(newEra);
+    expect(
+      await page.locator('[data-testid="candidate-card"]').first().getAttribute("data-player-slug"),
+      "the candidate list must still show the PRE-respin roll while the reel is mid-flight",
+    ).toBe(firstCandidateBefore);
+
+    await expect(page.locator('[data-testid="era-wheel-locked-badge"]')).toHaveCount(0, { timeout: 3_500 });
+    await waitForReelsSettled(page);
+    await expect(summary).toContainText(newEra);
+    expect(
+      await page.locator('[data-testid="candidate-card"]').first().getAttribute("data-player-slug"),
+    ).toBe(newFirstCandidate);
+  });
+
+  test("2.2: the spin stage never collapses or shifts vertically during a respin", async ({ page }) => {
+    await startCourtBuilder(page);
+    const teamBtn = page.locator('[data-testid="respin-team-btn"]');
+    await expect(teamBtn).toBeVisible();
+    await waitForReelsSettled(page);
+
+    const stage = page.locator('[data-testid="spin-stage"]');
+    const candidatePanel = page.locator('[data-testid="candidate-panel"]');
+    const boxBefore = await stage.boundingBox();
+    const candidateBoxBefore = await candidatePanel.boundingBox();
+    expect(boxBefore).toBeTruthy();
+    expect(candidateBoxBefore).toBeTruthy();
+
+    const [respinResponse] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-team") && r.status() === 200),
+      teamBtn.click(),
+    ]);
+    await respinResponse.json();
+
+    // Mid-flight: the respin banner is now mounted inside its reserved
+    // slot. The stage's own height (and, critically, the Y position of the
+    // candidate panel below it) must not have moved -- that vertical jump
+    // was the bug (a collapse/shift, not a smooth transition).
+    await expect(page.locator('[data-testid="respin-banner"]')).toBeVisible();
+    const boxDuring = await stage.boundingBox();
+    const candidateBoxDuring = await candidatePanel.boundingBox();
+    expect(boxDuring).toBeTruthy();
+    expect(candidateBoxDuring).toBeTruthy();
+    expect(Math.abs(boxDuring!.height - boxBefore!.height)).toBeLessThanOrEqual(2);
+    expect(Math.abs(candidateBoxDuring!.y - candidateBoxBefore!.y)).toBeLessThanOrEqual(2);
+
+    await expect(page.locator('[data-testid="respin-banner"]')).toHaveCount(0, { timeout: 3_500 });
+    await waitForReelsSettled(page);
+    const boxAfter = await stage.boundingBox();
+    const candidateBoxAfter = await candidatePanel.boundingBox();
+    expect(boxAfter).toBeTruthy();
+    expect(candidateBoxAfter).toBeTruthy();
+    expect(Math.abs(boxAfter!.height - boxBefore!.height)).toBeLessThanOrEqual(2);
+    expect(Math.abs(candidateBoxAfter!.y - candidateBoxBefore!.y)).toBeLessThanOrEqual(2);
   });
 
   test("respin controls disappear once a player is selected", async ({ page }) => {
@@ -2765,9 +2884,44 @@ test.describe("selection overlay (E1)", () => {
       await expect(page.locator('[data-testid="respin-team-btn"]')).toContainText("3 left");
 
       // MINIMIZE: the court is workable underneath without losing the roll,
-      // and the round's outstanding decision has a prominent way back.
+      // and the round's outstanding decision has a prominent way back. 2.5:
+      // the banner is JUST the button now -- no "Round X of Y is waiting"
+      // sentence, which said nothing the button itself doesn't already say.
       await minimizeOverlay(page);
-      await expect(page.locator('[data-testid="resume-selection-banner"]')).toContainText(/Round 1 of 8/);
+      const resumeBanner = page.locator('[data-testid="resume-selection-banner"]');
+      await expect(resumeBanner).toContainText(/Resume selection/i);
+      await expect(resumeBanner).not.toContainText(/Round 1 of 8/);
+      await expect(resumeBanner).not.toContainText(/rearrange your court/i);
+      await page.locator('[data-testid="resume-selection-btn"]').click();
+      await expect(overlay).toBeVisible();
+      await expect(page.locator('[data-testid="respin-team-btn"]')).toContainText("3 left");
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("2.4: clicking the backdrop enters View Court, but clicking inside the panel does not", async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    try {
+      await startCourtBuilder(page);
+      const overlay = page.locator('[data-testid="selection-overlay"]');
+      await expect(overlay).toBeVisible();
+
+      // A click inside the panel (on its header) must NOT minimize it.
+      await page.locator(".courtb-overlay-head").first().click({ position: { x: 4, y: 4 } });
+      await expect(overlay).toBeVisible();
+
+      // A click on the scrim itself, outside the panel, enters View Court --
+      // the same effect as the explicit button.
+      await page.locator('[data-testid="selection-overlay-scrim"]').click({ position: { x: 4, y: 4 } });
+      await expect(overlay).toBeHidden();
+      await expect(page.locator('[data-testid="resume-selection-banner"]')).toBeVisible();
+
+      // No state mutation happened -- the same roll and respin budget are
+      // still there on return.
       await page.locator('[data-testid="resume-selection-btn"]').click();
       await expect(overlay).toBeVisible();
       await expect(page.locator('[data-testid="respin-team-btn"]')).toContainText("3 left");

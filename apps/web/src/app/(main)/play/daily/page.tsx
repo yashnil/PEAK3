@@ -11,6 +11,23 @@ import {
 } from "@/lib/daily-time";
 import { useDailyReset } from "@/lib/use-daily-reset";
 import type { DailyChallenge } from "@/types";
+import GameIntro from "@/components/shared/GameIntro";
+
+const PEAK_DUEL_INTRO_RULES = [
+  { label: "Pick the higher peak", detail: "two real player peak-windows, side by side — choose the one PEAK3 rates higher" },
+  { label: "Ten matchups", detail: "the same ten comparisons for everyone today, one at a time" },
+  { label: "Instant reveal", detail: "the real numbers show right after you pick, no waiting for a result screen" },
+];
+
+function PeakDuelIntroVisual() {
+  return (
+    <div className="pd-intro-visual" aria-hidden="true">
+      <span className="pd-intro-card">Player A</span>
+      <span className="pd-intro-vs">VS</span>
+      <span className="pd-intro-card">Player B</span>
+    </div>
+  );
+}
 
 /**
  * Peak Duel Daily.
@@ -32,6 +49,7 @@ export default function DailyPage() {
   const [error, setError] = useState<string | null>(null);
   const [years] = useState(3);
   const [reloadToken, setReloadToken] = useState(0);
+  const [introOpen, setIntroOpen] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -163,6 +181,19 @@ export default function DailyPage() {
 
   return (
     <div className="min-h-screen court-grid-bg">
+      <GameIntro
+        open={introOpen}
+        onStart={() => setIntroOpen(false)}
+        onSkip={() => setIntroOpen(false)}
+        eyebrow="Daily Challenge"
+        title="Peak Duel"
+        objective="Ten head-to-head matchups — pick which player's peak PEAK3 rates higher."
+        rules={PEAK_DUEL_INTRO_RULES}
+        visual={<PeakDuelIntroVisual />}
+        accent="var(--comp-si)"
+        startLabel="Start today's duel"
+        testId="peak-duel-game-intro"
+      />
       <div className="mx-auto max-w-2xl px-4">
         <div className="pt-8 text-center">
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)]">
@@ -173,13 +204,15 @@ export default function DailyPage() {
             10 matchups · {years}-year windows
           </p>
         </div>
-        <GameEngine
-          mode="daily"
-          years={years}
-          duels={challenge.duels}
-          session_token={challenge.session_token}
-          date={today}
-        />
+        {!introOpen && (
+          <GameEngine
+            mode="daily"
+            years={years}
+            duels={challenge.duels}
+            session_token={challenge.session_token}
+            date={today}
+          />
+        )}
       </div>
     </div>
   );

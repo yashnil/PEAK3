@@ -426,8 +426,11 @@ def test_readiness_endpoint_falls_back_to_apex_1y_for_invalid_mode(client: TestC
 # API helpers
 # ---------------------------------------------------------------------------
 
-def _create(client: TestClient, mode: str = "apex_1y", seed: int = 42) -> dict:
-    resp = client.post("/api/v1/perfect-season/games", json={"mode": mode, "seed": seed})
+def _create(client: TestClient, mode: str = "apex_1y", seed: int = 42, difficulty: str | None = None) -> dict:
+    body = {"mode": mode, "seed": seed}
+    if difficulty is not None:
+        body["difficulty"] = difficulty
+    resp = client.post("/api/v1/perfect-season/games", json=body)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -1898,6 +1901,321 @@ def test_respin_never_produces_empty_candidate_list(team_year_client: TestClient
             candidates = resp.json()["current_spin"]["candidates"]
             assert len(candidates) > 0
             assert all(c["team_name"] and c["season"] for c in candidates)
+
+
+# ---------------------------------------------------------------------------
+# Gameplay-polish: per-run difficulty (Easy/Hard) and the one-time hint.
+# ---------------------------------------------------------------------------
+
+def _hint(client: TestClient, game_id: str) -> "object":
+    return client.post(f"/api/v1/perfect-season/games/{game_id}/hint", json={"game_id": game_id})
+
+
+def test_create_game_defaults_to_easy_difficulty(client: TestClient):
+    state = _create(client, mode="apex_1y", seed=101)
+    assert state["difficulty"] == "easy"
+    assert state["hint_used"] is False
+
+
+def test_create_game_rejects_an_unknown_difficulty(client: TestClient):
+    resp = client.post(
+        "/api/v1/perfect-season/games",
+        json={"mode": "apex_1y", "seed": 102, "difficulty": "brutal"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "invalid_difficulty"
+
+
+def test_hard_mode_reduces_respin_budget_to_one_team_one_season(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=103, difficulty="hard")
+    assert state["difficulty"] == "hard"
+    assert state["current_spin"]["team_respins_max"] == 1
+    assert state["current_spin"]["season_respins_max"] == 1
+    assert state["team_respins_remaining_total"] == 1
+    assert state["season_respins_remaining_total"] == 1
+
+
+def test_hard_mode_second_team_respin_is_rejected_not_just_the_fourth(team_year_client: TestClient):
+    """Hard mode's budget is 1, not merely 'less than 3' -- the SECOND
+    attempt (not the fourth, as Easy mode's own test checks) must already be
+    rejected, and enforced at the same gate every other respin uses
+    (respin_limit_reached), never a different/looser code."""
+    state = _create(team_year_client, mode="apex_1y", seed=104, difficulty="hard")
+    game_id = state["game_id"]
+
+    first = _respin_team(team_year_client, game_id)
+    assert first.status_code == 200, first.text
+    assert first.json()["current_spin"]["team_respins_used"] == 1
+    assert first.json()["team_respins_remaining_total"] == 0
+
+    second = _respin_team(team_year_client, game_id)
+    assert second.status_code == 400
+    assert second.json()["detail"]["error_code"] == "respin_limit_reached"
+
+
+def test_hard_mode_second_season_respin_is_rejected(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=105, difficulty="hard")
+    game_id = state["game_id"]
+
+    first = _respin_season(team_year_client, game_id)
+    assert first.status_code == 200, first.text
+    assert first.json()["season_respins_remaining_total"] == 0
+
+    second = _respin_season(team_year_client, game_id)
+    assert second.status_code == 400
+    assert second.json()["detail"]["error_code"] == "respin_limit_reached"
+
+
+def test_easy_mode_keeps_the_three_plus_three_respin_budget(team_year_client: TestClient):
+    """No regression on the existing default -- Easy is Hard's superset, not
+    a new, different budget of its own."""
+    state = _create(team_year_client, mode="apex_1y", seed=106, difficulty="easy")
+    assert state["current_spin"]["team_respins_max"] == 3
+    assert state["current_spin"]["season_respins_max"] == 3
+    assert state["team_respins_remaining_total"] == 3
+    assert state["season_respins_remaining_total"] == 3
+
+
+def test_difficulty_and_hint_used_survive_a_serialization_round_trip():
+    """Postgres-backed persistence round-trips through court_state_to_dict/
+    court_state_from_dict on every load -- see serialization.py's own
+    docstring for the exact class of bug this discipline exists to prevent
+    (a field that silently resets on reload)."""
+    from app.services.perfect_season.serialization import court_state_from_dict, court_state_to_dict
+
+    state = ps_state.create_perfect_season_game(
+        mode="apex_1y", seed=107, team_spin_enabled=True, team_year_enabled=True, difficulty="hard",
+    )
+    state.game_id = "round-trip-game"
+    state.hint_used = False
+
+    d = court_state_to_dict(state)
+    assert d["difficulty"] == "hard"
+    restored = court_state_from_dict(d)
+    assert restored.difficulty == "hard"
+    assert restored.hint_used is False
+
+
+def test_a_payload_saved_before_difficulty_existed_still_loads_as_easy():
+    """An older stored row predates both fields entirely -- must default to
+    'easy'/False, not raise, matching every other field this dataclass has
+    grown since (see serialization.py's module docstring)."""
+    from app.services.perfect_season.serialization import court_state_from_dict
+
+    state = ps_state.create_perfect_season_game(
+        mode="apex_1y", seed=108, team_spin_enabled=True, team_year_enabled=True,
+    )
+    state.game_id = "legacy-game"
+    from app.services.perfect_season.serialization import court_state_to_dict
+
+    d = court_state_to_dict(state)
+    del d["difficulty"]
+    del d["hint_used"]
+    restored = court_state_from_dict(d)
+    assert restored.difficulty == "easy"
+    assert restored.hint_used is False
+
+
+# --- The hint algorithm itself: fit-aware, not a raw-score lookalike. -------
+
+def _build_hint_test_state(monkeypatch, *, difficulty="easy", status="selection_pending", hint_used=False):
+    """A minimal, hand-built team_year CourtLineupState with two synthetic
+    candidates -- one with the higher RAW score but a badly-mismatched
+    position, one with a lower raw score but a perfect position match for
+    the one currently open slot (PG). `resolve_player_season_card` is
+    monkeypatched (on the state.py module, where action_get_hint's helpers
+    actually call it) so this needs no real dataset row."""
+    from nba_peak.perfect_season.exact_season import PlayerSeasonCard
+    from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot, PerfectSeasonBoard, SpinPrompt
+
+    def _card(slug: str, name: str, position: str, score: float) -> PlayerSeasonCard:
+        return PlayerSeasonCard(
+            exact_player_season_key=f"{slug}-tst-202021",
+            player_slug=slug,
+            player_name=name,
+            team_id="TST",
+            team_name="Test City Testers",
+            season="2020-21",
+            season_label="2020-21",
+            games_played=70.0,
+            minutes_per_game=30.0,
+            games_started=70.0,
+            position=position,
+            identity_pool_status="canonical_250",
+            score_status="exact_season_scored",
+            season_score=score,
+            source_provenance="test_fixture",
+        )
+
+    cards = {
+        ("high-raw-off-position", "TST", "2020-21"): _card("high-raw-off-position", "High Raw Center", "C", 90.0),
+        ("good-fit-lower-raw", "TST", "2020-21"): _card("good-fit-lower-raw", "Good Fit Guard", "PG", 70.0),
+    }
+
+    def fake_resolve(slug, team_id, season):
+        return cards.get((slug, team_id, season))
+
+    monkeypatch.setattr(ps_state, "resolve_player_season_card", fake_resolve)
+
+    spin = SpinPrompt(
+        round_number=1,
+        spin_type="team_year",
+        spin_id="spin-1",
+        franchise_display_name="Test City Testers",
+        era_label="2020-21",
+        candidate_player_slugs=["high-raw-off-position", "good-fit-lower-raw"],
+        team_id="TST",
+    )
+    board = PerfectSeasonBoard(
+        board_id="board-1",
+        mode="apex_1y",
+        duration_years=1,
+        board_type="practice",
+        seed=1,
+        spins=[spin],
+        card_pool_version="test",
+        eligibility_ruleset_version="test",
+        board_generator_version="test",
+        interim_team_data_version=None,
+        metadata={},
+        experimental_team_year_data_version="test_v1",
+    )
+    # Every slot except PG is already occupied (an unresolvable placeholder
+    # key is fine -- _used_player_slugs simply can't resolve it to a slug,
+    # which is irrelevant to this test), so PG is the ONLY open slot and the
+    # off-position candidate cannot claim a fit bonus anywhere.
+    slots = [CourtSlot(slot_type=st) for st in SLOT_TYPES]
+    for slot in slots:
+        if slot.slot_type != "PG":
+            slot.exact_player_season_key = f"placeholder-{slot.slot_type}"
+
+    return CourtLineupState(
+        game_id="hint-test-game",
+        board=board,
+        status=status,
+        current_round=1,
+        slots=slots,
+        mode="apex_1y",
+        duration_years=1,
+        difficulty=difficulty,
+        hint_used=hint_used,
+    )
+
+
+def test_hint_picks_the_fit_aware_candidate_not_the_highest_raw_score(monkeypatch):
+    """THE root-cause proof: 'High Raw Center' has the higher raw season_score
+    (90 vs 70) and is exactly what a bare '_compute_peak_picks_recap'-style
+    highest-score lookup would return -- but PG is the only open slot, and a
+    center is a severe mismatch there (-14 fit points: 90 - 14 = 76), while
+    the point guard is a primary fit (+10: 70 + 10 = 80). The hint must
+    prefer the guard, proving it factors in position fit and is not simply
+    the post-game recap's raw-score algorithm in disguise."""
+    state = _build_hint_test_state(monkeypatch)
+    new_state, player_slug, player_name = ps_state.action_get_hint(state)
+    assert player_slug == "good-fit-lower-raw"
+    assert player_name == "Good Fit Guard"
+    assert new_state.hint_used is True
+
+
+def test_hint_is_exactly_one_time_per_run(monkeypatch):
+    state = _build_hint_test_state(monkeypatch)
+    new_state, _slug, _name = ps_state.action_get_hint(state)
+    assert new_state.hint_used is True
+
+    with pytest.raises(ps_state.CourtError) as exc_info:
+        ps_state.action_get_hint(new_state)
+    assert exc_info.value.code == "hint_already_used"
+
+
+def test_hint_is_rejected_outright_in_hard_mode(monkeypatch):
+    state = _build_hint_test_state(monkeypatch, difficulty="hard")
+    with pytest.raises(ps_state.CourtError) as exc_info:
+        ps_state.action_get_hint(state)
+    assert exc_info.value.code == "hint_not_available"
+
+
+def test_hint_is_rejected_with_no_active_selection_pending_spin(monkeypatch):
+    state = _build_hint_test_state(monkeypatch, status="placement_pending")
+    with pytest.raises(ps_state.CourtError) as exc_info:
+        ps_state.action_get_hint(state)
+    assert exc_info.value.code == "hint_not_allowed"
+
+
+# --- Full API request/response cycle, including auth/ownership. ------------
+
+def test_hint_endpoint_recommends_a_real_candidate_and_marks_hint_used(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=109)
+    game_id = state["game_id"]
+    candidate_slugs = {c["player_slug"] for c in state["current_spin"]["candidates"]}
+
+    resp = _hint(team_year_client, game_id)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert body["hint"]["player_slug"] in candidate_slugs
+    assert body["state"]["hint_used"] is True
+    assert body["state"]["difficulty"] == "easy"
+
+    # ADR-005 Decision 6, the hard product invariant: the hint payload is
+    # identity ONLY -- exactly {player_slug, player_name}, never a score or
+    # rank field, and never any information about the candidates that were
+    # NOT recommended.
+    assert set(body["hint"].keys()) == {"player_slug", "player_name"}
+
+
+def test_hint_payload_never_carries_a_numeric_score_anywhere(team_year_client: TestClient):
+    """Belt-and-braces on the ADR-005 invariant above: scan the ENTIRE `hint`
+    object (not just its key set) for anything that looks like a score --
+    proofs against the key-set check alone would miss a future field added
+    under a different name."""
+    state = _create(team_year_client, mode="apex_1y", seed=110)
+    resp = _hint(team_year_client, state["game_id"])
+    assert resp.status_code == 200, resp.text
+    hint_payload = resp.json()["hint"]
+    for value in hint_payload.values():
+        assert not isinstance(value, (int, float)), f"hint payload leaked a numeric value: {hint_payload}"
+
+
+def test_hint_endpoint_is_exactly_one_time_via_the_api(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=111)
+    game_id = state["game_id"]
+    first = _hint(team_year_client, game_id)
+    assert first.status_code == 200, first.text
+
+    second = _hint(team_year_client, game_id)
+    assert second.status_code == 400
+    assert second.json()["detail"]["error_code"] == "hint_already_used"
+
+
+def test_hint_endpoint_rejected_in_hard_mode(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=112, difficulty="hard")
+    resp = _hint(team_year_client, state["game_id"])
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "hint_not_available"
+
+
+def test_hint_endpoint_denies_a_signed_in_stranger(leaderboard_client: TestClient):
+    """Cross-user denial, mirroring test_undo_denies_a_signed_in_stranger --
+    every mutating CourtBuilder route (hint included) refuses a non-owner
+    with 403, and the owner's hint budget must be untouched afterward."""
+    client = leaderboard_client
+    owner_token = _mint_test_jwt("user-hint-owner")
+    stranger_token = _mint_test_jwt("user-hint-stranger")
+
+    client.headers["Authorization"] = f"Bearer {owner_token}"
+    state = _create(client, mode="apex_1y", seed=113)
+    game_id = state["game_id"]
+    del client.headers["Authorization"]
+
+    client.headers["Authorization"] = f"Bearer {stranger_token}"
+    resp = _hint(client, game_id)
+    del client.headers["Authorization"]
+    assert resp.status_code == 403
+
+    client.headers["Authorization"] = f"Bearer {owner_token}"
+    unchanged = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    del client.headers["Authorization"]
+    assert unchanged["hint_used"] is False, "a stranger's rejected hint request must not consume the owner's hint"
 
 
 # ---------------------------------------------------------------------------

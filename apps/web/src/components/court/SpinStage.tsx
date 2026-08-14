@@ -18,14 +18,17 @@ interface Props {
    * second reel. Never falls back to the decade ERA_LABELS, which would mix
    * a decade string into a round that will resolve to an exact season. */
   seasonLabels: string[];
-  /** Phase 6E Part G: real coverage numbers for confident copy -- replaces
-   * vague "limited coverage" text. 0/null falls back to a plain
-   * "Experimental exact-season mode" label instead of a fabricated number. */
-  rollableTeamSeasonCount?: number;
-  supportedStartSeason?: string | null;
-  supportedEndSeason?: string | null;
   /** Fired once the ceremony finishes and candidates are safe to reveal. */
   onRevealComplete?: () => void;
+  /** Fired once a respin's reel has visually settled on its new value --
+   * i.e. exactly when `respinning` flips back to false, whether that took
+   * the full ticking-reel animation or, under reduced motion, the shorter
+   * flourish-only path. This is the reveal boundary a caller must gate any
+   * directly-rendered team/season/candidate text on: `spin` already carries
+   * the new, authoritative value the instant a respin request resolves, long
+   * before the reel has visually landed, and nothing else this component
+   * exposes marks the moment it's safe to show that value. */
+  onRespinSettled?: () => void;
   /** Phase 6G Part C: incremented by the parent on every successful respin
    * (team or season). SpinStage doesn't replay the full spin ceremony for a
    * respin (it already happened once for this round) -- it just briefly
@@ -426,10 +429,8 @@ export default function SpinStage({
   totalRounds,
   franchiseNames,
   seasonLabels,
-  rollableTeamSeasonCount = 0,
-  supportedStartSeason = null,
-  supportedEndSeason = null,
   onRevealComplete,
+  onRespinSettled,
   respinFlashKey = 0,
   respinKind = null,
   collapsed = false,
@@ -561,7 +562,13 @@ export default function SpinStage({
     if (prefersReducedMotion()) {
       // Reduced motion: keep the brief border flash only, never the
       // ticking reel -- same discipline as the main ceremony effect above.
-      const t = window.setTimeout(() => setJustRespun(false), 350);
+      // `onRespinSettled` still fires on the same timer: a caller gating
+      // directly-rendered text on it must not be told to wait forever just
+      // because this path never sets `respinning` true.
+      const t = window.setTimeout(() => {
+        setJustRespun(false);
+        onRespinSettled?.();
+      }, 350);
       return () => window.clearTimeout(t);
     }
     setRespinning(true);
@@ -584,6 +591,7 @@ export default function SpinStage({
 
     const t1 = window.setTimeout(() => {
       setRespinning(false);
+      onRespinSettled?.();
     }, RESPIN_REROLL_MS);
     const t2 = window.setTimeout(() => setJustRespun(false), RESPIN_REROLL_MS + 100);
     return () => {
@@ -744,11 +752,6 @@ export default function SpinStage({
         : `Full player pool. ${spin.candidates.length} eligible player${spin.candidates.length === 1 ? "" : "s"}.`
       : "";
 
-  const coverageNote =
-    isTeamYear && rollableTeamSeasonCount > 0 && supportedStartSeason && supportedEndSeason
-      ? { count: rollableTeamSeasonCount.toLocaleString(), range: `${supportedStartSeason} to ${supportedEndSeason}` }
-      : null;
-
   // Phase 8D: collapsed only ever renders once the roll has already settled
   // (CourtBuilder only enters "placing" after a candidate is chosen, which
   // itself requires the ceremony to have already revealed) -- so this is a
@@ -850,42 +853,13 @@ export default function SpinStage({
         </span>
       </div>
 
-      {/* Phase 6G Part B: always-visible coverage line -- proves broad
-          team/season reach instead of only asserting it once, after the
-          fact, in the post-reveal badge. Text changes per phase so it reads
-          as live progress ("spinning through / searching") rather than a
-          static label repeated three times. */}
-      {isTwoWheel && (
-        <div
-          data-testid="spin-coverage-line"
-          className="text-[11px] font-semibold text-center"
-          style={{ color: "var(--text-muted)" }}
-        >
-          {phase === "spinning" && (
-            <>
-              {coverageNote
-                ? `Spinning through ${coverageNote.count} team-seasons`
-                : "Searching every team"}
-              {" · "}
-              {coverageNote ? `searching ${coverageNote.range}` : "searching all eligible seasons"}
-            </>
-          )}
-          {phase === "locked" && "Locking in your roll…"}
-          {phase === "revealed" &&
-            (coverageNote
-              ? `${coverageNote.count} rollable team-seasons · ${coverageNote.range}`
-              // Phase 8F: this fallback used to unconditionally say
-              // "Experimental exact-season mode" even for a team_decade
-              // (whole-decade, not a specific season) spin -- honest,
-              // spin_type-aware labels instead. Only ever shown at all
-              // once a developer explicitly disables the flagship team_year
-              // engine (COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=false)
-              // -- not reachable in the default flagship configuration.
-              : spin.spin_type === "team_decade"
-                ? "Legacy era-based fallback mode"
-                : "Legacy roster fallback mode")}
-        </div>
-      )}
+      {/* 2.8: the always-visible coverage line ("X rollable team-seasons ·
+          1979-80 to 2025-26") was removed. It reassured on pool breadth but
+          never affected which player to pick -- exactly the low-value
+          microcopy the polish pass calls out for removal. The player-facing
+          phase progress ("Locking in…") lived only inside this block too;
+          `spin-locked-stamp` below already says the same thing without a
+          second, phase-specific sentence. */}
 
       {phase === "locked" && (
         <div
@@ -896,21 +870,32 @@ export default function SpinStage({
         </div>
       )}
 
-      {respinning && (
-        <div className="respin-banner text-center" data-testid="respin-banner">
-          Respinning {respinKind === "team" ? "the franchise" : "the season"}…
-          {/* W5: the respin's own distinguishing beat. The first roll of a
-              round has no "from" -- only a respin can say what it moved away
-              from, and saying it is what stops a respin reading as a faster
-              repeat of the same ceremony. Text, so it survives reduced
-              motion and a screen reader. */}
-          {respinAwayFrom && (
-            <span className="respin-away-chip" data-testid="respin-away-chip">
-              away from {respinAwayFrom}
-            </span>
-          )}
-        </div>
-      )}
+      {/* The slot is ALWAYS mounted, at a reserved min-height -- only its
+          content is conditional. This is the collapse fix: the banner used
+          to be a bare `{respinning && <div>...}`, a genuine mount/unmount
+          inside `.spin-reel`'s flex-column with no height reserved for it,
+          so the wheel grid and everything below it jumped down when the
+          banner appeared and snapped back up when it vanished (looked like
+          a rendering bug on every team/season respin). Reserving the slot's
+          height unconditionally means the mount/unmount inside it can never
+          move anything else in the stage. */}
+      <div className="respin-banner-slot">
+        {respinning && (
+          <div className="respin-banner text-center" data-testid="respin-banner">
+            Respinning {respinKind === "team" ? "the franchise" : "the season"}…
+            {/* W5: the respin's own distinguishing beat. The first roll of a
+                round has no "from" -- only a respin can say what it moved away
+                from, and saying it is what stops a respin reading as a faster
+                repeat of the same ceremony. Text, so it survives reduced
+                motion and a screen reader. */}
+            {respinAwayFrom && (
+              <span className="respin-away-chip" data-testid="respin-away-chip">
+                away from {respinAwayFrom}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
 
       {isTwoWheel ? (
         <div

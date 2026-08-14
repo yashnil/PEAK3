@@ -5,6 +5,7 @@ import {
   completeCourtGame,
   createCourtGame,
   placeCard,
+  requestHint,
   respinIdempotencyKey,
   respinSeason,
   respinTeam,
@@ -40,11 +41,6 @@ interface Props {
    * (readiness endpoint's experimental_team_year_season_labels) -- empty for
    * every non-team_year board. */
   seasonLabels?: string[];
-  /** Coverage numbers for confident spinner copy (Phase 6E Part G) --
-   * replaces vague "limited coverage" text with real figures. */
-  rollableTeamSeasonCount?: number;
-  supportedStartSeason?: string | null;
-  supportedEndSeason?: string | null;
   /** Phase 8I: franchise_display_name -> resolved logo URL (readiness
    * endpoint's team_logo_urls), so the spin reel can show a real team logo
    * on every visible item while it's ticking, not just the landed team.
@@ -57,9 +53,6 @@ export default function CourtBuilder({
   initialGameState,
   franchiseNames,
   seasonLabels = [],
-  rollableTeamSeasonCount = 0,
-  supportedStartSeason = null,
-  supportedEndSeason = null,
   teamLogoUrls = {},
 }: Props) {
   const [state, setState] = useState<CourtLineupPublicState>(initialGameState);
@@ -85,6 +78,22 @@ export default function CourtBuilder({
   // visually clear enough"). Set alongside respinFlashKey on every respin,
   // read once by SpinStage's effect (see its own respinFlashKey comment).
   const [respinKind, setRespinKind] = useState<"team" | "season" | null>(null);
+  // Respin reveal boundary (bug: "the new team/year is visible before the
+  // reel lands"). `state.current_spin` becomes the NEW, authoritative spin
+  // the instant respinTeam/respinSeason resolves -- SpinStage itself already
+  // gates its own "You rolled: X" text on its internal `respinning` flag, but
+  // everything CourtBuilder renders directly from `state.current_spin` (the
+  // roll summary, the candidate list) had no equivalent gate and simply
+  // rendered whatever the latest state was. `respinPending` is true from the
+  // moment a respin is requested until SpinStage reports (via
+  // `onRespinSettled`) that the reel has actually visually landed;
+  // `revealedSpinRef` holds the last spin that was safe to show, so
+  // CourtBuilder can keep displaying the PREVIOUS team/season/candidates
+  // for that whole window instead of either leaking the new ones early or
+  // blanking the region (which would be its own collapse).
+  const [respinPending, setRespinPending] = useState(false);
+  const revealedSpinRef = useRef<CurrentSpin | null>(null);
+  if (state.current_spin && !respinPending) revealedSpinRef.current = state.current_spin;
   // Phase 9B rearrange mode: which filled slot's card the user is currently
   // moving, or null when not rearranging. A two-step "pick a card, then pick
   // a destination" flow rather than drag-and-drop -- it works with a keyboard
@@ -102,6 +111,15 @@ export default function CourtBuilder({
     // A new roll is a new decision: never leave it minimized behind a court
     // the player finished rearranging two rounds ago.
     setOverlayMinimized(false);
+  }, [state.current_round]);
+  // Gameplay-polish: the hint's recommendation is scoped to the round it was
+  // requested for -- once the round advances, that candidate offer is gone,
+  // so the highlight/confirmation must go with it. `state.hint_used` (the
+  // durable, persisted "already used this run" flag the button itself reads)
+  // is untouched by this -- only the ephemeral display resets.
+  const [hint, setHint] = useState<{ playerSlug: string; playerName: string } | null>(null);
+  useEffect(() => {
+    setHint(null);
   }, [state.current_round]);
   // E3 (polish pass): the third step is GONE. Displacing an already-placed
   // card used to pause on a separate "Swap?" confirmation banner rendered
@@ -184,6 +202,11 @@ export default function CourtBuilder({
   const lastSpinRef = useRef<CurrentSpin | null>(null);
   if (state.current_spin) lastSpinRef.current = state.current_spin;
   const roundSpin = state.current_spin ?? lastSpinRef.current;
+  // The reveal-safe spin for anything CourtBuilder renders directly (not
+  // through SpinStage, which manages its own reveal timing internally):
+  // the previous spin while a respin is still visually landing, the real
+  // one otherwise.
+  const displaySpin = respinPending ? (revealedSpinRef.current ?? roundSpin) : roundSpin;
 
   // W5: the most recent respin, from the SERVER's own respin_history receipt
   // -- SpinStage renders "away from X" from this, so the flourish can never
@@ -278,6 +301,18 @@ export default function CourtBuilder({
     if (next) setState(next);
   }
 
+  // Gameplay-polish: "Give me a suggestion" -- Easy mode only, once per run.
+  // The server computes the recommendation (raw score + best position fit
+  // across the open slots) entirely itself; this only stores the identity it
+  // returns for the highlight/confirmation, never a number.
+  async function handleHint() {
+    const result = await withBusy(() => requestHint(state.game_id));
+    if (result) {
+      setState(result.state);
+      setHint({ playerSlug: result.hint.player_slug, playerName: result.hint.player_name });
+    }
+  }
+
   // W5: the key is DERIVED from state, never randomly generated per call --
   // that is what makes a double-click safe. Both clicks read the same
   // `state.*_respins_used_total` (the first response has not landed yet, so
@@ -290,11 +325,14 @@ export default function CourtBuilder({
     const key = respinIdempotencyKey(
       state.game_id, state.current_round, "team", state.team_respins_used_total,
     );
+    setRespinPending(true);
     const next = await withBusy(() => respinTeam(state.game_id, key));
     if (next) {
       setState(next);
       setRespinKind("team");
       setRespinFlashKey((k) => k + 1);
+    } else {
+      setRespinPending(false);
     }
   }
 
@@ -302,11 +340,14 @@ export default function CourtBuilder({
     const key = respinIdempotencyKey(
       state.game_id, state.current_round, "season", state.season_respins_used_total,
     );
+    setRespinPending(true);
     const next = await withBusy(() => respinSeason(state.game_id, key));
     if (next) {
       setState(next);
       setRespinKind("season");
       setRespinFlashKey((k) => k + 1);
+    } else {
+      setRespinPending(false);
     }
   }
 
@@ -386,7 +427,10 @@ export default function CourtBuilder({
       setRevealedRound(null);
       setRespinFlashKey(0);
       setRespinKind(null);
+      setRespinPending(false);
+      setHint(null);
       lastSpinRef.current = null;
+      revealedSpinRef.current = null;
     }
   }
 
@@ -442,13 +486,35 @@ export default function CourtBuilder({
         <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
           82-0 Peak Season
         </h1>
-        <span
-          className="text-[9px] uppercase tracking-wide rounded px-1.5 py-0.5"
-          style={{ color: "var(--text-muted)" }}
-          title="v0 experimental simulator -- see the data receipt for version details"
-        >
-          Experimental
-        </span>
+        <div className="flex items-center gap-1.5">
+          {/* Gameplay-polish: the run's frozen difficulty -- especially
+              important in Hard mode, where the respin budget below reads
+              "(1 left)" instead of the usual "(3 left)" and this badge is
+              the thing that explains why. */}
+          <span
+            data-testid="difficulty-badge"
+            className="text-[9px] font-bold uppercase tracking-wide rounded px-1.5 py-0.5"
+            style={
+              state.difficulty === "hard"
+                ? { color: "var(--incorrect)", background: "var(--incorrect-bg)" }
+                : { color: "var(--peak-accent-text, #f5c842)", background: "var(--peak-accent-bg)" }
+            }
+            title={
+              state.difficulty === "hard"
+                ? "Hard: 1 team respin + 1 season respin for the whole run, no hint"
+                : "Easy: 3 team respins + 3 season respins for the whole run, plus a one-time hint"
+            }
+          >
+            {state.difficulty === "hard" ? "Hard" : "Easy"}
+          </span>
+          <span
+            className="text-[9px] uppercase tracking-wide rounded px-1.5 py-0.5"
+            style={{ color: "var(--text-muted)" }}
+            title="v0 experimental simulator -- see the data receipt for version details"
+          >
+            Experimental
+          </span>
+        </div>
       </div>
       <p className="text-xs -mt-3" style={{ color: "var(--text-muted)" }} data-testid="position-logic-note">
         Build eight exact player-season cards from real rosters. PEAK3 rewards talent first, then fit.
@@ -501,6 +567,15 @@ export default function CourtBuilder({
               className="courtb-overlay-scrim"
               data-testid="selection-overlay-scrim"
               hidden={phase !== "spinning" || overlayMinimized}
+              // 2.4: clicking the backdrop enters View Court, same as the
+              // explicit button. Guarded on `target === currentTarget` --
+              // this element WRAPS the panel rather than sitting behind it
+              // as a separate layer, so every click inside the panel also
+              // bubbles here, and only a click that landed on the scrim
+              // itself (never on a descendant) should count as "outside".
+              onClick={(e) => {
+                if (e.target === e.currentTarget) setOverlayMinimized(true);
+              }}
             >
               <section
                 role="dialog"
@@ -514,21 +589,21 @@ export default function CourtBuilder({
                     <span className="text-xs font-bold uppercase tracking-wider shrink-0" style={{ color: "var(--text-muted)" }}>
                       Round {state.current_round} / {state.total_rounds}
                     </span>
-                    {state.current_spin && state.current_spin.spin_type !== "open_pool" && ceremonyRevealed && (
+                    {displaySpin && displaySpin.spin_type !== "open_pool" && ceremonyRevealed && (
                       <span className="flex items-center gap-1.5 min-w-0">
                         <span
                           aria-hidden="true"
                           className="w-2.5 h-2.5 rounded-full shrink-0"
-                          style={{ background: getTeamColors(state.current_spin.franchise_display_name).primary }}
+                          style={{ background: getTeamColors(displaySpin.franchise_display_name).primary }}
                         />
                         <span
                           className="text-[12px] font-semibold truncate"
                           style={{ color: "var(--text-primary)" }}
                           data-testid="overlay-roll-summary"
                         >
-                          {state.current_spin.franchise_display_name} · {state.current_spin.era_label}
+                          {displaySpin.franchise_display_name} · {displaySpin.era_label}
                           <span style={{ color: "var(--text-muted)" }}>
-                            {" "}· {state.current_spin.candidates.length} eligible
+                            {" "}· {displaySpin.candidates.length} eligible
                           </span>
                         </span>
                       </span>
@@ -574,7 +649,20 @@ export default function CourtBuilder({
                   </button>
                 </div>
 
-                <div className="courtb-overlay-body">
+                <div
+                  className="courtb-overlay-body"
+                  // Gameplay-polish: the difficulty badge/hint affordance
+                  // added enough header height that this region's content can
+                  // now genuinely overflow and scroll on shorter viewports --
+                  // a scrollable region with no focusable content of its own
+                  // is unreachable by keyboard (axe `scrollable-region-
+                  // focusable`), same defect class `SettledLotTray`'s panel
+                  // already guards against (see its own comment). The
+                  // container itself takes focus so Tab can always reach and
+                  // scroll it, regardless of whether it happens to overflow
+                  // at the current viewport size.
+                  tabIndex={0}
+                >
                   {/* The round's constraint ceremony (team + era wheel).
                       Phase 8D contract unchanged: keyed only on
                       current_round, mounted through spinning AND placing
@@ -588,10 +676,8 @@ export default function CourtBuilder({
                     franchiseNames={franchiseNames}
                     seasonLabels={seasonLabels}
                     teamLogoUrls={teamLogoUrls}
-                    rollableTeamSeasonCount={rollableTeamSeasonCount}
-                    supportedStartSeason={supportedStartSeason}
-                    supportedEndSeason={supportedEndSeason}
                     onRevealComplete={() => setRevealedRound(state.current_round)}
+                    onRespinSettled={() => setRespinPending(false)}
                     respinFlashKey={respinFlashKey}
                     respinKind={respinKind}
                     respinFrom={lastRespin}
@@ -600,19 +686,54 @@ export default function CourtBuilder({
 
                   {/* Candidate discovery: search + list, scrolling INSIDE the
                       overlay body — the page never scrolls to choose. */}
-                  {phase === "spinning" && state.current_spin && ceremonyRevealed && (
+                  {phase === "spinning" && displaySpin && ceremonyRevealed && (
                     <div
                       data-testid="candidate-panel"
                       className="rounded-2xl border p-4 flex flex-col gap-3"
                       style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
                     >
-                      <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-                        Step 1 · Choose a player
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                          Step 1 · Choose a player
+                        </div>
+                        {/* Gameplay-polish: Easy mode only, and only while a
+                            candidate offer is actually open -- not during a
+                            respin's reel animation, and never in Hard mode
+                            (which never gets a hint at all). Stays visible
+                            (disabled, relabeled) after use rather than
+                            disappearing, so "already used this run" is
+                            legible on its own, including after a reload. */}
+                        {state.difficulty === "easy" && (
+                          <button
+                            type="button"
+                            data-testid="hint-btn"
+                            onClick={handleHint}
+                            disabled={busy || respinPending || state.hint_used}
+                            className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-50 pk-lift pk-press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                            style={{
+                              background: state.hint_used ? "var(--bg-surface)" : "var(--peak-accent, #f5c842)",
+                              color: state.hint_used ? "var(--text-muted)" : "var(--text-inverse)",
+                              border: "1px solid var(--border-default)",
+                            }}
+                          >
+                            {state.hint_used ? "Hint used" : "Give me a suggestion"}
+                          </button>
+                        )}
                       </div>
+                      {hint && (
+                        <p
+                          data-testid="hint-message"
+                          className="text-xs font-semibold -mt-1 pk-reveal"
+                          style={{ color: "var(--peak-accent-text, #f5c842)" }}
+                        >
+                          PEAK3 suggests: {hint.playerName}
+                        </p>
+                      )}
                       <EligiblePlayerSearch
-                        candidates={state.current_spin.candidates}
+                        candidates={displaySpin.candidates}
                         onSelect={handleSelect}
-                        disabled={busy}
+                        disabled={busy || respinPending}
+                        highlightSlug={hint?.playerSlug ?? null}
                       />
                     </div>
                   )}
@@ -654,23 +775,22 @@ export default function CourtBuilder({
             </div>
           )}
 
-          {/* The way back into a minimized selection (E1). Prominent and
-              primary — the selection is the round's outstanding decision. */}
+          {/* The way back into a minimized selection (E1). 2.5: the "Round X
+              of Y is waiting — rearrange your court, then come back to the
+              roll" line added nothing the button itself doesn't already say
+              — a strong, obvious action is the whole requirement here, not
+              an explanation of what it does. */}
           {phase === "spinning" && overlayMinimized && (
             <div
-              className="rounded-xl p-3 flex items-center justify-between gap-3"
+              className="rounded-xl p-3 flex items-center justify-center"
               data-testid="resume-selection-banner"
               style={{ background: "var(--peak-accent-bg, rgba(245,200,66,0.08))", border: "1px solid var(--peak-accent-dim)" }}
             >
-              <span className="text-xs" style={{ color: "var(--text-primary)" }}>
-                Round {state.current_round} of {state.total_rounds} is waiting —
-                rearrange your court, then come back to the roll.
-              </span>
               <button
                 type="button"
                 data-testid="resume-selection-btn"
                 onClick={() => setOverlayMinimized(false)}
-                className="min-h-[44px] shrink-0 rounded px-4 text-xs font-bold uppercase tracking-wide"
+                className="pk-lift pk-press min-h-[44px] w-full rounded-lg px-4 text-sm font-bold uppercase tracking-wide"
                 style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
               >
                 Resume selection

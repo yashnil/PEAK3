@@ -8,6 +8,12 @@ interface Props {
   candidates: SpinCandidate[];
   onSelect: (playerSlug: string) => void;
   disabled?: boolean;
+  /** Gameplay-polish: the hint's recommended player_slug, or null/undefined
+   * when no hint has been requested for this round. Identity only -- ADR-005
+   * Decision 6 still applies here exactly as it does to every other field on
+   * this component: an outline/badge is all this ever adds, never a score,
+   * a rank, or any comparison of the OTHER candidates. */
+  highlightSlug?: string | null;
 }
 
 /**
@@ -26,6 +32,13 @@ interface Props {
  * all, so there is nothing to accidentally render here -- the omission is
  * enforced by the type, not just by discipline in this file.
  *
+ * Gameplay-polish: `highlightSlug` (the Easy-mode hint's recommended
+ * player) is the one exception that still holds the line -- it is compared
+ * against `c.player_slug` purely for an outline/"Suggested" badge, never
+ * unwrapped into a number. The hint's server response
+ * (HintResponse/HintPlayerPublic) has no score field either, so there is
+ * still nothing here that COULD render one.
+ *
  * Still deliberately a plain list of buttons, not an ARIA listbox
  * (role="listbox"/"option"): that pattern implies roving-tabindex arrow-key
  * navigation, which this component does not implement, so applying the
@@ -33,7 +46,7 @@ interface Props {
  * tech. Plain buttons + native Tab order match the convention already used
  * by the existing Peak Draft offer cards (components/draft/DraftCard.tsx).
  */
-export default function EligiblePlayerSearch({ candidates, onSelect, disabled }: Props) {
+export default function EligiblePlayerSearch({ candidates, onSelect, disabled, highlightSlug }: Props) {
   const [query, setQuery] = useState("");
 
   const filtered = candidates.filter((c) =>
@@ -83,17 +96,26 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
           // this exact team stint's own performance.
           const isSeasonAggregate = c.score_source === "exact_season_aggregate";
           const teamAccent = getTeamColors(c.team_name).primary;
+          const isHinted = !!highlightSlug && c.player_slug === highlightSlug;
           return (
             <button
               key={c.player_slug}
               data-testid="candidate-card"
               data-player-slug={c.player_slug}
+              data-hinted={isHinted || undefined}
               disabled={disabled}
               onClick={() => onSelect(c.player_slug)}
               className="candidate-row-v3"
               style={{
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border-default)",
+                background: isHinted ? "var(--peak-accent-bg, rgba(245,200,66,0.08))" : "var(--bg-surface)",
+                // Longhand top/right/bottom sides (never the `border`
+                // shorthand) so this can vary with `isHinted` across
+                // rerenders without fighting `borderLeft` below -- React
+                // warns when a shorthand and a longhand for the same edge
+                // are both set and the shorthand's value changes.
+                borderTop: isHinted ? "1px solid var(--peak-accent, #f5c842)" : "1px solid var(--border-default)",
+                borderRight: isHinted ? "1px solid var(--peak-accent, #f5c842)" : "1px solid var(--border-default)",
+                borderBottom: isHinted ? "1px solid var(--peak-accent, #f5c842)" : "1px solid var(--border-default)",
                 borderLeft: `3px solid color-mix(in srgb, ${teamAccent} 55%, transparent)`,
                 color: "var(--text-primary)",
               }}
@@ -105,6 +127,16 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
               <div className="min-w-0 flex-1 text-left">
                 <div className="text-sm font-bold" style={{ wordBreak: "break-word" }}>{c.player_name}</div>
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
+                  {isHinted && (
+                    <span
+                      data-testid="candidate-hint-badge"
+                      className="text-[9px] font-semibold uppercase tracking-wide rounded px-1 py-px"
+                      style={{ color: "var(--text-inverse)", background: "var(--peak-accent, #f5c842)" }}
+                      title="PEAK3's one-time suggestion for this round"
+                    >
+                      Suggested
+                    </span>
+                  )}
                   {c.team_name && c.season && (
                     <span className="text-[10px]" style={{ color: "var(--text-secondary)" }} data-testid="candidate-team-season">
                       {c.team_name} · {c.season}
