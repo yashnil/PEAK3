@@ -382,23 +382,20 @@ test.describe("Three-Man Weave", () => {
   }) => {
     // WHY THIS ONE TEST NEEDS MORE THAN PLAYWRIGHT'S DEFAULT 30s. Its
     // critical path is INTENTIONAL product pacing, not slack: the opening
-    // reveal ceremony is a real server turn -- `OPENING_REVEAL_SECONDS`,
-    // lengthened from 9.2s to 20.0s so a player reading the pre-match
-    // briefing (`GameIntro`) never loses pick time to it (see that
-    // constant's own docstring) -- and this test deliberately does NOT
-    // dismiss the briefing until after observing the ceremony run its full
-    // natural course, so it now waits out the whole 20.0s rather than
-    // whatever fraction of the old 9.2s a quick dismiss used to leave. The
-    // human's seat is also drawn from the match seed so up to TWO bot picks
-    // can precede the overlay, and after the human's own pick the test
+    // reveal ceremony is a real server turn (`OPENING_REVEAL_SECONDS`, 9.2s),
+    // and the human's seat is drawn from the match seed so up to TWO bot
+    // picks can precede the overlay, and after the human's own pick the test
     // deliberately waits for two MORE bot turns — and every bot pick takes a
     // seeded 4–10s think (BOT_THINK_SECONDS_MIN/MAX, enforced server-side
     // against the turn's opened_at) plus a poll for the move to land. Worst
-    // case by design: 20.0 + 2x(10+2) + 2x(10+2) ≈ 68s of server-enforced
-    // pacing alone, before ~15–20s of setup and live interactions. 120s =
-    // that ~88s derived worst case plus healthy CI margin; the step-level waits
-    // below were already sized generously and are unchanged.
-    test.setTimeout(120_000);
+    // case by design: 9.2 + 2x(10+2) + 2x(10+2) ≈ 57s of server-enforced
+    // pacing alone, before ~15–20s of setup and live interactions (CI run
+    // 31556826178 died at 30s with the spin resolved, pick 1 drafted and bot
+    // 2 mid-deliberation — nothing wrong, just a budget written for the old
+    // instant-bot timing). 90s = that 77s derived worst case plus CI margin;
+    // the step-level waits below were already sized for this and are
+    // unchanged.
+    test.setTimeout(90_000);
     const context = await browser.newContext();
     const page = await context.newPage();
     try {
@@ -406,19 +403,21 @@ test.describe("Three-Man Weave", () => {
       await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
       await page.getByTestId("lobby-three_man_weave-practice").click();
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
-      // `dismissTmwIntro` is DELIBERATELY NOT called here. It now ends the
-      // ceremony early (`ThreeManWeaveGame.tsx`'s `dismissIntro` sends the
-      // real `skip-reveal` command so a player is never stuck waiting out a
-      // dialog they have already closed), which is exactly the thing this
-      // test exists to observe NOT happening: the reel's natural travel, its
+      // EVERY MATCH NOW OPENS ON `PHASE_INTRO` (`apps/api/app/services/
+      // three_man_weave/mode.py`), a real server turn nothing else can begin
+      // until it ends. `dismissTmwIntro` sends the real `tmw_skip_intro`
+      // command the moment `GameIntro` closes, which ends ONLY that phase --
+      // the ceremony that follows (`PHASE_REVEAL`) is untouched by it and
+      // plays its own full, undiminished course from that instant, exactly
+      // what this test exists to observe: the reel's natural travel, its
       // `data-final-value`/`data-revealed` progression and the phase leaving
-      // `reveal` on the SERVER'S OWN deadline, untouched by anything this
-      // page does. `GameIntro` is a non-blocking overlay -- the room
-      // underneath mounts and updates regardless of whether it is open (see
-      // that dialog's own contract) -- so every assertion below still reads
-      // real DOM state; only the later interactive steps, which need to
-      // click through the (otherwise backdrop-blocked) room, dismiss it,
-      // once the natural observation is done.
+      // `reveal` on the SERVER'S OWN deadline, with nothing on this page
+      // doing anything to it. Dismissed here, before the ceremony has even
+      // had a chance to open, is therefore the CORRECT place for it now --
+      // waiting to dismiss it would leave the match stuck in `PHASE_INTRO`
+      // (its own backstop timeout is measured in minutes, not seconds; see
+      // that constant's own docstring) rather than delaying anything real.
+      await dismissTmwIntro(page);
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
 
       // THE CEREMONY IS THE SERVER'S REVEAL PHASE.
@@ -460,21 +459,12 @@ test.describe("Three-Man Weave", () => {
         // `[data-testid="tmw-roll"]` mounts immediately, but `WeaveSpinner`
         // holds its OWN internal matchup-card sub-stage (`data-stage="intro"`,
         // `tmw-ceremony-intro`/`tmw-intro` -- a different element from the
-        // `GameIntro` pre-match briefing dialog checked elsewhere in this
-        // file) for `INTRO_SHARE` (half) of the round's reveal window before
-        // `tmw-roll-franchise` -- the reel itself -- ever attaches. On round
-        // one that window is `TMW_OPENING_REVEAL_SECONDS`, lengthened from
-        // 9.2s to 20.0s so a player reading the pre-match briefing never
-        // loses pick time to it (see that constant's own docstring) -- which
-        // means the matchup card alone can now legitimately hold for up to
-        // 10.0s before the reel exists at all. The previous 5s default
-        // assertion timeout comfortably covered the old ~4.6s card and no
-        // longer covers the new one; this waits long enough for the SAME
-        // real transition, not a different one.
+        // `GameIntro` PRE-MATCH BRIEFING dialog, already dismissed by this
+        // point via `PHASE_INTRO`/`tmw_skip_intro`) for `INTRO_SHARE` (half)
+        // of `TMW_OPENING_REVEAL_SECONDS` (9.2s -> ~4.6s) before `tmw-roll-
+        // franchise` -- the reel itself -- ever attaches.
         const franchiseReel = page.getByTestId("tmw-roll-franchise");
-        await expect(franchiseReel).toHaveAttribute("data-final-value", /.+/, {
-          timeout: 15_000,
-        });
+        await expect(franchiseReel).toHaveAttribute("data-final-value", /.+/);
       }
 
       // IT ACTUALLY SPINS, and that is asserted rather than assumed. Manual
@@ -501,11 +491,7 @@ test.describe("Three-Man Weave", () => {
       }
 
       if (hasCeremony) {
-        // Same reasoning as the `franchiseReel` wait above: the matchup card
-        // alone can now hold for up to 10.0s before the reel even starts, so
-        // "fully revealed" (card + spin + settle) needs more than the 15s
-        // that comfortably covered the old ~4.6s card.
-        await expect(roll).toHaveAttribute("data-revealed", "true", { timeout: 22_000 });
+        await expect(roll).toHaveAttribute("data-revealed", "true", { timeout: 15_000 });
       }
 
       // AND THE HANDOFF IS THE SERVER'S TOO. The ceremony gives way to a pick
@@ -529,10 +515,6 @@ test.describe("Three-Man Weave", () => {
       // belong to a bot. Wait for the overlay rather than assuming seat A.
       const overlay = page.getByTestId("tmw-pick-overlay");
       await overlay.waitFor({ timeout: 45_000 });
-
-      // Natural observation is done; dismiss the briefing now so the room's
-      // own backdrop no longer blocks the clicks below.
-      await dismissTmwIntro(page);
 
       // NO SCORE BEFORE A PICK. Every candidate row carries a name, an
       // eligibility line, positions and a fit verdict -- and nothing that

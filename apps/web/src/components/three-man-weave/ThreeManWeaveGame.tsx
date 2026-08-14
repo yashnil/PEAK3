@@ -9,9 +9,11 @@ import type {
 import {
   TMW_COMMAND_PICK,
   TMW_COMMAND_REARRANGE,
+  TMW_COMMAND_SKIP_INTRO,
   TMW_COMMAND_SKIP_REVEAL,
   TMW_OPENING_REVEAL_SECONDS,
   TMW_REVEAL_SECONDS,
+  TMW_TURN_PHASE_INTRO,
 } from "@/types/three-man-weave";
 import {
   ArenaAPIError,
@@ -427,32 +429,53 @@ export default function ThreeManWeaveGame({
   }, [busy, send]);
 
   /**
-   * DISMISSING THE INTRO ALSO ENDS THE CEREMONY, if it is still running.
+   * END THE PRE-MATCH BRIEFING EARLY -- THE AUTHORITATIVE HALF OF THE FIX.
    *
-   * The ceremony being free to run its own clock underneath the dialog (see
-   * the comment by `introOpen` above) does not by itself guarantee a player
-   * never loses decision time to it: `OPENING_REVEAL_SECONDS` is a real,
-   * finite server deadline, sized generously enough to cover reading this
-   * dialog at a normal pace (see that constant's own docstring), but a
-   * player who dismisses FASTER than that would otherwise sit through the
-   * remainder of a ceremony they have already finished reading, and one
-   * genuinely slower would have had the pick turn open, unseen, behind a
-   * dialog they had not yet closed if the deadline were any shorter.
-   * Calling `skipReveal` here closes both gaps the same way the ceremony's
-   * own "skip" control already does: it is the real server command, not a
-   * local dismiss, so the pick turn's full clock is measured from THIS
-   * moment for whoever actually engaged, never from whenever the ceremony
-   * happened to have been opened. A no-op once the ceremony has already
-   * ended on its own (`skipReveal` swallows that rejection), so this is
-   * safe to call unconditionally.
+   * Every match now opens on `TMW_TURN_PHASE_INTRO` (see `apps/api/app/
+   * services/three_man_weave/mode.py::PHASE_INTRO`): a real, seatless server
+   * turn that nothing else -- not the ceremony, not any pick turn -- can
+   * begin until it ends. `OPENING_REVEAL_SECONDS` being generously sized was
+   * an earlier, INSUFFICIENT attempt at this: it protected a normal-length
+   * read and nothing else, whereas the actual requirement is that no length
+   * of time spent on this dialog -- one second or arbitrarily long -- may
+   * ever consume any of it. This command is a real server call, not a local
+   * dismiss, for the same reason `skipReveal` is: hiding the dialog without
+   * it would leave the client believing a game had started that the server
+   * had not yet begun.
+   */
+  const skipIntro = useCallback(async () => {
+    if (busy || inFlight.current) return;
+    setBusy(true);
+    try {
+      await send(TMW_COMMAND_SKIP_INTRO, {});
+    } catch {
+      /* the briefing expires on its own, eventually -- see INTRO_SECONDS */
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, send]);
+
+  /**
+   * DISMISSING THE DIALOG SENDS WHICHEVER SEATLESS PHASE IS ACTUALLY OPEN.
+   *
+   * Every match opens on `TMW_TURN_PHASE_INTRO`, so this is `skipIntro` in
+   * the overwhelming common case. The `reveal` branch exists only for a
+   * genuine edge: `GameIntro`'s own dismiss can race a poll that has already
+   * swept the briefing's (very long, but finite) backstop timeout into the
+   * ceremony between renders. Checking the CURRENT phase rather than always
+   * calling `skipIntro` means dismissing still does something useful even in
+   * that rare race, instead of failing with "there is no briefing to skip"
+   * and leaving the ceremony to run its own course unskipped.
    */
   const dismissIntro = useCallback(() => {
     markIntroSeen(initialMatch.match_id);
     setIntroOpen(false);
-    if (match.turn_phase === "reveal") {
+    if (match.turn_phase === TMW_TURN_PHASE_INTRO) {
+      void skipIntro();
+    } else if (match.turn_phase === "reveal") {
       void skipReveal();
     }
-  }, [initialMatch.match_id, match.turn_phase, skipReveal]);
+  }, [initialMatch.match_id, match.turn_phase, skipIntro, skipReveal]);
 
   const connection = connectionState(failures);
   const yourTurn = isYourTurn(match);

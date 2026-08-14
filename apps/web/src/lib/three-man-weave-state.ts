@@ -50,6 +50,7 @@ import {
   TMW_SLOT_LABELS,
   TMW_SLOT_TYPES,
   TMW_STARTER_SLOTS,
+  TMW_TURN_PHASE_INTRO,
   TMW_TURN_PHASE_REVEAL,
 } from "@/types/three-man-weave";
 
@@ -57,7 +58,22 @@ import {
 // Phase
 // ---------------------------------------------------------------------------
 
-export type TmwPhase = "waiting" | "revealing" | "picking" | "complete";
+export type TmwPhase = "waiting" | "briefing" | "revealing" | "picking" | "complete";
+
+/**
+ * IS THE PRE-MATCH BRIEFING GATING THE MATCH?
+ *
+ * Read from the server's own `turn_phase` and from nothing else -- the same
+ * discipline `isRevealing` below already applies to the ceremony, and for
+ * the same reason: `TMW_TURN_PHASE_INTRO` is a real server turn, not a
+ * client dialog's open/closed state, so this is a question about state
+ * rather than about `GameIntro` happening to still be mounted. EVERY match
+ * opens here; nothing else (the ceremony, any pick turn) can begin until
+ * this is false.
+ */
+export function isBriefing(match: TmwMatchView | null): boolean {
+  return !!match && match.turn_phase === TMW_TURN_PHASE_INTRO;
+}
 
 /**
  * IS THE FRANCHISE × DECADE CEREMONY RUNNING?
@@ -82,6 +98,12 @@ export function phaseOf(match: TmwMatchView | null): TmwPhase {
   const state = match.public_state;
   if (state?.is_complete || match.status === "completed") return "complete";
   if (match.status === "forming") return "waiting";
+  // CHECKED BEFORE THE ROLL FALLBACK BELOW. Round one's roll is drawn at
+  // match creation (for determinism -- see `initial_snapshot`), so it
+  // already exists during the briefing too; without this check first, the
+  // roll's mere presence would fall through to "picking" while the briefing
+  // is still up and nobody has been given a turn yet.
+  if (isBriefing(match)) return "briefing";
   // The roll exists during the reveal -- that is the point of the ceremony --
   // so the phase is read from the turn, not from the roll's absence.
   if (isRevealing(match)) return "revealing";
@@ -98,15 +120,21 @@ export function isYourTurn(match: TmwMatchView | null): boolean {
  * Can this seat act right now? The server's own `legal_commands` decides —
  * never a local re-derivation of the rules.
  *
- * WITH ONE SUBTRACTION THE SERVER CANNOT MAKE FOR US. `project` derives
- * `legal_commands` from the SNAPSHOT's `current_seat`, which during the reveal
- * already names the seat that picks next — so `tmw_pick` is advertised while
- * the ceremony is still running and the reducer would refuse it. The turn phase
- * is the authority on *when*, so it is applied here rather than at each of the
- * three call sites that ask this question.
+ * WITH TWO SUBTRACTIONS THE SERVER CANNOT MAKE FOR US. `project` derives
+ * `legal_commands` from the SNAPSHOT's `current_seat`, which during the
+ * briefing and the reveal already names the seat that picks next — so
+ * `tmw_pick` is advertised while either seatless phase is still running and
+ * the reducer would refuse it. The turn phase is the authority on *when*, so
+ * it is applied here rather than at each of the three call sites that ask
+ * this question.
  */
 export function canPick(match: TmwMatchView | null): boolean {
-  return !!match && !isRevealing(match) && match.legal_commands.includes("tmw_pick");
+  return (
+    !!match &&
+    !isBriefing(match) &&
+    !isRevealing(match) &&
+    match.legal_commands.includes("tmw_pick")
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -1417,21 +1417,21 @@ describe("WeaveSpinner", () => {
   it("holds the matchup card long enough to read it", () => {
     // D1. The intro used to be a 30% share of a 3.2s window — under a second
     // for three seat names and an objective. It gets `INTRO_SHARE` (half) of
-    // `TMW_OPENING_REVEAL_SECONDS`, and none of it comes out of anybody's
-    // decision clock: the reveal is its own server turn and the pick turn
-    // opens afterwards with a full one.
+    // `TMW_OPENING_REVEAL_SECONDS` (9.2s -> 4.6s here), and none of it comes
+    // out of anybody's decision clock: the reveal is its own server turn and
+    // the pick turn opens afterwards with a full one.
     //
-    // gameplay-experience-polish (final verification pass): the opening
-    // window was lengthened from 9.2s to 20.0s -- see that constant's own
-    // docstring -- so a player reading the pre-match briefing (`GameIntro`,
-    // which overlays this exact ceremony non-blockingly on round 1) never
-    // has the pick turn open, unseen, behind it. `WeaveSpinner` deliberately
-    // scales the matchup card's hold time as a SHARE of the total window
-    // rather than a fixed duration -- decoupling it would be the same class
-    // of bug this ceremony pattern exists to prevent -- so the card's own
-    // hold time grew to 10.0s (20.0 * 0.5) along with it. The checkpoints
-    // below moved with it; the SHAPE of the assertion (still there shortly
-    // before the boundary, gone shortly after) is unchanged.
+    // gameplay-experience-polish (final verification pass): an earlier
+    // version of this pass lengthened the opening window to 20.0s so a
+    // player reading the pre-match briefing (`GameIntro`) would not be cut
+    // off underneath it. A compliance review correctly rejected that -- it
+    // only protected a normal-length read, not "the dialog is left open
+    // arbitrarily long" -- so the real fix is `PHASE_INTRO`, a genuinely
+    // gating server phase with no bound on how long a player may sit on it
+    // (see `apps/api/app/services/three_man_weave/mode.py`). Once that
+    // phase exists, `OPENING_REVEAL_SECONDS` has no more reading-time
+    // obligation and is restored to its original, content-appropriate
+    // value, and so is this test's own checkpoints.
     vi.useFakeTimers();
     try {
       render(
@@ -1446,15 +1446,14 @@ describe("WeaveSpinner", () => {
         />,
       );
       expect(screen.getByTestId("tmw-intro")).toBeInTheDocument();
-      // Shortly before the boundary (10.0s = TMW_OPENING_REVEAL_SECONDS *
-      // INTRO_SHARE) it is STILL readable.
+      // Four seconds in it is STILL readable.
       act(() => {
-        vi.advanceTimersByTime(9000);
+        vi.advanceTimersByTime(4000);
       });
       expect(screen.getByTestId("tmw-intro")).toBeInTheDocument();
       // ...and then it hands over to the reel rather than outstaying it.
       act(() => {
-        vi.advanceTimersByTime(1500);
+        vi.advanceTimersByTime(1000);
       });
       expect(screen.queryByTestId("tmw-intro")).toBeNull();
       expect(screen.getByTestId("tmw-roll-franchise")).toBeInTheDocument();

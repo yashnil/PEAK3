@@ -2959,60 +2959,6 @@ test.describe("court geometry is immutable (E2)", () => {
     });
   }
 
-  /**
-   * Wait until the SAME geometry `geometry()` reads is identical across two
-   * consecutive animation frames, rather than trusting the current frame is
-   * already settled.
-   *
-   * THE RACE THIS CLOSES. Entering move mode adds `.court-slot-drop-target`
-   * (a border + box-shadow) to every legal destination in the SAME commit
-   * that mounts `[data-testid="slot-swap-target"]` — the DOM signal the test
-   * was already waiting for. But `transition-colors` means that border is
-   * still ANIMATING in for a beat after the element attaches; on the mobile
-   * layout, slots stack in a single column, so one slot's border-width
-   * settling by a sub-pixel amount during that beat can nudge every slot
-   * BELOW it by exactly that amount — read on CI as `slot:PG.y moved 45 ->
-   * 33`-class drift, always small, always in "move mode", and reproducing at
-   * an unchanged rate all the way back to before this branch, which is
-   * consistent with a frame-timing race rather than a real layout bug (the
-   * geometry these tests assert on IS meant to be immutable, and is, once
-   * settled).
-   *
-   * `[data-testid="slot-swap-target"]` existing is therefore necessary but
-   * not sufficient; genuinely STILL geometry is the authoritative condition,
-   * matched here by literally re-reading it every animation frame
-   * (`polling: "raf"`) and resolving the instant two consecutive reads agree
-   * — the same "trust the thing itself, not an adjacent signal" principle
-   * `waitForReelsSettled` above already applies to the reel strip.
-   */
-  async function waitForCourtGeometryStable(page: Page, timeout = 5_000): Promise<void> {
-    await page.evaluate(() => {
-      (window as unknown as { __courtGeomLast: number[] | null }).__courtGeomLast = null;
-    });
-    await page.waitForFunction(
-      () => {
-        const panel = document.querySelector('[data-testid="court-panel"]');
-        if (!panel) return false;
-        const rects: number[] = [];
-        const push = (r: DOMRect) => rects.push(r.x, r.y, r.width, r.height);
-        push(panel.getBoundingClientRect());
-        for (const slot of Array.from(panel.parentElement!.querySelectorAll("[data-slot-type]"))) {
-          push((slot as HTMLElement).getBoundingClientRect());
-        }
-        const w = window as unknown as { __courtGeomLast: number[] | null };
-        const prev = w.__courtGeomLast;
-        w.__courtGeomLast = rects;
-        return (
-          prev !== null &&
-          prev.length === rects.length &&
-          prev.every((v, i) => Math.abs(v - rects[i]) < 0.01)
-        );
-      },
-      undefined,
-      { timeout, polling: "raf" },
-    );
-  }
-
   /** Tight tolerance: browser sub-pixel rounding only, never a reflow. */
   function expectSameGeometry(
     before: Record<string, { x: number; y: number; w: number; h: number }>,
@@ -3047,25 +2993,20 @@ test.describe("court geometry is immutable (E2)", () => {
         await startCourtBuilder(page);
 
         // 1. Empty court, overlay up.
-        await waitForCourtGeometryStable(page);
         const empty = await geometry(page);
 
         // 2/3. Two placements (via the full select+place flow).
         await playOneRound(page);
-        await waitForCourtGeometryStable(page);
         expectSameGeometry(empty, await geometry(page), "after first placement");
         await playOneRound(page);
-        await waitForCourtGeometryStable(page);
         expectSameGeometry(empty, await geometry(page), "after second placement");
 
         // 4. Move mode: legal destinations lit, source lifted. (The next
         //    round's overlay is up — step aside to the court first.)
         await minimizeOverlay(page);
-        await waitForCourtGeometryStable(page);
         expectSameGeometry(empty, await geometry(page), "overlay minimized");
         await page.locator('[data-testid="slot-move-btn"]').first().click();
         await page.locator('[data-testid="slot-swap-target"]').first().waitFor({ timeout: 5_000 });
-        await waitForCourtGeometryStable(page);
         expectSameGeometry(empty, await geometry(page), "in move mode");
 
         // 5. A committed swap between two filled slots.
@@ -3076,12 +3017,10 @@ test.describe("court geometry is immutable (E2)", () => {
             .first()
             .click(),
         ]);
-        await waitForCourtGeometryStable(page);
         expectSameGeometry(empty, await geometry(page), "after a swap");
 
         // 6. With the Undo toast up.
         await page.locator('[data-testid="court-action-toast"]').waitFor({ timeout: 5_000 });
-        await waitForCourtGeometryStable(page);
         expectSameGeometry(empty, await geometry(page), "with the undo toast visible");
       } finally {
         await context.close();
@@ -3092,16 +3031,13 @@ test.describe("court geometry is immutable (E2)", () => {
   test("@mobile the mobile court keeps its own geometry stable across the same states", async ({ page }) => {
     test.setTimeout(120_000);
     await startCourtBuilder(page);
-    await waitForCourtGeometryStable(page);
     const empty = await geometry(page);
     await playOneRound(page);
-    await waitForCourtGeometryStable(page);
     expectSameGeometry(empty, await geometry(page), "after first placement (mobile)");
     await playOneRound(page);
     await minimizeOverlay(page);
     await page.locator('[data-testid="slot-move-btn"]').first().click();
     await page.locator('[data-testid="slot-swap-target"]').first().waitFor({ timeout: 5_000 });
-    await waitForCourtGeometryStable(page);
     expectSameGeometry(empty, await geometry(page), "in move mode (mobile)");
   });
 });

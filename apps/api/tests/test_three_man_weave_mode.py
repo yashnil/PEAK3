@@ -35,12 +35,15 @@ from app.repositories.arena_protocols import (
 from app.services.arena.modes import ArenaMode, ModeRegistry
 from app.services.three_man_weave.mode import (
     COMMAND_PICK,
+    COMMAND_SKIP_INTRO,
     EVENT_MATCH_SCORED,
     EVENT_PICK_MADE,
     EVENT_ROLL_REVEALED,
     COMMAND_SKIP_REVEAL,
+    INTRO_SECONDS,
     MODE_NAME,
     OPENING_REVEAL_SECONDS,
+    PHASE_INTRO,
     PHASE_PICK,
     PHASE_REVEAL,
     REJECT_NOT_YOUR_TURN,
@@ -146,6 +149,14 @@ def _reveal_turn(seq: int = 0) -> ArenaTurn:
     )
 
 
+def _intro_turn(seq: int = 0) -> ArenaTurn:
+    """The pre-match briefing turn: no seat, its own deadline, `INTRO_SECONDS`
+    long. Opens every match, before the ceremony ever does."""
+    return _turn(
+        PHASE_INTRO, None, deadline=NOW + timedelta(seconds=INTRO_SECONDS), seq=seq
+    )
+
+
 def _timeout(key: str = "sweep") -> CommandRequest:
     """The server-issued timeout the foundation's sweep fires. No actor."""
     return _command(COMMAND_TYPE_TIMEOUT, {}, seat_index=None, key=key)
@@ -199,25 +210,26 @@ def test_the_six_contract_members_are_present_and_correctly_typed():
     assert mode.mode_version == RULESET_VERSION
     assert mode.seat_count == 3
     assert isinstance(mode.turn_seconds, float) and mode.turn_seconds > 0
-    # ROUND ONE OPENS ON THE CEREMONY, exactly like every later round -- and it
-    # belongs to no seat, which is what makes the foundation publish
-    # `seconds_remaining` to all three participants.
-    assert mode.initial_phase() == PHASE_REVEAL
+    # EVERY MATCH OPENS ON THE PRE-MATCH BRIEFING, never directly on the
+    # ceremony -- and it belongs to no seat, which is what makes the
+    # foundation publish `seconds_remaining` to all three participants.
+    assert mode.initial_phase() == PHASE_INTRO
     assert mode.initial_turn_seat(mode.initial_snapshot(4242, _seats())) is None
     assert callable(mode.initial_snapshot)
     assert callable(mode.reduce)
     assert callable(mode.project)
 
 
-def test_the_reveal_phase_accepts_no_action_and_the_pick_phase_does():
+def test_the_intro_and_reveal_phases_accept_no_action_and_the_pick_phase_does():
     """The hook `arena.bots.drive_pending_bots` reads before letting a bot play.
 
-    Without it the driver reads the ceremony's `seat_index is None` as a
-    SIMULTANEOUS turn and lets every bot act, so all three seats would draft
-    underneath a reveal nobody had seen yet.
+    Without it the driver reads the briefing's or the ceremony's
+    `seat_index is None` as a SIMULTANEOUS turn and lets every bot act, so
+    all three seats would draft underneath a phase nobody had seen yet.
     """
     assert mode.phase_accepts_action(PHASE_PICK) is True
     assert mode.phase_accepts_action(PHASE_REVEAL) is False
+    assert mode.phase_accepts_action(PHASE_INTRO) is False
 
 
 def test_the_mode_registers_and_refuses_a_duplicate_name():
@@ -574,8 +586,16 @@ def test_every_round_opens_on_the_ceremony_and_no_mid_round_pick_does(opening):
     would be invisible to a test that looked at round 1 alone, so this walks all
     eighteen picks and classifies every turn the mode opened.
     """
-    # Round 1's ceremony comes from the opening hooks rather than from a pick.
-    assert mode.initial_phase() == PHASE_REVEAL
+    # Round 1's ceremony does not come directly from the opening hooks --
+    # every match opens on the pre-match briefing first (`PHASE_INTRO`), and
+    # only its own skip/timeout opens the ceremony. See
+    # `test_the_intro_phase_gates_everything_else` for that transition;
+    # `_play_to_completion` below drives PICK commands directly against the
+    # reducer's own `state.current_seat` without simulating a foundation-level
+    # open turn (`open_turn` defaults to `None` in `_reduce`), so it is
+    # unaffected by either seatless phase and still exercises the ceremony
+    # boundary this test is about.
+    assert mode.initial_phase() == PHASE_INTRO
     assert mode.initial_turn_seat(opening) is None
 
     _snapshot, outputs = _play_to_completion(seed=4242)

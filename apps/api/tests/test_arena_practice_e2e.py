@@ -588,6 +588,13 @@ def test_every_weave_round_opens_on_a_ceremony_that_belongs_to_no_seat():
     match_id = view["match_id"]
     you = view["your_seat_index"]
 
+    # Every match opens on the pre-match briefing first (`PHASE_INTRO`), not
+    # directly on the ceremony -- see `test_the_intro_phase_gates_everything_
+    # else`. One poll (the same generic seatless-turn sweep every other test
+    # in this file already uses) is that briefing being dismissed/expiring,
+    # exactly as `GameIntro`'s own skip command does in the real client.
+    view = _poll(client, match_id)
+
     # Round 1 opens on the ceremony, before anybody has done anything at all.
     assert view["turn_phase"] == tmw_module.PHASE_REVEAL
     assert view["current_turn_seat_index"] is None
@@ -632,6 +639,9 @@ def test_a_round_the_human_leads_gets_the_ceremony_AND_the_full_window():
     client = _client_as("user-a")
     view = _weave_with_human_at_seat(client, 0)
     match_id = view["match_id"]
+    # Past the pre-match briefing (`PHASE_INTRO`) first -- see
+    # `test_the_intro_phase_gates_everything_else` for that phase on its own.
+    view = _poll(client, match_id)
 
     # The ceremony plays, for the human, on the round the human leads.
     assert view["turn_phase"] == tmw_module.PHASE_REVEAL
@@ -668,6 +678,9 @@ def test_no_seat_can_act_while_a_weave_ceremony_is_open():
     client = _client_as("user-a")
     view = _weave_with_human_at_seat(client, 0)
     match_id = view["match_id"]
+    # Past the pre-match briefing (`PHASE_INTRO`) first -- see
+    # `test_the_intro_phase_gates_everything_else` for that phase on its own.
+    view = _poll(client, match_id)
     assert view["turn_phase"] == tmw_module.PHASE_REVEAL
 
     # 1. THE HUMAN. A perfectly legal pick, refused for WHEN it arrived.
@@ -712,6 +725,9 @@ def test_replaying_the_ceremonys_timeout_applies_nothing_twice():
     client = _client_as("user-a")
     view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
     match_id = view["match_id"]
+    # Past the pre-match briefing (`PHASE_INTRO`) first -- see
+    # `test_the_intro_phase_gates_everything_else` for that phase on its own.
+    _poll(client, match_id)
     ceremony = _open_turn(match_id)
     assert ceremony.phase == tmw_module.PHASE_REVEAL
 
@@ -767,6 +783,12 @@ def test_a_reconnect_mid_ceremony_reconstructs_it_for_every_seat():
         )
         assert joined.status_code == 200, joined.text
 
+    # Past the pre-match briefing (`PHASE_INTRO`) first -- see
+    # `test_the_intro_phase_gates_everything_else` for that phase on its own.
+    # This test is specifically about reconnecting mid-CEREMONY, so it has to
+    # actually be in the ceremony before measuring anything about it.
+    _poll(host, match_id)
+
     window = (
         _open_turn(match_id).deadline_at - _open_turn(match_id).opened_at
     ).total_seconds()
@@ -791,6 +813,164 @@ def test_a_reconnect_mid_ceremony_reconstructs_it_for_every_seat():
     assert seen_seats == {0, 1, 2}
 
 
+# ---------------------------------------------------------------------------
+# THE PRE-MATCH BRIEFING (`PHASE_INTRO`), THROUGH THE REAL ROUTES
+#
+# A compliance review correctly rejected an earlier version of this pass that
+# only lengthened `OPENING_REVEAL_SECONDS` so a normal read of `GameIntro`
+# would not be cut off underneath it -- that protects the median player and
+# nobody else. The required invariant is stronger: WHILE THE BRIEFING IS
+# VISIBLE, NO HUMAN PICK CLOCK MAY START OR TICK, for one second or for
+# arbitrarily long. These tests hold the briefing open far longer than any
+# real reading would ever take and prove nothing moved underneath it.
+# ---------------------------------------------------------------------------
+
+
+def test_the_intro_phase_gates_everything_else():
+    """LEAVE THE BRIEFING OPEN FOR WELL OVER TWO MINUTES. Nothing may move.
+
+    Deliberately does NOT use `_poll`: that helper's `_expire_ceremony` exists
+    to sweep past a seatless turn QUICKLY for tests that are not about the
+    seatless turn itself. This test is about it, so it ages the turn's
+    `opened_at` by 150 seconds -- comfortably past the ceremony's own 9.2s,
+    the 45s human decision window, and the ">2 minutes" this was explicitly
+    asked to clear -- while leaving `deadline_at` (`INTRO_SECONDS`, 1800s)
+    untouched, then reads the match with a PLAIN, unmodified GET, exactly as
+    an idle real client's own poll would.
+    """
+    from app.services.arena import bots as bot_module
+
+    client = _client_as("user-a")
+    view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
+    match_id = view["match_id"]
+    you = view["your_seat_index"]
+
+    assert view["turn_phase"] == tmw_module.PHASE_INTRO
+    assert view["current_turn_seat_index"] is None
+    before_rosters = view["public_state"]["rosters"]
+    assert all(
+        all(pick is None for pick in roster["slots"].values()) for roster in before_rosters
+    ), "a fresh match must not already have picks"
+
+    # WELL OVER TWO MINUTES, simulated on the stored turn rather than waited
+    # out in real time. `deadline_at` is untouched, so this does not force an
+    # expiry -- it proves one does not happen on its own either.
+    _age_open_turn(match_id, 150.0)
+
+    after = client.get(f"/api/v1/arena/matches/{match_id}").json()
+    # 1. NO HUMAN PICK DEADLINE HAS BEEN CONSUMED. Still the briefing, still
+    #    nobody's turn, still the same state version (nothing was even
+    #    written -- a plain read triggers no sweep here, because the
+    #    deadline itself has not passed).
+    assert after["turn_phase"] == tmw_module.PHASE_INTRO
+    assert after["current_turn_seat_index"] is None
+    assert after["state_version"] == view["state_version"]
+
+    # 2. NO FALLBACK PICK OCCURRED, and no roster changed at all.
+    assert after["public_state"]["rosters"] == before_rosters
+    assert after["public_state"]["current_round"] == 1
+
+    # 3. NO BOT DRAFT PROGRESSION. Driven directly, with every think delay
+    #    long since elapsed by the same 150s aging above, so nothing except
+    #    the phase is holding a bot back -- exactly
+    #    `test_no_seat_can_act_while_a_weave_ceremony_is_open`'s method,
+    #    applied to the briefing instead of the ceremony.
+    steps = anyio.run(
+        bot_module.drive_pending_bots,
+        _memory_arena_repo,
+        tmw_module.mode,
+        tmw_module.mode.reduce,
+        match_id,
+        datetime.now(timezone.utc),
+    )
+    assert steps == 0, "a bot acted underneath the pre-match briefing"
+
+    # 4. A HUMAN PICK ATTEMPT IS REFUSED FOR WHEN IT ARRIVED, not silently
+    #    accepted against a turn that does not belong to anyone yet.
+    refreshed = client.get(f"/api/v1/arena/matches/{match_id}").json()
+    refused = _command(
+        client, match_id, refreshed, "tmw_pick",
+        {"player_slug": "anyone", "slot_type": "PG"},
+    )
+    assert refused["accepted"] is False
+    assert refused["rejection_code"] == "not_your_turn"
+
+    # 5. DISMISS/SKIP THE BRIEFING NOW, well after the 150s idle stretch, and
+    #    prove the ceremony that follows gets its FULL, undiminished window
+    #    measured from THIS instant -- not from match creation, and not
+    #    shortened by any of the idle time above.
+    skipped = _command(client, match_id, refreshed, "tmw_skip_intro", {})
+    assert skipped["accepted"], skipped
+    match_after_skip = skipped["match"]
+    assert match_after_skip["turn_phase"] == tmw_module.PHASE_REVEAL
+    assert match_after_skip["current_turn_seat_index"] is None
+    ceremony = _open_turn(match_id)
+    assert ceremony.phase == tmw_module.PHASE_REVEAL
+    assert (ceremony.deadline_at - ceremony.opened_at).total_seconds() == pytest.approx(
+        tmw_module.OPENING_REVEAL_SECONDS, abs=0.5
+    ), "the ceremony's window was diminished by time spent on the briefing"
+
+    # And the normal sequence resumes correctly from there: let the ceremony
+    # run out too, exactly as a real client's polling does, and confirm the
+    # FIRST pick turn also gets a full, undiminished window.
+    resumed = _poll(client, match_id)
+    assert resumed["turn_phase"] == tmw_module.PHASE_PICK
+    pick_turn = _open_turn(match_id)
+    assert (pick_turn.deadline_at - pick_turn.opened_at).total_seconds() == pytest.approx(
+        tmw_module.TURN_SECONDS, abs=0.5
+    )
+
+
+def test_a_reconnect_during_the_intro_phase_does_not_bypass_the_gate():
+    """A second client reading the match while the briefing is still up must
+    see exactly the same gate the first client does -- not a stale or
+    seat-specific view that lets it slip past.
+
+    Three human seats, the same reason `test_a_reconnect_mid_ceremony_
+    reconstructs_it_for_every_seat` uses three: the claim is about every
+    seat, and with bots in the other chairs there would be nobody to ask.
+    """
+    host = _client_as("user-a")
+    room = host.post("/api/v1/arena/matches/private", json={"mode": TMW}).json()
+    match_id = room["match_id"]
+    for sub in ("user-b", "user-c"):
+        guest = _client_as(sub)
+        joined = guest.post(
+            "/api/v1/arena/matches/private/join", json={"room_code": room["room_code"]}
+        )
+        assert joined.status_code == 200, joined.text
+
+    # Idle well past any real reading time, same as the test above, before
+    # anybody reconnects.
+    _age_open_turn(match_id, 150.0)
+
+    for sub in ("user-a", "user-b", "user-c"):
+        client = _client_as(sub)
+        view = client.get(f"/api/v1/arena/matches/{match_id}").json()
+        assert view["status"] == "active", sub
+        # EVERY SEAT SEES THE SAME GATE: still the briefing, nobody's turn,
+        # and a pick attempt from THIS seat is refused for when it arrived --
+        # not merely unoffered by `legal_commands` (which never lists
+        # `tmw_skip_intro`/`tmw_pick` specially; the reducer is the actual
+        # authority, exactly as it already is for the ceremony).
+        assert view["turn_phase"] == tmw_module.PHASE_INTRO, sub
+        assert view["current_turn_seat_index"] is None, sub
+        refused = _command(
+            client, match_id, view, "tmw_pick",
+            {"player_slug": "anyone", "slot_type": "PG"},
+        )
+        assert refused["accepted"] is False, sub
+        assert refused["rejection_code"] == "not_your_turn", sub
+
+    # Any seated participant dismissing it ends the briefing for the table --
+    # the same choice `_reduce_skip_reveal` already makes for the ceremony.
+    guest_b = _client_as("user-b")
+    view = guest_b.get(f"/api/v1/arena/matches/{match_id}").json()
+    skipped = _command(guest_b, match_id, view, "tmw_skip_intro", {})
+    assert skipped["accepted"], skipped
+    assert skipped["match"]["turn_phase"] == tmw_module.PHASE_REVEAL
+
+
 def test_round_ones_ceremony_is_the_modes_own_length():
     """ROUND ONE'S CEREMONY IS NOT A 45-SECOND DECISION.
 
@@ -811,7 +991,11 @@ def test_round_ones_ceremony_is_the_modes_own_length():
     """
     client = _client_as("user-a")
     view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
-    turn = _open_turn(view["match_id"])
+    match_id = view["match_id"]
+    # Past the pre-match briefing (`PHASE_INTRO`) first -- see
+    # `test_the_intro_phase_gates_everything_else` for that phase on its own.
+    _poll(client, match_id)
+    turn = _open_turn(match_id)
     assert turn.phase == tmw_module.PHASE_REVEAL
     held = (turn.deadline_at - turn.opened_at).total_seconds()
     # ROUND ONE'S CEREMONY IS THE LONGER ONE, and deliberately so: it runs the

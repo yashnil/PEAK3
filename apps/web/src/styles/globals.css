@@ -1024,7 +1024,19 @@ html, body {
   background:
     radial-gradient(120% 90% at 50% 0%, rgba(245, 200, 66, 0.05), transparent 60%),
     linear-gradient(180deg, var(--bg-elevated) 0%, var(--court-floor-deep) 100%);
-  overflow: hidden;
+  /* `clip`, not `hidden`. `.roster-board-arc`'s circle (below) is
+     deliberately larger than this box and `clip-path`-cut down to an
+     arc sliver -- `clip-path` trims the paint, not the layout box, so
+     the full untrimmed circle still sticks ~50px past this element's
+     own bottom edge. `overflow: hidden` still makes that invisible
+     region a valid scrollport, so entering move mode (which focuses
+     the moving card) makes the browser auto-scroll this element to
+     bring the newly-focused card "into view" of a scrollport nothing
+     ever needed -- shifting every slot's on-screen position by that
+     same ~50px, tripping E2 (COURT GEOMETRY IS IMMUTABLE). `clip`
+     paints identically but is never itself scrollable, so there is no
+     scrollport for focus to move. */
+  overflow: clip;
 }
 
 .roster-board::before {
