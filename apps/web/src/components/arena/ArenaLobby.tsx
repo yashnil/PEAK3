@@ -13,6 +13,7 @@ import {
   type QueueStatus,
 } from "@/lib/arena-lobby-api";
 import {
+  BOT_PRACTICE_LABEL,
   HUMAN_PREFERENCE_SECONDS,
   entryPath,
   seatLabel,
@@ -425,7 +426,7 @@ function Unavailable({
         ? {
             testId: "lobby-no-entry-paths",
             headline: "Nothing is open right now",
-            body: "The Arena is serving its games, but every way in — public matchmaking, private rooms and PEAK3 Bot — is currently closed. Try again shortly.",
+            body: `The Arena is serving its games, but every way in — public matchmaking, private rooms and ${BOT_PRACTICE_LABEL} — is currently closed. Try again shortly.`,
           }
         : {
             testId: "lobby-disabled",
@@ -509,15 +510,17 @@ function GameCard({
    * So a path that is unavailable for a POSTURE reason is not rendered here at
    * all -- `ComingLater` says once, at the end, what the alpha is holding back.
    * A path that is unavailable for a TRANSIENT reason keeps the old treatment,
-   * because "PEAK3 Bot is offline right now" genuinely is a control that should
-   * be back shortly and a reader needs to know why it is not.
+   * because "bot practice is offline right now" genuinely is a control that
+   * should be back shortly and a reader needs to know why it is not.
    */
   const paths: { id: EntryPathId; primary: boolean; reason: string | null }[] = [];
   if (capability.practiceAvailable) {
     paths.push({ id: "practice", primary: true, reason: null });
   } else if (capability.publicQueueAvailable || capability.privateRoomAvailable) {
     // Bots are off while other doors are open: transient, and worth saying.
-    paths.push({ id: "practice", primary: true, reason: "PEAK3 Bot is offline right now." });
+    // Capitalised here because this renders as a standalone sentence, unlike
+    // `BOT_PRACTICE_LABEL`'s other (mid-sentence) uses.
+    paths.push({ id: "practice", primary: true, reason: "Bot practice is offline right now." });
   }
   if (capability.publicQueueAvailable) {
     paths.push({ id: "public_queue", primary: false, reason: null });

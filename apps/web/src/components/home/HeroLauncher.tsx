@@ -3,23 +3,25 @@
 /**
  * The homepage primary control.
  *
- * Launch-polish §6 REPLACES the menu-button this used to be. The audit that
- * fed the original brief ("opens a menu containing only 'Standard run'")
- * turned out not to match this file at all -- `BASE_OPTIONS` always had two
- * unconditional entries, never one -- but the brief's underlying INTENT was
- * still real and still in scope: a homepage's primary action should be a
- * direct action, not a decision. Clicking "Play Run the Table" used to open
- * a dropdown and make the visitor choose among up to three items before
- * anything happened at all; now it IS the choice, made the obvious way:
+ * ARENA-FIRST PASS. The primary control used to BE Run the Table: "Play Run
+ * the Table" (or, with a run saved, "Continue Run") linking straight into
+ * that one mode. The product now has six playable modes and a hub built to
+ * show all of them side by side, so a homepage that still funnels every
+ * visitor into one specific game before they have even seen the hub exists
+ * is the thing standing between a new player and "oh, there's more than one
+ * game here." The primary control now always leads to the ARENA HUB
+ * (`ARENA_HUB_HREF`, "/arena") — a destination, not a decision, exactly as
+ * direct as the old one-mode link was.
  *
- *   - no run in progress  -> the primary control starts a standard run,
- *     directly (`?start=standard`, auto-started once by `RunTheTableGame`);
- *   - a run in progress   -> the primary control becomes "Continue Run",
- *     landing on the bare route, which resumes it and creates nothing;
- *   - "Start New Run" (only offered once there IS a run to prefer instead --
- *     otherwise the primary control already IS starting a new run) and the
- *     daily shared run are both still one click away, just as smaller,
- *     secondary links rather than co-equal menu rows.
+ * RESUME IS PRESERVED, NOT DROPPED. A player with a Run the Table run already
+ * in progress still deserves a fast way back into it from the homepage — that
+ * capability does not go away just because it is no longer the button's own
+ * href. When `loadActiveRun()` finds one, a second, still-prominent "Continue
+ * Run" control renders beside the primary Arena CTA (own `pk-lift`/`pk-press`
+ * feedback, no `pk-sheen` — that stays reserved for the page's single primary
+ * action), landing on the bare route, which resumes the run and creates
+ * nothing. "Start New Run" stays one click further down as a small secondary
+ * link, offered only once there is a run to prefer it over.
  *
  * LAUNCH-POLISH LP2-3 REMOVED THE THIRD WAY IN. This launcher used to offer a
  * "Today's shared run" secondary link beside the primary CTA. It is gone:
@@ -39,22 +41,25 @@
  * No ARIA menu-button machinery is needed any more: every affordance here
  * is a real `<Link>`, so Tab order, Enter-to-activate and screen-reader
  * semantics are correct for free, with none of the open/close/focus-return
- * bookkeeping the dropdown required.
+ * bookkeeping a dropdown would require.
  */
 
 import Link from "next/link";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { Play, RotateCcw } from "lucide-react";
+import { LayoutGrid, Play, RotateCcw } from "lucide-react";
 import { loadActiveRun } from "@/lib/run-the-table-state";
+import { ARENA_HUB_HREF } from "@/lib/nav-model";
 
-/** The two ways into RUN THE TABLE from the homepage. */
+/** The two ways into RUN THE TABLE, still one click away via the resume
+ *  affordances below even though neither is the primary control's own href. */
 export const LAUNCHER_STANDARD_HREF = "/arena/run-the-table?start=standard";
 /** The bare route on purpose: it must NOT start anything. */
 export const LAUNCHER_RESUME_HREF = "/arena/run-the-table";
 
 export interface HeroLauncherProps {
-  /** Trigger label when there is no run to continue. Frozen by the plan;
-   *  overridable only for tests. */
+  /** Primary control's label. Frozen by the plan; overridable only for
+   *  tests. Always renders — unlike the pre-Arena-first version, this no
+   *  longer swaps to "Continue Run" itself; resume gets its own control. */
   label?: string;
   /**
    * Secondary action rendered beside the trigger — the homepage passes its
@@ -73,22 +78,18 @@ export interface HeroLauncherProps {
 }
 
 export default function HeroLauncher({
-  label = "Play Run the Table",
+  label = "Visit Arena",
   children,
   className,
   revealIndex,
 }: HeroLauncherProps) {
   // Read on the client only: the server cannot know what is in localStorage,
-  // and rendering "Continue Run" during SSR would hydrate-mismatch every
+  // and rendering the resume control during SSR would hydrate-mismatch every
   // visitor whose browser has no saved run.
   const [hasActiveRun, setHasActiveRun] = useState(false);
   useEffect(() => {
     setHasActiveRun(loadActiveRun() !== null);
   }, []);
-
-  const primaryHref = hasActiveRun ? LAUNCHER_RESUME_HREF : LAUNCHER_STANDARD_HREF;
-  const primaryLabel = hasActiveRun ? "Continue Run" : label;
-  const PrimaryIcon = hasActiveRun ? RotateCcw : Play;
 
   return (
     <div
@@ -105,26 +106,39 @@ export default function HeroLauncher({
             primitive in the set that turns into noise the moment a second
             element on the same screen has it, which is exactly why it belongs
             on the page's single primary action and nowhere else — including
-            the "Explore Rankings" link twelve pixels to its right, which gets
-            lift and press and stops there. */}
+            the resume control right beside it, which gets lift and press and
+            stops there. */}
         <Link
-          href={primaryHref}
+          href={ARENA_HUB_HREF}
           data-testid="home-primary-cta"
           className="home-launcher-trigger pk-lift pk-press pk-sheen"
         >
-          <PrimaryIcon size={16} aria-hidden="true" />
-          {primaryLabel}
+          <LayoutGrid size={16} aria-hidden="true" />
+          {label}
         </Link>
+        {/* RESUME, PRESERVED AS A PEER RATHER THAN THE PRIMARY CONTROL'S OWN
+            HREF. Going Arena-first means the button's destination can no
+            longer swap to the run itself, but a returning player with a run
+            in progress still gets a fast, prominent way back into it — same
+            `.pk-lift`/`.pk-press` treatment as the primary control, just no
+            `.pk-sheen`. Only rendered once there is a run to resume. */}
+        {hasActiveRun && (
+          <Link
+            href={LAUNCHER_RESUME_HREF}
+            data-testid="home-launcher-resume"
+            className="home-secondary-cta pk-lift pk-press"
+          >
+            <RotateCcw size={15} aria-hidden="true" />
+            Continue Run
+          </Link>
+        )}
         {children}
       </div>
 
       {/* Secondary, on purpose -- smaller type, no button chrome, plain
-          underline-on-hover links. The primary control above already IS
-          "start something"; this is the alternative to that one default,
-          not a co-equal choice in a menu. Only rendered once there is
-          something to prefer it over -- with no run in progress there is
-          nothing this link would offer that the primary control doesn't
-          already do. */}
+          underline-on-hover links. Only rendered once there is something to
+          prefer it over -- with no run in progress there is nothing this
+          link would offer that "Visit Arena" doesn't already reach. */}
       {hasActiveRun && (
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
           <Link

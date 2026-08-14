@@ -67,7 +67,8 @@ test.describe("Arena landing", () => {
   });
 
   // -------------------------------------------------------------------------
-  // The primary CTA became a launcher (UX pass, plan §5.1).
+  // The primary CTA became a launcher (UX pass, plan §5.1), then went
+  // Arena-first: it now leads to the hub rather than into one specific mode.
   //
   // It used to be a link labelled "Start a Run" pointing at
   // /arena/run-the-table -- whose first screen is RunStartGate, with a second,
@@ -75,36 +76,35 @@ test.describe("Arena landing", () => {
   //
   // Deleting that gate was never an option: following a bare link must not
   // create a run (it fixes the seed and, for the daily, burns the day's
-  // attempt) -- play-routing.spec.ts pins that. So the fix landed on the
-  // homepage instead: the control is now a menu button that NAMES the choice,
-  // and each option carries `?start=` so the mode starts exactly once. The bare
-  // route still gates, unchanged.
+  // attempt) -- play-routing.spec.ts pins that. So the fix first landed on the
+  // homepage as a direct link straight into a standard run, and now goes one
+  // step further: with six playable modes live, routing every visitor into
+  // one of them before they have even seen the hub buries the other five, so
+  // the primary control now leads to `/arena` — a destination, not a
+  // decision, exactly as direct as the old one-mode link was. The bare
+  // RUN THE TABLE route still gates, unchanged.
   //
-  // Changed here versus the pre-pass file: `toContainText(/Start a Run/i)` and
-  // `toHaveAttribute("href", "/arena/run-the-table")` on the CTA itself. Both
-  // described a link that no longer exists. Everything else in this block --
-  // the h1 strings, the CTA being visible, nav link count, skip link, mobile
-  // overflow -- is unchanged.
+  // Everything else in this block -- the h1 strings, the CTA being visible,
+  // nav link count, skip link, mobile overflow -- is unchanged.
   // -------------------------------------------------------------------------
 
-  test("homepage primary CTA goes straight into a run, not into a menu", async ({
+  test("homepage primary CTA goes straight into the Arena hub, not into a menu", async ({
     page,
   }) => {
-    // Launch-polish §I. This assertion is the inverse of what it used to be.
-    // The CTA WAS a disclosure button, back when the launcher offered several
-    // starting choices. With one meaningful public mode, a click whose only
-    // result is a list to click again buys nothing, so it is now a plain link
-    // straight into a standard run.
+    // ARENA-FIRST PASS. The CTA WAS a disclosure button, back when the
+    // launcher offered several starting choices, then briefly a direct link
+    // into a standard Run the Table run. With six playable modes now live,
+    // the homepage's one big button leads to the hub they are all listed in,
+    // rather than picking one of them on the visitor's behalf.
     //
-    // Note this test previously pinned `aria-haspopup="menu"` and an absent
-    // href -- i.e. the mechanism, not the promise -- which is exactly why it
-    // went stale the moment the mechanism changed. It now asserts the property
-    // a player is actually owed: one click, and you are in the game.
+    // Asserted as "routes into the Arena hub" rather than "has no popup", so
+    // this tests the PROPERTY a player is owed instead of pinning whichever
+    // mechanism currently implements it.
     await page.goto("/", { waitUntil: "domcontentloaded" });
     const cta = page.locator('[data-testid="home-primary-cta"]');
     await expect(cta).toBeVisible();
-    await expect(cta).toContainText(/Play Run the Table/i);
-    await expect(cta).toHaveAttribute("href", "/arena/run-the-table?start=standard");
+    await expect(cta).toContainText(/Visit Arena/i);
+    await expect(cta).toHaveAttribute("href", "/arena");
     // No intermediate menu exists to open.
     await expect(page.locator('[data-testid="home-launcher-menu"]')).toHaveCount(0);
   });
@@ -149,22 +149,23 @@ test.describe("Arena landing", () => {
     expect(creations).toEqual([]);
   });
 
-  test("the resume option is absent for a browser with no saved run", async ({ page }) => {
+  test("the resume control is absent for a browser with no saved run", async ({ page }) => {
     // Fresh context => empty localStorage. Offering "resume" with nothing to
     // resume is a dead end, so it must not be rendered at all.
     await page.goto("/", { waitUntil: "domcontentloaded" });
     // No menu to open any more (launch-polish §I) -- the resume affordance is
     // either rendered inline or it is not. The property is unchanged: nothing
     // offers to resume a run that does not exist. Also asserted here: with no
-    // saved run the primary CTA still reads as a fresh start, not "Continue".
+    // saved run the primary CTA still reads "Visit Arena", unconditionally —
+    // ARENA-FIRST PASS: it no longer swaps to a run-specific label at all.
     await expect(page.locator('[data-testid="home-launcher-resume"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="home-resume-notice"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="home-primary-cta"]')).toContainText(
-      /Play Run the Table/i,
+      /Visit Arena/i,
     );
   });
 
-  test("a keyboard user reaches the run without a pointer", async ({ page }) => {
+  test("a keyboard user reaches the Arena hub without a pointer", async ({ page }) => {
     // This test used to drive the launcher MENU's roving-focus behaviour
     // (ArrowDown opens, focus lands on the first item, Escape restores). That
     // menu is gone (launch-polish §I) and with it the whole apparatus -- which
@@ -172,11 +173,9 @@ test.describe("Arena landing", () => {
     // there is no custom keyboard contract left to regress.
     //
     // What still has to hold, and is what this now asserts: a keyboard-only
-    // player can reach the primary run and activating it with Enter actually
-    // starts one. That is the promise; the menu was only ever one
-    // implementation of it. (This test used to also check a second, daily
-    // link here -- LP2-3 removed it from the homepage; see
-    // `docs/implementation/launch-polish/RTT_DAILY_EVIDENCE.md`.)
+    // player can reach the primary control and activating it with Enter
+    // actually navigates. ARENA-FIRST PASS: the destination is the hub, not
+    // one specific mode, so the assertion below follows that same move.
     //
     // `networkidle`, not `domcontentloaded`: `focus()` is a plain DOM call that
     // succeeds pre-hydration, but activation is React-attached, so a keypress
@@ -191,21 +190,29 @@ test.describe("Arena landing", () => {
     await expect(cta).toBeFocused();
 
     await Promise.all([
-      page.waitForURL("**/arena/run-the-table**"),
+      page.waitForURL("**/arena"),
       page.keyboard.press("Enter"),
     ]);
-    await expect(page.locator('[data-testid="rtt-start-gate"]')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('[data-testid="arena-flagship-card"]')).toBeVisible({
+      timeout: 20_000,
+    });
   });
 
-  test("choosing a standard run lands on RUN THE TABLE, never the 82-0 board", async ({ page }) => {
+  test("Visit Arena lands on the hub, with RUN THE TABLE as its only featured card", async ({
+    page,
+  }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    // One click, not two: the CTA IS the standard run now (launch-polish §I).
+    // One click into the hub -- not into any one mode's board (launch-polish
+    // §I, superseded by the Arena-first pass).
     await Promise.all([
-      page.waitForURL("**/arena/run-the-table**"),
+      page.waitForURL("**/arena"),
       page.locator('[data-testid="home-primary-cta"]').click(),
     ]);
-    // The CTA must not drop the player into the previous flagship's board:
-    // neither the 82-0 court nor its start gate belongs on this route.
+    // The hub's flagship card is RUN THE TABLE, not the 82-0 court or any
+    // legacy board -- neither belongs on the hub's featured slot.
+    const flagship = page.locator('[data-testid="arena-flagship-card"]');
+    await expect(flagship).toBeVisible();
+    await expect(flagship).toHaveAttribute("href", "/arena/run-the-table");
     await expect(page.locator('[data-testid="court-builder"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="peak-season-start-gate"]')).toHaveCount(0);
   });

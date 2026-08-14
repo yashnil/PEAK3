@@ -159,12 +159,13 @@ test.describe("Navigation", () => {
   test("arena landing renders correctly", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(page.locator("h1")).toBeVisible({ timeout: 8_000 });
-    // Launch-polish §I: the primary CTA is a plain LINK straight into a
-    // standard run. It was briefly a disclosure button, back when the launcher
-    // offered several starting choices; with one meaningful public mode, a
-    // click whose only result is a menu to click again bought nothing.
+    // Launch-polish §I, superseded by the Arena-first pass: the primary CTA
+    // is a plain LINK straight into the Arena hub. It was briefly a
+    // disclosure button, then a direct link into one specific mode; with six
+    // playable modes now live, it leads to the hub they are all listed in
+    // instead of picking one on the visitor's behalf.
     //
-    // Asserted as "routes into the game" rather than "has no popup", so this
+    // Asserted as "routes into the hub" rather than "has no popup", so this
     // tests the PROPERTY the landing page owes a player instead of pinning
     // whichever mechanism currently implements it. Pinning the mechanism is
     // what made the previous assertion stale.
@@ -172,7 +173,7 @@ test.describe("Navigation", () => {
     // for the full click-through routing tests.
     const cta = page.locator('[data-testid="home-primary-cta"]');
     await expect(cta).toBeVisible({ timeout: 5_000 });
-    await expect(cta).toHaveAttribute("href", /\/arena\/run-the-table/);
+    await expect(cta).toHaveAttribute("href", "/arena");
   });
 });
 

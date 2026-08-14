@@ -3,6 +3,20 @@ import { ArrowRight, Gavel, Users } from "lucide-react";
 
 import GameCard from "@/components/shared/GameCard";
 import type { ArenaCatalogue } from "@/lib/arena-readiness-server";
+import { MODE_COPY } from "@/lib/modes";
+
+/**
+ * `mode.id` here comes from the server's `/arena/readiness` catalogue
+ * (`ArenaCatalogueMode`), not from `lib/modes.ts` directly — but the ids are
+ * the same strings (`three_man_weave`, `twenty_dollar`) that `MODE_COPY`'s
+ * hrefs already use (`?game=three_man_weave`). Reading the accent back off
+ * `MODE_COPY` rather than duplicating a second id -> colour map keeps this
+ * one source of truth even though the two lists are assembled separately.
+ */
+function accentForCatalogueMode(id: string): string | undefined {
+  const entry = Object.values(MODE_COPY).find((mode) => mode.href.includes(`game=${id}`));
+  return entry?.accent;
+}
 
 /**
  * The "Multiplayer" band, shared by the homepage and the Arena catalog.
@@ -63,6 +77,7 @@ export default function MultiplayerSection({
           meta={mode.facts}
           cta="Find a game"
           tone="raised"
+          accent={accentForCatalogueMode(mode.id)}
           compact
         />
       ))}
