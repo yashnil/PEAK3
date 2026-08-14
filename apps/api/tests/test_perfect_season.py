@@ -2384,9 +2384,24 @@ def test_hint_evaluator_matches_the_real_exact_season_simulator_for_a_full_roste
 def test_hint_evaluator_matches_the_real_legacy_simulator_for_a_full_roster():
     """Legacy (career-peak-window) counterpart of the test above --
     COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED defaults off, so this is the
-    path nearly every real game actually reaches."""
+    path nearly every real game actually reaches.
+
+    Compares against `compute_fit_components` -- the production function
+    `simulate_season` itself calls to build its `LineupFitComponents` --
+    rather than against `simulate_season(...).lineup_quality`. A compliance
+    review correctly flagged that populating `lineup_quality` on the legacy
+    `SimulationResult` (previously only the team-year path set it) had no
+    production reader anywhere (not `SimulationResultPublic`, which never
+    declared the field; not Three-Man Weave, which only ever calls
+    `simulate_exact_season`; not this hint, which calls `expected_wins_base`
+    directly on a hypothetical roster and never touches `SimulationResult`)
+    and existed only to make this one test's assertion convenient -- an
+    unrelated production semantic change smuggled in by a test's needs. It
+    has been reverted; this test now proves the same equivalence against the
+    actual shared fit-builder instead, with no behavioral change to
+    `simulate_season` at all."""
     from nba_peak.lineup.schemas import CardProfile, LineupDNA
-    from nba_peak.perfect_season.simulation import expected_wins_base, simulate_season
+    from nba_peak.perfect_season.simulation import compute_fit_components, expected_wins_base
 
     roles = ["PG", "SG", "SF", "PF", "C", "SF", "PG", "C"]
     scores = [80.0, 74.0, 86.0, 63.0, 90.0, 55.0, 71.0, 67.0]
@@ -2422,7 +2437,7 @@ def test_hint_evaluator_matches_the_real_legacy_simulator_for_a_full_roster():
     cards_by_slot = dict(zip(SLOT_TYPES, cards))
 
     hint_value = expected_wins_base(ps_state._lineup_fit_legacy(cards_by_slot))
-    real_value = simulate_season(cards, board_seed=1, slot_types=list(SLOT_TYPES)).lineup_quality
+    real_value = expected_wins_base(compute_fit_components(cards, list(SLOT_TYPES)))
     assert hint_value == pytest.approx(real_value, abs=0.01)
 
 

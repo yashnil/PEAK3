@@ -376,16 +376,18 @@ def simulate_season(cards: list[CardProfile], board_seed: int, slot_types: list[
         is_perfect_season=(wins >= 82),
         experimental_notice=SIMULATOR_EXPERIMENTAL_NOTICE,
         lineup_peak_score=lineup_peak_score,
-        # gameplay-experience-polish: previously only set on the exact-season
-        # path (simulate_exact_season below). Additive -- `lineup_quality`
-        # already defaults to 0.0 on SimulationResult, and nothing reads it
-        # as a proxy for "unset" -- so exposing the real value here for the
-        # career-peak-window path (the one COURTBUILDER_EXPERIMENTAL_TEAM_
-        # YEAR_ENABLED=false actually runs by default) does not change any
-        # other field. Same value `base` already was before the win-floor/
-        # cap/noise, i.e. the value a caller should use to RANK lineups
-        # rather than to project a record.
-        lineup_quality=round(base, 3),
+        # `lineup_quality` is deliberately left at its default (0.0) here.
+        # Only `simulate_exact_season` below sets it -- that has been true
+        # since before this pass and Three-Man Weave's decisive-pick "what-if
+        # drop" math (nba_peak/three_man_weave/evaluation.py) depends on it
+        # for that path specifically. A compliance review correctly caught an
+        # earlier version of this function populating it here too: nothing in
+        # production reads `simulate_season(...).lineup_quality` (not
+        # `SimulationResultPublic`, which never declared the field; not TMW,
+        # which only calls `simulate_exact_season`), so that would have been
+        # an unrelated behavioral change to this season-simulation path,
+        # smuggled in only to make one hint-equivalence test convenient. See
+        # `expected_wins_base` for the shared value both paths still use.
         best_pick=_best_pick(cards),
         structural_weakness=weakness_text,
         structural_weakness_detail=weakness_detail,

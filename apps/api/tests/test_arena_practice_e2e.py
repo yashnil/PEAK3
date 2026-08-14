@@ -264,6 +264,54 @@ def test_the_showdowns_first_turn_belongs_to_the_seed_drawn_opener():
     assert seen == {0, 1}, "the opening bidder never varied"
 
 
+def test_no_lot_can_expire_settle_or_draw_a_bot_action_while_the_intro_is_up():
+    """THE INVARIANT: no actionable auction lot may expire or settle before
+    the player has entered the match.
+
+    Driven through the real HTTP routes with a real bot seat, exactly like
+    every other test in this file, so a regression here is one a live match
+    could actually hit. `_age_open_turn` backdates `opened_at` by the bot's
+    full think delay on every poll -- the same call `_poll` makes -- but,
+    unlike `_poll`, this test does NOT also call `_expire_ceremony`: the
+    intro's own (separate) deadline is left untouched, so the seatless intro
+    turn stays open for every one of these polls. If a bot's think-delay
+    check were keyed on elapsed time alone rather than gated by
+    `phase_accepts_action`/`phase_accepts_bot_action`, this is exactly the
+    condition that would let it fire underneath the briefing.
+    """
+    client = _client_as("user-a")
+    view = client.post("/api/v1/arena/matches/practice", json={"mode": TWENTY}).json()
+    match_id = view["match_id"]
+    assert view["turn_phase"] == td_module.PHASE_INTRO
+    assert view["current_turn_seat_index"] is None
+
+    before = view["public_state"]
+    before_candidate = before["candidate"]["player_slug"] if before["candidate"] else None
+    assert before_candidate is not None, "a lot must already be drawn for the intro to guard"
+
+    for _ in range(5):
+        _age_open_turn(match_id, 5.0)  # bot "think" time elapses many times over...
+        after = client.get(f"/api/v1/arena/matches/{match_id}").json()
+        # ...but the intro's OWN deadline was never moved, so it is still up,
+        # and NOTHING about the lot may have changed underneath it.
+        assert after["turn_phase"] == td_module.PHASE_INTRO
+        assert after["current_turn_seat_index"] is None
+        assert after["public_state"]["candidate"]["player_slug"] == before_candidate
+        assert after["public_state"]["lot_index"] == before["lot_index"]
+        assert after["public_state"]["history"] == before["history"]
+        assert all(len(seat["roster"]) == 0 for seat in after["public_state"]["seats"])
+        assert all(seat["lot_bid"] == 0 for seat in after["public_state"]["seats"])
+
+    # Only once the intro's own deadline is (separately) let to pass does the
+    # first auction turn -- and the ability for anybody to act on the SAME
+    # lot -- exist at all. The candidate itself never changed; only its clock
+    # started.
+    after = _poll(client, match_id)
+    assert after["turn_phase"] != td_module.PHASE_INTRO
+    assert after["public_state"]["candidate"]["player_slug"] == before_candidate
+    assert after["public_state"]["lot_index"] == before["lot_index"]
+
+
 # ---------------------------------------------------------------------------
 # The clock
 # ---------------------------------------------------------------------------

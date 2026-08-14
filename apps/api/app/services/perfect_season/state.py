@@ -1278,8 +1278,9 @@ def action_respin_season(
 # roster and test_the_raw_plus_fit_heuristic_disagrees_with_the_real_
 # evaluator in test_perfect_season.py for concrete, checked proof of both
 # claims (the old heuristic is NOT equivalent; the new evaluator IS, for a
-# complete roster, byte-for-byte against simulate_exact_season/
-# simulate_season's own lineup_quality).
+# complete roster, byte-for-byte against simulate_exact_season's own
+# lineup_quality and against compute_fit_components -- the same fit-builder
+# simulate_season itself calls -- on the legacy path).
 #
 # THE FIX: for every legal candidate, for every currently open slot, place
 # that candidate on a COPY of the actual current cards_by_slot (never
@@ -1466,8 +1467,9 @@ def _hint_candidate_value(
     """The candidate's best ACTUAL RESULTING ROSTER value: for every
     currently open slot, place this candidate there on a copy of the real
     current roster and score that hypothetical roster with
-    `expected_wins_base` -- the exact ranking value `simulate_exact_season`/
-    `simulate_season` compute for a complete roster (`lineup_quality`), just
+    `expected_wins_base` -- the same weighted-fit value both
+    `simulate_exact_season` and `simulate_season` compute internally for a
+    complete roster before their own win-floor/cap/noise are applied, just
     evaluated on however much of the roster exists right now. Returns None
     only if the candidate cannot be resolved at all (an honest data gap,
     never a fabricated value)."""
