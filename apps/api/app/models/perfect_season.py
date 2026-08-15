@@ -24,6 +24,16 @@ class CreatePerfectSeasonGameRequest(BaseModel):
     challenge_date: Optional[str] = Field(
         None, description="YYYY-MM-DD; daily only. Defaults to today (UTC)."
     )
+    # Gameplay-polish: chosen at the pre-game gate, frozen for the life of
+    # the run (never switchable mid-run -- a reload/resume always sees the
+    # same value it started with). "easy" (default) keeps today's 3 team +
+    # 3 season respins and adds the one-time hint; "hard" cuts the run-level
+    # respin budget to 1+1 and disables the hint entirely. Plain `str`
+    # (not a Pydantic Literal) to match `mode`/`challenge_kind`'s own
+    # pattern immediately above -- validated explicitly in the route with a
+    # 400 + stable error_code, the same discipline those two fields use,
+    # rather than a 422 from field-level validation.
+    difficulty: str = Field("easy", description="easy | hard")
 
 
 class SelectPlayerRequest(BaseModel):
@@ -568,6 +578,40 @@ class PublicCourtStateResponse(BaseModel):
     # See state.py::_touch for the one place it changes.
     state_version: int = 0
     undo: UndoAvailabilityPublic = UndoAvailabilityPublic(available=False)
+    # Gameplay-polish: the run's frozen difficulty ("easy" | "hard") and
+    # whether its one-time hint has already been used (easy mode only --
+    # always False on a hard-mode run, which never offers one). See
+    # app/services/perfect_season/state.py::CourtLineupState's own
+    # docstrings for both fields.
+    difficulty: str = "easy"
+    hint_used: bool = False
+
+
+class HintPlayerPublic(BaseModel):
+    """The hint's ONLY payload: identity, never a number.
+
+    ADR-005 Decision 6, enforced at the type level exactly like
+    SpinCandidate: no score, no rank, no comparison of the candidates that
+    were NOT recommended. See HintResponse and the /hint route's own
+    docstring for the full contract.
+    """
+    player_slug: str
+    player_name: str
+
+
+class HintResponse(BaseModel):
+    """POST .../hint's response: the updated public state (hint_used now
+    True) plus the one recommended player's identity.
+
+    A DEDICATED composite model -- mirroring SaveRunResponse's own shape
+    (the saved run plus comparison/personal_bests context) -- rather than
+    folding `hint` onto PublicCourtStateResponse itself: the recommendation
+    is a one-time result of THIS call, not a durable piece of game state the
+    way `difficulty`/`hint_used` are, so it has no business appearing (even
+    as null) on every other route's response.
+    """
+    state: PublicCourtStateResponse
+    hint: HintPlayerPublic
 
 
 class SharedCourtResultResponse(BaseModel):
@@ -614,6 +658,8 @@ class SharedCourtResultResponse(BaseModel):
     challenge_kind: str = "free_play"
     challenge_date: Optional[str] = None
     board_type: str = "practice"
+    difficulty: str = "easy"
+    hint_used: bool = False
 
 
 class CourtBuilderCoverageSummary(BaseModel):

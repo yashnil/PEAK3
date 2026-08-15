@@ -115,6 +115,14 @@ export default function SeatCourt({
       data-testid={`tmw-seat-court-${roster.seat_index}`}
       data-on-turn={isOnTurn ? "true" : "false"}
       data-is-you={isYou ? "true" : "false"}
+      /* COMPOSITION-PASS HOOK, PAINT ONLY. A bot's court is real strategy
+         ("what do my opponents still need") and stays fully legible, but it
+         is not the thing anyone is deciding this instant, so it is allowed to
+         read quieter than the human's own court and quieter than whichever
+         seat is actually on the clock. See `.tmw-seat[data-is-bot="true"]` in
+         three-man-weave.css -- the rule is scoped off `data-on-turn="false"`
+         so a bot's turn still lights up at full weight. */
+      data-is-bot={seat?.is_bot ? "true" : "false"}
       data-seat-accent={accent}
       data-interactive={interactive ? "true" : "false"}
       data-edge={edge ?? "none"}

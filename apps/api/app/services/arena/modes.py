@@ -120,7 +120,8 @@ class ArenaMode(Protocol):
     #
     #   def bot_display_names(self, seed: int, count: int) -> tuple[str, ...]
     #       Distinct human-facing names for this match's bot seats. Default is
-    #       `bots.bot_display_name` ("PEAK3 Bot", numbered past two seats).
+    #       `bots.curated_bot_names` -- seeded, memorable handles drawn from
+    #       `bots.BOT_NAME_POOL`, never a numbered generic placeholder.
     #
     #   def bot_think_seconds(self, seed: int, seat_index: int, turn_seq: int) -> float
     #       How long a bot appears to deliberate. Default `BOT_THINK_SECONDS`.

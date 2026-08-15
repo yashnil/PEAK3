@@ -9,6 +9,14 @@
 
 export type CourtMode = "apex_1y" | "prime_3y" | "foundation_5y";
 
+// Gameplay-polish: per-run difficulty, chosen at the pre-game gate and
+// frozen for the life of the run (a reload/resume always sees the same
+// value it started with). "easy" keeps today's 3 team + 3 season respins
+// and adds the one-time "Give me a suggestion" hint; "hard" cuts the
+// run-level respin budget to 1 team + 1 season and disables the hint
+// entirely. See CourtLineupPublicState.difficulty / .hint_used.
+export type CourtDifficulty = "easy" | "hard";
+
 export type CourtStatus =
   | "selection_pending"
   | "placement_pending"
@@ -398,6 +406,30 @@ export interface CourtLineupPublicState {
   // the server would actually reject it. No slot identity is exposed; the
   // client sends only the intent to undo, never a reconstructed reversal.
   undo: UndoAvailability;
+  // Gameplay-polish: the run's frozen difficulty, and whether its one-time
+  // hint (easy mode only) has already been used. Optional with a safe
+  // default (never absent from a real server response, but the two fields
+  // are new, so an older cached/mocked payload should still typecheck).
+  difficulty?: CourtDifficulty;
+  hint_used?: boolean;
+}
+
+/**
+ * POST .../hint's response: the updated public state (hint_used now true)
+ * plus the ONE recommended player's identity.
+ *
+ * ADR-005 Decision 6, enforced at the type level exactly like
+ * `SpinCandidate`: no score field exists anywhere on this type, so there is
+ * nothing to accidentally render. Do not add one here "for convenience."
+ */
+export interface HintPlayer {
+  player_slug: string;
+  player_name: string;
+}
+
+export interface HintResponse {
+  state: CourtLineupPublicState;
+  hint: HintPlayer;
 }
 
 export interface UndoAvailability {

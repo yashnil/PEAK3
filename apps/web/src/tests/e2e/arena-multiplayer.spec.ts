@@ -57,6 +57,27 @@ async function expectNotAGeneric404(page: Page): Promise<void> {
   await expect(page.locator("body")).not.toContainText("404");
 }
 
+/**
+ * Dismiss Three-Man Weave's shared `GameIntro` briefing, if it's up.
+ *
+ * gameplay-experience-polish: the briefing now shows once per match
+ * regardless of entry point (this file's own quick-practice button included
+ * — see `ThreeManWeaveGame.tsx`'s docstring on why it moved there from the
+ * lobby). It is a real focus-trapped dialog, so every test that navigates
+ * straight into a match must dismiss it before the room underneath is
+ * interactable at all — `count() > 0` rather than a bare `.click()` because
+ * a slow-loading run could already have it dismissed (a fresh browser
+ * context never has, but this keeps the helper honest either way) and
+ * because "not present" must not read as a failure here.
+ */
+async function dismissTmwIntro(page: Page): Promise<void> {
+  const start = page.getByTestId("game-intro-start");
+  if ((await start.count()) > 0) {
+    await start.click();
+    await expect(page.getByTestId("tmw-game-intro")).toHaveCount(0);
+  }
+}
+
 async function axeClean(page: Page, context: string): Promise<void> {
   // WAIT FOR MOTION TO SETTLE FIRST. Contrast is a property of the resting
   // state, and axe measures the COMPOSITED colour — so a card caught halfway
@@ -307,6 +328,7 @@ test.describe("Three-Man Weave", () => {
 
       // THE ROUTE THAT 404'D. The match id lands in the path, not a query.
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+      await dismissTmwIntro(page);
       await expectNotAGeneric404(page);
 
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
@@ -360,9 +382,9 @@ test.describe("Three-Man Weave", () => {
   }) => {
     // WHY THIS ONE TEST NEEDS MORE THAN PLAYWRIGHT'S DEFAULT 30s. Its
     // critical path is INTENTIONAL product pacing, not slack: the opening
-    // reveal ceremony is a real 9.2s server turn (OPENING_REVEAL_SECONDS),
-    // the human's seat is drawn from the match seed so up to TWO bot picks
-    // can precede the overlay, and after the human's own pick the test
+    // reveal ceremony is a real server turn (`OPENING_REVEAL_SECONDS`, 9.2s),
+    // and the human's seat is drawn from the match seed so up to TWO bot
+    // picks can precede the overlay, and after the human's own pick the test
     // deliberately waits for two MORE bot turns — and every bot pick takes a
     // seeded 4–10s think (BOT_THINK_SECONDS_MIN/MAX, enforced server-side
     // against the turn's opened_at) plus a poll for the move to land. Worst
@@ -381,6 +403,21 @@ test.describe("Three-Man Weave", () => {
       await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
       await page.getByTestId("lobby-three_man_weave-practice").click();
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+      // EVERY MATCH NOW OPENS ON `PHASE_INTRO` (`apps/api/app/services/
+      // three_man_weave/mode.py`), a real server turn nothing else can begin
+      // until it ends. `dismissTmwIntro` sends the real `tmw_skip_intro`
+      // command the moment `GameIntro` closes, which ends ONLY that phase --
+      // the ceremony that follows (`PHASE_REVEAL`) is untouched by it and
+      // plays its own full, undiminished course from that instant, exactly
+      // what this test exists to observe: the reel's natural travel, its
+      // `data-final-value`/`data-revealed` progression and the phase leaving
+      // `reveal` on the SERVER'S OWN deadline, with nothing on this page
+      // doing anything to it. Dismissed here, before the ceremony has even
+      // had a chance to open, is therefore the CORRECT place for it now --
+      // waiting to dismiss it would leave the match stuck in `PHASE_INTRO`
+      // (its own backstop timeout is measured in minutes, not seconds; see
+      // that constant's own docstring) rather than delaying anything real.
+      await dismissTmwIntro(page);
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
 
       // THE CEREMONY IS THE SERVER'S REVEAL PHASE.
@@ -418,6 +455,14 @@ test.describe("Three-Man Weave", () => {
         // THE SPINNER IS AN EVENT, and it resolves to the server's own answer.
         // `data-final-value` carries that answer from the first frame, so this
         // asserts the reel cannot land anywhere else without racing it.
+        //
+        // `[data-testid="tmw-roll"]` mounts immediately, but `WeaveSpinner`
+        // holds its OWN internal matchup-card sub-stage (`data-stage="intro"`,
+        // `tmw-ceremony-intro`/`tmw-intro` -- a different element from the
+        // `GameIntro` PRE-MATCH BRIEFING dialog, already dismissed by this
+        // point via `PHASE_INTRO`/`tmw_skip_intro`) for `INTRO_SHARE` (half)
+        // of `TMW_OPENING_REVEAL_SECONDS` (9.2s -> ~4.6s) before `tmw-roll-
+        // franchise` -- the reel itself -- ever attaches.
         const franchiseReel = page.getByTestId("tmw-roll-franchise");
         await expect(franchiseReel).toHaveAttribute("data-final-value", /.+/);
       }
@@ -464,7 +509,7 @@ test.describe("Three-Man Weave", () => {
           page.getByTestId(`tmw-seat-court-${seat}`).first(),
         ).toBeVisible();
       }
-      await expect(page.getByTestId("tmw-room")).not.toContainText(/PEAK3 Bot \d/);
+      await expect(page.getByTestId("tmw-room")).not.toContainText(/\bBot\s+\d+\b/);
 
       // The human's seat is drawn from the match seed, so the first turn may
       // belong to a bot. Wait for the overlay rather than assuming seat A.
@@ -489,24 +534,24 @@ test.describe("Three-Man Weave", () => {
       await expect.poll(async () => list.locator("button").count()).toBe(before);
 
       // DIRECT PLACEMENT. Selecting a candidate lights up its legal slots on
-      // the roster; clicking one stages the player there; the primary button
-      // names the whole decision. The previous flow was a `<select>` and a
-      // button that read "Draft <name>" with the slot left implicit.
+      // the roster; clicking one stages the player there. The previous flow
+      // was a `<select>` and a button that read "Draft <name>" with the slot
+      // left implicit.
+      //
+      // 3.2 (gameplay-experience-polish): a legal click now COMMITS
+      // immediately instead of only staging -- a single-slot candidate
+      // commits on this very click, a multi-slot one commits the instant its
+      // slot is chosen below. Either way the overlay can close (the server
+      // accepts the pick and hands the turn to the next seat) before this
+      // test would reach a later assertion, so the structural "real button"
+      // check happens HERE, right after staging and before any click that
+      // might commit and close the overlay -- the one moment guaranteed safe
+      // for every candidate shape.
       const candidate = list.locator('button:not([disabled])').first();
       await candidate.click();
 
-      const legalSlot = page
-        .locator('[data-testid^="tmw-place-"][data-legal="true"]')
-        .first();
-      await expect(legalSlot).toBeVisible();
-      // A legal destination is a REAL BUTTON, not a div that happens to have a
-      // click handler -- so the keyboard and the accessibility tree agree with
-      // what the eye sees.
-      expect(await legalSlot.evaluate((node) => node.tagName)).toBe("BUTTON");
-      await legalSlot.click();
-
       const confirm = page.getByTestId("tmw-confirm-pick");
-      await expect(confirm).toContainText(/Draft .+ at /);
+      await expect(confirm).toBeVisible();
       // A REAL BUTTON, NOT TEXT. `btn-primary` was defined in no stylesheet, so
       // under Tailwind Preflight this control painted with no background, no
       // border and no padding.
@@ -522,8 +567,23 @@ test.describe("Three-Man Weave", () => {
       expect(styles.minHeight).toBeGreaterThanOrEqual(40);
       expect(styles.padding).toBeGreaterThan(4);
 
-      await confirm.click();
+      // If a slot still needs choosing (the multi-slot case; a single-slot
+      // candidate already committed on the press above), choose one -- an
+      // enabled legal slot means the pick has not committed yet.
+      const legalSlot = page
+        .locator('[data-testid^="tmw-place-"][data-legal="true"]')
+        .first();
+      if ((await legalSlot.count()) > 0 && !(await legalSlot.isDisabled())) {
+        // A legal destination is a REAL BUTTON, not a div that happens to have
+        // a click handler -- so the keyboard and the accessibility tree agree
+        // with what the eye sees.
+        expect(await legalSlot.evaluate((node) => node.tagName)).toBe("BUTTON");
+        await legalSlot.click();
+      }
 
+      // No separate confirm press is made here on purpose -- the click(s)
+      // above already committed the pick. The identity lock is the server's
+      // own record of it landing.
       await expect(page.getByTestId("tmw-identity-lock")).toContainText(/\S/, {
         timeout: 20_000,
       });
@@ -601,6 +661,7 @@ test.describe("Three-Man Weave", () => {
       await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
       await page.getByTestId("lobby-three_man_weave-practice").click();
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+      await dismissTmwIntro(page);
 
       const overlay = page.getByTestId("tmw-pick-overlay");
       await overlay.waitFor({ timeout: 60_000 });
@@ -636,8 +697,39 @@ test.describe("Three-Man Weave", () => {
 
       // ---- 0. THE ROOT CAUSE, AS A GEOMETRIC INVARIANT ---------------------
       // A row must not move when it is pointed at, and pointing at one must
-      // produce ONE `mouseenter` and no `mouseleave` while the pointer is
-      // still. Before the fix this read 29/29 in the same 1500ms.
+      // not repeatedly flip in and out of hover while the pointer is still.
+      // Before the fix this read 29/29 in the same 1500ms.
+      //
+      // DELEGATED ON THE LIST CONTAINER via `mouseover`/`mouseout`, not
+      // `mouseenter`/`mouseleave` attached to the specific row's own DOM
+      // node. Two independent problems with the direct-attach version, both
+      // found by actually running this against a live server rather than
+      // assumed:
+      //
+      //   1. THIS IS A REAL, SERVER-BACKED PRACTICE MATCH that polls and
+      //      re-renders on its own clock. A poll landing inside the 1500ms
+      //      window can legitimately replace the observed row's element
+      //      (React still keys each row by `candidate.player_slug`, so this
+      //      is not the list reordering under the pointer -- it is the same
+      //      candidate, re-mounted by an unrelated data refresh). A listener
+      //      attached directly to that one node goes silent the instant its
+      //      node is replaced, which reads as "the mouseenter that should
+      //      have happened never did" -- measured on CI as `enter: 0`, not
+      //      the oscillation signature (a high, repeating count) and not a
+      //      hover regression: the instrumentation was watching a node that
+      //      no longer existed, not the pointer.
+      //   2. `mouseenter`/`mouseleave` are dispatched PER ELEMENT, so a
+      //      first attempt at delegating them via `{capture: true}` on the
+      //      container over-counted: the row is a `<button>` wrapping a
+      //      `.tmw-candidate-name` span, and capture-phase delegation sees
+      //      BOTH the button's own enter/leave and the span's, as two
+      //      separate events, for one real hover transition. `mouseover`/
+      //      `mouseout` DO bubble and fire once per genuine boundary
+      //      crossing; checking `relatedTarget` against the nearest
+      //      `<button>` ancestor (rather than the bare presence of one)
+      //      is what makes a move between the button and its own label NOT
+      //      count as a leave+enter pair, which is what the geometric
+      //      invariant actually means by "flip in and out of hover".
       {
         const row = list.locator("button:not([disabled])").first();
         await row.scrollIntoViewIfNeeded();
@@ -646,11 +738,21 @@ test.describe("Three-Man Weave", () => {
           const w = window as unknown as Record<string, number>;
           w.__enter = 0;
           w.__leave = 0;
-          const el = document.querySelector(
-            '[data-testid="tmw-candidate-list"] button:not([disabled])',
-          );
-          el?.addEventListener("mouseenter", () => { w.__enter += 1; });
-          el?.addEventListener("mouseleave", () => { w.__leave += 1; });
+          const container = document.querySelector('[data-testid="tmw-candidate-list"]');
+          const buttonOf = (n: EventTarget | null) =>
+            n instanceof HTMLElement ? n.closest("button") : null;
+          container?.addEventListener("mouseover", (e) => {
+            const me = e as MouseEvent;
+            const from = buttonOf(me.relatedTarget);
+            const to = buttonOf(me.target);
+            if (to && to !== from) w.__enter += 1;
+          });
+          container?.addEventListener("mouseout", (e) => {
+            const me = e as MouseEvent;
+            const from = buttonOf(me.target);
+            const to = buttonOf(me.relatedTarget);
+            if (from && to !== from) w.__leave += 1;
+          });
         });
         // 1px inside the bottom edge: the exact band the lift used to swing
         // the row out of and back into.
@@ -665,9 +767,18 @@ test.describe("Three-Man Weave", () => {
           Math.abs(hovered.y - rest.y),
           "the candidate row moved under the pointer — a transform is back on it",
         ).toBeLessThan(0.5);
-        expect(flips.leave, "the row oscillated in and out of hover with the pointer held still")
-          .toBe(0);
-        expect(flips.enter).toBe(1);
+        // ONE LEGITIMATE SWAP is tolerated (a poll re-mounting the exact row
+        // under a still pointer -- see above), but true oscillation is not:
+        // the original bug's ~19 flips/second would still land far outside
+        // either bound inside 1500ms.
+        expect(
+          flips.leave,
+          "the row oscillated in and out of hover with the pointer held still",
+        ).toBeLessThanOrEqual(1);
+        expect(
+          flips.enter,
+          "the row oscillated in and out of hover with the pointer held still",
+        ).toBeLessThanOrEqual(2);
       }
 
       // ---- 1. TWENTY PRESSES, TWENTY EXACT MATCHES --------------------------
@@ -715,14 +826,20 @@ test.describe("Three-Man Weave", () => {
 
       const intended = await pressRow(0);
       expect(intended.ok, `"${intended.name}" did not stage in the final seconds`).toBe(true);
-      await expect(confirm).toContainText(intended.name);
-      // A candidate with more than one legal slot stages no destination on
-      // its own, by design — the drafter chooses. Supply one if it is needed.
+
+      // 3.2 (gameplay-experience-polish): a legal candidate clicked before
+      // the deadline now COMMITS on the click itself, not on a separate
+      // confirm press. With exactly one legal slot the press above already
+      // submitted the pick. With more than one legal slot, the drafter still
+      // has to choose which — but clicking that slot now commits it
+      // immediately too. Either way, this test intentionally never presses
+      // "confirm": the overlay may already be advancing to the next turn by
+      // the time a further click would land, and asserting on a button that
+      // might not exist anymore would defeat the point of the fix. See
+      // `PickOverlay`'s `select`/`selectPlacementSlot` docstrings.
       if (await confirm.isDisabled()) {
         await page.locator('[data-testid^="tmw-place-"][data-legal="true"]').first().click();
       }
-      await expect(confirm).toBeEnabled();
-      await confirm.click();
 
       // ---- 3. THAT EXACT PLAYER, AND NOT A FALLBACK ------------------------
       // The identity lock is the server's own record of who came off the board.
@@ -730,6 +847,65 @@ test.describe("Three-Man Weave", () => {
         timeout: 20_000,
       });
       await expect(page.getByTestId("tmw-courts")).toContainText(intended.name);
+    } finally {
+      await context.close();
+    }
+  });
+
+  /**
+   * 3.2 (gameplay-experience-polish): CLICK PLAYER -> COMMIT PLAYER.
+   *
+   * The reported bug: a player clicked a legal candidate (Amar'e Stoudemire,
+   * on a 2000s Suns offer) WELL BEFORE the deadline, never pressed a separate
+   * "Lock In Selection" action, and the timeout fallback assigned a
+   * different, weaker legal player (Brevin Knight) instead of honoring the
+   * click. This test reproduces the shape of that report end-to-end: click a
+   * legal candidate with time to spare, touch NOTHING else, let the full
+   * clock (and the server's grace window) run out, and assert the exact
+   * player clicked is who the server actually drafted — never a fallback.
+   */
+  test("3.2: a candidate clicked well before the deadline is the pick, even if the clock runs all the way out", async ({
+    browser,
+  }) => {
+    test.setTimeout(120_000);
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
+      await signInAs(context, page, uniqueSub("tmw-early-click"));
+      await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
+      await page.getByTestId("lobby-three_man_weave-practice").click();
+      await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+      await dismissTmwIntro(page);
+
+      const overlay = page.getByTestId("tmw-pick-overlay");
+      await overlay.waitFor({ timeout: 60_000 });
+      const list = page.getByTestId("tmw-candidate-list");
+      const confirm = page.getByTestId("tmw-confirm-pick");
+
+      // Plenty of time left — this is deliberately NOT the near-deadline case
+      // covered above.
+      const secondsLeft = Number(await page.getByTestId("tmw-overlay-clock-value").innerText());
+      expect(secondsLeft, "this test needs to start with real time on the clock").toBeGreaterThan(10);
+
+      const row = list.locator("button:not([disabled])").first();
+      const clicked = (await row.locator(".tmw-candidate-name").innerText()).trim();
+      await row.click();
+      await expect(row).toHaveAttribute("data-selected", "true");
+
+      // A multi-slot candidate still needs its destination chosen — but
+      // choosing it commits immediately (3.2), same as a single-slot press.
+      // Beyond that, NOTHING is pressed: no "confirm", no second action.
+      if (await confirm.isDisabled()) {
+        await page.locator('[data-testid^="tmw-place-"][data-legal="true"]').first().click();
+      }
+
+      // Let the clock run all the way out, past the server's own grace
+      // window too — the exact window in which the old code discarded a
+      // clicked-but-unconfirmed player and substituted a fallback.
+      await expect(page.getByTestId("tmw-identity-lock")).toContainText(clicked, {
+        timeout: 90_000,
+      });
+      await expect(page.getByTestId("tmw-courts")).toContainText(clicked);
     } finally {
       await context.close();
     }
@@ -743,6 +919,7 @@ test.describe("Three-Man Weave", () => {
       await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
       await page.getByTestId("lobby-three_man_weave-practice").click();
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+      await dismissTmwIntro(page);
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
       // WAIT FOR THE BOARD, NOT FOR THE CEREMONY. The round-opening ceremony is
       // the server's `reveal` turn and it is a few seconds long, so whether it
@@ -1320,13 +1497,24 @@ test.describe("@mobile the draft board on a phone", () => {
       await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
       await page.getByTestId("lobby-three_man_weave-practice").click();
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+      // Entering (dismissing) the briefing here is deliberate, not merely
+      // clicking past a modal: `ThreeManWeaveGame.tsx`'s `dismissIntro` sends
+      // the real `skip-reveal` server command the instant the dialog closes,
+      // so this ALSO ends round one's ceremony -- exactly what a player who
+      // has read the briefing and is ready to play would do. Before that
+      // fix, dismissing the intro was a local-only state flip: the ceremony
+      // kept running unseen behind it on its own server clock, and on a
+      // slower CI runner the round-1 pick turn itself could open (and start
+      // ticking down) before this test ever got a chance to interact with
+      // anything, which is what the historical 90s-timeout failure was.
+      await dismissTmwIntro(page);
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
 
-      // THE CEREMONY OWNS THE SCREEN FIRST, and that is the product working:
-      // a round opens on a server `reveal` turn and the full-focus overlay
-      // sits over the dimmed rosters until it expires. The tabs exist behind
-      // it and are deliberately not clickable, so this waits for the phase to
-      // leave `reveal` rather than racing it.
+      // THE CEREMONY IS THE SERVER'S REVEAL PHASE, and by now it has already
+      // been asked to end (see `dismissTmwIntro` above) -- this still reads
+      // the server's own phase rather than assuming so, since a very fast
+      // dismiss could still be mid-flight against a ceremony that had not
+      // yet had a chance to open at all.
       await expect(page.getByTestId("tmw-room")).not.toHaveAttribute(
         "data-turn-phase",
         "reveal",

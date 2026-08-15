@@ -70,7 +70,17 @@ def _play(seed: int, pool, policy: TwentyDollarBot) -> dict:
         actions += 1
         assert actions < MAX_ACTIONS, f"seed {seed}: match did not terminate"
         seat_index = state["active_seat"]
-        assert seat_index is not None, f"seed {seed}: live match with no seat on the clock"
+        if seat_index is None:
+            # Neither seat can act on the drawn candidate (the phantom-lot
+            # fix): the pure engine parks here instead of resolving inline.
+            # A pure-engine driver with no clock resolves it immediately,
+            # exactly what that beat's own short server timeout eventually
+            # would.
+            assert S.is_unwinnable_lot_pending(state), (
+                f"seed {seed}: active_seat is None but no unwinnable lot is pending"
+            )
+            S.resolve_unwinnable_lot(state, pool)
+            continue
         public, private, legal = S.project(state, seat_index, pool)
         private = {**private, "candidate_tier": state.get("current_candidate_tier")}
         command, payload = policy.decide(public, private, rng)

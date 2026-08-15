@@ -635,7 +635,7 @@ export function passActionCost(
  * THE LAST MEANINGFUL ACTION on the live lot, as one short sentence.
  *
  * S20-04 puts this fourth in the hierarchy, under the current bid and the
- * leader. It replaces the row of micro-chips (`You $1 · PEAK3 Bot $2 · …`)
+ * leader. It replaces the row of micro-chips (`You $1 · Opponent $2 · …`)
  * that used to carry the whole history at 11 px.
  */
 export function lastActionLabel(

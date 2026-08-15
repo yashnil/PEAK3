@@ -237,7 +237,7 @@ describe("the lobby shows both games at once", () => {
     await screen.findByTestId("lobby-mode-grid");
     expect(screen.getByTestId("lobby-twenty_dollar-practice")).toBeDisabled();
     expect(
-      screen.getAllByText(/PEAK3 Bot is offline right now\./i).length,
+      screen.getAllByText(/Bot practice is offline right now\./i).length,
     ).toBeGreaterThan(0);
   });
 

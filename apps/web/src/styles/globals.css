@@ -1024,7 +1024,19 @@ html, body {
   background:
     radial-gradient(120% 90% at 50% 0%, rgba(245, 200, 66, 0.05), transparent 60%),
     linear-gradient(180deg, var(--bg-elevated) 0%, var(--court-floor-deep) 100%);
-  overflow: hidden;
+  /* `clip`, not `hidden`. `.roster-board-arc`'s circle (below) is
+     deliberately larger than this box and `clip-path`-cut down to an
+     arc sliver -- `clip-path` trims the paint, not the layout box, so
+     the full untrimmed circle still sticks ~50px past this element's
+     own bottom edge. `overflow: hidden` still makes that invisible
+     region a valid scrollport, so entering move mode (which focuses
+     the moving card) makes the browser auto-scroll this element to
+     bring the newly-focused card "into view" of a scrollport nothing
+     ever needed -- shifting every slot's on-screen position by that
+     same ~50px, tripping E2 (COURT GEOMETRY IS IMMUTABLE). `clip`
+     paints identically but is never itself scrollable, so there is no
+     scrollport for focus to move. */
+  overflow: clip;
 }
 
 .roster-board::before {
@@ -1894,6 +1906,15 @@ html, body {
 
 .spin-wheel-box[data-respinning="true"] {
   animation: respin-pulse-ring 550ms ease-out;
+}
+
+/* Reserved unconditionally so the respin banner mounting/unmounting inside
+   it can never shift `.spin-reel`'s flex-column layout -- see the collapse-
+   fix comment beside this slot's JSX in SpinStage.tsx. Sized for the
+   banner's one line of 11px uppercase text; the away-chip is inline, not a
+   second line, at every viewport this ships to. */
+.respin-banner-slot {
+  min-height: 1.375rem;
 }
 
 .respin-banner {
@@ -2970,4 +2991,58 @@ html, body {
 .court-slot-moving {
   border: 1px solid var(--peak-accent, #f5c842) !important;
   box-shadow: 0 0 0 1px var(--peak-accent), var(--pk-elev-3, 0 8px 24px -8px rgba(0, 0, 0, 0.5));
+}
+
+/* ================================================================
+   Shared game intro / briefing (GameIntro.tsx)
+   ================================================================
+   One accent rail down the left edge names the mode; the visual slot
+   below the objective is a bordered window for a small, mode-specific
+   diagram/preview so the briefing carries one concrete image instead
+   of only prose. All paint, no layout-affecting motion — Dialog itself
+   owns the entrance transition and its reduced-motion opt-out, so this
+   file adds no animation of its own.
+   ================================================================ */
+.game-intro-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.game-intro-accent-rail {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+}
+
+.game-intro-visual {
+  border-radius: var(--pk-r-lg, 14px);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  padding: 1rem;
+  overflow: hidden;
+}
+
+/* Peak Duel's GameIntro mechanic visual: two matchup cards and a VS glyph. */
+.pd-intro-visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.pd-intro-card {
+  padding: 0.6rem 1rem;
+  border-radius: var(--pk-r-lg, 12px);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.pd-intro-vs {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--comp-si);
+  letter-spacing: 0.1em;
 }

@@ -110,6 +110,22 @@ export interface ModeCopy {
   badge?: string;
   /** See `ModeIconKey`. */
   iconKey?: ModeIconKey;
+  /**
+   * Per-mode identity accent, as a `--comp-*` design-token stem (e.g.
+   * `"comp-team"`, never a literal hex or an invented custom property).
+   * `GameCard` reads `var(--{accent})` for icon-glyph colour and
+   * `var(--{accent}-text)` for the text-safe sibling used on the eyebrow —
+   * the same base/`-text` split `--peak-accent`/`--peak-accent-text` already
+   * use for the `featured` treatment, so an accented card composites
+   * correctly in both themes without a new token being invented.
+   *
+   * Omitted on RUN THE TABLE on purpose: the flagship communicates identity
+   * through `featured` (gold) alone, and giving it a second accent on top
+   * would blur the one signal that is supposed to mean "the flagship."
+   * Omitted on modes with no card of their own (Rankings, Methodology) for
+   * the same reason `iconKey`/`badge` are — this field describes a GAME.
+   */
+  accent?: string;
 }
 
 export const MODE_COPY: Record<ModeId, ModeCopy> = {
@@ -139,6 +155,9 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
     group: "flagship",
     blurb: "Draft a full-season roster, chase 82-0",
     iconKey: "trophy",
+    // Emerald — "Team Result" is the component this full-season build most
+    // resembles: eight roster slots chasing one collective outcome.
+    accent: "comp-team",
   },
   "daily-grid": {
     id: "daily-grid",
@@ -152,6 +171,10 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
     group: "daily",
     blurb: "Nine squares, same board for everyone",
     iconKey: "grid",
+    // Blue — matches the existing "Daily" blue already used for the 82-0
+    // Daily CTA on /arena (`--accent-blue`/`--comp-si` are the same hue), so
+    // the product's other "today's board" surface reads consistently too.
+    accent: "comp-si",
   },
   "three-man-weave": {
     id: "three-man-weave",
@@ -166,6 +189,9 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
     blurb: "Three-way snake draft, six shared rolls",
     badge: "Closed alpha",
     iconKey: "users",
+    // Violet — distinct from every other mode's accent and from the "Closed
+    // alpha" badge's own colour, so the two chips never compete.
+    accent: "comp-tp",
   },
   "twenty-dollar": {
     id: "twenty-dollar",
@@ -180,6 +206,9 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
     blurb: "Two bidders, $20, one starting five",
     badge: "Closed alpha",
     iconKey: "gavel",
+    // Orange — a live-bid auction is the warmest, most urgent mode in the
+    // catalogue; orange is the one remaining token with that temperature.
+    accent: "comp-po",
   },
   "peak-duel": {
     id: "peak-duel",
@@ -193,6 +222,9 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
     group: "daily",
     blurb: "Ten head-to-head peak comparisons",
     iconKey: "scale",
+    // Pink — "Individual Recognition" fits a mode that is entirely about
+    // judging one player's peak against another's, head to head.
+    accent: "comp-rec",
   },
 };
 

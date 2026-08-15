@@ -453,9 +453,13 @@
   border-left: 4px solid var(--seat-fill);
   border-radius: var(--pk-r-md, 10px);
   /* A lit top edge and a shadow beneath, so the room's status reads as a
-     board mounted above the courts rather than as a coloured strip. */
+     board mounted above the courts rather than as a coloured strip.
+     `--pk-elev-3` (one step above the seat-courts' resting `--pk-elev-2`,
+     composition pass) keeps this bar reading as the top of the room's
+     hierarchy even in the moments `.pk-spotlight` is not applied -- e.g. a
+     completed match, or reduced motion holding the ring static. */
   background: var(--pk-grad-raised);
-  box-shadow: var(--pk-rim), var(--pk-elev-2);
+  box-shadow: var(--pk-rim), var(--pk-elev-3);
 }
 
 /* `.pk-spotlight` sets a box-shadow AND a gold `border-color`. Both need
@@ -860,6 +864,50 @@
   border-color: var(--border-subtle);
 }
 
+/* ---------------------------------------------------------------------------
+   COMPOSITION PASS: the two bot courts step back a further tier.
+   ---------------------------------------------------------------------------
+   THE PROBLEM THIS ANSWERS. During a live human turn the room was putting
+   roughly thirty individually-bordered boxes on screen with equal weight: the
+   turn bar, eighteen slot cards across three seat-courts, the ledger, and the
+   pick overlay on top of all of it. Nothing was WRONG, it just did not read as
+   one prioritised surface. The turn bar and the overlay are already the loud
+   tier (a live spotlight ring and a modal, respectively) and nothing here
+   touches them.
+
+   THE FIX IS PAINT ONLY, and it is scoped narrowly: a bot's court still shows
+   every slot, every name, every position -- reading what an opponent still
+   needs is the actual strategy of a draft and deleting or hiding any of it
+   would be deleting information, not de-emphasising it. What changes is how
+   LOUD it is relative to (a) the human's own court and (b) whichever seat is
+   presently on the clock, bot or human. `[data-on-turn="false"]` in the
+   selector is why a bot's turn still lights up at full weight the instant it
+   is theirs -- this rule only applies to a bot's court while it is idle. */
+.tmw-seat[data-is-bot="true"][data-on-turn="false"] {
+  box-shadow: var(--pk-elev-1);
+}
+
+.tmw-seat[data-is-bot="true"][data-on-turn="false"] .tmw-slot {
+  /* Lighter ink on the edge and less fill in the surface -- the same two
+     paint properties `.tmw-seat[data-on-turn="false"]` already uses above,
+     applied one tier further for the two seats nobody is deciding for right
+     now. The rim shadow (a manufactured highlight that makes a card read as
+     an object) is dropped rather than dimmed: a card is still a card without
+     it, just a quieter one. */
+  border-color: color-mix(in srgb, var(--border-subtle) 60%, transparent);
+  background: color-mix(in srgb, var(--bg-surface) 55%, transparent);
+  box-shadow: none;
+}
+
+/* The score badge is the one piece of each card set in the brand accent
+   colour, which is also the colour the live turn and "yours" states use --
+   eighteen accent-coloured numbers competing with the one that actually
+   means "your move" was exactly the equal-weight problem. The number is
+   still there, at full size; it just stops shouting in the accent tone. */
+.tmw-seat[data-is-bot="true"][data-on-turn="false"] .tmw-slot-score {
+  color: var(--text-secondary);
+}
+
 .tmw-seat-head {
   display: flex;
   align-items: center;
@@ -1049,6 +1097,15 @@
      the card into an object. */
   box-shadow: var(--pk-rim);
   text-align: left;
+  /* Composition pass: a bot court dims/undims this card's border, fill and
+     rim as `data-on-turn` flips (see `.tmw-seat[data-is-bot="true"]` above).
+     Same paint-only property list and timing as `.tmw-seat`'s own
+     transition, so a turn change reads as one smooth de-emphasis rather than
+     a snap between two flat states. */
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .tmw-slot[data-filled="false"] {
@@ -1077,6 +1134,7 @@
   font-size: 0.75rem;
   font-weight: 800;
   color: var(--peak-accent-text);
+  transition: color 180ms ease;
 }
 
 .tmw-slot-body {
@@ -2400,4 +2458,49 @@
   .celebration {
     display: none;
   }
+}
+
+/* Three-Man Weave's GameIntro mechanic visual: three draft seats in pick
+   order plus a clock glyph. Static — no motion, so nothing here needs a
+   reduced-motion branch. */
+.tmw-intro-visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.tmw-intro-seat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 4.25rem;
+  padding: 0.6rem 0.5rem;
+  border-radius: var(--pk-r-lg, 12px);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+}
+
+.tmw-intro-seat[data-you="true"] {
+  border-color: var(--comp-rec);
+  background: color-mix(in srgb, var(--comp-rec) 10%, var(--bg-elevated));
+}
+
+.tmw-intro-seat-order {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--text-muted);
+}
+
+.tmw-intro-seat-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.tmw-intro-clock {
+  font-size: 20px;
+  color: var(--comp-rec);
+  margin-left: 0.25rem;
 }

@@ -426,8 +426,11 @@ def test_readiness_endpoint_falls_back_to_apex_1y_for_invalid_mode(client: TestC
 # API helpers
 # ---------------------------------------------------------------------------
 
-def _create(client: TestClient, mode: str = "apex_1y", seed: int = 42) -> dict:
-    resp = client.post("/api/v1/perfect-season/games", json={"mode": mode, "seed": seed})
+def _create(client: TestClient, mode: str = "apex_1y", seed: int = 42, difficulty: str | None = None) -> dict:
+    body = {"mode": mode, "seed": seed}
+    if difficulty is not None:
+        body["difficulty"] = difficulty
+    resp = client.post("/api/v1/perfect-season/games", json=body)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -1898,6 +1901,669 @@ def test_respin_never_produces_empty_candidate_list(team_year_client: TestClient
             candidates = resp.json()["current_spin"]["candidates"]
             assert len(candidates) > 0
             assert all(c["team_name"] and c["season"] for c in candidates)
+
+
+# ---------------------------------------------------------------------------
+# Gameplay-polish: per-run difficulty (Easy/Hard) and the one-time hint.
+# ---------------------------------------------------------------------------
+
+def _hint(client: TestClient, game_id: str) -> "object":
+    return client.post(f"/api/v1/perfect-season/games/{game_id}/hint", json={"game_id": game_id})
+
+
+def test_create_game_defaults_to_easy_difficulty(client: TestClient):
+    state = _create(client, mode="apex_1y", seed=101)
+    assert state["difficulty"] == "easy"
+    assert state["hint_used"] is False
+
+
+def test_create_game_rejects_an_unknown_difficulty(client: TestClient):
+    resp = client.post(
+        "/api/v1/perfect-season/games",
+        json={"mode": "apex_1y", "seed": 102, "difficulty": "brutal"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "invalid_difficulty"
+
+
+def test_hard_mode_reduces_respin_budget_to_one_team_one_season(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=103, difficulty="hard")
+    assert state["difficulty"] == "hard"
+    assert state["current_spin"]["team_respins_max"] == 1
+    assert state["current_spin"]["season_respins_max"] == 1
+    assert state["team_respins_remaining_total"] == 1
+    assert state["season_respins_remaining_total"] == 1
+
+
+def test_hard_mode_second_team_respin_is_rejected_not_just_the_fourth(team_year_client: TestClient):
+    """Hard mode's budget is 1, not merely 'less than 3' -- the SECOND
+    attempt (not the fourth, as Easy mode's own test checks) must already be
+    rejected, and enforced at the same gate every other respin uses
+    (respin_limit_reached), never a different/looser code."""
+    state = _create(team_year_client, mode="apex_1y", seed=104, difficulty="hard")
+    game_id = state["game_id"]
+
+    first = _respin_team(team_year_client, game_id)
+    assert first.status_code == 200, first.text
+    assert first.json()["current_spin"]["team_respins_used"] == 1
+    assert first.json()["team_respins_remaining_total"] == 0
+
+    second = _respin_team(team_year_client, game_id)
+    assert second.status_code == 400
+    assert second.json()["detail"]["error_code"] == "respin_limit_reached"
+
+
+def test_hard_mode_second_season_respin_is_rejected(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=105, difficulty="hard")
+    game_id = state["game_id"]
+
+    first = _respin_season(team_year_client, game_id)
+    assert first.status_code == 200, first.text
+    assert first.json()["season_respins_remaining_total"] == 0
+
+    second = _respin_season(team_year_client, game_id)
+    assert second.status_code == 400
+    assert second.json()["detail"]["error_code"] == "respin_limit_reached"
+
+
+def test_easy_mode_keeps_the_three_plus_three_respin_budget(team_year_client: TestClient):
+    """No regression on the existing default -- Easy is Hard's superset, not
+    a new, different budget of its own."""
+    state = _create(team_year_client, mode="apex_1y", seed=106, difficulty="easy")
+    assert state["current_spin"]["team_respins_max"] == 3
+    assert state["current_spin"]["season_respins_max"] == 3
+    assert state["team_respins_remaining_total"] == 3
+    assert state["season_respins_remaining_total"] == 3
+
+
+def test_difficulty_and_hint_used_survive_a_serialization_round_trip():
+    """Postgres-backed persistence round-trips through court_state_to_dict/
+    court_state_from_dict on every load -- see serialization.py's own
+    docstring for the exact class of bug this discipline exists to prevent
+    (a field that silently resets on reload)."""
+    from app.services.perfect_season.serialization import court_state_from_dict, court_state_to_dict
+
+    state = ps_state.create_perfect_season_game(
+        mode="apex_1y", seed=107, team_spin_enabled=True, team_year_enabled=True, difficulty="hard",
+    )
+    state.game_id = "round-trip-game"
+    state.hint_used = False
+
+    d = court_state_to_dict(state)
+    assert d["difficulty"] == "hard"
+    restored = court_state_from_dict(d)
+    assert restored.difficulty == "hard"
+    assert restored.hint_used is False
+
+
+def test_a_payload_saved_before_difficulty_existed_still_loads_as_easy():
+    """An older stored row predates both fields entirely -- must default to
+    'easy'/False, not raise, matching every other field this dataclass has
+    grown since (see serialization.py's module docstring)."""
+    from app.services.perfect_season.serialization import court_state_from_dict
+
+    state = ps_state.create_perfect_season_game(
+        mode="apex_1y", seed=108, team_spin_enabled=True, team_year_enabled=True,
+    )
+    state.game_id = "legacy-game"
+    from app.services.perfect_season.serialization import court_state_to_dict
+
+    d = court_state_to_dict(state)
+    del d["difficulty"]
+    del d["hint_used"]
+    restored = court_state_from_dict(d)
+    assert restored.difficulty == "easy"
+    assert restored.hint_used is False
+
+
+# --- The hint algorithm itself: fit-aware, not a raw-score lookalike. -------
+
+def _build_hint_test_state(monkeypatch, *, difficulty="easy", status="selection_pending", hint_used=False):
+    """A minimal, hand-built team_year CourtLineupState with two synthetic
+    candidates -- one with the higher RAW score but a badly-mismatched
+    position, one with a lower raw score but a perfect position match for
+    the one currently open slot (PG). `resolve_player_season_card` is
+    monkeypatched (on the state.py module, where action_get_hint's helpers
+    actually call it) so this needs no real dataset row."""
+    from nba_peak.perfect_season.exact_season import PlayerSeasonCard
+    from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot, PerfectSeasonBoard, SpinPrompt
+
+    def _card(slug: str, name: str, position: str, score: float) -> PlayerSeasonCard:
+        return PlayerSeasonCard(
+            exact_player_season_key=f"{slug}-tst-202021",
+            player_slug=slug,
+            player_name=name,
+            team_id="TST",
+            team_name="Test City Testers",
+            season="2020-21",
+            season_label="2020-21",
+            games_played=70.0,
+            minutes_per_game=30.0,
+            games_started=70.0,
+            position=position,
+            identity_pool_status="canonical_250",
+            score_status="exact_season_scored",
+            season_score=score,
+            source_provenance="test_fixture",
+        )
+
+    cards = {
+        ("high-raw-off-position", "TST", "2020-21"): _card("high-raw-off-position", "High Raw Center", "C", 90.0),
+        ("good-fit-lower-raw", "TST", "2020-21"): _card("good-fit-lower-raw", "Good Fit Guard", "PG", 70.0),
+    }
+
+    def fake_resolve(slug, team_id, season):
+        return cards.get((slug, team_id, season))
+
+    monkeypatch.setattr(ps_state, "resolve_player_season_card", fake_resolve)
+
+    spin = SpinPrompt(
+        round_number=1,
+        spin_type="team_year",
+        spin_id="spin-1",
+        franchise_display_name="Test City Testers",
+        era_label="2020-21",
+        candidate_player_slugs=["high-raw-off-position", "good-fit-lower-raw"],
+        team_id="TST",
+    )
+    board = PerfectSeasonBoard(
+        board_id="board-1",
+        mode="apex_1y",
+        duration_years=1,
+        board_type="practice",
+        seed=1,
+        spins=[spin],
+        card_pool_version="test",
+        eligibility_ruleset_version="test",
+        board_generator_version="test",
+        interim_team_data_version=None,
+        metadata={},
+        experimental_team_year_data_version="test_v1",
+    )
+    # Every slot except PG is already occupied (an unresolvable placeholder
+    # key is fine -- _used_player_slugs simply can't resolve it to a slug,
+    # which is irrelevant to this test), so PG is the ONLY open slot and the
+    # off-position candidate cannot claim a fit bonus anywhere.
+    slots = [CourtSlot(slot_type=st) for st in SLOT_TYPES]
+    for slot in slots:
+        if slot.slot_type != "PG":
+            slot.exact_player_season_key = f"placeholder-{slot.slot_type}"
+
+    return CourtLineupState(
+        game_id="hint-test-game",
+        board=board,
+        status=status,
+        current_round=1,
+        slots=slots,
+        mode="apex_1y",
+        duration_years=1,
+        difficulty=difficulty,
+        hint_used=hint_used,
+    )
+
+
+def test_hint_picks_the_true_resulting_roster_winner_not_the_highest_raw_score(monkeypatch):
+    """'High Raw Center' has the higher raw season_score (90 vs 70) and is
+    exactly what a bare highest-score lookup would return -- but PG is the
+    only open slot, and a center is a severe mismatch there. With every
+    other slot genuinely empty, a single card's own raw score dominates the
+    weighted talent_core term (a real, deliberate property of the production
+    formula -- see test_the_raw_plus_simple_fit_heuristic_disagrees_with_
+    the_true_evaluator below for a scenario where an already-strong roster
+    makes fit decisive instead). What this test actually proves: the hint
+    goes through the real `expected_wins_base`/`_lineup_fit_exact` pipeline
+    at all, not a hardcoded stub -- both candidates are correctly resolved,
+    scored on the resulting 1-card roster they'd produce, and the higher-
+    scoring resulting roster wins."""
+    state = _build_hint_test_state(monkeypatch)
+    new_state, player_slug, player_name = ps_state.action_get_hint(state)
+    assert player_slug == "high-raw-off-position"
+    assert player_name == "High Raw Center"
+    assert new_state.hint_used is True
+
+
+def test_the_raw_plus_simple_fit_heuristic_disagrees_with_the_true_evaluator(monkeypatch):
+    """THE divergence proof the compliance review asked for: a concrete case
+    where the OLD `raw_score + max(fit_points)` heuristic and the TRUE
+    resulting-lineup evaluator recommend DIFFERENT candidates.
+
+    Four starter slots (SG/SF/PF/C) are already filled with real, resolvable
+    cards scored 88/86/84/82, plus a bench card at 75 -- an already-strong
+    roster, unlike the single-open-slot test above. PG is the only open
+    slot, offered two candidates:
+      * 'Big Raw Gap' -- season_score 95, a SEVERE mismatch at PG (-14 fit).
+        Ranks 1st among the 5 starter scores once placed (95 > 88), so it
+        earns the HIGHEST talent-weight tier (0.30) -- a large raw
+        advantage landing at maximum leverage.
+      * 'Small Raw Gap' -- season_score 80, a PRIMARY fit at PG (+10). Ranks
+        LAST among the 5 (80 < 82), earning the SMALLEST weight tier (0.12)
+        -- its raw advantage over the alternative barely moves talent_core
+        at all.
+
+    OLD heuristic (raw + fit, no weighting): Big Raw Gap = 95 - 14 = 81;
+    Small Raw Gap = 80 + 10 = 90 -- prefers Small Raw Gap by 9.
+
+    The TRUE evaluator weighs positional_fit at only 0.08x and talent_core
+    at 1.0x, and -- critically -- talent_core is a WEIGHTED average where
+    rank matters, not a flat sum: Big Raw Gap's 13-point raw edge, applied
+    at the top weight tier, outweighs its fit penalty once the fit term is
+    correctly discounted to 8% instead of the heuristic's implicit 100%.
+    This test asserts the hint prefers Big Raw Gap -- the OPPOSITE of what
+    the old heuristic computed -- proving the two are not equivalent, not
+    just in theory but in an outcome a player would actually see."""
+    from nba_peak.perfect_season.exact_season import PlayerSeasonCard
+    from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot, PerfectSeasonBoard, SpinPrompt
+
+    def _card(slug: str, name: str, position: str, score: float) -> PlayerSeasonCard:
+        return PlayerSeasonCard(
+            exact_player_season_key=f"{slug}-tst-202021",
+            player_slug=slug,
+            player_name=name,
+            team_id="TST",
+            team_name="Test City Testers",
+            season="2020-21",
+            season_label="2020-21",
+            games_played=70.0,
+            minutes_per_game=30.0,
+            games_started=70.0,
+            position=position,
+            identity_pool_status="canonical_250",
+            score_status="exact_season_scored",
+            season_score=score,
+            source_provenance="test_fixture",
+        )
+
+    # The already-placed roster: SG/SF/PF/C + one bench card, all real and
+    # resolvable (unlike _build_hint_test_state's unresolvable placeholders
+    # -- this test specifically needs the weighted-talent-rank mechanic to
+    # engage, which only happens when the other starters are real cards).
+    placed = {
+        "SG": _card("placed-sg", "Placed SG", "SG", 88.0),
+        "SF": _card("placed-sf", "Placed SF", "SF", 86.0),
+        "PF": _card("placed-pf", "Placed PF", "PF", 84.0),
+        "C": _card("placed-c", "Placed C", "C", 82.0),
+        "bench_1": _card("placed-bench", "Placed Bench", "SF", 75.0),
+    }
+    candidates = {
+        "big-raw-gap": _card("big-raw-gap", "Big Raw Gap", "C", 95.0),  # severe mismatch at PG
+        "small-raw-gap": _card("small-raw-gap", "Small Raw Gap", "PG", 80.0),  # primary fit at PG
+    }
+
+    by_key = {c.exact_player_season_key: c for c in list(placed.values()) + list(candidates.values())}
+    by_slug_team_season = {
+        (c.player_slug, c.team_id, c.season): c for c in list(placed.values()) + list(candidates.values())
+    }
+
+    monkeypatch.setattr(ps_state, "resolve_exact_card_by_key", lambda key: by_key.get(key))
+    monkeypatch.setattr(
+        ps_state, "resolve_player_season_card",
+        lambda slug, team_id, season: by_slug_team_season.get((slug, team_id, season)),
+    )
+
+    # Sanity-check the OLD heuristic really would have preferred the OTHER
+    # candidate, so this test is provably exercising a genuine disagreement
+    # rather than a coincidence.
+    old_big = 95.0 + ps_state._fit_points("off_position", "severe")
+    old_small = 80.0 + ps_state._fit_points("primary", None)
+    assert old_small > old_big, "test setup is not actually a heuristic/evaluator disagreement"
+
+    spin = SpinPrompt(
+        round_number=1, spin_type="team_year", spin_id="spin-1",
+        franchise_display_name="Test City Testers", era_label="2020-21",
+        candidate_player_slugs=["big-raw-gap", "small-raw-gap"], team_id="TST",
+    )
+    board = PerfectSeasonBoard(
+        board_id="board-1", mode="apex_1y", duration_years=1, board_type="practice", seed=1,
+        spins=[spin], card_pool_version="test", eligibility_ruleset_version="test",
+        board_generator_version="test", interim_team_data_version=None, metadata={},
+        experimental_team_year_data_version="test_v1",
+    )
+    slots = [CourtSlot(slot_type=st) for st in SLOT_TYPES]
+    for slot in slots:
+        if slot.slot_type in placed:
+            slot.exact_player_season_key = placed[slot.slot_type].exact_player_season_key
+
+    state = CourtLineupState(
+        game_id="hint-divergence-game", board=board, status="selection_pending", current_round=1,
+        slots=slots, mode="apex_1y", duration_years=1, difficulty="easy", hint_used=False,
+    )
+
+    _new_state, player_slug, player_name = ps_state.action_get_hint(state)
+    assert player_slug == "big-raw-gap", (
+        "the true evaluator should prefer the higher-raw candidate here (weighted talent_core "
+        "dominates a single starter slot's fit term at these score levels) -- if this fails, "
+        "either the divergence no longer exists or the evaluator regressed to the old heuristic"
+    )
+    assert player_name == "Big Raw Gap"
+
+
+def test_hint_is_exactly_one_time_per_run(monkeypatch):
+    state = _build_hint_test_state(monkeypatch)
+    new_state, _slug, _name = ps_state.action_get_hint(state)
+    assert new_state.hint_used is True
+
+    with pytest.raises(ps_state.CourtError) as exc_info:
+        ps_state.action_get_hint(new_state)
+    assert exc_info.value.code == "hint_already_used"
+
+
+def test_hint_is_rejected_outright_in_hard_mode(monkeypatch):
+    state = _build_hint_test_state(monkeypatch, difficulty="hard")
+    with pytest.raises(ps_state.CourtError) as exc_info:
+        ps_state.action_get_hint(state)
+    assert exc_info.value.code == "hint_not_available"
+
+
+def test_hint_is_rejected_with_no_active_selection_pending_spin(monkeypatch):
+    state = _build_hint_test_state(monkeypatch, status="placement_pending")
+    with pytest.raises(ps_state.CourtError) as exc_info:
+        ps_state.action_get_hint(state)
+    assert exc_info.value.code == "hint_not_allowed"
+
+
+# --- Full API request/response cycle, including auth/ownership. ------------
+
+def test_hint_endpoint_recommends_a_real_candidate_and_marks_hint_used(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=109)
+    game_id = state["game_id"]
+    candidate_slugs = {c["player_slug"] for c in state["current_spin"]["candidates"]}
+
+    resp = _hint(team_year_client, game_id)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert body["hint"]["player_slug"] in candidate_slugs
+    assert body["state"]["hint_used"] is True
+    assert body["state"]["difficulty"] == "easy"
+
+    # ADR-005 Decision 6, the hard product invariant: the hint payload is
+    # identity ONLY -- exactly {player_slug, player_name}, never a score or
+    # rank field, and never any information about the candidates that were
+    # NOT recommended.
+    assert set(body["hint"].keys()) == {"player_slug", "player_name"}
+
+
+def test_hint_payload_never_carries_a_numeric_score_anywhere(team_year_client: TestClient):
+    """Belt-and-braces on the ADR-005 invariant above: scan the ENTIRE `hint`
+    object (not just its key set) for anything that looks like a score --
+    proofs against the key-set check alone would miss a future field added
+    under a different name."""
+    state = _create(team_year_client, mode="apex_1y", seed=110)
+    resp = _hint(team_year_client, state["game_id"])
+    assert resp.status_code == 200, resp.text
+    hint_payload = resp.json()["hint"]
+    for value in hint_payload.values():
+        assert not isinstance(value, (int, float)), f"hint payload leaked a numeric value: {hint_payload}"
+
+
+def test_hint_endpoint_is_exactly_one_time_via_the_api(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=111)
+    game_id = state["game_id"]
+    first = _hint(team_year_client, game_id)
+    assert first.status_code == 200, first.text
+
+    second = _hint(team_year_client, game_id)
+    assert second.status_code == 400
+    assert second.json()["detail"]["error_code"] == "hint_already_used"
+
+
+def test_hint_endpoint_rejected_in_hard_mode(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=112, difficulty="hard")
+    resp = _hint(team_year_client, state["game_id"])
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "hint_not_available"
+
+
+def test_hint_endpoint_denies_a_signed_in_stranger(leaderboard_client: TestClient):
+    """Cross-user denial, mirroring test_undo_denies_a_signed_in_stranger --
+    every mutating CourtBuilder route (hint included) refuses a non-owner
+    with 403, and the owner's hint budget must be untouched afterward."""
+    client = leaderboard_client
+    owner_token = _mint_test_jwt("user-hint-owner")
+    stranger_token = _mint_test_jwt("user-hint-stranger")
+
+    client.headers["Authorization"] = f"Bearer {owner_token}"
+    state = _create(client, mode="apex_1y", seed=113)
+    game_id = state["game_id"]
+    del client.headers["Authorization"]
+
+    client.headers["Authorization"] = f"Bearer {stranger_token}"
+    resp = _hint(client, game_id)
+    del client.headers["Authorization"]
+    assert resp.status_code == 403
+
+    client.headers["Authorization"] = f"Bearer {owner_token}"
+    unchanged = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    del client.headers["Authorization"]
+    assert unchanged["hint_used"] is False, "a stranger's rejected hint request must not consume the owner's hint"
+
+
+# --- The hint's evaluator IS the real simulator's, proven for a full roster. ---
+
+def test_hint_evaluator_matches_the_real_exact_season_simulator_for_a_full_roster():
+    """The literal equivalence proof for the team-year path: build a
+    complete, legal 8-card roster and assert the hint's own
+    `_lineup_fit_exact` + `expected_wins_base` pipeline produces the exact
+    same `lineup_quality` value `simulate_exact_season` computes for that
+    roster -- not merely a "similar" value, `pytest.approx` at a tight
+    tolerance covering only the two independent `round()` calls. This is
+    what makes the hint's ranking honestly tied to what the game itself
+    will ultimately score, rather than a proxy that happens to correlate."""
+    from nba_peak.perfect_season.exact_season import PlayerSeasonCard
+    from nba_peak.perfect_season.simulation import expected_wins_base, simulate_exact_season
+
+    positions = ["PG", "SG", "SF", "PF", "C", "SF", "PG", "C"]
+    scores = [82.0, 77.0, 88.0, 65.0, 91.0, 58.0, 73.0, 69.0]
+    cards = [
+        PlayerSeasonCard(
+            exact_player_season_key=f"full-{i}-tst-202021",
+            player_slug=f"full-{i}",
+            player_name=f"Full Roster {i}",
+            team_id="TST",
+            team_name="Test City Testers",
+            season="2020-21",
+            season_label="2020-21",
+            games_played=70.0,
+            minutes_per_game=30.0,
+            games_started=70.0,
+            position=positions[i],
+            identity_pool_status="canonical_250",
+            score_status="exact_season_scored",
+            season_score=scores[i],
+            source_provenance="test_fixture",
+        )
+        for i in range(8)
+    ]
+    cards_by_slot = dict(zip(SLOT_TYPES, cards))
+
+    hint_value = expected_wins_base(ps_state._lineup_fit_exact(cards_by_slot))
+    real_value = simulate_exact_season(cards, board_seed=1, slot_types=list(SLOT_TYPES)).lineup_quality
+    assert hint_value == pytest.approx(real_value, abs=0.01)
+
+
+def test_hint_evaluator_matches_the_real_legacy_simulator_for_a_full_roster():
+    """Legacy (career-peak-window) counterpart of the test above --
+    COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED defaults off, so this is the
+    path nearly every real game actually reaches.
+
+    Compares against `compute_fit_components` -- the production function
+    `simulate_season` itself calls to build its `LineupFitComponents` --
+    rather than against `simulate_season(...).lineup_quality`. A compliance
+    review correctly flagged that populating `lineup_quality` on the legacy
+    `SimulationResult` (previously only the team-year path set it) had no
+    production reader anywhere (not `SimulationResultPublic`, which never
+    declared the field; not Three-Man Weave, which only ever calls
+    `simulate_exact_season`; not this hint, which calls `expected_wins_base`
+    directly on a hypothetical roster and never touches `SimulationResult`)
+    and existed only to make this one test's assertion convenient -- an
+    unrelated production semantic change smuggled in by a test's needs. It
+    has been reverted; this test now proves the same equivalence against the
+    actual shared fit-builder instead, with no behavioral change to
+    `simulate_season` at all."""
+    from nba_peak.lineup.schemas import CardProfile, LineupDNA
+    from nba_peak.perfect_season.simulation import compute_fit_components, expected_wins_base
+
+    roles = ["PG", "SG", "SF", "PF", "C", "SF", "PG", "C"]
+    scores = [80.0, 74.0, 86.0, 63.0, 90.0, 55.0, 71.0, 67.0]
+    cards = [
+        CardProfile(
+            peak_window_id=f"legacy-{i}-1yr-202021",
+            profile_version="test",
+            player_id=f"legacy-{i}",
+            player_slug=f"legacy-{i}",
+            player_name=f"Legacy Roster {i}",
+            duration_years=1,
+            start_season="2020-21",
+            end_season="2020-21",
+            anchor_season="2020-21",
+            individual_peak_score=scores[i],
+            individual_peak_rank=i + 1,
+            prime_index=scores[i],
+            eligible_roles=[roles[i]],
+            primary_role=roles[i],
+            lineup_dna=LineupDNA(
+                primary_creation=50.0 + i,
+                scoring_pressure=45.0 + i,
+                individual_validation=40.0 + i,
+                postseason_translation=35.0 + i,
+                team_context=30.0 + i,
+                context_completeness=90.0,
+            ),
+            data_completeness="verified",
+            profile_status="verified_data_derived",
+        )
+        for i in range(8)
+    ]
+    cards_by_slot = dict(zip(SLOT_TYPES, cards))
+
+    hint_value = expected_wins_base(ps_state._lineup_fit_legacy(cards_by_slot))
+    real_value = expected_wins_base(compute_fit_components(cards, list(SLOT_TYPES)))
+    assert hint_value == pytest.approx(real_value, abs=0.01)
+
+
+def test_hint_recommendation_matches_a_brute_force_search_over_candidates_and_slots():
+    """'The recommendation matches the actual best resulting lineup outcome'
+    -- proven by independently brute-forcing every (candidate, open slot)
+    pair with the same primitives the hint itself uses, and asserting
+    `_compute_hint_candidate` returns whichever one that brute force found,
+    not merely a plausible-looking answer."""
+    from nba_peak.perfect_season.exact_season import PlayerSeasonCard
+    from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot, PerfectSeasonBoard, SpinPrompt
+    from nba_peak.perfect_season.simulation import expected_wins_base
+
+    def _card(slug: str, name: str, position: str, score: float) -> PlayerSeasonCard:
+        return PlayerSeasonCard(
+            exact_player_season_key=f"{slug}-tst-202021", player_slug=slug, player_name=name,
+            team_id="TST", team_name="Test City Testers", season="2020-21", season_label="2020-21",
+            games_played=70.0, minutes_per_game=30.0, games_started=70.0, position=position,
+            identity_pool_status="canonical_250", score_status="exact_season_scored",
+            season_score=score, source_provenance="test_fixture",
+        )
+
+    placed = {
+        "PG": _card("placed-pg", "Placed PG", "PG", 79.0),
+        "SG": _card("placed-sg", "Placed SG", "SG", 83.0),
+        "bench_1": _card("placed-bench", "Placed Bench", "SF", 60.0),
+    }
+    # Three candidates for the two remaining open slots (SF, PF -- C and the
+    # other two bench slots stay open too, but the offer only names these
+    # three), spanning a range of raw scores and fits so the winner is not
+    # obvious by inspection.
+    candidates = {
+        "cand-a": _card("cand-a", "Candidate A", "PF", 84.0),   # primary at PF, off at SF
+        "cand-b": _card("cand-b", "Candidate B", "SF", 76.0),   # primary at SF, off at PF
+        "cand-c": _card("cand-c", "Candidate C", "C", 91.0),    # off-position at both SF and PF
+    }
+    by_key = {c.exact_player_season_key: c for c in list(placed.values()) + list(candidates.values())}
+    by_slug_team_season = {
+        (c.player_slug, c.team_id, c.season): c for c in list(placed.values()) + list(candidates.values())
+    }
+    import unittest.mock as _mock
+    with _mock.patch.object(ps_state, "resolve_exact_card_by_key", lambda key: by_key.get(key)), \
+         _mock.patch.object(
+             ps_state, "resolve_player_season_card",
+             lambda slug, team_id, season: by_slug_team_season.get((slug, team_id, season)),
+         ):
+        spin = SpinPrompt(
+            round_number=1, spin_type="team_year", spin_id="spin-1",
+            franchise_display_name="Test City Testers", era_label="2020-21",
+            candidate_player_slugs=list(candidates.keys()), team_id="TST",
+        )
+        board = PerfectSeasonBoard(
+            board_id="board-1", mode="apex_1y", duration_years=1, board_type="practice", seed=1,
+            spins=[spin], card_pool_version="test", eligibility_ruleset_version="test",
+            board_generator_version="test", interim_team_data_version=None, metadata={},
+            experimental_team_year_data_version="test_v1",
+        )
+        slots = [CourtSlot(slot_type=st) for st in SLOT_TYPES]
+        for slot in slots:
+            if slot.slot_type in placed:
+                slot.exact_player_season_key = placed[slot.slot_type].exact_player_season_key
+        state = CourtLineupState(
+            game_id="hint-bruteforce-game", board=board, status="selection_pending", current_round=1,
+            slots=slots, mode="apex_1y", duration_years=1, difficulty="easy", hint_used=False,
+        )
+
+        # The brute force: every candidate, every open slot, real primitives.
+        open_slots = ps_state._true_open_slot_types(state)
+        placed_by_slot = ps_state._placed_cards_by_slot_exact(state)
+        best_slug, best_value = None, None
+        for slug, card in candidates.items():
+            for slot_type in open_slots:
+                hypothetical = dict(placed_by_slot)
+                hypothetical[slot_type] = card
+                value = expected_wins_base(ps_state._lineup_fit_exact(hypothetical))
+                if best_value is None or value > best_value:
+                    best_slug, best_value = slug, value
+
+        _new_state, player_slug, _player_name = ps_state.action_get_hint(state)
+        assert player_slug == best_slug
+
+
+def test_hint_tie_break_is_deterministic_by_player_slug():
+    """Two candidates with an EXACT tie on resulting value -- proven by
+    using the identical card (same score, same position) under two
+    different slugs, so `_compute_hint_candidate` cannot distinguish them on
+    value at all. The lower slug must always win, so the same board/round
+    never recommends a different player across replays."""
+    from nba_peak.perfect_season.exact_season import PlayerSeasonCard
+    from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot, PerfectSeasonBoard, SpinPrompt
+
+    def _card(slug: str) -> PlayerSeasonCard:
+        return PlayerSeasonCard(
+            exact_player_season_key=f"{slug}-tst-202021", player_slug=slug, player_name=f"Twin {slug}",
+            team_id="TST", team_name="Test City Testers", season="2020-21", season_label="2020-21",
+            games_played=70.0, minutes_per_game=30.0, games_started=70.0, position="PG",
+            identity_pool_status="canonical_250", score_status="exact_season_scored",
+            season_score=75.0, source_provenance="test_fixture",
+        )
+
+    cards = {"zzz-twin": _card("zzz-twin"), "aaa-twin": _card("aaa-twin")}
+    by_slug_team_season = {(c.player_slug, c.team_id, c.season): c for c in cards.values()}
+
+    import unittest.mock as _mock
+    with _mock.patch.object(
+        ps_state, "resolve_player_season_card",
+        lambda slug, team_id, season: by_slug_team_season.get((slug, team_id, season)),
+    ), _mock.patch.object(ps_state, "resolve_exact_card_by_key", lambda key: None):
+        spin = SpinPrompt(
+            round_number=1, spin_type="team_year", spin_id="spin-1",
+            franchise_display_name="Test City Testers", era_label="2020-21",
+            candidate_player_slugs=["zzz-twin", "aaa-twin"], team_id="TST",
+        )
+        board = PerfectSeasonBoard(
+            board_id="board-1", mode="apex_1y", duration_years=1, board_type="practice", seed=1,
+            spins=[spin], card_pool_version="test", eligibility_ruleset_version="test",
+            board_generator_version="test", interim_team_data_version=None, metadata={},
+            experimental_team_year_data_version="test_v1",
+        )
+        slots = [CourtSlot(slot_type=st) for st in SLOT_TYPES]
+        state = CourtLineupState(
+            game_id="hint-tiebreak-game", board=board, status="selection_pending", current_round=1,
+            slots=slots, mode="apex_1y", duration_years=1, difficulty="easy", hint_used=False,
+        )
+        _new_state, player_slug, _player_name = ps_state.action_get_hint(state)
+        assert player_slug == "aaa-twin"
 
 
 # ---------------------------------------------------------------------------

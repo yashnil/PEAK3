@@ -1,0 +1,105 @@
+name: Ranked release gate
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MOVED OUT OF ci.yml. docs/architecture/ADR-004-phase4-ranked.md and
+# docs/implementation/PHASE_4_0_REPORT.md both describe hosted Supabase
+# integration as a gate for promoting a build to ranked closed alpha, and are
+# explicit that it is "intentionally NOT required for ordinary merges to main,
+# since most contributors will not have test-project secrets." It was
+# nonetheless running as an ordinary job on every PR and every push to main,
+# unconditionally spinning up a job whose only purpose most of the time was to
+# report itself skipped.
+#
+# This workflow is the same two jobs -- secrets probe, then the hosted
+# integration suite -- moved to a deliberate, manually-triggered action instead
+# of an ambient PR check. Nothing about what either job RUNS has changed: same
+# scripts, same env, same assertions, same "never silently report a skip as a
+# pass" behavior.
+#
+# The Supabase/Postgres integration suite itself still runs on every relevant
+# PR against a LOCAL stack with no secrets -- see
+# `supabase-integration-local` in ci.yml. This workflow only covers the
+# additional hosted-project verification.
+# ─────────────────────────────────────────────────────────────────────────────
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: ranked-release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Least privilege: neither job here calls an authenticated GitHub API beyond
+# what actions/checkout needs to clone this private repo.
+permissions:
+  contents: read
+
+jobs:
+  # Exists only so the job below can carry a job-level `if:` -- the `secrets`
+  # context is not available in a job-level `if:`, so the presence check has
+  # to happen in a step and be published as a job output.
+  supabase-secrets-probe:
+    name: Hosted Supabase test project configured?
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - name: Check required secrets
+        id: check
+        run: |
+          if [ -z "${{ secrets.PEAK3_TEST_SUPABASE_URL }}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## :x: Hosted Supabase ranked-release gate: NOT CONFIGURED"
+              echo ""
+              echo "PEAK3_TEST_SUPABASE_URL (and related test-project secrets) are not set in this repository/environment."
+              echo "A ranked release was requested but cannot be verified without them -- this run FAILS rather than reporting a skipped check as a pass."
+              echo ""
+              echo "The same 95 tests run on every relevant PR against a local stack in ci.yml's **Supabase/Postgres integration tests (local stack, no secrets)**, so this is a gap in hosted-project coverage only, not in coverage of the tests themselves."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Hosted Supabase test-project secrets are not configured. A ranked release was requested but cannot be verified — failing rather than skipping silently."
+            exit 1
+          fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+  # ── Supabase integration tests (Phase 4.0 — hosted ranked release gate) ─────
+  #
+  # Requires a real, isolated Supabase test project. Never runs against a
+  # shared/production project. This is the check for promoting a build to
+  # ranked closed alpha (ADR-004 section A, PHASE_4_0_REPORT.md); it is not,
+  # and has never been, required for ordinary merges to main.
+  supabase-integration:
+    name: Supabase integration tests (hosted ranked release gate)
+    runs-on: ubuntu-latest
+    needs: supabase-secrets-probe
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: apps/api/requirements.txt
+
+      - name: Install model + API dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r apps/api/requirements.txt
+
+      - name: Run Supabase integration tests
+        # test_repository_conformance.py's Postgres-half tests carry the same
+        # supabase_integration marker as tests/integration/ (see that file's
+        # module docstring) so they run for real here too, instead of being
+        # permanently deselected everywhere.
+        run: scripts/ci/api-integration-tests.sh
+        env:
+          PEAK3_TEST_SUPABASE_URL: ${{ secrets.PEAK3_TEST_SUPABASE_URL }}
+          PEAK3_TEST_SUPABASE_ANON_KEY: ${{ secrets.PEAK3_TEST_SUPABASE_ANON_KEY }}
+          PEAK3_TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PEAK3_TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          PEAK3_TEST_DATABASE_URL: ${{ secrets.PEAK3_TEST_DATABASE_URL }}
+          PEAK3_TEST_SUPABASE_JWT_SECRET: ${{ secrets.PEAK3_TEST_SUPABASE_JWT_SECRET }}
+
+      - name: Report final status
+        if: always()
+        run: |
+          echo "RESULT: ran against a real hosted Supabase test project"

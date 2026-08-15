@@ -97,7 +97,7 @@ function view(overrides: ViewOverrides = {}): TwentyDollarMatchView {
     your_seat_index: 0,
     seats: [
       { seat_index: 0, display_name: "You", is_bot: false, status: "active", bot_rating: null },
-      { seat_index: 1, display_name: "PEAK3 Bot", is_bot: true, status: "active", bot_rating: 1200 },
+      { seat_index: 1, display_name: "IsoKing", is_bot: true, status: "active", bot_rating: 1200 },
     ],
     legal_commands: ["bid", "pass"],
     current_turn_seat_index: 0,
@@ -135,7 +135,7 @@ function view(overrides: ViewOverrides = {}): TwentyDollarMatchView {
       },
       qualified_pool_size: 500,
       history: [],
-      seat_names: ["You", "PEAK3 Bot"],
+      seat_names: ["You", "IsoKing"],
       ...publicOverrides,
     },
     private_state: {
@@ -341,7 +341,7 @@ describe("the current-bid block before anyone opens", () => {
       }),
     );
     expect(screen.getByTestId("td-standing-amount")).toHaveTextContent("$6");
-    expect(screen.getByTestId("td-standing-holder")).toHaveTextContent("PEAK3 Bot leads");
+    expect(screen.getByTestId("td-standing-holder")).toHaveTextContent("IsoKing leads");
   });
 });
 

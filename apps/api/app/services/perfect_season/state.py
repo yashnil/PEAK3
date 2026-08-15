@@ -76,6 +76,7 @@ from nba_peak.perfect_season.exact_season import (
 )
 from nba_peak.perfect_season.career_positions import career_positions
 from nba_peak.perfect_season.positions import (
+    BENCH_SLOTS,
     STARTER_SLOTS,
     classify_fit,
     classify_fit_from_position,
@@ -85,10 +86,13 @@ from nba_peak.perfect_season.positions import (
     primary_position,
     secondary_positions,
 )
-from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot, UndoSnapshot
+from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot, LineupFitComponents, UndoSnapshot
 from nba_peak.perfect_season.simulation import (
+    _avg,
     _fit_points,
+    _simulation_impact_scores,
     _weighted_starter_talent,
+    expected_wins_base,
     provisional_unscored_impact,
     provisional_unscored_percentile,
     simulate_exact_season,
@@ -98,6 +102,10 @@ from nba_peak.perfect_season.simulation import (
 TEAM_YEAR_SPIN_TYPE = "team_year"
 
 VALID_MODES = {"apex_1y": 1, "prime_3y": 3, "foundation_5y": 5}
+
+# Gameplay-polish: per-run difficulty. Chosen once, at creation, and frozen
+# for the life of the run -- see CourtLineupState.difficulty's own docstring.
+VALID_DIFFICULTIES = ("easy", "hard")
 
 
 class CourtError(ValueError):
@@ -120,9 +128,12 @@ def create_perfect_season_game(
     board_type: str = "practice",
     team_year_enabled: bool = False,
     challenge_date: Optional[str] = None,
+    difficulty: str = "easy",
 ) -> CourtLineupState:
     if mode not in VALID_MODES:
         raise ValueError(f"Invalid mode '{mode}'. Valid: {list(VALID_MODES.keys())}")
+    if difficulty not in VALID_DIFFICULTIES:
+        raise ValueError(f"Invalid difficulty '{difficulty}'. Valid: {list(VALID_DIFFICULTIES)}")
     # Phase 9A: "daily" joins "practice" as a supported board_type. A daily
     # board is NOT a different engine or a different rule set -- it is the
     # same generator on a seed derived from the calendar date
@@ -168,6 +179,7 @@ def create_perfect_season_game(
         duration_years=VALID_MODES[mode],
         challenge_kind=challenge_kind,
         challenge_date=challenge_date,
+        difficulty=difficulty,
     )
 
 
@@ -751,6 +763,29 @@ MAX_TEAM_RESPINS = 3
 MAX_SEASON_RESPINS = 3
 _MAX_RESPIN_PICK_ATTEMPTS = 30
 
+# Gameplay-polish: Hard difficulty's reduced run-level respin budget -- 1
+# team + 1 season for the WHOLE 8-round run (down from 3+3). A single
+# constant rather than inlining `1` at each call site below, so the value is
+# named once and easy to audit.
+HARD_MODE_MAX_RESPINS = 1
+
+
+def _max_team_respins(state: CourtLineupState) -> int:
+    """The effective per-run team-respin cap for THIS state's difficulty.
+
+    The one place that decides the cap -- every gate that used to compare
+    directly against MAX_TEAM_RESPINS (the budget check in
+    action_respin_team, the per-spin public payload, and the top-level
+    receipt in get_public_state) now reads it through here, so Hard mode's
+    1-respin budget is enforced everywhere the Easy 3-respin budget was,
+    not just at creation."""
+    return HARD_MODE_MAX_RESPINS if state.difficulty == "hard" else MAX_TEAM_RESPINS
+
+
+def _max_season_respins(state: CourtLineupState) -> int:
+    """See `_max_team_respins` -- the season-respin counterpart."""
+    return HARD_MODE_MAX_RESPINS if state.difficulty == "hard" else MAX_SEASON_RESPINS
+
 
 def _respin_rng(state: CourtLineupState, kind: str, count: int) -> random.Random:
     """Deterministic per-respin seed, derived from the board seed + round +
@@ -1142,7 +1177,7 @@ def action_respin_team(
     if _replayed_respin(state, "team", idempotency_key):
         return state
     spin = _assert_respin_allowed(state)
-    if state.team_respins_used >= MAX_TEAM_RESPINS:
+    if state.team_respins_used >= _max_team_respins(state):
         raise CourtError("respin_limit_reached", "No team respins left this round")
 
     rng = _respin_rng(state, "team", state.team_respins_used)
@@ -1189,7 +1224,7 @@ def action_respin_season(
     if _replayed_respin(state, "season", idempotency_key):
         return state
     spin = _assert_respin_allowed(state)
-    if state.season_respins_used >= MAX_SEASON_RESPINS:
+    if state.season_respins_used >= _max_season_respins(state):
         raise CourtError("respin_limit_reached", "No season respins left this round")
 
     rng = _respin_rng(state, "season", state.season_respins_used)
@@ -1218,6 +1253,332 @@ def action_respin_season(
     if new_entry is None:
         raise CourtError("respin_no_valid_option", "No valid team-season available for a respin right now")
     return _apply_respin(state, spin, "season", new_entry, policy_meta, idempotency_key)
+
+
+# ---------------------------------------------------------------------------
+# Gameplay-polish: the one-time "Give me a suggestion" hint (Easy mode only).
+#
+# WHAT "BEST" MEANS HERE: THE ACTUAL RESULTING ROSTER, NOT A PROXY FOR IT.
+#
+# An earlier version of this scored each candidate as `raw_score +
+# max(fit_points across open slots)` -- fit-aware, an improvement over pure
+# raw score, but STILL NOT the real answer, and a compliance review correctly
+# challenged it. The production evaluator (simulation.py's
+# expected_wins_base, shared by simulate_season/simulate_exact_season) is not
+# additive in a single card's raw score: talent_core is a WEIGHTED aggregate
+# across starters (_weighted_starter_talent, highest score credited most),
+# bench_strength and the three coverage components are AVERAGES across
+# however many cards are placed (so one more card changes the denominator for
+# every other placed card's contribution too), and positional_fit is a
+# SUM of fit points across every filled starter slot, clamped to [0, 100].
+# None of that is "one candidate's own number plus a bonus" -- it depends on
+# the whole roster the candidate would join, not on the candidate alone. A
+# heuristic that ignores those interactions can and does rank differently
+# from the real evaluator; see test_hint_matches_real_simulator_for_a_full_
+# roster and test_the_raw_plus_fit_heuristic_disagrees_with_the_real_
+# evaluator in test_perfect_season.py for concrete, checked proof of both
+# claims (the old heuristic is NOT equivalent; the new evaluator IS, for a
+# complete roster, byte-for-byte against simulate_exact_season's own
+# lineup_quality and against compute_fit_components -- the same fit-builder
+# simulate_season itself calls -- on the legacy path).
+#
+# THE FIX: for every legal candidate, for every currently open slot, place
+# that candidate on a COPY of the actual current cards_by_slot (never
+# mutating `state`) and evaluate the resulting partial roster with the SAME
+# primitives the real simulators use for a complete one --
+# _simulation_impact_scores/_weighted_starter_talent/component_percentile/
+# _fit_points/expected_wins_base, all imported from
+# nba_peak.perfect_season.simulation rather than reimplemented here. Missing
+# slots simply don't contribute (same discipline the pre-existing mid-run
+# `_provisional_expected_wins` projection already established) rather than
+# being padded with a fabricated placeholder. The candidate's best legal
+# placement wins; the candidate with the highest best-placement value is the
+# recommendation.
+#
+# ADR-005 Decision 6, extended: the hint reveals ONLY the recommended
+# player's identity (slug + name) -- never a number, never a ranking of the
+# other candidates, and never the winning value itself. See the route
+# (apps/api/app/api/v1/perfect_season.py) and PublicCourtStateResponse
+# siblings for the response-shape side of that same rule.
+# ---------------------------------------------------------------------------
+
+def _true_open_slot_types(state: CourtLineupState) -> list[str]:
+    """Slot types with no card of EITHER kind placed yet.
+
+    Deliberately NOT `get_open_slot_types` (which checks only
+    `peak_window_id` and is therefore imprecise for team_year boards once
+    any slot has been filled -- a team_year placement sets
+    `exact_player_season_key`, never `peak_window_id`). The hint's fit
+    computation must never credit a candidate for "fitting" a slot that is
+    actually already occupied, so this checks both fields -- the same test
+    `action_place_card` itself uses to decide whether a slot is open."""
+    return [s.slot_type for s in state.slots if s.peak_window_id is None and s.exact_player_season_key is None]
+
+
+def _placed_cards_by_slot_exact(state: CourtLineupState) -> dict[str, PlayerSeasonCard]:
+    """The REAL, currently-placed team-year cards, keyed by slot type --
+    resolved the same way `action_complete_game`'s team-year branch resolves
+    them, just tolerant of a slot still being empty (a hint can fire on a
+    roster that is nowhere near complete)."""
+    out: dict[str, PlayerSeasonCard] = {}
+    for slot in state.slots:
+        if not slot.exact_player_season_key:
+            continue
+        card = resolve_exact_card_by_key(slot.exact_player_season_key)
+        if card is not None:
+            out[slot.slot_type] = card
+    return out
+
+
+def _placed_cards_by_slot_legacy(state: CourtLineupState) -> dict[str, "CardProfile"]:
+    """The REAL, currently-placed legacy (career-peak-window) cards, keyed
+    by slot type -- same resolution `action_complete_game`'s legacy branch
+    uses, tolerant of empty slots."""
+    out: dict[str, object] = {}
+    for slot in state.slots:
+        if not slot.peak_window_id:
+            continue
+        card = resolve_card_by_window_id(state, slot.peak_window_id)
+        if card is not None:
+            out[slot.slot_type] = card
+    return out
+
+
+def _lineup_fit_exact(cards_by_slot: dict[str, PlayerSeasonCard]) -> LineupFitComponents:
+    """`LineupFitComponents` for a team-year roster that may be PARTIAL --
+    built from whichever slots in `cards_by_slot` are actually filled, using
+    the exact primitives `compute_exact_fit_components` itself calls
+    (`_simulation_impact_scores`, `_weighted_starter_talent`,
+    `component_percentile`/`provisional_unscored_percentile`, `_fit_points`).
+
+    NOT a call to `compute_exact_fit_components` directly: that function
+    slices its input by POSITION COUNT (`cards[:STARTER_SLOTS]`), which only
+    correctly separates starters from bench when the roster is complete (5
+    starters exactly). A partial roster with, say, 2 starters and 1 bench
+    card filled would have its lone bench card sliced into the "starters"
+    group. Building the two groups by SLOT TYPE instead of by list position
+    is what makes this safe to call on any partial roster -- the same reason
+    the pre-existing `_provisional_expected_wins` mid-run projection never
+    called `compute_exact_fit_components` either.
+
+    Proven equivalent to `compute_exact_fit_components` for a COMPLETE
+    roster by test_hint_matches_real_simulator_for_a_full_roster."""
+    starter_cards = [cards_by_slot[t] for t in STARTER_SLOTS if t in cards_by_slot]
+    bench_cards = [cards_by_slot[t] for t in BENCH_SLOTS if t in cards_by_slot]
+    all_cards = starter_cards + bench_cards
+    if not all_cards:
+        return LineupFitComponents(0, 0, 50, 0, 0, 0, 0)
+
+    starter_scores = _simulation_impact_scores(starter_cards)
+    bench_scores = _simulation_impact_scores(bench_cards)
+    starter_talent = _weighted_starter_talent(starter_scores)
+    talent_core = (
+        starter_talent * 0.8 + _avg(bench_scores) * 0.2 if bench_scores else starter_talent
+    )
+    bench_strength = _avg(bench_scores)
+
+    def _avg_percentile(column: str) -> float:
+        values = []
+        for c in all_cards:
+            p = component_percentile(c.player_slug, c.team_id, c.season, column) if c.season_score is not None else None
+            values.append(p if p is not None else provisional_unscored_percentile(c))
+        return _avg(values)
+
+    creation_coverage = _avg_percentile("contrib_statistical_impact")
+    scoring_coverage = _avg_percentile("contrib_traditional_production")
+    postseason_pedigree = _avg_percentile("contrib_postseason")
+
+    fit_points = []
+    for slot_type in STARTER_SLOTS:
+        card = cards_by_slot.get(slot_type)
+        if card is None:
+            continue
+        role_fit, severity = _exact_fit(card, slot_type)
+        fit_points.append(_fit_points(role_fit or "off_position", severity))
+    positional_fit = max(0.0, min(100.0, 50.0 + sum(fit_points))) if fit_points else 50.0
+
+    return LineupFitComponents(
+        talent_core=talent_core,
+        bench_strength=bench_strength,
+        positional_fit=positional_fit,
+        creation_coverage=creation_coverage,
+        scoring_coverage=scoring_coverage,
+        postseason_pedigree=postseason_pedigree,
+        team_context_depth=0.0,  # never weighted by expected_wins_base; not needed here
+    )
+
+
+def _lineup_fit_legacy(cards_by_slot: dict[str, "CardProfile"]) -> LineupFitComponents:
+    """`LineupFitComponents` for a legacy (career-peak-window) roster that
+    may be PARTIAL -- the `compute_fit_components` counterpart to
+    `_lineup_fit_exact` above, same reasoning for why it is built by slot
+    type rather than by calling `compute_fit_components` on a partial list.
+    Every `CardProfile` reaching this point is already scored (no "unscored"
+    state at this grain -- see simulation.py's `_best_pick` docstring), so
+    unlike the exact-season path there is no provisional-impact fallback to
+    reproduce."""
+    starter_cards = [cards_by_slot[t] for t in STARTER_SLOTS if t in cards_by_slot]
+    bench_cards = [cards_by_slot[t] for t in BENCH_SLOTS if t in cards_by_slot]
+    all_cards = starter_cards + bench_cards
+    if not all_cards:
+        return LineupFitComponents(0, 0, 50, 0, 0, 0, 0)
+
+    starter_scores = [c.individual_peak_score for c in starter_cards]
+    bench_scores = [c.individual_peak_score for c in bench_cards]
+    starter_talent = _weighted_starter_talent(starter_scores)
+    talent_core = (
+        starter_talent * 0.8 + _avg(bench_scores) * 0.2 if bench_scores else starter_talent
+    )
+    bench_strength = _avg(bench_scores)
+
+    creation_coverage = _avg([c.lineup_dna.primary_creation for c in all_cards])
+    scoring_coverage = _avg([c.lineup_dna.scoring_pressure for c in all_cards])
+    postseason_pedigree = _avg([c.lineup_dna.postseason_translation for c in all_cards])
+
+    fit_points = []
+    for slot_type in STARTER_SLOTS:
+        card = cards_by_slot.get(slot_type)
+        if card is None:
+            continue
+        role_fit, severity = _legacy_fit(card.player_slug, card.primary_role, slot_type)
+        fit_points.append(_fit_points(role_fit, severity))
+    positional_fit = max(0.0, min(100.0, 50.0 + sum(fit_points))) if fit_points else 50.0
+
+    return LineupFitComponents(
+        talent_core=talent_core,
+        bench_strength=bench_strength,
+        positional_fit=positional_fit,
+        creation_coverage=creation_coverage,
+        scoring_coverage=scoring_coverage,
+        postseason_pedigree=postseason_pedigree,
+        team_context_depth=0.0,
+    )
+
+
+def _hint_candidate_value(
+    state: CourtLineupState,
+    spin,
+    player_slug: str,
+    open_slot_types: list[str],
+    is_team_year: bool,
+    placed_exact: dict[str, PlayerSeasonCard],
+    placed_legacy: dict[str, "CardProfile"],
+) -> Optional[float]:
+    """The candidate's best ACTUAL RESULTING ROSTER value: for every
+    currently open slot, place this candidate there on a copy of the real
+    current roster and score that hypothetical roster with
+    `expected_wins_base` -- the same weighted-fit value both
+    `simulate_exact_season` and `simulate_season` compute internally for a
+    complete roster before their own win-floor/cap/noise are applied, just
+    evaluated on however much of the roster exists right now. Returns None
+    only if the candidate cannot be resolved at all (an honest data gap,
+    never a fabricated value)."""
+    if is_team_year:
+        card = resolve_player_season_card(player_slug, spin.team_id, spin.era_label)
+        if card is None:
+            return None
+        best: Optional[float] = None
+        for slot_type in open_slot_types:
+            hypothetical = dict(placed_exact)
+            hypothetical[slot_type] = card
+            value = expected_wins_base(_lineup_fit_exact(hypothetical))
+            if best is None or value > best:
+                best = value
+        return best
+    card = resolve_card(player_slug, state.duration_years)
+    if card is None:
+        return None
+    best = None
+    for slot_type in open_slot_types:
+        hypothetical = dict(placed_legacy)
+        hypothetical[slot_type] = card
+        value = expected_wins_base(_lineup_fit_legacy(hypothetical))
+        if best is None or value > best:
+            best = value
+    return best
+
+
+def _compute_hint_candidate(state: CourtLineupState) -> tuple[str, str]:
+    """(player_slug, player_name) of the candidate whose best legal
+    placement produces the highest actual resulting roster value, from the
+    CURRENT round's legal offer -- excludes players already on the roster,
+    exactly like the live candidate list the player is actually offered
+    (get_public_state filters the same set). Deterministic tie-break: the
+    higher value wins; an exact tie is broken by player_slug ascending, so
+    the same board/round always recommends the same player.
+
+    Raises `hint_unavailable` only in the practically-unreachable case where
+    the current spin's entire candidate pool is already used/unresolvable --
+    never returns a fabricated recommendation."""
+    spin = find_spin(state.board, state.current_round)
+    if spin is None:
+        raise CourtError("round_not_found", f"No spin for round {state.current_round}")
+
+    is_team_year = _is_team_year_spin(spin)
+    open_slot_types = _true_open_slot_types(state)
+    used_slugs = _used_player_slugs(state)
+    placed_exact = _placed_cards_by_slot_exact(state) if is_team_year else {}
+    placed_legacy = _placed_cards_by_slot_legacy(state) if not is_team_year else {}
+
+    best_slug: Optional[str] = None
+    best_name: Optional[str] = None
+    best_value: Optional[float] = None
+    for slug in spin.candidate_player_slugs:
+        if slug in used_slugs:
+            continue
+        value = _hint_candidate_value(
+            state, spin, slug, open_slot_types, is_team_year, placed_exact, placed_legacy
+        )
+        if value is None:
+            continue
+        if (
+            best_value is None
+            or value > best_value
+            or (value == best_value and slug < (best_slug or slug))
+        ):
+            best_slug, best_value = slug, value
+            best_name = _candidate_name_for_hint(state, spin, slug)
+
+    if best_slug is None or best_name is None:
+        raise CourtError("hint_unavailable", "No candidates are available to recommend right now")
+    return best_slug, best_name
+
+
+def _candidate_name_for_hint(state: CourtLineupState, spin, player_slug: str) -> Optional[str]:
+    if _is_team_year_spin(spin):
+        card = resolve_player_season_card(player_slug, spin.team_id, spin.era_label)
+        return card.player_name if card else None
+    card = resolve_card(player_slug, state.duration_years)
+    return card.player_name if card else None
+
+
+def action_get_hint(state: CourtLineupState) -> tuple[CourtLineupState, str, str]:
+    """Reveal the single best candidate from the current round's offer
+    (Easy mode only, once per run). Returns (state, player_slug, player_name)
+    -- never a score, never a ranking, never touching any candidate other
+    than the one recommendation (see this section's own module comment).
+
+    Rejects (CourtError) when: difficulty is not "easy"; the hint has
+    already been used this run; the game is already complete; or the current
+    round has no active, pickable spin (status must be "selection_pending" --
+    the same phase respins require, since a hint is a pre-pick aid, not a
+    post-pick one)."""
+    _assert_active(state)
+    if state.difficulty != "easy":
+        raise CourtError("hint_not_available", "Hints are only available on Easy difficulty")
+    if state.hint_used:
+        raise CourtError("hint_already_used", "You've already used this run's hint")
+    if state.status != "selection_pending":
+        raise CourtError(
+            "hint_not_allowed",
+            "A hint is only available before you select a candidate for this round",
+        )
+
+    player_slug, player_name = _compute_hint_candidate(state)
+
+    state.hint_used = True
+    _touch(state)
+    return state, player_slug, player_name
 
 
 def _compute_peak_picks_recap(state: CourtLineupState, team_year_board: bool) -> list[dict]:
@@ -1677,9 +2038,9 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
             # are locked for THIS round without needing a separate flag,
             # even though the budget itself carries over.
             current_spin_public["team_respins_used"] = state.team_respins_used
-            current_spin_public["team_respins_max"] = MAX_TEAM_RESPINS
+            current_spin_public["team_respins_max"] = _max_team_respins(state)
             current_spin_public["season_respins_used"] = state.season_respins_used
-            current_spin_public["season_respins_max"] = MAX_SEASON_RESPINS
+            current_spin_public["season_respins_max"] = _max_season_respins(state)
 
     pending_card_public = None
     if state.pending_selection_exact_season_key:
@@ -1893,9 +2254,14 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
         # has advanced past the last team_year spin) and name the budget
         # unambiguously.
         "team_respins_used_total": state.team_respins_used,
-        "team_respins_remaining_total": max(0, MAX_TEAM_RESPINS - state.team_respins_used),
+        "team_respins_remaining_total": max(0, _max_team_respins(state) - state.team_respins_used),
         "season_respins_used_total": state.season_respins_used,
-        "season_respins_remaining_total": max(0, MAX_SEASON_RESPINS - state.season_respins_used),
+        "season_respins_remaining_total": max(0, _max_season_respins(state) - state.season_respins_used),
+        # Gameplay-polish: the run's frozen difficulty and whether its
+        # one-time hint (easy mode only) has already been used -- see
+        # CourtLineupState's own docstrings for both fields.
+        "difficulty": state.difficulty,
+        "hint_used": state.hint_used,
         # launch-polish IMPLEMENTATION_CONTRACT.md §5: the client sends this
         # BACK as `expected_state_version` on an undo request -- optimistic
         # concurrency, same shape any "reject this if something changed"

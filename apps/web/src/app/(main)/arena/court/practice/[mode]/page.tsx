@@ -51,9 +51,6 @@ export default async function CourtBuilderPracticePage({ params, searchParams }:
       resumeGameId={sp.game}
       franchiseNames={franchiseNames}
       seasonLabels={readiness?.experimental_team_year_season_labels ?? []}
-      rollableTeamSeasonCount={readiness?.rollable_team_season_count ?? 0}
-      supportedStartSeason={readiness?.supported_start_season ?? null}
-      supportedEndSeason={readiness?.supported_end_season ?? null}
       teamLogoUrls={readiness?.team_logo_urls ?? {}}
     />
   );

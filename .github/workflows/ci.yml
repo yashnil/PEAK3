@@ -31,81 +31,115 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Least privilege for the default GITHUB_TOKEN, explicit rather than whatever
+# the repository's default happens to be. `contents: read` is what
+# actions/checkout needs on a private repo; `pull-requests: read` is what
+# detect-changes' `gh api repos/.../pulls/.../files` call needs -- that
+# endpoint is under the "pull requests" permission, not "contents". Nothing
+# else in this file calls an authenticated GitHub API: upload-artifact and
+# download-artifact use the separate Actions runtime token, and
+# setup-python/setup-node/supabase's setup-cli download public releases.
+permissions:
+  contents: read
+  pull-requests: read
 
 jobs:
-  # ── Model tests ─────────────────────────────────────────────────────────────
-  model-tests:
-    name: Python model tests
+  # ── Change detection ─────────────────────────────────────────────────────────
+  #
+  # WHY THIS EXISTS. Every job below used to run on every PR regardless of what
+  # changed. Measured on a real green run (31748183221): Python model tests
+  # alone cost 28 minutes and the four Playwright projects cost 72 combined --
+  # unconditionally, on a docs tweak exactly as on a scoring change. That is the
+  # majority of the Actions-minute budget this workflow spends.
+  #
+  # NO THIRD-PARTY ACTION. The PR's changed-file list comes straight from the
+  # GitHub REST API via the built-in `gh` CLI and `GITHUB_TOKEN` -- no checkout,
+  # no git history, no `dorny/paths-filter`-style dependency. `push`/
+  # `workflow_dispatch` runs have no "base" to diff against, so they fall back
+  # to running everything, which is also the safe default for a diff the script
+  # could not compute for any other reason.
+  #
+  # scripts/ci/detect-changed-scope.sh is the ONE definition of the
+  # classification, runnable and readable outside a workflow log; see its
+  # header for exactly what routes into each scope and why "broad marker"
+  # paths force the narrow Playwright projects on rather than trying to prove
+  # a negative.
+  detect-changes:
+    name: Detect changed scope
     runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.scope.outputs.backend }}
+      frontend: ${{ steps.scope.outputs.frontend }}
+      e2e: ${{ steps.scope.outputs.e2e }}
+      supabase: ${{ steps.scope.outputs.supabase }}
+      feature_projects: ${{ steps.scope.outputs.feature_projects }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-model-${{ hashFiles('requirements.txt') }}
-
-      - name: Install model dependencies
-        run: pip install -r requirements.txt
-
-      - name: Build the web dataset
-        # `data/web/` is deliberately not committed (.gitignore, and CLAUDE.md
-        # "Data export rules"), so a fresh checkout has no peak_windows.json —
-        # and nba_peak/run_the_table/cards.py needs it to build the card pool.
-        # Without this step every RUN THE TABLE test raises
-        # CardPoolUnavailable: 210 errors, all one cause.
-        #
-        # The `web-dataset` job already builds this, but GitHub Actions jobs do
-        # not share a filesystem. Rebuilding here rather than adding
-        # `needs: web-dataset` + download-artifact is the cheaper option in
-        # both senses: the build reads committed leaderboard CSVs and finishes
-        # in under a second, whereas a `needs:` would serialize this job — one
-        # of the fastest in the matrix — behind a slower one to fetch a file it
-        # can regenerate faster than it could download.
-        run: scripts/ci/build-web-data.sh
-
-      - name: Run model tests
-        # Same script `make test-model` runs. It re-checks the generated data
-        # and refreshes the scored-cache mtime before pytest — see the script.
-        run: scripts/ci/model-tests.sh
-
-  # ── Lineup model tests ───────────────────────────────────────────────────────
-  lineup-tests:
-    name: Experimental lineup model tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-lineup-${{ hashFiles('requirements.txt') }}
-
-      - name: Install model dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run lineup model tests (need v3 profiles)
+      - name: Classify changed paths
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
-          pip install -r requirements-build.txt
-          scripts/ci/build-web-data.sh
-          scripts/ci/lineup-tests.sh
+          set -uo pipefail
+          files=""
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            # Deliberately NOT under `set -e`: a transient API failure here
+            # (rate limit, hiccup) must fall through to files="" -- the same
+            # conservative "run everything" default push/workflow_dispatch
+            # already use -- rather than failing this step and, via the
+            # implicit success() this job's dependents apply to `needs:
+            # detect-changes`, silently skipping every check on the PR.
+            if ! files="$(gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate -q '.[].filename')"; then
+              echo "::warning::Could not fetch the PR's changed-file list from the GitHub API; defaulting to running every check."
+              files=""
+            fi
+          fi
+          echo "Changed files (empty means push/dispatch/API-failure => run everything):"
+          echo "$files"
+          printf '%s\n' "$files" | scripts/ci/detect-changed-scope.sh | tee -a "$GITHUB_OUTPUT"
 
-  # ── Data build + card profiles ───────────────────────────────────────────────
-  web-dataset:
-    name: Build web dataset + card profiles v3
+  # ── PR CORE PYTHON ────────────────────────────────────────────────────────────
+  #
+  # ONE runner for what used to be five: web-dataset build, board-generation
+  # smoke, model tests, lineup model tests, FastAPI unit tests, and static
+  # migration validation. Sequential on purpose -- see CLAUDE.md and each
+  # script's own header for what each step checks; this job changes none of
+  # that, only where it runs.
+  #
+  # Rebuilds data/web/ and data/game/ inline rather than sharing them via
+  # upload/download-artifact. That is the SAME reasoning the old model-tests
+  # job already used for itself ("the build reads committed leaderboard CSVs
+  # and finishes in under a second, whereas a needs: would serialize this job
+  # behind a slower one to fetch a file it can regenerate faster than it could
+  # download") -- applied consistently to every job in this file that needs the
+  # generated data, instead of only one of them.
+  pr-core-python:
+    name: Model, API, and data validation (Python)
     runs-on: ubuntu-latest
+    needs: detect-changes
+    # `!cancelled()` (rather than the implicit success()-only default) so a
+    # push/workflow_dispatch run still gets the full job even if
+    # detect-changes were to fail for some unrelated infra reason -- push and
+    # dispatch are meant to run everything regardless of detect-changes'
+    # outcome. On a PR, `needs.detect-changes.result == 'success'` still
+    # requires it to have actually succeeded before trusting its `backend`
+    # output; if it failed, the PR side of this OR is false and the job is
+    # skipped (a crashed classifier should not run against unknown state, but
+    # must also not silently take down push/dispatch coverage).
+    if: |
+      !cancelled() &&
+      (github.event_name != 'pull_request' ||
+       (needs.detect-changes.result == 'success' && needs.detect-changes.outputs.backend == 'true'))
     steps:
       - uses: actions/checkout@v4
 
@@ -113,118 +147,53 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+            apps/api/requirements.txt
 
-      # The build's OWN dependency contract, not a hand-list. `pandas
-      # unidecode` was written here by hand and was correct until the fact
-      # generator started reading a parquet; then this job was the only place
-      # in the repository that claimed the build needed no parquet engine.
-      - name: Install build dependencies
-        run: pip install -r requirements-build.txt
+      # One install for everything this job runs: the offline data build, the
+      # model suite, the lineup suite, and the FastAPI unit suite.
+      - name: Install model, build, and API dependencies
+        run: pip install -r requirements.txt -r requirements-build.txt -r apps/api/requirements.txt
 
       - name: Build web dataset + card profiles v3
         run: scripts/ci/build-web-data.sh
 
       - name: Verify v3 metadata artifact exists
-        run: |
-          test -f data/game/profiles/profile_metadata.v3.json || (echo "MISSING profile_metadata.v3.json" && exit 1)
+        run: test -f data/game/profiles/profile_metadata.v3.json || (echo "MISSING profile_metadata.v3.json" && exit 1)
 
-      - name: Upload dataset artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-dataset
-          path: data/web/
+      - name: Run model tests
+        # Same script `make test-model` runs. It re-checks the generated data
+        # and refreshes the scored-cache mtime before pytest.
+        run: scripts/ci/model-tests.sh
 
-      - name: Upload game-data artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: game-data
-          path: data/game/
-
-  # ── Board generation smoke check ─────────────────────────────────────────────
-  board-generation:
-    name: Board generation smoke check (225 seeds × 3 modes)
-    runs-on: ubuntu-latest
-    needs: web-dataset
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download dataset
-        uses: actions/download-artifact@v4
-        with:
-          name: web-dataset
-          path: data/web/
-
-      - name: Download game data
-        uses: actions/download-artifact@v4
-        with:
-          name: game-data
-          path: data/game/
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install model dependencies
-        run: pip install -r requirements.txt
-
-      - name: Smoke check 225 boards (75 seeds × 3 modes)
-        run: python scripts/check_board_generation.py 75
-
-  # ── FastAPI tests ────────────────────────────────────────────────────────────
-  api-tests:
-    name: FastAPI unit tests (in-memory repositories)
-    runs-on: ubuntu-latest
-    needs: web-dataset
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download dataset
-        uses: actions/download-artifact@v4
-        with:
-          name: web-dataset
-          path: data/web/
-
-      - name: Download game data
-        uses: actions/download-artifact@v4
-        with:
-          name: game-data
-          path: data/game/
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-api-${{ hashFiles('apps/api/requirements.txt') }}
-
-      - name: Install model + API dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -r apps/api/requirements.txt
+      - name: Run lineup model tests
+        run: scripts/ci/lineup-tests.sh
 
       - name: Run API unit tests
-        # The SAME script `make test-api` runs, so "green locally" and "green
-        # in CI" are claims about the same set of tests. It was not: the
-        # Makefile ran `pytest tests/` while this ran it with two extra
-        # selection flags.
-        #
-        # The script pins PEAK3_TEST_REPOSITORY_MODE=memory, which turns off
-        # dotenv loading and drops any inherited PEAK3_DATABASE_URL, and the
-        # resolved backend is asserted once at app startup. It also deselects
-        # every `supabase_integration` test rather than running-and-skipping
-        # it, so the skip count stays meaningful; those run for real in the
-        # supabase-integration job below.
+        # The SAME script `make test-api` runs. Pins
+        # PEAK3_TEST_REPOSITORY_MODE=memory and deselects every
+        # supabase_integration test rather than running-and-skipping it; those
+        # run for real in supabase-integration-local below.
         run: scripts/ci/api-unit-tests.sh
 
-  # ── Frontend unit tests + build ───────────────────────────────────────────────
+      - name: Board generation smoke check (225 seeds x 3 modes)
+        run: python scripts/check_board_generation.py 75
+
+      - name: Validate migrations and check inventory drift
+        run: scripts/ci/migration-validate.sh
+
+  # ── Frontend ──────────────────────────────────────────────────────────────────
   frontend:
     name: Frontend (typecheck, lint, unit tests, production build)
     runs-on: ubuntu-latest
+    needs: detect-changes
+    if: |
+      !cancelled() &&
+      (github.event_name != 'pull_request' ||
+       (needs.detect-changes.result == 'success' && needs.detect-changes.outputs.frontend == 'true'))
     steps:
       - uses: actions/checkout@v4
 
@@ -236,7 +205,10 @@ jobs:
           cache-dependency-path: apps/web/package-lock.json
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        # npm ci over npm install: deterministic from the committed lockfile,
+        # and confirmed compatible (`npm ci --legacy-peer-deps --dry-run`
+        # resolves cleanly against apps/web/package-lock.json).
+        run: npm ci --legacy-peer-deps
         working-directory: apps/web
 
       - name: Typecheck, lint (zero warnings), unit tests, production build
@@ -246,60 +218,116 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
 
-  # ── Playwright e2e + accessibility ───────────────────────────────────────────
-  playwright:
-    # SPLIT BY PLAYWRIGHT PROJECT, NOT BY A HAND-MAINTAINED TEST LIST.
-    #
-    # The two projects already partition the suite exactly: `chromium` is
-    # `grepInvert: /@mobile/` and `mobile-chrome` is `grep: /@mobile/`, so
-    # 377 + 34 = 411, every test in exactly one job and none in neither. That
-    # is why this is a matrix over the project NAME and not a list of files —
-    # a file list would rot the first time a spec was added, and the inventory
-    # assertion below fails the build if the partition ever stops adding up.
-    #
-    # `fail-fast: false` because the entire point is failure ISOLATION: a
-    # desktop regression must not cancel the mobile job and hide a second,
-    # independent failure for another 55-minute round trip.
-    name: Playwright ${{ matrix.project }} + axe (0 retries)
+  # ── Migration chain validation now runs inside pr-core-python; see that job. ──
+
+  # ── Supabase / Postgres integration — LOCAL STACK, NO SECRETS ───────────────
+  #
+  # THE JOB THAT CONVERTS "never ran" INTO "always runs". The 95 tests in
+  # apps/api/tests/integration/ plus test_repository_conformance.py's Postgres
+  # half had never executed on any pull request: the only job that ran them
+  # required hosted-project secrets that are not set, so it skipped all 95 and
+  # reported success. This runs them for real, with no secrets.
+  #
+  # WHY NOT `services: postgres:17`. Measured, not assumed -- applying the
+  # chain to a bare postgres:17 container fails on 19 of 35 migrations
+  # (`schema "auth" does not exist`, `role "anon" does not exist`); nothing in
+  # the chain creates those, Supabase provisions them. See
+  # scripts/ci/supabase-local-integration.sh's header for the full argument.
+  #
+  # CHANGE-GATED, NOT ALWAYS-ON. Kept separate from pr-core-python because it
+  # needs a materially different toolchain (the Supabase CLI + a local Postgres
+  # stack, not just pip). Gated on a narrower "supabase" scope than the general
+  # "backend" scope (RLS/auth/repositories/migrations only) rather than on
+  # every apps/api/ change, per instruction C: an unrelated API change (e.g. a
+  # Daily Grid rate limit) should not provision a Supabase stack.
+  supabase-integration-local:
+    name: Supabase/Postgres integration tests (local stack, no secrets)
     runs-on: ubuntu-latest
-    needs: [web-dataset, frontend]
-    strategy:
-      fail-fast: false
-      matrix:
-        project: [chromium-core, chromium-multiplayer, chromium-courtbuilder, mobile-chrome]
+    needs: detect-changes
+    if: |
+      !cancelled() &&
+      (github.event_name != 'pull_request' ||
+       (needs.detect-changes.result == 'success' && needs.detect-changes.outputs.supabase == 'true'))
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download dataset
-        uses: actions/download-artifact@v4
-        with:
-          name: web-dataset
-          path: data/web/
-
-      - name: Download game data
-        uses: actions/download-artifact@v4
-        with:
-          name: game-data
-          path: data/game/
-
-      # Python + FastAPI
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Cache pip (API + model)
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-pw-${{ hashFiles('requirements.txt', 'apps/api/requirements.txt') }}
+          cache: "pip"
+          cache-dependency-path: apps/api/requirements.txt
 
       - name: Install model + API dependencies
         run: |
           pip install -r requirements.txt
           pip install -r apps/api/requirements.txt
 
-      # Node + Next.js + Playwright
+      - name: Set up the Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Run the integration suite against a real database
+        run: scripts/ci/supabase-local-integration.sh
+        env:
+          PEAK3_CI_SUPABASE_RESET: "1"
+
+  # ── Playwright e2e + accessibility — PR TIER ─────────────────────────────────
+  #
+  # Two levels, per the repository's own trade-off: chromium-core (broad --
+  # navigation, rankings, accessibility, daily, RTT, auth) and mobile-chrome
+  # are cheap enough and general enough to run on every e2e-relevant PR.
+  # chromium-multiplayer and chromium-courtbuilder are narrower and
+  # individually expensive (9 and 20 minutes), so on a PR they run only when
+  # `detect-changes` attributes the diff to their own feature paths (or to a
+  # "broad marker" path where that attribution cannot be made safely -- see
+  # scripts/ci/detect-changed-scope.sh). All four still run on every push to
+  # main and via workflow_dispatch in playwright-full below, so coverage is
+  # never silently dropped -- only deferred past the point a narrow PR touched
+  # nothing outside its own lane.
+  #
+  # Both PR jobs `needs: frontend` so a PR that fails typecheck/lint/build does
+  # not also burn 15-40 minutes running Playwright against a build that does
+  # not compile. `needs.frontend.result != 'failure' && != 'cancelled'`
+  # (combined with the leading `!cancelled()`, which overrides the implicit
+  # success()-only default without also proceeding after a real cancellation)
+  # lets the job proceed when frontend was SKIPPED (no frontend files changed)
+  # rather than only when it succeeded -- GitHub Actions' default `needs:`
+  # semantics skip a dependent job when its dependency is skipped, which would
+  # silently drop E2E on every backend-only PR.
+  playwright-pr-core:
+    name: Playwright chromium-core + mobile-chrome (PR)
+    runs-on: ubuntu-latest
+    needs: [detect-changes, frontend]
+    if: |
+      !cancelled() &&
+      github.event_name == 'pull_request' &&
+      needs.detect-changes.result == 'success' &&
+      needs.detect-changes.outputs.e2e == 'true' &&
+      needs.frontend.result != 'failure' && needs.frontend.result != 'cancelled'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+            apps/api/requirements.txt
+
+      - name: Install model + build + API dependencies
+        run: pip install -r requirements.txt -r requirements-build.txt -r apps/api/requirements.txt
+
+      - name: Build web dataset + card profiles v3
+        run: scripts/ci/build-web-data.sh
+
+      - name: Verify v3 metadata artifact exists
+        run: test -f data/game/profiles/profile_metadata.v3.json || (echo "MISSING profile_metadata.v3.json" && exit 1)
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -308,32 +336,102 @@ jobs:
           cache-dependency-path: apps/web/package-lock.json
 
       - name: Install web dependencies
-        run: npm install --legacy-peer-deps
+        run: npm ci --legacy-peer-deps
         working-directory: apps/web
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
         working-directory: apps/web
 
-      # CI=true forces reuseExistingServer=false so Playwright always starts
-      # its own services from the current working tree.
-      # Coverage cannot silently shrink: the matrix is only equivalent to the
-      # old single job while the two projects still partition the suite.
       - name: Assert the project split still covers every test
         run: scripts/ci/assert-e2e-inventory.sh
 
-      - name: Run Playwright tests (fresh services, 0 retries)
-        # The SAME script `make test-e2e` runs. Every feature flag the API
-        # refuses to serve without now lives in that one file rather than
-        # here, because the previous arrangement — flags in YAML, a second
-        # partial set in apps/web/package.json's `start:api`, and none in the
-        # Makefile — is how the job came to depend on values a developer had
-        # no way to discover. The script's own header documents each one.
-        #
-        # It also preflights: ports 3000/8000 free, generated data present.
-        # playwright.setup.ts then probes the running services, including that
-        # the account surface actually renders — the check whose absence let a
-        # clean checkout fail ten auth assertions 28 minutes in.
+      - name: Run chromium-core (fresh services, 0 retries)
+        run: scripts/ci/e2e-tests.sh --project=chromium-core
+        env:
+          CI: true
+          PLAYWRIGHT_RETRIES: "0"
+
+      - name: Run mobile-chrome (fresh services, 0 retries)
+        # Sequential on the same runner, not a second matrix leg -- both
+        # projects share the one Python/Node/Chromium setup above.
+        run: scripts/ci/e2e-tests.sh --project=mobile-chrome
+        env:
+          CI: true
+          PLAYWRIGHT_RETRIES: "0"
+
+      - name: Upload Playwright report on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-pr-core
+          path: apps/web/playwright-report/
+          retention-days: 7
+
+      - name: Upload Playwright traces on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces-pr-core
+          path: apps/web/test-results/
+          retention-days: 7
+
+  playwright-pr-feature:
+    name: Playwright ${{ matrix.project }} + axe (PR, path-gated)
+    runs-on: ubuntu-latest
+    needs: [detect-changes, frontend]
+    if: |
+      !cancelled() &&
+      github.event_name == 'pull_request' &&
+      needs.detect-changes.result == 'success' &&
+      needs.detect-changes.outputs.feature_projects != '' &&
+      needs.detect-changes.outputs.feature_projects != '[]' &&
+      needs.frontend.result != 'failure' && needs.frontend.result != 'cancelled'
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.detect-changes.outputs.feature_projects) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+            apps/api/requirements.txt
+
+      - name: Install model + build + API dependencies
+        run: pip install -r requirements.txt -r requirements-build.txt -r apps/api/requirements.txt
+
+      - name: Build web dataset + card profiles v3
+        run: scripts/ci/build-web-data.sh
+
+      - name: Verify v3 metadata artifact exists
+        run: test -f data/game/profiles/profile_metadata.v3.json || (echo "MISSING profile_metadata.v3.json" && exit 1)
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci --legacy-peer-deps
+        working-directory: apps/web
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+
+      - name: Assert the project split still covers every test
+        run: scripts/ci/assert-e2e-inventory.sh
+
+      - name: Run Playwright ${{ matrix.project }} (fresh services, 0 retries)
         run: scripts/ci/e2e-tests.sh --project=${{ matrix.project }}
         env:
           CI: true
@@ -355,16 +453,26 @@ jobs:
           path: apps/web/test-results/
           retention-days: 7
 
-  # ── Migration chain validation ───────────────────────────────────────────────
+  # ── Playwright e2e + accessibility — FULL SUITE (main + manual) ─────────────
   #
-  # `scripts/validate_migrations.py` and `scripts/migration_inventory.py` both
-  # existed for several passes and were invoked by NOTHING — not this workflow,
-  # not the Makefile, not another script. This is the caller. Static only (no
-  # SQL is executed here); actually applying the chain is the
-  # supabase-integration-local job below.
-  migration-validate:
-    name: Migration chain validation + inventory drift
+  # All four projects, unconditionally. Runs on every push to main (so the
+  # branch that deploys always has full E2E coverage, even for PRs that only
+  # needed the narrow PR tier above) and on workflow_dispatch (so a risky PR
+  # can get the full run on demand before merge). SAME structure the PR matrix
+  # used to have: fail-fast:false for isolation, 0 retries, the same inventory
+  # assertion -- moved to this trigger scope, not changed in kind.
+  playwright-full:
+    name: Playwright ${{ matrix.project }} + axe (full suite, 0 retries)
     runs-on: ubuntu-latest
+    needs: [detect-changes, frontend]
+    if: |
+      !cancelled() &&
+      github.event_name != 'pull_request' &&
+      needs.frontend.result != 'failure' && needs.frontend.result != 'cancelled'
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium-core, chromium-multiplayer, chromium-courtbuilder, mobile-chrome]
     steps:
       - uses: actions/checkout@v4
 
@@ -372,156 +480,57 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+            apps/api/requirements.txt
 
-      # No pip install: both scripts are pure standard library. Adding a
-      # dependency install here would make a 5-second check take a minute.
+      - name: Install model + build + API dependencies
+        run: pip install -r requirements.txt -r requirements-build.txt -r apps/api/requirements.txt
 
-      - name: Validate migrations and check inventory drift
-        run: scripts/ci/migration-validate.sh
+      - name: Build web dataset + card profiles v3
+        run: scripts/ci/build-web-data.sh
 
-  # ── Supabase / Postgres integration — LOCAL STACK, NO SECRETS ───────────────
-  #
-  # THE JOB THAT CONVERTS "never ran" INTO "always runs". The 95 tests in
-  # apps/api/tests/integration/ plus test_repository_conformance.py's Postgres
-  # half had never executed on any pull request: the only job that ran them
-  # required hosted-project secrets that are not set, so it skipped all 95 and
-  # reported success. This runs them for real, on every PR, with no secrets.
-  #
-  # WHY NOT `services: postgres:17`. Measured, not assumed: applying the chain
-  # to a bare postgres:17 container fails on 19 of 35 migrations —
-  # `schema "auth" does not exist` (every RLS migration) and `role "anon" does
-  # not exist` (every GRANT/REVOKE migration). Nothing in the chain creates the
-  # `auth` schema, `auth.uid()`, or the anon/authenticated/service_role roles;
-  # Supabase provisions them. Faking them in a bootstrap file would point
-  # test_rls_policies.py at a locally-invented `auth.uid()` and make it prove
-  # that the fixture works. See scripts/ci/supabase-local-integration.sh's
-  # header for the full argument.
-  #
-  # No `needs:` and no dataset download: verified that this suite does not read
-  # data/web/ or data/game/profiles/ (it passes with neither present), so
-  # serializing it behind web-dataset would buy nothing.
-  supabase-integration-local:
-    name: Supabase/Postgres integration tests (local stack, no secrets)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Verify v3 metadata artifact exists
+        run: test -f data/game/profiles/profile_metadata.v3.json || (echo "MISSING profile_metadata.v3.json" && exit 1)
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
 
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-integration-${{ hashFiles('apps/api/requirements.txt') }}
+      - name: Install web dependencies
+        run: npm ci --legacy-peer-deps
+        working-directory: apps/web
 
-      - name: Install model + API dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -r apps/api/requirements.txt
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/web
 
-      - name: Set up the Supabase CLI
-        uses: supabase/setup-cli@v1
-        with:
-          version: latest
+      - name: Assert the project split still covers every test
+        run: scripts/ci/assert-e2e-inventory.sh
 
-      - name: Run the integration suite against a real database
-        # PEAK3_CI_SUPABASE_RESET=1 opts into `supabase db reset`, which replays
-        # supabase/migrations from scratch. Destructive by design and therefore
-        # opt-in: free on a runner whose database was created seconds ago, and
-        # never the default so the same script is safe to run on a laptop.
-        #
-        # The script asserts on the JUnit report that tests actually EXECUTED
-        # (collected > 0, skipped == 0). pytest exits 0 on a fully-skipped run,
-        # so an exit code alone cannot tell "everything passed" from "nothing
-        # ran" — which is exactly how the hosted job below stayed green.
-        run: scripts/ci/supabase-local-integration.sh
+      - name: Run Playwright tests (fresh services, 0 retries)
+        run: scripts/ci/e2e-tests.sh --project=${{ matrix.project }}
         env:
-          PEAK3_CI_SUPABASE_RESET: "1"
+          CI: true
+          PLAYWRIGHT_RETRIES: "0"
 
-  # ── Hosted Supabase test project — configured? ──────────────────────────────
-  #
-  # Exists only so the job below can carry a job-level `if:`. The `secrets`
-  # context is not available in a job-level `if:`, so the presence check has to
-  # happen in a step and be published as a job output.
-  supabase-secrets-probe:
-    name: Hosted Supabase test project configured?
-    runs-on: ubuntu-latest
-    outputs:
-      configured: ${{ steps.check.outputs.configured }}
-    steps:
-      - name: Check required secrets
-        id: check
-        run: |
-          if [ -z "${{ secrets.PEAK3_TEST_SUPABASE_URL }}" ]; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            {
-              echo "## :information_source: Hosted Supabase integration tests: NOT CONFIGURED"
-              echo ""
-              echo "PEAK3_TEST_SUPABASE_URL (and related test-project secrets) are not set in this repository/environment."
-              echo "The dependent job is therefore SKIPPED, not passed."
-              echo ""
-              echo "The same 95 tests still run on every PR against a local stack in **Supabase/Postgres integration tests (local stack, no secrets)**, so this is a gap in hosted-project coverage only — not in coverage of the tests themselves."
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "::notice::Hosted Supabase integration tests not configured — dependent job will be skipped (not reported as a pass). The same tests run against a local stack on every PR."
-          else
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          fi
-
-  # ── Supabase integration tests (Phase 4.0 — hosted ranked release gate) ─────
-  #
-  # Requires a real, isolated Supabase test project. Never runs against a
-  # shared/production project. Required as a status check specifically for
-  # promoting a build to ranked closed alpha (see
-  # docs/architecture/ADR-004-phase4-ranked.md section A and
-  # docs/implementation/PHASE_4_0_REPORT.md); it is intentionally NOT required
-  # for ordinary merges to main, since most contributors will not have
-  # test-project secrets.
-  #
-  # WHAT CHANGED AND WHY. This job used to run unconditionally and gate each
-  # step on `steps.check.outputs.configured == 'true'`, on the stated reasoning
-  # that an always-running job makes the unconfigured state visible. In practice
-  # it produced a GREEN CHECK NAMED "Supabase integration tests" that had run
-  # zero tests — confirmed on run 30875554663, which finished in 5 seconds. A
-  # check that tested nothing must not be visually identical to one that passed.
-  #
-  # The job-level `if:` below makes the unconfigured state render as SKIPPED
-  # (grey) rather than success. Nothing about what the job RUNS when it is
-  # configured has changed — same script, same env, same assertions.
-  supabase-integration:
-    name: Supabase integration tests (hosted ranked release gate)
-    runs-on: ubuntu-latest
-    needs: [web-dataset, supabase-secrets-probe]
-    if: needs.supabase-secrets-probe.outputs.configured == 'true'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Upload Playwright report on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
         with:
-          python-version: "3.12"
+          name: playwright-report-full-${{ matrix.project }}
+          path: apps/web/playwright-report/
+          retention-days: 7
 
-      - name: Install model + API dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -r apps/api/requirements.txt
-
-      - name: Run Supabase integration tests
-        # test_repository_conformance.py's Postgres-half tests carry the same
-        # supabase_integration marker as tests/integration/ (see that file's
-        # module docstring) so they run for real here too, instead of being
-        # permanently deselected everywhere.
-        run: scripts/ci/api-integration-tests.sh
-        env:
-          PEAK3_TEST_SUPABASE_URL: ${{ secrets.PEAK3_TEST_SUPABASE_URL }}
-          PEAK3_TEST_SUPABASE_ANON_KEY: ${{ secrets.PEAK3_TEST_SUPABASE_ANON_KEY }}
-          PEAK3_TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PEAK3_TEST_SUPABASE_SERVICE_ROLE_KEY }}
-          PEAK3_TEST_DATABASE_URL: ${{ secrets.PEAK3_TEST_DATABASE_URL }}
-          PEAK3_TEST_SUPABASE_JWT_SECRET: ${{ secrets.PEAK3_TEST_SUPABASE_JWT_SECRET }}
-
-      - name: Report final status
-        if: always()
-        run: |
-          echo "RESULT: ran against a real hosted Supabase test project"
+      - name: Upload Playwright traces on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces-full-${{ matrix.project }}
+          path: apps/web/test-results/
+          retention-days: 7

@@ -30,7 +30,7 @@
  */
 
 import type { ArenaReadiness } from "@/lib/arena-lobby-api";
-import { offerableModes, type OfferableMode } from "@/lib/arena-modes";
+import { BOT_OPPONENT_COPY, offerableModes, type OfferableMode } from "@/lib/arena-modes";
 
 export type ArenaPosture = "unavailable" | "practice_only" | "open";
 
@@ -125,7 +125,7 @@ export function arenaHeadline(capability: ArenaCapability): {
       return {
         title: "Multiplayer",
         intro:
-          "Live matchmaking against other people is not open yet. Both Arena games are playable right now against PEAK3 Bot, decided by the same open five-component formula as the rest of PEAK3 — with a full receipt at the end.",
+          `Live matchmaking against other people is not open yet. Both Arena games are playable right now against ${BOT_OPPONENT_COPY}, decided by the same open five-component formula as the rest of PEAK3 — with a full receipt at the end.`,
       };
     default:
       return {

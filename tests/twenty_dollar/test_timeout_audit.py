@@ -80,7 +80,17 @@ def _play_with_timeouts(
         actions += 1
         assert actions < MAX_ACTIONS, f"seed {seed}: match did not terminate"
         seat_index = state["active_seat"]
-        assert seat_index is not None, f"seed {seed}: live match with no seat on the clock"
+        if seat_index is None:
+            # Nobody can act on the drawn candidate (the phantom-lot fix):
+            # there is no seat to time out on this beat, so it is resolved
+            # directly rather than folded into the `timeout_seat` cadence --
+            # exactly what that beat's own short server timeout eventually
+            # does, unconditionally and for neither seat's account.
+            assert S.is_unwinnable_lot_pending(state), (
+                f"seed {seed}: active_seat is None but no unwinnable lot is pending"
+            )
+            S.resolve_unwinnable_lot(state, pool)
+            continue
 
         if seat_index == timeout_seat:
             decisions += 1
@@ -117,6 +127,14 @@ def _play_with_timeouts(
                     "settled": [dict(record) for record in settled],
                     "next_actor": state.get("active_seat"),
                     "phase": state["phase"],
+                    # The rules call this expiry triggered may itself have
+                    # advanced onto a candidate NEITHER seat can act on (the
+                    # phantom-lot fix): `active_seat` is then legitimately
+                    # `None` while the match is still live, parked on its own
+                    # short seatless beat rather than dead. Captured here so
+                    # the invariant test can name that state rather than
+                    # mistake it for a stuck board.
+                    "unwinnable_lot_pending": S.is_unwinnable_lot_pending(state),
                 }
             )
             continue
@@ -352,12 +370,20 @@ def test_an_auto_open_is_recorded_as_the_clock_s_bid_not_the_player_s(audit):
 
 
 def test_the_clock_hands_on_to_a_real_next_actor_or_settles(audit):
-    """Never a dead board: after an expiry either somebody is on the clock, or
-    the lot resolved and the next one opened, or the match is over."""
+    """Never a dead board: after an expiry either somebody is on the clock, the
+    lot resolved and the next one opened, the match is over, or -- the
+    phantom-lot fix's own new state -- the rules call advanced onto a
+    candidate NEITHER seat can act on and parked there. That last case is not
+    a stuck board: it is a real, short, seatless beat
+    (`is_unwinnable_lot_pending`) that resolves on its own deadline, exactly
+    like `PHASE_LOT_UNWINNABLE` in the orchestration layer. A `next_actor` of
+    `None` is therefore only legal when that beat is the reason for it."""
     for record in audit["records"]:
         if record["phase"] == S.PHASE_COMPLETE:
             continue
-        assert record["next_actor"] is not None, record
+        if record["next_actor"] is None:
+            assert record["unwinnable_lot_pending"], record
+            continue
         assert 0 <= record["next_actor"] < 2, record
 
 

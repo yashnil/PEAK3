@@ -289,21 +289,68 @@ export default function PickOverlay({
   }, [mode, chosen, nameOf]);
 
   /**
-   * Stage a candidate. Local, reversible, idempotent — see the row's
-   * `onPointerDown` for why it has to be all three.
+   * Stage a candidate — and, when there is only one legal slot for them,
+   * COMMIT immediately. Local, reversible (for the multi-slot case),
+   * idempotent — see the row's `onPointerDown` for why it has to be all
+   * three.
+   *
+   * BUG FIX (gameplay-experience-polish 3.2): this used to only ever stage.
+   * A player who clicked a legal candidate and never separately pressed
+   * "Draft {name} at {slot}" had made no submission at all — clicking only
+   * set local React state — so a timeout resolved through the server's
+   * auto-pick fallback exactly as if nothing had been chosen, discarding a
+   * player the user visibly had selected (reported: Amar'e Stoudemire
+   * clicked, Brevin Knight drafted by the fallback). The fix is CLICK
+   * PLAYER -> COMMIT PLAYER: when the candidate has exactly one legal slot,
+   * there is no second decision to make, so nothing is gained by staging
+   * and waiting for a further press — the click itself is now the
+   * submission, through the exact same `onPick` the confirm button used to
+   * be the only way to reach. `onPick`'s caller (`pick()` in
+   * ThreeManWeaveGame.tsx) already guards `busy`/`inFlight` against a
+   * double-submit, so a fast repeat click here is safe without new
+   * machinery.
+   *
+   * A candidate with more than one legal slot still only STAGES here —
+   * which slot is a genuine second decision the player has to make, not a
+   * formality — but committing there is no longer gated on this button
+   * either: see `PlacementBoard`'s `onSelectSlot` wiring below, which
+   * commits the instant a legal slot is clicked while placing. The old
+   * "Draft {name} at {slot}" button and the `<select>` accessible fallback
+   * both still work and still commit on their own click/change, for the one
+   * case that must NOT auto-commit — a native `<select>` fires `onChange`
+   * while arrow-keying through options in some browsers, so auto-committing
+   * there would draft an unintended player mid-browse.
    */
   const select = useCallback((candidate: TmwCandidate) => {
     // Selecting a candidate always cancels a move in progress: the two are
     // different intentions and the board can only stage one of them.
     setMovingFrom(null);
-    setSelected((current) =>
-      current === candidate.player_slug ? current : candidate.player_slug,
-    );
-    // Stage the obvious destination immediately, so a single-slot candidate is
-    // one press from committed.
+    setSelected(candidate.player_slug);
     const options = placementOptionsFor(candidate);
-    setSlot(options.length === 1 ? options[0] : null);
-  }, []);
+    if (options.length === 1) {
+      setSlot(options[0]);
+      if (!expired) onPick(candidate, options[0]);
+      return;
+    }
+    setSlot(null);
+  }, [expired, onPick]);
+
+  /** The board's own slot click, while placing a multi-slot candidate:
+   *  commits immediately, same "click is the decision" rule as `select`
+   *  above — see its docstring. Only wired for `mode === "placing"`
+   *  (drafting); a rearrange-mode slot click still only stages (`setSlot`
+   *  via `onSelectSlot` below), since a move has its own explicit confirm
+   *  step this fix does not touch. */
+  const selectPlacementSlot = useCallback(
+    (targetSlot: TmwSlotType) => {
+      setSlot(targetSlot);
+      // `expired` (the grace window is gone too, not just the visible
+      // countdown) is the one case this must not auto-submit for — same
+      // condition the old confirm button gated on via `canCommitPlacement`.
+      if (chosen && !expired) onPick(chosen, targetSlot);
+    },
+    [chosen, expired, onPick],
+  );
 
   const commitMove = useCallback(() => {
     if (!movingFrom || !slot || !roster || !movingPick) return;
@@ -562,7 +609,7 @@ export default function PickOverlay({
               incomingName={mode === "placing" ? (chosen?.player_name ?? null) : null}
               movingFrom={movingFrom}
               vacating={vacating}
-              onSelectSlot={setSlot}
+              onSelectSlot={mode === "placing" ? selectPlacementSlot : setSlot}
               onStartMove={(from) => {
                 setSelected(null);
                 setMovingFrom(from);

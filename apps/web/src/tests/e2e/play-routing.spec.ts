@@ -45,13 +45,17 @@
  * 2. `home-primary-cta` was a BUTTON that opened an in-place launcher, rather
  *    than a link named "Start a Run" that led to a second screen also named
  *    "Start a run" — the redundant confirmation was gone from the main path.
- *    Launch-polish §6 went one step further: it is now a direct `<Link>`
- *    straight into a standard run (or, with a run already in progress,
- *    "Continue Run" straight into the bare route). There is no menu to open
- *    at all any more — "Start New Run" and the daily shared run are smaller
- *    secondary links beside it. The invariant the old second gate protected
- *    is unchanged either way: a bare visit to /arena/run-the-table still
- *    shows the gate and still creates no run, asserted separately below.
+ *    Launch-polish §6 went one step further and made it a direct `<Link>`
+ *    straight into a standard run. THE ARENA-FIRST PASS went one step
+ *    further still: with six playable modes now live, the CTA leads to the
+ *    hub (`/arena`, labeled "Visit Arena") rather than into one mode on the
+ *    visitor's behalf, unconditionally — it no longer swaps its own label to
+ *    "Continue Run" either. A run already in progress instead gets a
+ *    still-prominent peer control, "Continue Run", straight into the bare
+ *    route, with "Start New Run" one smaller link further down. There is no
+ *    menu to open at all. The invariant the old second gate protected is
+ *    unchanged either way: a bare visit to /arena/run-the-table still shows
+ *    the gate and still creates no run, asserted separately below.
  */
 import { test, expect, Page, Locator } from "@playwright/test";
 import {
@@ -134,14 +138,25 @@ async function assertNoLegacyModeLabels(page: Page): Promise<void> {
 }
 
 /** Exactly one card on a hub may carry the flagship treatment, and it must be
- *  the one named. A second gold card is the failure mode this guards. */
+ *  the one named. A second gold card is the failure mode this guards.
+ *
+ * gameplay-experience-polish (compliance pass): the gold surface alone was
+ * judged not to be a sufficient flagship SIGNAL on its own -- there must be
+ * an explicit, player-facing "Flagship" badge too (`GameCard`'s
+ * `data-testid="flagship-badge"`, rendered only when `featured` is set).
+ * Checked here, in the one shared helper every flagship-card assertion
+ * already goes through, rather than once per call site. */
 async function assertSoleFeaturedCard(page: Page, testId: string): Promise<void> {
   const featured = page.locator('[data-featured="true"]');
   await expect(featured, "exactly one featured card per hub").toHaveCount(1);
-  await expect(page.locator(`[data-testid="${testId}"]`)).toHaveAttribute(
-    "data-featured",
-    "true",
-  );
+  const card = page.locator(`[data-testid="${testId}"]`);
+  await expect(card).toHaveAttribute("data-featured", "true");
+  const badge = card.locator('[data-testid="flagship-badge"]');
+  await expect(badge, "the featured card must carry an explicit Flagship badge, not just gold styling").toBeVisible();
+  await expect(badge).toContainText(/flagship/i);
+  // The badge must be the ONLY one on the hub too, same "exactly one" rule
+  // as the gold treatment itself.
+  await expect(page.locator('[data-testid="flagship-badge"]')).toHaveCount(1);
 }
 
 test.describe("Navbar Play", () => {
@@ -489,24 +504,26 @@ test.describe("82-0 start gate exposes no retired mode vocabulary", () => {
 });
 
 test.describe("Homepage", () => {
-  test("the primary CTA is a direct link into a standard run, not a menu", async ({ page }) => {
-    // WHAT CHANGED (launch-polish §6). The CTA was a link called "Start a
-    // Run" that led to a screen whose own button was called "Start a run" —
-    // the same words twice. An earlier pass turned it into a disclosure
-    // button instead; this pass went further and removed the menu itself —
-    // the primary click IS starting a run now, with no decision in between.
+  test("the primary CTA is a direct link into the Arena hub, not a menu", async ({ page }) => {
+    // WHAT CHANGED (launch-polish §6, then the Arena-first pass). The CTA was
+    // a link called "Start a Run" that led to a screen whose own button was
+    // called "Start a run" — the same words twice. An earlier pass turned it
+    // into a disclosure button, then a direct link straight into a standard
+    // Run the Table run. With six playable modes now live, the CTA moved once
+    // more: it leads to the hub they are all listed in, so a first-time
+    // visitor sees the whole catalogue rather than being placed into one
+    // mode on their behalf. There is still no decision in between — one
+    // click, and you are on the hub.
     await page.goto("/", { waitUntil: "load" });
     const cta = page.locator('[data-testid="home-primary-cta"]');
     await expect(cta).toBeVisible();
     await expect(cta).toHaveJSProperty("tagName", "A");
-    await expect(cta).toContainText(/Play Run the Table/i);
+    await expect(cta).toContainText(/Visit Arena/i);
     await expect(cta).not.toHaveAttribute("aria-haspopup");
-    // The explicit start intent is carried in the href itself. A run is
-    // created because the user asked for one, not because they navigated.
-    await expect(cta).toHaveAttribute("href", "/arena/run-the-table?start=standard");
+    await expect(cta).toHaveAttribute("href", "/arena");
 
     await cta.click();
-    await expect(page).toHaveURL(/\/arena\/run-the-table/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/arena$/, { timeout: 15_000 });
     await assertNoLegacyModeCards(page);
   });
 
@@ -530,13 +547,14 @@ test.describe("Homepage", () => {
     await page.evaluate(() => window.localStorage.clear());
     await page.reload({ waitUntil: "load" });
     const cta = page.locator('[data-testid="home-primary-cta"]');
-    await expect(cta).toContainText(/Play Run the Table/i);
+    await expect(cta).toContainText(/Visit Arena/i);
     await expect(cta).not.toContainText(/Continue Run/i);
+    await expect(page.getByTestId("home-launcher-resume")).toHaveCount(0);
     await expect(page.getByTestId("home-launcher-standard")).toHaveCount(0);
     await expect(page.getByRole("link", { name: /Resume/i })).toHaveCount(0);
   });
 
-  test("with a run in progress, the CTA becomes Continue Run and Start New Run appears", async ({
+  test("with a run in progress, Continue Run and Start New Run appear beside the Arena CTA", async ({
     page,
   }) => {
     await page.goto("/", { waitUntil: "load" });
@@ -557,10 +575,18 @@ test.describe("Homepage", () => {
     );
     await page.reload({ waitUntil: "load" });
 
+    // ARENA-FIRST PASS: the primary control itself no longer swaps to
+    // "Continue Run" — it stays "Visit Arena" regardless of run state, and
+    // resume gets its own peer control instead.
     const cta = page.locator('[data-testid="home-primary-cta"]');
-    await expect(cta).toContainText(/Continue Run/i);
+    await expect(cta).toContainText(/Visit Arena/i);
+    await expect(cta).toHaveAttribute("href", "/arena");
+
+    const resume = page.getByTestId("home-launcher-resume");
+    await expect(resume).toBeVisible();
+    await expect(resume).toContainText(/Continue Run/i);
     // The bare route: continuing must never create a second run.
-    await expect(cta).toHaveAttribute("href", "/arena/run-the-table");
+    await expect(resume).toHaveAttribute("href", "/arena/run-the-table");
 
     const startNew = page.getByTestId("home-launcher-standard");
     await expect(startNew).toBeVisible();

@@ -304,7 +304,7 @@ describe("the auction stage reads in the order a bidder decides", () => {
   });
 
   /**
-   * THE ROW OF MICRO-CHIPS IS GONE. `You $1 · PEAK3 Bot $2 · You $3 …` carried
+   * THE ROW OF MICRO-CHIPS IS GONE. `You $1 · Opponent $2 · You $3 …` carried
    * the whole bid history at 11px beside the control it competed with. The full
    * walk-up moved into an expandable log, closed by default.
    */
@@ -1075,7 +1075,7 @@ describe("the pre-match intro", () => {
   it("names the opponent, the money, the slots and the skip rule", () => {
     render(
       <MatchIntro
-        opponentName="PEAK3 Bot"
+        opponentName="IsoKing"
         startingBudget={20}
         slots={5}
         marketSkips={5}
@@ -1084,7 +1084,7 @@ describe("the pre-match intro", () => {
       />,
     );
     const intro = screen.getByTestId("td-intro");
-    expect(intro).toHaveTextContent("PEAK3 Bot");
+    expect(intro).toHaveTextContent("IsoKing");
     expect(intro).toHaveTextContent("$20");
     expect(intro).toHaveTextContent(/roster slots/i);
     expect(intro).toHaveTextContent(/market skips/i);
@@ -1096,7 +1096,7 @@ describe("the pre-match intro", () => {
     const user = userEvent.setup();
     render(
       <MatchIntro
-        opponentName="PEAK3 Bot"
+        opponentName="IsoKing"
         startingBudget={20}
         slots={5}
         marketSkips={5}

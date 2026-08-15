@@ -1,23 +1,22 @@
 /**
- * `HeroLauncher` — the homepage primary CTA (launch-polish §6).
+ * `HeroLauncher` — the homepage primary CTA.
  *
  * WHAT THESE PIN, and why each one matters:
  *
  *  - The trigger is a real `<Link>`, not a menu button. Launch-polish §6
- *    retired the dropdown: the homepage's primary action is now a direct
- *    action, not a decision to make first. (The dropdown itself was already
- *    never a one-item menu — `BASE_OPTIONS` always had two unconditional
- *    entries — but the underlying intent, "make the first click count,"
- *    still applied and is what this file now does.)
- *  - No active run: the trigger goes straight to `?start=standard` and
- *    reads "Play Run the Table". `?start=` is the contract with
- *    `RunTheTableGame` (W4), which consumes the param exactly once and
- *    strips it.
- *  - An active run: the trigger becomes "Continue Run" and goes to the BARE
- *    route — following it must never create a run, which `play-routing.spec.ts`
- *    pins end to end.
+ *    retired the dropdown: the homepage's primary action is a direct action,
+ *    not a decision to make first.
+ *  - ARENA-FIRST PASS: the trigger always reads "Visit Arena" and always
+ *    points at `/arena` — the hub every mode is comparable from — regardless
+ *    of whether a Run the Table run is in progress. It no longer swaps its
+ *    own href/label to "Continue Run"; that used to make the homepage's one
+ *    button silently mean two different things depending on localStorage.
+ *  - Resume is preserved, not dropped: with a run in progress, a second
+ *    "Continue Run" control renders BESIDE the trigger, at the bare route —
+ *    following it must never create a run, which `play-routing.spec.ts` pins
+ *    end to end.
  *  - "Start New Run" only appears once there IS a run to prefer instead of
- *    (otherwise the primary control already starts a new one).
+ *    (otherwise "Visit Arena" already reaches Run the Table one hop further).
  *  - Every affordance is a real link with a real `href`, so keyboard support
  *    (Tab order, Enter-to-activate) needs no custom handling to verify.
  *
@@ -40,6 +39,7 @@ import HeroLauncher, {
   LAUNCHER_RESUME_HREF,
   LAUNCHER_STANDARD_HREF,
 } from "@/components/home/HeroLauncher";
+import { ARENA_HUB_HREF } from "@/lib/nav-model";
 import {
   RUN_THE_TABLE_SCHEMA_VERSION,
   RUN_THE_TABLE_STORAGE_KEY,
@@ -72,13 +72,13 @@ describe("HeroLauncher — the homepage primary CTA", () => {
     window.localStorage.clear();
   });
 
-  it("with no run in progress, is a direct link straight into a standard run", () => {
+  it("with no run in progress, is a direct link into the Arena hub", () => {
     render(<HeroLauncher />);
     const cta = trigger();
     expect(cta.tagName).toBe("A");
-    expect(cta).toHaveAttribute("href", LAUNCHER_STANDARD_HREF);
-    expect(cta).toHaveAttribute("href", "/arena/run-the-table?start=standard");
-    expect(cta).toHaveTextContent(/Play Run the Table/i);
+    expect(cta).toHaveAttribute("href", ARENA_HUB_HREF);
+    expect(cta).toHaveAttribute("href", "/arena");
+    expect(cta).toHaveTextContent(/Visit Arena/i);
   });
 
   it("renders no menu, no popup semantics and no dropdown at all", () => {
@@ -100,28 +100,37 @@ describe("HeroLauncher — the homepage primary CTA", () => {
     expect(screen.queryByTestId("home-launcher-standard")).toBeNull();
   });
 
-  it("with no stored run, does not offer Continue or Start New Run", () => {
+  it("with no stored run, does not offer a Continue Run control", () => {
     render(<HeroLauncher />);
-    expect(trigger()).toHaveTextContent(/Play Run the Table/i);
+    expect(trigger()).toHaveTextContent(/Visit Arena/i);
     expect(screen.queryByTestId("home-launcher-resume")).toBeNull();
   });
 
   it("ignores a corrupt stored run rather than offering a dead continue", () => {
     window.localStorage.setItem(RUN_THE_TABLE_STORAGE_KEY, "{not json");
     render(<HeroLauncher />);
-    expect(trigger()).toHaveTextContent(/Play Run the Table/i);
-    expect(trigger()).toHaveAttribute("href", LAUNCHER_STANDARD_HREF);
+    expect(trigger()).toHaveTextContent(/Visit Arena/i);
+    expect(trigger()).toHaveAttribute("href", ARENA_HUB_HREF);
+    expect(screen.queryByTestId("home-launcher-resume")).toBeNull();
   });
 
-  it("with a run in progress, the primary control becomes Continue Run at the BARE route", () => {
+  it("with a run in progress, the primary control still reads Visit Arena and still points at /arena", () => {
     seedActiveRun();
     render(<HeroLauncher />);
     const cta = trigger();
-    expect(cta).toHaveTextContent(/Continue Run/i);
+    expect(cta).toHaveTextContent(/Visit Arena/i);
+    expect(cta).toHaveAttribute("href", ARENA_HUB_HREF);
+  });
+
+  it("with a run in progress, offers a prominent Continue Run control at the BARE route", () => {
+    seedActiveRun();
+    render(<HeroLauncher />);
+    const resume = screen.getByTestId("home-launcher-resume");
     // The bare route, with no `start` param: continuing must never create a
     // second run.
-    expect(cta).toHaveAttribute("href", LAUNCHER_RESUME_HREF);
-    expect(cta).toHaveAttribute("href", "/arena/run-the-table");
+    expect(resume).toHaveAttribute("href", LAUNCHER_RESUME_HREF);
+    expect(resume).toHaveAttribute("href", "/arena/run-the-table");
+    expect(resume).toHaveTextContent(/Continue Run/i);
   });
 
   it("with a run in progress, offers Start New Run as a secondary link", () => {

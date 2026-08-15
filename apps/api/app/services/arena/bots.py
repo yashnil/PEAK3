@@ -161,29 +161,127 @@ _FALLBACK_BOT = RandomLegalBot()
 registry = BotRegistry()
 
 
-#: The product's name for the house opponent. USER-FACING, and the only string
-#: any surface may show for a bot seat.
-BOT_DISPLAY_NAME = "PEAK3 Bot"
+#: EMERGENCY FALLBACK ONLY. Every live seating path (`bot_seat_names`, and
+#: every caller of `bot_seat` in `matchmaking.py`) now supplies a name drawn
+#: from `BOT_NAME_POOL` via `curated_bot_names`, seeded from the match. This
+#: constant is what `bot_display_name` returns on the rare path where no seed
+#: is available at all -- a seat built directly, outside a match's own naming
+#: call -- so a bot is never nameless. It is not meant to render in normal
+#: play, and it is deliberately generic rather than reusing a name from the
+#: curated pool, so it can never collide with one.
+BOT_DISPLAY_NAME = "PEAK3 Opponent"
 
 #: The one difficulty every mode currently ships. Rendered as a chip beside the
-#: name by the surfaces that want it; never part of `display_name` itself,
-#: because a roster panel reading "PEAK3 Bot · Standard 2" is worse than
-#: "PEAK3 Bot 2".
+#: name by the surfaces that want it; never part of `display_name` itself.
 BOT_DIFFICULTY_LABEL = "Standard"
+
+#: THE CURATED BOT NAME POOL. USER-FACING, and (with `curated_bot_names`) the
+#: single source every mode without its own naming scheme draws from.
+#:
+#: Memorable, competitive, basketball-adjacent handles -- never a real NBA
+#: player's name (past or present), never a numbered placeholder, never
+#: childish. These are usernames an opponent could plausibly have chosen for
+#: themselves, not a roster of real people PEAK3 would be seen picking
+#: favourites among.
+#:
+#: Sized well past the largest bot-seat count any mode seats today (two, in
+#: Three-Man Weave's practice draft) so that a player who plays many matches
+#: keeps meeting names they have not seen before, even though naming is
+#: seeded and therefore reproducible for a given match.
+#:
+#: Three-Man Weave supplies its own archetype pool (`nba_peak.three_man_weave
+#: .bot.BOT_ARCHETYPE_NAMES`) instead of this one, deliberately: "Floor
+#: General" and "The Microwave" are drafted onto a board that is otherwise
+#: full of real retired players' names, and reading as one more player-shaped
+#: label there is the point. This pool is for the modes that have no such
+#: board -- a $20 Showdown opponent, or any future mode that does not define
+#: `bot_display_names` -- where a username-shaped handle is the better fit.
+BOT_NAME_POOL: tuple[str, ...] = (
+    "IsoKing",
+    "GlassCleaner",
+    "Switchblade",
+    "CornerThree",
+    "Lockdown",
+    "FastBreak",
+    "ShotClock",
+    "The Architect",
+    "PickAndRoll",
+    "BaselineGhost",
+    "FullCourtPress",
+    "NetBurner",
+    "PaintPatrol",
+    "WingSpan",
+    "ZoneBreaker",
+    "HighPost",
+    "LowPost",
+    "CrossoverKing",
+    "StepBack",
+    "RingLeader",
+    "Downtown",
+    "BoxOut",
+    "HardHat",
+    "IronWill",
+    "DeadEye",
+    "Anchor",
+    "Sniper",
+    "Playmaker",
+    "RunAndGun",
+    "TripleThreat",
+    "BackdoorCut",
+    "HalfCourt",
+    "Perimeter",
+    "Finisher",
+    "Sharpshooter",
+    "FloorSpacer",
+    "RimProtector",
+    "ClutchGene",
+    "CourtVision",
+    "QuickHands",
+    "TwoWay",
+    "Baseline",
+)
+
+
+def curated_bot_names(seed: int, count: int) -> tuple[str, ...]:
+    """`count` DISTINCT curated names from `BOT_NAME_POOL`, deterministic from
+    the match seed.
+
+    Same shape as Three-Man Weave's `archetype_names`: shuffle a copy of the
+    pool with a generator keyed to this match, then take the first `count`.
+    Distinctness is therefore structural, not a retry loop -- two bot seats in
+    the same match cannot land on the same name.
+
+    Uses `mode_rng`'s own seeding convention (`arena:{seed}:{stream}`) rather
+    than inventing a second one, on a stream name of its own so adding this
+    call cannot shift the numbers any existing stream produces.
+    """
+    pool = list(BOT_NAME_POOL)
+    mode_rng(seed, "bot-names").shuffle(pool)
+    if count <= len(pool):
+        return tuple(pool[:count])
+    # More bots than pool entries is not a shape any mode uses today, and is
+    # numbered rather than duplicated if it ever happens -- the same overflow
+    # rule `archetype_names` uses.
+    return tuple(
+        pool[index % len(pool)] + (f" {index // len(pool) + 1}" if index >= len(pool) else "")
+        for index in range(count)
+    )
 
 
 def bot_display_name(seat_index: int, seat_count: int) -> str:
-    """What a bot seat is CALLED, when its mode has no opinion.
+    """What a bot seat is CALLED, when no seed is available to draw a curated
+    name from at all.
 
-    NEVER DERIVED FROM `bot_id`. The lobby shipped "PEAK3 bot (random_legal_v1)"
-    because the seat's name was built by interpolating the policy id, so an
-    internal identifier -- one that also happened to name the wrong policy --
-    became the thing players read. The name is authored here, the id stays on
+    NEVER DERIVED FROM `bot_id`. The lobby once shipped a seat name built by
+    interpolating the policy id, so an internal identifier became the thing
+    players read. The name is authored here, the id stays on
     `ArenaSeat.bot_id` where results and ratings need it, and there is no
     format string anywhere that can put the two together again.
 
-    Numbered only when a match seats more than one bot, so a two-seat game says
-    "PEAK3 Bot" rather than "PEAK3 Bot 1".
+    THIS IS THE LAST-RESORT PATH, not the normal one -- see `BOT_DISPLAY_NAME`.
+    Every seating call in `matchmaking.py` passes a seed-derived name from
+    `bot_seat_names`/`curated_bot_names` instead, so this only fires if a
+    caller builds a seat directly without going through that path.
     """
     if seat_count <= 2:
         return BOT_DISPLAY_NAME
@@ -193,26 +291,33 @@ def bot_display_name(seat_index: int, seat_count: int) -> str:
 def bot_seat_names(mode, seed: int, seat_indexes: Sequence[int]) -> dict[int, str]:
     """seat_index -> display name, for every bot seat in one match.
 
-    A MODE MAY NAME ITS OWN BOTS. In a two-seat auction "PEAK3 Bot" is exactly
-    right: there is one opponent and nothing to disambiguate. In a three-seat
-    draft, "PEAK3 Bot 1" and "PEAK3 Bot 2" sit in a pick feed next to Michael
-    Jordan and Larry Bird and read as unfinished work, so Three-Man Weave
-    supplies seeded basketball archetypes instead.
+    THE CURATED POOL IS THE DEFAULT. A mode with no naming opinion still gets
+    memorable, seeded, distinct names from `BOT_NAME_POOL` -- never a numbered
+    generic placeholder.
+
+    A MODE MAY NAME ITS OWN BOTS INSTEAD. Three-Man Weave supplies seeded
+    basketball archetypes (`bot_display_names`) because its board is otherwise
+    full of real retired players' names and an archetype reads as one more
+    player-shaped label there; see `BOT_NAME_POOL`'s docstring for why that
+    pool stays separate from this one rather than merging into it.
 
     Named for the WHOLE MATCH AT ONCE rather than seat by seat, because
     distinctness is the requirement -- two seats drawing independently could
-    both land on the same archetype, and a per-seat hook could not notice.
+    both land on the same name, and a per-seat hook could not notice.
 
-    Falls back to `bot_display_name` if the mode has no hook, if the hook
-    fails, or if it returns too few names: a bot with no name is a bug the
-    player sees, so the default is always available.
+    Falls back to `bot_display_name` only if the mode's own hook fails or
+    returns too few/duplicate names: a bot with no name is a bug the player
+    sees, so a default is always available. The default itself is now the
+    curated pool, not the generic label -- `bot_display_name` is reached only
+    if `seat_indexes` is somehow empty.
     """
-    default = {
-        index: bot_display_name(index, getattr(mode, "seat_count", len(seat_indexes)))
-        for index in seat_indexes
-    }
+    if not seat_indexes:
+        return {}
+    ordered = sorted(seat_indexes)
+    curated = curated_bot_names(seed, len(ordered))
+    default = {index: curated[position] for position, index in enumerate(ordered)}
     hook = getattr(mode, "bot_display_names", None)
-    if hook is None or not seat_indexes:
+    if hook is None:
         return default
     try:
         names = tuple(hook(seed, len(seat_indexes)))
@@ -221,7 +326,7 @@ def bot_seat_names(mode, seed: int, seat_indexes: Sequence[int]) -> dict[int, st
         return default
     if len(names) < len(seat_indexes) or len(set(names)) != len(names):
         return default
-    return {index: names[position] for position, index in enumerate(sorted(seat_indexes))}
+    return {index: names[position] for position, index in enumerate(ordered)}
 
 
 def bot_seat(

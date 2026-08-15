@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createCourtGame, getCourtGame, PerfectSeasonAPIError } from "@/lib/perfect-season-api";
 import { useAuth } from "@/lib/auth-context";
-import { CourtLineupPublicState, CourtMode } from "@/types/perfect-season";
+import { CourtDifficulty, CourtLineupPublicState, CourtMode } from "@/types/perfect-season";
 import CourtBuilder from "./CourtBuilder";
 
 interface Props {
@@ -21,9 +21,6 @@ interface Props {
   resumeGameId?: string;
   franchiseNames: string[];
   seasonLabels?: string[];
-  rollableTeamSeasonCount?: number;
-  supportedStartSeason?: string | null;
-  supportedEndSeason?: string | null;
   teamLogoUrls?: Record<string, string>;
 }
 
@@ -54,13 +51,18 @@ export default function PeakSeasonStartGate({
   resumeGameId,
   franchiseNames,
   seasonLabels = [],
-  rollableTeamSeasonCount = 0,
-  supportedStartSeason = null,
-  supportedEndSeason = null,
   teamLogoUrls = {},
 }: Props) {
   const [game, setGame] = useState<CourtLineupPublicState | null>(null);
   const [busy, setBusy] = useState(false);
+  // Gameplay-polish: chosen here, before a run exists, and passed straight
+  // into `createCourtGame` -- the server freezes it onto the run for good
+  // (CourtLineupState.difficulty), so there is no later "change difficulty"
+  // control anywhere in the game itself. Easy by default: it is a strict
+  // superset of Hard's affordances (the same 3+3 respins, plus a hint Hard
+  // never gets), so it is the safer thing to land on without having read
+  // the tradeoff yet.
+  const [difficulty, setDifficulty] = useState<CourtDifficulty>("easy");
   /**
    * Wait for the Supabase session before touching the API.
    *
@@ -113,6 +115,7 @@ export default function PeakSeasonStartGate({
         await createCourtGame(mode, seed, {
           challengeKind,
           challengeDate,
+          difficulty,
         }),
       );
     } catch (e) {
@@ -135,9 +138,6 @@ export default function PeakSeasonStartGate({
         initialGameState={game}
         franchiseNames={franchiseNames}
         seasonLabels={seasonLabels}
-        rollableTeamSeasonCount={rollableTeamSeasonCount}
-        supportedStartSeason={supportedStartSeason}
-        supportedEndSeason={supportedEndSeason}
         teamLogoUrls={teamLogoUrls}
       />
     );
@@ -231,6 +231,61 @@ export default function PeakSeasonStartGate({
             {challengeDate ? ` (${challengeDate}, UTC)` : ""} — same teams, same seasons, same candidates.
           </p>
         )}
+
+        {/* Gameplay-polish: difficulty is a per-run choice made HERE, before
+            anything is created — the server freezes it onto the run
+            (CourtLineupState.difficulty), so a reload/resume can never see
+            it change mid-run. */}
+        <div
+          className="flex flex-col gap-2 rounded-xl border p-3"
+          data-testid="difficulty-selector"
+          style={{ borderColor: "var(--border-default)", background: "var(--bg-surface)" }}
+        >
+          <span className="text-xs font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+            Difficulty
+          </span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              type="button"
+              data-testid="difficulty-easy-btn"
+              onClick={() => setDifficulty("easy")}
+              aria-pressed={difficulty === "easy"}
+              className="text-left rounded-lg p-3 text-xs pk-lift pk-press transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+              style={{
+                background: difficulty === "easy" ? "var(--peak-accent-bg)" : "var(--bg-elevated)",
+                border: `1px solid ${difficulty === "easy" ? "var(--peak-accent)" : "var(--border-default)"}`,
+                color: "var(--text-primary)",
+              }}
+            >
+              <span className="block font-bold uppercase tracking-wide" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
+                Easy
+              </span>
+              <span className="block mt-1" style={{ color: "var(--text-secondary)" }}>
+                3 team respins + 3 season respins for the whole run, plus a one-time
+                &ldquo;Give me a suggestion&rdquo; hint.
+              </span>
+            </button>
+            <button
+              type="button"
+              data-testid="difficulty-hard-btn"
+              onClick={() => setDifficulty("hard")}
+              aria-pressed={difficulty === "hard"}
+              className="text-left rounded-lg p-3 text-xs pk-lift pk-press transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+              style={{
+                background: difficulty === "hard" ? "var(--peak-accent-bg)" : "var(--bg-elevated)",
+                border: `1px solid ${difficulty === "hard" ? "var(--peak-accent)" : "var(--border-default)"}`,
+                color: "var(--text-primary)",
+              }}
+            >
+              <span className="block font-bold uppercase tracking-wide" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
+                Hard
+              </span>
+              <span className="block mt-1" style={{ color: "var(--text-secondary)" }}>
+                Only 1 team respin and 1 season respin for the whole run, no hint.
+              </span>
+            </button>
+          </div>
+        </div>
 
         {error && (
           <p role="alert" className="text-sm" style={{ color: "var(--incorrect)" }} data-testid="start-gate-error">

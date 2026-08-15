@@ -313,10 +313,29 @@ export function GameEngine({
 
         This strip keeps the remaining one-line states (hint / "Checking…" /
         error) in fixed space so they cannot resize the page either.
+
+        COLLAPSED WHILE REVEALING. None of the three lines below ever render
+        during "revealing" -- the hint is `!revealed`-gated, "Checking…" is
+        `is_submitting`-gated (already false by the time an answer lands),
+        and `error` is reset to null on every successful submit (see
+        `SUBMIT_SUCCESS` in game-state.ts). Reserving `h-12` (48px) anyway
+        was 48px of real vertical margin the reveal panel's own content --
+        specifically "Next duel", the last thing in it -- could have had
+        against the viewport's bottom edge and did not: measured with the
+        panel's natural height varying by a few px with duel content (a
+        longer explanation line-wraps, a wider score gap, etc.), the button
+        sat as close as 4px from the default 720px-tall viewport's edge on
+        some duels. That is inside Playwright's own "fully in view" margin
+        on some runs and not others, so `.click()` would sometimes scroll a
+        few px to bring it fully into view before clicking -- a real,
+        Playwright-driven scroll, not a rendering bug, but the exact
+        intermittent few-px `scrollY` drift duel-viewport.spec.ts caught.
+        Giving the panel back this dead space removes the near-miss instead
+        of chasing the scroll it was intermittently triggering.
       */}
       <div
         data-testid="duel-stage-slot"
-        className="relative h-12 overflow-hidden"
+        className={`relative overflow-hidden ${revealed ? "h-0" : "h-12"}`}
       >
         {/* Keyboard hint */}
         {!revealed && !state.is_submitting && (

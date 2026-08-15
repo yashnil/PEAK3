@@ -160,9 +160,13 @@ export default async function ArenaPage() {
                 aria-hidden="true"
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
                 style={{
-                  background: "var(--pk-surface-raised, var(--bg-surface))",
+                  // Same emerald `--comp-team` identity as 82-0's card
+                  // elsewhere in `MODE_COPY` — this block is a bespoke
+                  // section rather than a `GameCard`, but it describes the
+                  // same mode and should read as the same mode.
+                  background: "color-mix(in srgb, var(--comp-team) 14%, transparent)",
                   border: "1px solid var(--border-subtle)",
-                  color: "var(--text-secondary)",
+                  color: "var(--comp-team)",
                 }}
               >
                 <Trophy size={17} />
@@ -295,6 +299,7 @@ export default async function ArenaPage() {
             icon={<Grid3x3 size={17} />}
             cta={dailyGrid.cta}
             tone="raised"
+            accent={dailyGrid.accent}
             compact
           />
           <GameCard
@@ -306,6 +311,7 @@ export default async function ArenaPage() {
             icon={<Swords size={17} />}
             cta={peakDuel.cta}
             tone="raised"
+            accent={peakDuel.accent}
             compact
           />
         </div>

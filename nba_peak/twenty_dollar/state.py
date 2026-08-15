@@ -628,13 +628,32 @@ def _advance_lot(state: dict, pool: CandidatePool, *, first: bool = False) -> No
         not can_seat_acquire(state, i, chosen, pool) for i in range(len(state["seats"]))
     ]
     state["active_seat"] = _next_actor(state, state["opening_seat"])
-    if state["active_seat"] is None:
-        # NOBODY CAN USE THIS CANDIDATE, which is now a normal outcome rather
-        # than an impossible one: the market draws without regard to either
-        # roster's needs. The lot resolves unsold, no skip is charged to
-        # anyone, and the counter advances -- so a run of unusable candidates
-        # walks the match toward its bounds rather than hanging it.
-        _resolve_lot(state, pool, decided_by=DECIDED_BY_UNSOLD)
+    # NOBODY CAN USE THIS CANDIDATE is a normal outcome, not an impossible
+    # one: the market draws without regard to either roster's needs.
+    #
+    # THIS USED TO CALL `_resolve_lot(..., decided_by=DECIDED_BY_UNSOLD)`
+    # RIGHT HERE, SETTLING THE LOT BEFORE THIS FUNCTION EVEN RETURNED. That
+    # was the root cause of the "phantom settled lot" bug: `current_candidate`
+    # was set two lines above and cleared again inside `_resolve_lot`'s own
+    # body, all within one Python call -- so no external read, ever, at any
+    # polling cadence, could observe this candidate as the live "current lot"
+    # before it was already marked settled. A player reporting "John
+    # Stockton/SGA/Harden showed up in my settled history and I never had a
+    # chance to see them, let alone bid" was reporting this exactly and
+    # correctly, for every star drawn once both rosters had no room left for
+    # their position.
+    #
+    # The fix is a real state-machine boundary, not a client-side reveal
+    # queue: `_advance_lot` now simply STOPS here and returns, leaving
+    # `current_candidate` set and `active_seat` None. That state is externally
+    # observable -- any poll between now and resolution sees exactly this
+    # candidate as current, with nobody able to act on it -- because the
+    # orchestration layer (`apps/api/app/services/twenty_dollar/mode.py`)
+    # opens it as a real, short, seatless turn (mirroring the pre-match intro
+    # turn, which already belongs to no seat) rather than deciding it inline.
+    # Only that turn's OWN timeout calls `resolve_unwinnable_lot` below to
+    # actually settle it -- see that function and `mode.py`'s
+    # `_resolve_unwinnable_lot`/`_open_turn_for_snapshot`.
 
 
 def _next_actor(state: dict, start: int) -> Optional[int]:
@@ -1036,6 +1055,43 @@ def _resolve_lot(
     state["current_bid"] = 0
     state["lot_timeouts"] = [False] * len(state["seats"])
     _advance_lot(state, pool)
+
+
+def is_unwinnable_lot_pending(state: dict) -> bool:
+    """True while a candidate is up that NEITHER seat can act on.
+
+    This is the externally observable state `_advance_lot` now parks on
+    instead of resolving inline -- see its own comment. The orchestration
+    layer checks this after every rules call to decide whether to open a
+    normal per-seat auction turn or the short, seatless "nobody can use this
+    candidate" beat (`PHASE_LOT_UNWINNABLE` in `mode.py`).
+    """
+    return (
+        state.get("phase") == PHASE_AUCTION
+        and state.get("current_candidate") is not None
+        and state.get("active_seat") is None
+    )
+
+
+def resolve_unwinnable_lot(state: dict, pool: Optional[CandidatePool] = None) -> dict:
+    """Settle the parked, seatless lot unsold, then draw the next one.
+
+    Public entry point for the orchestration layer's timeout handler on the
+    `PHASE_LOT_UNWINNABLE` beat -- the pure engine no longer resolves this
+    case inline inside `_advance_lot` (see its comment for why). The next
+    draw may itself be unwinnable too, in which case this simply parks again
+    (`_advance_lot` returns without resolving) rather than cascading through
+    it silently; the orchestration layer opens another beat for it. Mutates
+    `state` in place and returns it, matching `submit_action`'s and
+    `timeout_active_seat`'s convention.
+
+    Callable only when `is_unwinnable_lot_pending(state)` is true -- the
+    orchestration layer only ever reaches this from the timeout of a turn it
+    itself only ever opened when that was already the case.
+    """
+    pool = pool or warm_pool()
+    _resolve_lot(state, pool, decided_by=DECIDED_BY_UNSOLD)
+    return state
 
 
 # ---------------------------------------------------------------------------

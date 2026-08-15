@@ -8,6 +8,7 @@ Routes:
   POST /api/v1/perfect-season/games/{id}/cancel   - cancel the pending selection, back to candidates
   POST /api/v1/perfect-season/games/{id}/respin-team   - reroll the round's team (up to 3x, team_year only)
   POST /api/v1/perfect-season/games/{id}/respin-season - reroll the round's season (up to 3x, team_year only)
+  POST /api/v1/perfect-season/games/{id}/hint     - one-time fit-aware suggestion (Easy difficulty only)
   POST /api/v1/perfect-season/games/{id}/place    - place the pending selection into a slot
   POST /api/v1/perfect-season/games/{id}/swap-slots    - move/swap two placed cards (no respin)
   POST /api/v1/perfect-season/games/{id}/complete - run the v0 simulation and freeze the result
@@ -50,6 +51,8 @@ from app.models.perfect_season import (
     CourtBuilderReadinessResponse,
     CreatePerfectSeasonGameRequest,
     DailyChallengeResponse,
+    HintPlayerPublic,
+    HintResponse,
     LeaderboardResponse,
     MyRunsResponse,
     PerfectSeasonRunPublic,
@@ -209,6 +212,12 @@ async def create_game(
             detail={"error_code": "invalid_challenge_kind", "message": f"Unknown challenge_kind '{body.challenge_kind}'"},
         )
 
+    if body.difficulty not in state_machine.VALID_DIFFICULTIES:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "invalid_difficulty", "message": f"Unknown difficulty '{body.difficulty}'"},
+        )
+
     try:
         game_state = state_machine.create_perfect_season_game(
             mode=body.mode,
@@ -217,6 +226,7 @@ async def create_game(
             team_year_enabled=settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED,
             board_type=DAILY_BOARD_TYPE if body.challenge_kind == "daily" else FREE_PLAY_BOARD_TYPE,
             challenge_date=body.challenge_date,
+            difficulty=body.difficulty,
         )
     except InvalidChallengeDate as exc:
         raise HTTPException(status_code=422, detail=_error_detail(exc, "invalid_challenge_date"))
@@ -415,6 +425,45 @@ async def respin_season(
 
     await court_repo.save_lineup(new_state)
     return PublicCourtStateResponse(**state_machine.get_public_state(new_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS))
+
+
+@router.post("/perfect-season/games/{game_id}/hint", response_model=HintResponse)
+async def get_hint(
+    game_id: str,
+    body: CancelSelectionRequest,
+    court_repo: CourtLineupRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
+) -> HintResponse:
+    """Gameplay-polish: "Give me a suggestion" -- Easy mode only, once per
+    run. Same request shape as /cancel (just a game_id confirmation; no
+    other client-controlled input -- the recommendation is entirely
+    server-computed, never something the client can steer).
+
+    ADR-005 Decision 6, enforced here too: the response carries ONLY the
+    recommended player's identity (HintPlayerPublic: player_slug +
+    player_name) -- never a score, never a rank, never anything about the
+    candidates that were NOT recommended. See state_machine.action_get_hint
+    for the fit-aware selection itself.
+    """
+    _require_courtbuilder_enabled()
+    if body.game_id != game_id:
+        raise HTTPException(status_code=400, detail="game_id in body must match URL")
+
+    game_state = await _load_owned_lineup(game_id, court_repo, auth, peak3_anon)
+
+    try:
+        new_state, player_slug, player_name = state_machine.action_get_hint(game_state)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=_error_detail(exc))
+
+    await court_repo.save_lineup(new_state)
+    return HintResponse(
+        state=PublicCourtStateResponse(
+            **state_machine.get_public_state(new_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS)
+        ),
+        hint=HintPlayerPublic(player_slug=player_slug, player_name=player_name),
+    )
 
 
 @router.post("/perfect-season/games/{game_id}/place", response_model=PublicCourtStateResponse)

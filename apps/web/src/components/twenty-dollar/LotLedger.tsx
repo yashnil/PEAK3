@@ -271,6 +271,26 @@ export interface LotLedgerState {
   reveal: ResolvedLot | null;
   /** How many further lots are queued behind `reveal`. */
   queued: number;
+  /**
+   * The settled-lots TRAY's own view of history: every settled lot EXCEPT
+   * the one currently on stage in `reveal` and whatever is still queued
+   * behind it.
+   *
+   * gameplay-experience-polish 4.2: `SettledLotTray` used to be handed
+   * `publicState.history` directly and unfiltered, completely bypassing this
+   * hook's reveal-queue gating -- so a lot that had just settled (and might
+   * still be several seconds into its own on-stage reveal beat) was already
+   * visible in the tray the instant it appeared in server history, "before
+   * its introduction" on stage. The underlying phantom-lot bug (a lot
+   * settling before the client ever had the chance to observe it as current)
+   * is fixed at the state-machine level, so this is presentation pacing, not
+   * correctness -- but "no visual flash of the next lot before its
+   * introduction" is still a real requirement the tray was violating on its
+   * own. Recap lots are deliberately NOT excluded here: they are already
+   * surfaced up front by `ResumeRecap`, so there is nothing left to leak by
+   * also listing them in the (closed-by-default) tray.
+   */
+  revealedHistory: ResolvedLot[];
   /** Acknowledge the recap. Advances the persisted cursor past every recap lot. */
   acknowledgeRecap: () => void;
 }
@@ -405,10 +425,17 @@ export function useLotLedger(
     setCursorEpoch((value) => value + 1);
   }, [state.phase, history, matchId]);
 
+  // Not memoised, same reasoning as `queue` above: cheap to recompute, and
+  // `queue` itself is a fresh array every render anyway.
+  const revealedHistory = history.filter(
+    (lot) => !queue.some((q) => q.lot_index === lot.lot_index),
+  );
+
   return {
     recap,
     reveal: queue.length > 0 ? queue[0] : null,
     queued: Math.max(0, queue.length - 1),
+    revealedHistory,
     acknowledgeRecap,
   };
 }

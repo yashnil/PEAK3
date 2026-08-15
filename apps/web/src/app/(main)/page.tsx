@@ -94,14 +94,18 @@ const GROUP_LABEL_STYLE = { color: "var(--text-secondary)" } as const;
  *    is now a piece of the game rather than a poster about it.
  *
  * 2. `home-primary-cta` is a plain link, not a menu button. It WAS a menu
- *    button, back when the launcher offered several starting choices. With one
- *    meaningful public mode, a click whose only result is a list to click again
- *    buys nothing, so it now goes straight to a standard run — or reads
- *    "Continue Run" when one is in progress, with "Start New Run" appearing
- *    only once there is something to prefer it over. The daily keeps its own
- *    `?mode=daily` route into the start gate rather than `?start=daily`,
- *    because a bare link or bookmark must never silently spend the day's one
- *    attempt.
+ *    button, back when the launcher offered several starting choices, and later
+ *    a direct link straight into Run the Table (or "Continue Run" when a run was
+ *    in progress). ARENA-FIRST PASS: with six playable modes now live, funneling
+ *    every visitor into one of them before they have even seen the hub buries
+ *    the other five. The primary control now always leads to `/arena`
+ *    (`ARENA_HUB_HREF`), labeled "Visit Arena" — the hub every mode is
+ *    comparable from. A saved Run the Table run is not lost in that move: a
+ *    "Continue Run" control renders beside the primary CTA whenever one exists
+ *    (`HeroLauncher`'s `hasActiveRun` branch), with "Start New Run" one small
+ *    link further down. The daily keeps its own `?mode=daily` route into the
+ *    start gate rather than `?start=daily`, because a bare link or bookmark
+ *    must never silently spend the day's one attempt.
  *
  * 3. The mode cards are grouped (flagship / daily / full season / competitive)
  *    instead of listed, and the groups use different surface tiers so the page
@@ -257,7 +261,7 @@ export default async function HomePage({
               className="home-eyebrow pk-reveal"
               style={{ color: "var(--peak-accent-text)", "--pk-reveal-index": 0 } as React.CSSProperties}
             >
-              Flagship mode · Run the Table
+              PEAK3 Arena · Flagship mode
             </p>
             <span className="home-eyebrow-rule" aria-hidden="true" />
 

@@ -51,6 +51,7 @@ from typing import Optional
 
 from app.repositories.arena_protocols import (
     COMMAND_TYPE_TIMEOUT,
+    MATCH_STATUS_ABANDONED,
     MATCH_STATUS_ACTIVE,
     MATCH_STATUS_COMPLETED,
     TURN_RESOLUTION_ACTION,
@@ -152,7 +153,79 @@ REVEAL_SECONDS = 4.6
 #: later round and uses `REVEAL_SECONDS` directly). So the two lengths fall out
 #: of the two code paths that already existed, and no round-number test is
 #: needed anywhere.
+#:
+#: SIZED FOR ITS OWN CONTENT ONLY -- the matchup card plus the reel, nothing
+#: else. A compliance review correctly rejected an earlier version of this
+#: pass that lengthened this constant to 20.0s so the client's pre-match
+#: briefing (`GameIntro`) would not be cut off underneath it: that only
+#: guaranteed safety for a NORMAL read, not for "the dialog is left open
+#: arbitrarily long", which is the actual invariant a pre-game briefing has
+#: to satisfy. The real fix is `PHASE_INTRO` below, a genuinely gating phase
+#: with no bound on how long a player may sit on it; once that exists, this
+#: constant goes back to being purely a presentation-pacing number and is
+#: restored to its original, content-appropriate value.
 OPENING_REVEAL_SECONDS = 9.2
+
+#: THE PRE-MATCH BRIEFING, AS A REAL SERVER TURN -- and the ONLY phase a
+#: match may open on.
+#:
+#: THE DEFECT THIS FIXES. `GameIntro` (`ThreeManWeaveGame.tsx`) has no
+#: auto-dismiss by design -- Escape/backdrop/Start/Skip are the only ways it
+#: closes, all player-driven -- so nothing bounds how long a player may sit
+#: on it. An earlier version of this pass lengthened `OPENING_REVEAL_SECONDS`
+#: to 20.0s on the theory that this "comfortably outlasts a normal read".
+#: That is not the invariant a pre-game briefing has to satisfy: the
+#: requirement is that NO length of time spent reading it -- one second,
+#: twenty, sixty, an idle tab left open for arbitrarily long -- may consume
+#: any of it. A longer fixed window is safe for the median player and wrong
+#: for exactly the player this component exists to protect.
+#:
+#: THE FIX IS THE SAME PATTERN `PHASE_REVEAL` ALREADY ESTABLISHES, applied
+#: one layer earlier: a real turn, in its own phase, belonging to no seat,
+#: accepting no command from anybody. `initial_phase()` now opens every
+#: match here instead of directly on `PHASE_REVEAL` -- round one's ceremony
+#: (and by extension every later round, and every pick turn) cannot begin
+#: until this phase ends, by an explicit `COMMAND_SKIP_INTRO` or by its own
+#: (very long -- see `INTRO_SECONDS`) timeout. Because nothing downstream can
+#: open until this phase closes, no human pick deadline can ever be created
+#: while a player is legitimately still on it, for any duration -- including
+#: past this phase's own backstop timeout (see `INTRO_SECONDS` and
+#: `_abandon_match`): that timeout ends the MATCH, not the phase, so it can
+#: never be the thing that opens the ceremony a player never asked for.
+PHASE_INTRO = "intro"
+
+#: HOW LONG THE INTRO PHASE MAY RUN BEFORE THE MATCH IS ABANDONED.
+#:
+#: NOT a reading-time budget -- `COMMAND_SKIP_INTRO` is what a real player
+#: uses to end it, the instant they dismiss the dialog, so a fast reader
+#: never waits out this number. This is purely the "the tab was abandoned
+#: entirely, nobody is ever coming back to click anything" backstop every
+#: other phase in this mode already has (`REVEAL_SECONDS`, `TURN_SECONDS`),
+#: sized far beyond any plausible reading time -- including someone who
+#: walks away mid-read for a couple of minutes -- specifically so it can
+#: never be mistaken for the reading-time protection mechanism. That
+#: mechanism is the phase's existence, not its length.
+#:
+#: WHAT FIRING IT DOES IS DIFFERENT FROM EVERY OTHER PHASE'S TIMEOUT, ON
+#: PURPOSE. `REVEAL_SECONDS`/`TURN_SECONDS` timing out ADVANCES the match --
+#: that is safe there because a player who is genuinely still reading the
+#: ceremony dismisses it long before its own timeout, so reaching it means
+#: the match is meant to move on. The intro has no such floor: GameIntro
+#: has no auto-dismiss, so a still-open browser tab can sit on `PHASE_INTRO`
+#: indefinitely with nobody having done anything wrong. Advancing to
+#: `PHASE_REVEAL` on this timeout -- the very bug this phase exists to
+#: close -- would silently start the ceremony, and from there the pick
+#: clock, behind a briefing dialog nobody dismissed. So this timeout
+#: `_abandon_match`s instead: `MATCH_STATUS_ABANDONED`, no open turn, no
+#: further command ever accepted (`apply_command` refuses anything against
+#: a `TERMINAL_MATCH_STATUSES` match before a reducer runs) -- the same
+#: "cannot silently progress" guarantee every other terminal status here
+#: already gets, applied to the one phase where "keep going" is unsafe.
+INTRO_SECONDS = 1800.0
+
+#: The command a client sends to end the pre-match briefing early. See
+#: `_reduce_skip_intro`.
+COMMAND_SKIP_INTRO = "tmw_skip_intro"
 
 #: The command a client sends to end the ceremony early. See `_reduce_skip_reveal`.
 COMMAND_SKIP_REVEAL = "tmw_skip_reveal"
@@ -201,41 +274,53 @@ class ThreeManWeaveMode:
         return TURN_SECONDS
 
     def initial_phase(self) -> str:
-        # Round 1 opens on the ceremony, exactly like every later round.
-        return PHASE_REVEAL
+        # EVERY match opens on the pre-match briefing, never directly on the
+        # ceremony -- see `PHASE_INTRO`. `_reduce_skip_intro`/its own timeout
+        # is what opens round one's `PHASE_REVEAL`, exactly the way the
+        # ceremony's own end already opens the pick turn.
+        return PHASE_INTRO
 
     def phase_seconds(self, phase: str) -> float:
         """How long a turn in this phase lasts.
 
-        The ceremony is not a decision, so it does not get the decision
-        window. Round one's turn is opened by MATCHMAKING rather than by this
-        reducer, and without this hook it was stamped with `turn_seconds` --
-        so the first reveal of every match ran for 45 seconds while rounds two
-        through six correctly ran for `REVEAL_SECONDS`.
+        Neither the briefing nor the ceremony is a decision, so neither gets
+        the decision window. Round one's turn is opened by MATCHMAKING rather
+        than by this reducer, and without this hook it was stamped with
+        `turn_seconds` -- so the first reveal of every match ran for 45
+        seconds while rounds two through six correctly ran for
+        `REVEAL_SECONDS`.
 
-        AND BECAUSE ONLY ROUND ONE COMES THROUGH HERE, this is also where the
-        opening ceremony gets its longer window: it is the only one that runs
-        the matchup card before the reel. Every later round is opened by
-        `_reduce_pick` with `REVEAL_SECONDS`.
+        AND BECAUSE ONLY THE FIRST TURN COMES THROUGH HERE, this is also
+        where the pre-match briefing (`PHASE_INTRO`) and the opening
+        ceremony's own window are both looked up: they are the only phases
+        matchmaking ever opens directly. Every later round is opened by
+        `_reduce_pick`/`_reduce_skip_intro`/`_reduce_skip_reveal` with their
+        own constant.
         """
-        return OPENING_REVEAL_SECONDS if phase == PHASE_REVEAL else TURN_SECONDS
+        if phase == PHASE_INTRO:
+            return INTRO_SECONDS
+        if phase == PHASE_REVEAL:
+            return OPENING_REVEAL_SECONDS
+        return TURN_SECONDS
 
     def phase_accepts_action(self, phase: str) -> bool:
         """Whether a seat -- human or bot -- may play on a turn in this phase.
 
         Read by `arena.bots.drive_pending_bots`. Without it the driver reads a
         seatless turn as a SIMULTANEOUS one and lets every bot act, so the bots
-        would draft underneath the ceremony and the reveal would be over before
-        anybody saw it.
+        would draft underneath the briefing or the ceremony and either would
+        be over before anybody saw it.
         """
-        return phase != PHASE_REVEAL
+        return phase not in (PHASE_INTRO, PHASE_REVEAL)
 
     def initial_turn_seat(self, snapshot: dict) -> Optional[int]:
-        """The ceremony belongs to no seat, so the first turn names none.
+        """Neither the briefing nor the ceremony belongs to a seat, so the
+        first turn names none.
 
         The foundation seats the first turn from this hook; returning None is
         what makes `seconds_remaining` publish to EVERY seat, which is correct
-        here -- all three participants are watching the same reveal.
+        here -- all three participants are watching the same briefing (and,
+        later, the same reveal).
         """
         return None
 
@@ -269,8 +354,8 @@ class ThreeManWeaveMode:
     def bot_display_names(self, seed: int, count: int) -> tuple[str, ...]:
         """Distinct, human-facing names for this match's bot seats.
 
-        Archetypes rather than "PEAK3 Bot 1" and "PEAK3 Bot 2", which read as
-        placeholders in a mode whose whole surface is otherwise full of real
+        Archetypes rather than a numbered generic placeholder, which reads as
+        unfinished work in a mode whose whole surface is otherwise full of real
         people's names. Never a real player's name -- see `bot.py`.
         """
         return archetype_names(seed, count)
@@ -315,13 +400,40 @@ class ThreeManWeaveMode:
         if state.is_complete:
             return _reject(REJECT_MATCH_COMPLETE, "The match is already complete")
 
+        in_intro = data.open_turn is not None and data.open_turn.phase == PHASE_INTRO
+
         if command.command_type == COMMAND_TYPE_TIMEOUT:
+            # A TIMEOUT ON THE BRIEFING IS NOT THE BRIEFING ENDING -- unlike
+            # every other phase in this mode, nothing safe follows it. See
+            # `INTRO_SECONDS`/`_abandon_match`: this is the "nobody is ever
+            # coming back" backstop, so it ends the MATCH, never the phase --
+            # it must never be the thing that opens the ceremony, or the pick
+            # clock behind it, for a briefing nobody dismissed. Handled first,
+            # before the (pre-existing) reveal check below, since a match can
+            # be in only one of the two seatless phases at a time.
+            if in_intro:
+                return self._abandon_match(data, state)
             # A timeout ON THE CEREMONY is not a forfeit -- it is the ceremony
             # ending. Handled before `_reduce_timeout`, which would otherwise
             # auto-pick for a seat that has not been given its turn yet.
             if data.open_turn is not None and data.open_turn.phase == PHASE_REVEAL:
                 return self._open_pick_turn(data, state)
             return self._reduce_timeout(data, state)
+        if command.command_type == COMMAND_SKIP_INTRO:
+            return self._reduce_skip_intro(data, state)
+        # NOBODY ACTS UNDER THE BRIEFING, human or bot -- the bot driver is
+        # also stopped upstream by `phase_accepts_action`; this is the rule
+        # itself, so a command that arrives by any other route is refused
+        # rather than relying on the driver having been polite. Checked once,
+        # ahead of every other command, rather than duplicated per command
+        # type: the briefing is exactly as blocking as the ceremony is for
+        # `tmw_pick` below, and a future command must not have to remember to
+        # add this check itself.
+        if in_intro:
+            return _reject(
+                REJECT_NOT_YOUR_TURN,
+                "The pre-match briefing has not been dismissed yet.",
+            )
         if command.command_type == COMMAND_PICK:
             # NOBODY DRAFTS UNDER THE CEREMONY, human or bot. The bot driver is
             # also stopped upstream by `phase_accepts_action`; this is the rule
@@ -567,6 +679,103 @@ class ThreeManWeaveMode:
                 deadline_at=data.now + timedelta(seconds=TURN_SECONDS),
             ),
             status=MATCH_STATUS_ACTIVE,
+        )
+
+    def _reduce_skip_intro(
+        self, data: ReducerInput, state: D.DraftState
+    ) -> ReducerOutput:
+        """End the pre-match briefing NOW, on a player's say-so.
+
+        THE AUTHORITATIVE HALF OF THE FIX. `ThreeManWeaveGame.tsx`'s
+        `GameIntro` closes on Start, Skip, Escape or a backdrop click -- all
+        of them call this the instant the dialog closes, for whichever seat
+        closed it. Nothing about the ceremony or the pick turn can begin
+        before this runs at least once (see `initial_phase`), so however long
+        a player sits on the dialog, no clock anywhere in the match was
+        running during that time.
+
+        IT ENDS THE BRIEFING FOR THE TABLE, the same choice `_reduce_skip_
+        reveal` already makes for the ceremony and for the same reason: the
+        briefing is one shared fact shown to all three seats at once (a
+        practice match's two bot seats have no dialog to dismiss, so a human
+        seat closing it is the only way this phase ever ends before its own
+        backstop timeout), and a per-seat version would put seats on
+        different clocks for a phase that precedes anyone's turn.
+        """
+        if data.open_turn is None or data.open_turn.phase != PHASE_INTRO:
+            return _reject(
+                REJECT_NOT_YOUR_TURN,
+                "There is no briefing to skip.",
+            )
+        return self._open_ceremony_turn(data, state)
+
+    def _open_ceremony_turn(self, data: ReducerInput, state: D.DraftState) -> ReducerOutput:
+        """End the briefing and open round one's ceremony with a FULL window.
+
+        REACHED ONLY BY A PLAYER'S OWN SAY-SO (`_reduce_skip_intro`) -- the
+        intro's own backstop timeout does NOT reach this; see
+        `_abandon_match`. `data.now` is therefore always the instant a real
+        player actually dismissed the briefing, so the ceremony's
+        `OPENING_REVEAL_SECONDS` window is measured from THIS moment, never
+        from match creation. The reel and matchup card therefore always get
+        their full, undiminished presentation regardless of how long the
+        briefing itself was up.
+
+        The snapshot is unchanged: the briefing ending is a clock transition,
+        not a game event. Round one's roll already exists (drawn at match
+        creation by `initial_snapshot`, for the same determinism reason
+        `_open_round` documents), so nothing here redraws it or mutates any
+        roster.
+        """
+        return ReducerOutput(
+            accepted=True,
+            snapshot=self._to_snapshot(state),
+            events=(),
+            resolve_turn=TURN_RESOLUTION_ACTION,
+            open_turn=TurnDraft(
+                phase=PHASE_REVEAL,
+                seat_index=None,
+                deadline_at=data.now + timedelta(seconds=OPENING_REVEAL_SECONDS),
+            ),
+            status=MATCH_STATUS_ACTIVE,
+        )
+
+    def _abandon_match(self, data: ReducerInput, state: D.DraftState) -> ReducerOutput:
+        """The intro's own backstop timeout fires: end the MATCH, not the phase.
+
+        See `INTRO_SECONDS` for why this differs from every other phase's
+        timeout in this mode. Reaching this means the briefing has been open
+        for 1800 seconds with nobody -- not one of however many human seats
+        this match has -- ever sending `COMMAND_SKIP_INTRO`. That is not "a
+        slow reader"; `COMMAND_SKIP_INTRO` costs nothing and fires the moment
+        `GameIntro` closes for ANY seat (`_reduce_skip_intro`), so a table
+        with even one attentive human never reaches this. It is the "tab
+        abandoned entirely" case the docstring on `INTRO_SECONDS` names, and
+        the only safe response to it is to stop, not to advance: opening the
+        ceremony here would start it -- and, once ITS OWN timeout later
+        fires, the pick clock after it -- behind a briefing dialog nobody
+        ever dismissed, which is the exact defect `PHASE_INTRO` exists to
+        close.
+
+        `MATCH_STATUS_ABANDONED` (not `MATCH_STATUS_COMPLETED`): nothing was
+        ever played -- no roster holds a pick, there is no scoreline to
+        settle -- so there is nothing to score a receipt for, unlike a
+        mid-draft forfeit. `open_turn=None` leaves no turn to time out again;
+        `apply_command` refuses every command against a
+        `TERMINAL_MATCH_STATUSES` match before any reducer runs, so no
+        further state change of any kind -- pick, rearrange, another
+        timeout -- reaches this match again. The snapshot itself is
+        untouched (still zero picks, still round one's original roll): this
+        is a clock verdict, not a game event, so there is nothing to narrate
+        and no roster to rewrite.
+        """
+        return ReducerOutput(
+            accepted=True,
+            snapshot=self._to_snapshot(state),
+            events=(),
+            resolve_turn=TURN_RESOLUTION_TIMEOUT,
+            open_turn=None,
+            status=MATCH_STATUS_ABANDONED,
         )
 
     def _reduce_skip_reveal(
@@ -826,10 +1035,19 @@ class ThreeManWeaveMode:
             }
             # Repositioning your own roster is legal whenever the match is
             # live, on or off the clock -- it takes nothing from anybody.
-            if not state.is_complete and roster.picks():
+            # `match.is_live()` (not just `state.is_complete`) gates this: an
+            # ABANDONED match (see `_abandon_match`) leaves the snapshot
+            # completely untouched -- still round one's original roll, still
+            # zero picks made -- so `state.is_complete` alone would not catch
+            # it, and a stale client would be told a pick was legal for a
+            # match `apply_command` will refuse outright. `is_live` is a
+            # METHOD on `ArenaMatch`, not a property -- called here, not
+            # merely referenced, so this is the actual boolean and not an
+            # always-truthy bound-method object.
+            if match.is_live() and not state.is_complete and roster.picks():
                 legal_commands = (COMMAND_REARRANGE,)
 
-            if state.current_seat == seat_index and current_roll is not None:
+            if match.is_live() and state.current_seat == seat_index and current_roll is not None:
                 fits = D.candidate_fits(state, get_index(), seat_index)
                 private_state["candidate_fits"] = {
                     slug: fit.as_dict() for slug, fit in sorted(fits.items())
@@ -1174,9 +1392,12 @@ register_bot()
 
 __all__ = [
     "COMMAND_PICK",
+    "COMMAND_SKIP_INTRO",
     "COMMAND_SKIP_REVEAL",
+    "INTRO_SECONDS",
     "OPENING_REVEAL_SECONDS",
     "REVEAL_SECONDS",
+    "PHASE_INTRO",
     "PHASE_REVEAL",
     "ThreeManWeaveBot",
     "bot",

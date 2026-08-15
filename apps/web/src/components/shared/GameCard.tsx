@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
+import { StatusChip } from "@/components/ui/StatusChip";
 
 /**
  * Surface tier. Three visibly different treatments so a grid of modes is not
@@ -28,6 +29,14 @@ export interface GameCardProps {
   /** The flagship treatment: accent border, glow, larger type. Exactly one card
    *  per screen should use it, or it stops meaning anything. */
   featured?: boolean;
+  /**
+   * Per-mode identity accent — a `--comp-*` token stem (e.g. `"comp-team"`),
+   * from `ModeCopy.accent`. Restrained, additive differentiation for a HUB of
+   * distinct games: it tints the icon chip and the eyebrow, nothing else.
+   * Ignored on a `featured` card — gold is the flagship's one signal, and a
+   * second colour on top of it would compete rather than differentiate.
+   */
+  accent?: string;
   cta?: string;
   testId?: string;
   /** Surface tier. Defaults to `inset`, the pre-existing appearance. */
@@ -92,12 +101,16 @@ export default function GameCard({
   status,
   meta,
   featured,
+  accent,
   cta,
   testId,
   tone = "inset",
   compact,
   revealIndex,
 }: GameCardProps) {
+  // `featured` always wins: gold is the one signal reserved for the
+  // flagship, so a per-mode accent never renders alongside it.
+  const modeAccent = !featured && accent ? accent : undefined;
   const pad = compact ? "p-4" : "p-4 sm:p-5";
   // `.pk-lift-lg` rather than `.pk-lift`: the whole card is the link, so the
   // response should read at the scale of the object being pointed at. Paired
@@ -111,6 +124,7 @@ export default function GameCard({
       data-testid={testId}
       data-featured={featured ? "true" : "false"}
       data-tone={featured ? "featured" : tone}
+      data-accent={modeAccent ?? undefined}
       className={`pk-game-card pk-lift pk-lift-lg pk-press group ${motion} ${pad} ${featured && !compact ? "sm:p-6" : ""}`}
       style={
         revealIndex === undefined
@@ -128,9 +142,17 @@ export default function GameCard({
               aria-hidden="true"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
               style={{
-                background: featured ? "var(--peak-accent-bg)" : "var(--bg-surface)",
+                background: featured
+                  ? "var(--peak-accent-bg)"
+                  : modeAccent
+                    ? `color-mix(in srgb, var(--${modeAccent}) 14%, transparent)`
+                    : "var(--bg-surface)",
                 border: "1px solid var(--border-subtle)",
-                color: featured ? "var(--peak-accent)" : "var(--text-secondary)",
+                color: featured
+                  ? "var(--peak-accent)"
+                  : modeAccent
+                    ? `var(--${modeAccent})`
+                    : "var(--text-secondary)",
               }}
             >
               {icon}
@@ -149,7 +171,11 @@ export default function GameCard({
               <p
                 className="home-eyebrow"
                 style={{
-                  color: featured ? "var(--peak-accent-text)" : "var(--text-secondary)",
+                  color: featured
+                    ? "var(--peak-accent-text)"
+                    : modeAccent
+                      ? `var(--${modeAccent}-text)`
+                      : "var(--text-secondary)",
                 }}
               >
                 {eyebrow}
@@ -167,7 +193,30 @@ export default function GameCard({
             </h3>
           </div>
         </div>
-        {status && <div className="shrink-0 text-right">{status}</div>}
+        {(featured || status) && (
+          <div className="flex shrink-0 flex-col items-end gap-1.5 text-right">
+            {/* gameplay-experience-polish: the gold surface treatment alone
+                was judged not to be a sufficient flagship signal on its own
+                -- this is the explicit, player-facing "FLAGSHIP" badge the
+                product brief asked for. `StatusChip`'s `accent` tone is the
+                exact same frozen gold pair (`--peak-accent-text`/`-bg`/
+                `-dim`) already audited for WCAG AA in both themes (see that
+                component's own P3-G2 comment), so this introduces no new
+                colour and no new contrast risk. A `title` attribute states
+                what the badge means for anyone landing on it without
+                reading the rest of the card. */}
+            {featured && (
+              <StatusChip
+                tone="accent"
+                data-testid="flagship-badge"
+                title="PEAK3's flagship mode"
+              >
+                Flagship
+              </StatusChip>
+            )}
+            {status}
+          </div>
+        )}
       </div>
 
       <p
