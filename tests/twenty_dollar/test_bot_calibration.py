@@ -268,6 +268,44 @@ def _one_slot_short(seed: int, pool, missing: str = "C") -> dict:
     return state
 
 
+def _two_slots_short(seed: int, pool, missing_by_seat: dict[int, str]) -> dict:
+    """Like `_one_slot_short`, but each seat is one slot short of a
+    DIFFERENT position -- the "one bidder needs PG, the other needs C" shape
+    the eligibility union has to serve without collapsing to either alone.
+    """
+    state = S.initial_state(seed=seed)
+    used: set[str] = set()
+
+    for seat_index, missing in missing_by_seat.items():
+        filled = [slot for slot in ("PG", "SG", "SF", "PF", "C") if slot != missing]
+        chosen = []
+        for slot in filled:
+            for candidate in pool.qualified:
+                if candidate.player_slug in used:
+                    continue
+                if candidate.positions == frozenset({slot}):
+                    chosen.append(candidate)
+                    used.add(candidate.player_slug)
+                    break
+            else:  # pragma: no cover - the pool has singles at every slot
+                pytest.skip(f"no single-position {slot} left in the qualified pool")
+        state["seats"][seat_index]["roster"] = [
+            {
+                "player_slug": candidate.player_slug,
+                "price": 1,
+                "lot_index": index,
+                "round_index": index,
+            }
+            for index, candidate in enumerate(chosen)
+        ]
+        state["seats"][seat_index]["budget"] = 8
+        state["offered"].extend(c.player_slug for c in chosen)
+
+    state["lot_index"] = STANDARD_MARKET_LOTS
+    S._advance_lot(state, pool)
+    return state
+
+
 def _closeout_offers(seed: int, pool, missing: str = "C") -> list:
     """Every closeout lot's candidate, in order, as `(slug, fits)`.
 
@@ -334,30 +372,76 @@ def test_the_closeout_market_never_starves_an_incomplete_roster(seed, pool):
         )
 
 
-def test_the_closeout_market_still_offers_players_nobody_needs(pool):
-    """The guarantee must not become "every card fits the missing position".
+def test_the_closeout_market_never_offers_a_player_nobody_can_roster(pool):
+    """THE FIX FOR THE REPORTED "market repeatedly rolls players that no
+    remaining bidder can roster" DEFECT.
 
-    A closeout market that served the answer every lot would be a vending
-    machine. With both seats needing a centre, at least some lots must still be
-    guards and forwards drawn from the open market.
+    This SUPERSEDES the earlier version of this test, which asserted the
+    opposite: that with both incomplete seats needing the same single slot
+    (a centre), a meaningful share of closeout candidates must still be
+    guards and forwards nobody in the market could use. That was correct
+    ONLY because a variety requirement outranked eligibility -- and it is
+    exactly what a player watching one bidder with one open slot see
+    Markkanen, then Daugherty, then another SG-ineligible name, each
+    auto-skipped in turn, reported as the game malfunctioning. `_eligible_
+    candidates` (`state._advance_lot`) now removes a candidate from the draw
+    the instant NO still-incomplete seat could legally win it, so every
+    closeout lot -- not merely most -- fits at least one of the two stuck
+    rosters here.
     """
-    non_fitting = 0
-    total = 0
     for seed in (11, 202, 3003, 40404, 555555, 6060, 777777):
-        for _slug, fits in _closeout_offers(seed, pool):
-            total += 1
-            if not fits:
-                non_fitting += 1
-    assert total > 0
-    assert non_fitting > 0, (
-        "every closeout candidate fitted an incomplete roster -- the market is "
-        "serving the missing position rather than drawing from it"
+        offers = _closeout_offers(seed, pool)
+        assert offers, f"seed {seed}: the closeout market offered nothing"
+        for slug, fits in offers:
+            assert fits, (
+                f"seed {seed}: closeout offered {slug!r}, which fits neither "
+                "roster still waiting on a centre -- an unrosterable lot was "
+                "presented instead of being filtered out before the draw"
+            )
+
+
+def test_the_market_still_draws_broadly_when_open_needs_differ(pool):
+    """THE OTHER HALF OF THE GUARANTEE: the eligibility filter is a UNION over
+    every still-incomplete seat, never one seat's needs alone, so it must not
+    collapse to a single position's vending machine the moment needs merely
+    DIFFER rather than coincide.
+
+    Seat 0 is one slot short at PG; seat 1 is one slot short at C. Every
+    closeout candidate must fit at least one of the two -- the eligibility
+    guarantee -- but across enough lots the offers must include BOTH
+    PG-only and C-only players, not only whichever the market happens to
+    reach for first. A market that quietly narrowed to one of the two needs
+    would still pass "fits at least one seat" while failing the actual
+    product requirement CLAUDE.md and the task both name: "if two bidders
+    remain and one needs PG while the other needs C, the market may roll a
+    player eligible for PG OR C."
+    """
+    saw_pg_only = False
+    saw_c_only = False
+    saw_illegal = False
+    for seed in (11, 202, 3003, 40404, 555555, 6060, 777777, 8181, 909090):
+        state = _two_slots_short(seed, pool, missing_by_seat={0: "PG", 1: "C"})
+        guard = 0
+        while not S.is_complete(state) and state.get("current_candidate"):
+            guard += 1
+            assert guard < 100, f"seed {seed}: closeout market did not terminate"
+            candidate = pool.get(state["current_candidate"])
+            fits_pg = "PG" in candidate.positions
+            fits_c = "C" in candidate.positions
+            if not (fits_pg or fits_c):
+                saw_illegal = True
+            if fits_pg and not fits_c:
+                saw_pg_only = True
+            if fits_c and not fits_pg:
+                saw_c_only = True
+            S._resolve_lot(state, pool, decided_by=S.DECIDED_BY_UNSOLD)
+
+    assert not saw_illegal, (
+        "the market offered a candidate eligible for neither seat's open "
+        "position -- the union eligibility filter let one through"
     )
-    assert non_fitting / total > 0.25, (
-        f"only {non_fitting} of {total} closeout candidates were players the "
-        "stuck rosters could not use -- the market is too tailored"
-    )
-    assert non_fitting < total, "the guarantee never fired"
+    assert saw_pg_only, "the market never offered a PG-only candidate"
+    assert saw_c_only, "the market never offered a C-only candidate"
 
 
 # ---------------------------------------------------------------------------

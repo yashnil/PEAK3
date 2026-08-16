@@ -598,6 +598,96 @@ def test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock():
     )
 
 
+def test_no_reachable_state_has_an_open_turn_with_no_seat_no_command_and_no_deadline():
+    """THE DEADLOCK INVARIANT, reported from manual testing as: a match sits on
+    Round 1 / Pick 1 with the franchise and decade visible, "Rolling the next
+    franchise and decade" and "Standing by" forever, no ceremony, no pick
+    surface, no legal command anywhere.
+
+    Every state observed while walking a fresh VS-BOTS match from creation
+    through its opening roll and into the draft must satisfy at least one of:
+
+      A. `current_turn_seat_index` is this human's own seat, and the private
+         projection actually offers a legal pick (`legal_picks` non-empty) --
+         an actionable human turn, not merely an advertised one.
+      B. `current_turn_seat_index` names a bot seat -- and the bot resolves
+         it within a bounded number of polls, proving the driver is actually
+         reachable rather than merely registered.
+      C. There is no open turn at all, and the match's status is terminal
+         (`completed`/`abandoned`) -- a legitimate stopping point.
+
+    And never: an open turn -- seated or seatless -- that persists with no
+    seat on it, no bot able to resolve it, and no human command the private
+    projection will accept. Walked for all three human seat assignments
+    (`config.human_seat_index` rotates it), since the reported defect could in
+    principle depend on whether the human leads round one or not.
+    """
+    for target_seat in range(3):
+        client = _client_as(f"user-seat-{target_seat}")
+        view = _weave_with_human_at_seat(client, target_seat)
+        match_id = view["match_id"]
+        you = view["your_seat_index"]
+        assert you == target_seat
+
+        polls_waiting_on_bots_or_ceremony = 0
+        for _ in range(120):
+            if view["public_state"]["is_complete"]:
+                break
+
+            match_row = _memory_arena_repo._matches[match_id]
+            turn = next(
+                (t for t in _memory_arena_repo._turns.get(match_id, []) if t.resolved_at is None),
+                None,
+            )
+            if turn is None:
+                assert match_row.status in ("completed", "abandoned"), (
+                    f"seat {target_seat}: no open turn and match status is "
+                    f"{match_row.status!r} -- a live match with nothing "
+                    "scheduled and nothing actionable"
+                )
+                break
+
+            # EVERY OPEN TURN CARRIES A SCHEDULED TRANSITION. A turn with no
+            # deadline at all could never be swept by `clock.enforce`, which
+            # is exactly the "no scheduled server transition" shape named in
+            # the report.
+            assert turn.deadline_at is not None, (
+                f"seat {target_seat}: an open turn with no deadline at all"
+            )
+
+            if turn.seat_index == you:
+                # (A) THE HUMAN'S OWN TURN MUST BE ACTIONABLE, not merely
+                # open. `legal_picks` is the strict, already-computed answer
+                # to "can this seat act right now" -- an empty dict here,
+                # with the turn genuinely seated on this human, is the
+                # deadlock itself.
+                legal = view["private_state"].get("legal_picks") or {}
+                assert legal, (
+                    f"seat {target_seat}: the human's own open turn offered "
+                    "no legal pick"
+                )
+                slug = sorted(legal)[0]
+                view = _command(
+                    client, match_id, view, "tmw_pick",
+                    {"player_slug": slug, "slot_type": legal[slug][0]},
+                )["match"]
+                continue
+
+            # (B) EITHER A BOT'S TURN OR A SEATLESS PHASE (the briefing or the
+            # ceremony). Both must actually advance under polling alone --
+            # `_poll` is exactly a real client's own polling: it dismisses an
+            # open briefing with the real `tmw_skip_intro` command, ages a
+            # bot's think delay, and sweeps an overdue ceremony -- never a
+            # test-only shortcut into the reducer.
+            polls_waiting_on_bots_or_ceremony += 1
+            view = _poll(client, match_id)
+
+        assert polls_waiting_on_bots_or_ceremony < 120, (
+            f"seat {target_seat}: never became actionable within the poll "
+            "budget -- this is the reported deadlock"
+        )
+
+
 # ---------------------------------------------------------------------------
 # THE FRANCHISE x DECADE CEREMONY, THROUGH THE REAL ROUTES
 #

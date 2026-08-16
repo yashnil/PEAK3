@@ -1415,6 +1415,18 @@ html, body {
   position: relative;
   border-radius: 16px;
   overflow: hidden;
+  /* Bug 4 (82-0 respin clipping): this card sits inside `.courtb-overlay-body`,
+     a column flexbox with `overflow-y: auto`. A flex item whose own overflow
+     is non-visible gets an AUTOMATIC MIN-HEIGHT OF 0 (CSS Flexbox §4.5), so
+     without this, the browser was free to shrink the card below its content's
+     natural height whenever a respin's content (a two-line locked team name,
+     the ticking reel window) needed more room than the settled state did --
+     and because the shrink target is this element's OWN `overflow: hidden`,
+     the deficit was clipped silently at this card's bottom edge instead of
+     ever reaching `.courtb-overlay-body`'s scroll region, which never even
+     saw the overflow. `flex-shrink: 0` forces layout at full natural height
+     every time, so the body's already-existing scroll takes over instead. */
+  flex-shrink: 0;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
 }
@@ -2936,12 +2948,20 @@ html, body {
    One custom property per breakpoint, because "immutable" is a promise about
    states WITHIN a layout, not about responsive layouts being identical. */
 .court-panel-wrapper {
-  --court-slot-h: 108px;
+  /* Bug 5 (occupied-card polish): 108px left a filled card's real content --
+     the label row, a 2-line name clamp, a 2-line team/season clamp, and the
+     Move affordance -- almost exactly filling the box with no margin for
+     error, which is what made the narrow SG/SF/PF/C columns (roughly half a
+     PG card's width, see .roster-board-starters' grid-template-areas) read
+     as compressed rather than merely narrower. The extra height is uniform
+     across every slot including bench, not just the tight ones, so PG and
+     the wing slots stay the same design system at different widths. */
+  --court-slot-h: 132px;
 }
 
 @container court-panel (max-width: 380px) {
   .court-panel-wrapper {
-    --court-slot-h: 100px;
+    --court-slot-h: 122px;
   }
 }
 
@@ -2961,11 +2981,16 @@ html, body {
 }
 
 /* The Move affordance, riding INSIDE the fixed card: full 44x44 hit target
-   (the button), small pill of paint (the span), zero height contribution. */
+   (the button), small pill of paint (the span), zero height contribution.
+   Bug 5: this used to sit at right/bottom -4px -- OUTSIDE the card's own
+   padding, overhanging the rounded corner it was supposed to sit inside of,
+   which is the literal "pushed into the lower-right corner... visually
+   detached" complaint. A positive inset gives it the same breathing room as
+   every other edge of the card's content instead of hanging off it. */
 .court-slot-move {
   position: absolute;
-  right: -4px;
-  bottom: -4px;
+  right: 6px;
+  bottom: 6px;
   z-index: 2;
   display: flex;
   align-items: center;

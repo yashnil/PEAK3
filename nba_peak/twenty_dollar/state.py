@@ -408,21 +408,87 @@ def _lot_stream(seed: int, lot_index: int) -> random.Random:
 def _available_candidates(state: dict, pool: CandidatePool) -> list[Candidate]:
     """Every qualified player still on the board, in canonical pool order.
 
-    THE STANDARD MARKET DRAWS FROM THIS AND NOTHING NARROWER, which is a
-    deliberate reversal. An earlier ruleset filtered each lot to candidates at
-    least one seat could legally win, on the reasoning that an unwinnable lot
-    is a wasted one. The effect in play was worse than the waste: as rosters
-    filled, the board visibly converged on whatever position each participant
-    was missing, so the last few lots served the answer instead of asking a
-    question. A player with only PG open saw only point guards.
-
-    So a lot is now a draw from the market, not a delivery. A candidate neither
-    seat can use simply goes unsold -- both seats auto-pass at no cost to their
-    skips -- and the lot counter still advances, which is what keeps
-    termination provable without narrowing the pool.
+    Not taken, not already offered. Says nothing about who could legally win
+    any of them -- see `_eligible_candidates`, which is what a lot is actually
+    drawn from.
     """
     gone = _taken_slugs(state) | set(state["offered"])
     return [c for c in pool.qualified if c.player_slug not in gone]
+
+
+def _eligible_candidates(
+    state: dict,
+    pool: CandidatePool,
+    available: list[Candidate],
+    supply: Optional[feasibility.PositionSupply] = None,
+) -> list[Candidate]:
+    """`available`, narrowed to candidates AT LEAST ONE STILL-INCOMPLETE SEAT
+    could legally acquire.
+
+    THE RULE. Before a lot is put up, this is what the market is actually
+    allowed to draw from: a candidate nobody left in the auction could ever
+    legally buy is not a lot, it is a stall wearing one. `can_seat_acquire` is
+    the single, already-tested position-eligibility contract (bipartite
+    matching over what a seat owns, what it still needs, and what remains in
+    the pool -- `feasibility.can_acquire`), asked once per distinct position
+    set rather than once per candidate for the same reason `_fits_seat` does.
+
+    THE DEFECT THIS REPLACES. This function used to not exist: the standard
+    market drew from `_available_candidates` with no eligibility filter at
+    all, on the theory that filtering "converges the board on the answer" as
+    rosters fill. That reasoning does not survive contact with a two-seat
+    market where every roster, budget and open slot is ALREADY public
+    information (see this module's own docstring, "WHAT IS STILL HIDDEN, AND
+    UNTIL WHEN" -- position need has never been the hidden thing; the
+    candidate's score is). With nothing left to protect, the unfiltered draw
+    only produced a real, reported failure: a market down to one seat with one
+    open slot rolled repeatedly-unusable players lot after lot, each one
+    immediately auto-passed by both sides as a short seatless beat
+    (`is_unwinnable_lot_pending`) before the next equally-unusable roll
+    appeared -- a player watching the board saw the game visibly malfunction
+    rather than saw a market.
+
+    WHY THIS DOES NOT REINTRODUCE THAT SAME TELEGRAPHING COMPLAINT. The filter
+    is the UNION of every still-incomplete seat's legal wins, never one seat's
+    alone. Early in a match both rosters have every slot open, so the union is
+    every candidate the qualified pool has -- this is a no-op until a slot
+    somewhere actually closes. It only narrows once a POSITION has become
+    unusable to EVERY remaining bidder at once, which is exactly the state in
+    which continuing to roll it is not variety, it is noise.
+
+    NO SEAT THAT HAS COMPLETED ITS ROSTER, OR THAT COULD NOT AFFORD A DOLLAR
+    MORE, WIDENS THIS POOL. Both are already excluded by `can_seat_acquire`
+    (a full roster returns `False` outright; an unaffordable one fails the
+    reserve check) -- named here because a caller reading only the seat
+    ROSTER for "who is still eligible" would be tempted to skip re-checking
+    money and arrive at the wrong pool for the same reason a per-slot count is
+    the wrong feasibility check (see `feasibility`'s own module docstring).
+
+    Returns an EMPTY list when no still-incomplete seat can legally acquire
+    anything left in `available` -- `_advance_lot` reads that as pool
+    exhaustion and auto-fills, the same deterministic terminal path a
+    genuinely empty `available` already took. That is the one new outcome
+    this function can produce that `_available_candidates` alone could not:
+    the pool is not empty, but nothing in it is winnable by anybody left, and
+    the match must still terminate rather than keep spinning invalid lots.
+    """
+    incomplete = _incomplete_seats(state)
+    if not incomplete:
+        return []
+    base = supply if supply is not None else _supply(state, pool)
+    verdict: dict[frozenset[str], bool] = {}
+    out: list[Candidate] = []
+    for candidate in available:
+        cached = verdict.get(candidate.positions)
+        if cached is None:
+            cached = any(
+                can_seat_acquire(state, seat_index, candidate, pool, base)
+                for seat_index in incomplete
+            )
+            verdict[candidate.positions] = cached
+        if cached:
+            out.append(candidate)
+    return out
 
 
 def _fits_seat(
@@ -548,7 +614,10 @@ def _advance_lot(state: dict, pool: CandidatePool, *, first: bool = False) -> No
          incomplete -> switch to the CLOSEOUT MARKET, which keeps drawing but
          guarantees each incomplete roster a usable candidate on a bounded
          schedule.
-      4. No candidate remains at all -> auto-fill. Reaching this against the
+      4. No ELIGIBLE candidate remains -> auto-fill. Either the qualified pool
+         is genuinely empty, or everything left in it is unwinnable by every
+         seat still short a slot (`_eligible_candidates`) -- both mean no
+         further lot could ever be validly offered. Reaching this against the
          qualified 500 would require a pathological board; implemented rather
          than asserted-impossible because "cannot happen" is not a proof.
     """
@@ -568,17 +637,39 @@ def _advance_lot(state: dict, pool: CandidatePool, *, first: bool = False) -> No
         state["market_phase"] = MARKET_CLOSEOUT
 
     available = _available_candidates(state, pool)
-    if not available:
+    # ONE SUPPLY SNAPSHOT, TAKEN BEFORE `chosen` IS APPENDED TO `offered`, AND
+    # REUSED FOR EVERY `can_seat_acquire` CALL BELOW THAT SETTLES ON THE SAME
+    # DRAW. `_supply` excludes offered candidates from the future-fillers
+    # count, so a `can_seat_acquire` call made AFTER the append would count
+    # `chosen` as already gone from that pool a second time -- once by the
+    # exclusion, once more by `PositionSupply.without(candidate.positions)`
+    # inside `can_seat_acquire` itself, which is a real double-decrement
+    # whenever another player shares `chosen`'s exact position set. That is
+    # the gap that could, in principle, still flip a seat `_eligible_
+    # candidates` already certified could acquire `chosen` into a pre-seeded
+    # pass a moment later -- reopening the exact "unwinnable park" this pass
+    # exists to make unreachable through the ordinary draw. One snapshot,
+    # reused everywhere the verdict must agree with `_eligible_candidates`'
+    # own, closes it.
+    supply = _supply(state, pool) if available else None
+    eligible = _eligible_candidates(state, pool, available, supply) if available else []
+    if not eligible:
+        # EITHER the pool is genuinely empty, OR it is not -- but nothing left
+        # in it can be legally won by any seat still short a slot. Both are
+        # the same deterministic terminal path: nothing further can be validly
+        # offered, so the match auto-fills rather than keep spinning lots no
+        # bidder could ever act on.
         _autofill(state, pool, reason="pool_exhausted")
         return
 
     rng = _lot_stream(state["seed"], state["lot_index"])
-    # THE DRAW IS FREE FIRST, GUARANTEED SECOND. Even in the closeout market
-    # the market draws from the whole board; only if that draw misses the seat
-    # that has waited longest is it redrawn among candidates that seat can
-    # actually use. A closeout lot is therefore usually still a real market
-    # lot, and non-fitting candidates keep appearing.
-    chosen, tier_label = _draw_candidate(available, rng)
+    # THE DRAW IS FREE FIRST WITHIN THE ELIGIBLE POOL, GUARANTEED SECOND. Every
+    # member of `eligible` already fits at least one still-incomplete seat --
+    # see `_eligible_candidates` -- so this draw can never surface a candidate
+    # nobody could act on. What is not yet guaranteed is BOTH waiting seats at
+    # once in the closeout market; only if the free draw misses one of them is
+    # it redrawn among candidates that seat specifically can use.
+    chosen, tier_label = _draw_candidate(eligible, rng)
     priority = _closeout_priority_seats(state)
     if priority and not any(
         can_seat_acquire(state, index, chosen, pool) for index in priority
@@ -586,7 +677,7 @@ def _advance_lot(state: dict, pool: CandidatePool, *, first: bool = False) -> No
         # Prefer a candidate who serves EVERY waiting seat, and fall back to
         # the longest-waiting one alone. The fallback is the only path by which
         # a seat waits a third lot; see `_closeout_priority_seats`.
-        fitting = _fits_seat(state, priority[0], available, pool)
+        fitting = _fits_seat(state, priority[0], eligible, pool)
         for index in priority[1:]:
             both = _fits_seat(state, index, fitting, pool)
             if both:
@@ -606,7 +697,7 @@ def _advance_lot(state: dict, pool: CandidatePool, *, first: bool = False) -> No
         for index in range(len(state["seats"])):
             if _roster_full(state["seats"][index]):
                 dry[index] = 0
-            elif can_seat_acquire(state, index, chosen, pool):
+            elif can_seat_acquire(state, index, chosen, pool, supply):
                 dry[index] = 0
             else:
                 dry[index] += 1
@@ -624,8 +715,13 @@ def _advance_lot(state: dict, pool: CandidatePool, *, first: bool = False) -> No
     # starts, rather than being handed a turn whose only legal move is a pass.
     # That is what stops a finished roster from being asked to bid, and it is
     # why `active_seat` below can never land on a seat with nothing to do.
+    #
+    # `supply` -- THE SAME PRE-APPEND SNAPSHOT `_eligible_candidates` already
+    # certified `chosen` against -- not a fresh recount. See the comment above
+    # `supply`'s own assignment for why recomputing here could disagree.
     state["passed"] = [
-        not can_seat_acquire(state, i, chosen, pool) for i in range(len(state["seats"]))
+        not can_seat_acquire(state, i, chosen, pool, supply)
+        for i in range(len(state["seats"]))
     ]
     state["active_seat"] = _next_actor(state, state["opening_seat"])
     # NOBODY CAN USE THIS CANDIDATE is a normal outcome, not an impossible

@@ -14,6 +14,7 @@ import {
   TMW_OPENING_REVEAL_SECONDS,
   TMW_REVEAL_SECONDS,
   TMW_TURN_PHASE_INTRO,
+  TMW_TURN_PHASE_REVEAL,
 } from "@/types/three-man-weave";
 import {
   ArenaAPIError,
@@ -412,17 +413,20 @@ export default function ThreeManWeaveGame({
    *
    * A REAL COMMAND, not a local dismiss: the pick turn does not exist until the
    * reveal turn closes, so hiding the overlay here would hand the player a
-   * board that refuses every action. A rejection is swallowed rather than
-   * shown — the only way this fails is that the ceremony already ended, which
-   * is what the player asked for.
+   * board that refuses every action. The RESPONSE is returned to the caller
+   * rather than swallowed here -- `dismissIntro` is the one place that decides
+   * whether a rejection or a dropped request is safe to ignore, because only
+   * it knows whether the phase this call was trying to end is gating the only
+   * entry point into the room. See `dismissIntro` for why that distinction
+   * matters.
    */
   const skipReveal = useCallback(async () => {
-    if (busy || inFlight.current) return;
+    if (busy || inFlight.current) return null;
     setBusy(true);
     try {
-      await send(TMW_COMMAND_SKIP_REVEAL, {});
+      return await send(TMW_COMMAND_SKIP_REVEAL, {});
     } catch {
-      /* the ceremony expires on its own a moment later */
+      return null;
     } finally {
       setBusy(false);
     }
@@ -441,40 +445,93 @@ export default function ThreeManWeaveGame({
    * ever consume any of it. This command is a real server call, not a local
    * dismiss, for the same reason `skipReveal` is: hiding the dialog without
    * it would leave the client believing a game had started that the server
-   * had not yet begun.
+   * had not yet begun. The response is returned rather than swallowed -- see
+   * `dismissIntro`.
    */
   const skipIntro = useCallback(async () => {
-    if (busy || inFlight.current) return;
+    if (busy || inFlight.current) return null;
     setBusy(true);
     try {
-      await send(TMW_COMMAND_SKIP_INTRO, {});
+      return await send(TMW_COMMAND_SKIP_INTRO, {});
     } catch {
-      /* the briefing expires on its own, eventually -- see INTRO_SECONDS */
+      return null;
     } finally {
       setBusy(false);
     }
   }, [busy, send]);
 
   /**
-   * DISMISSING THE DIALOG SENDS WHICHEVER SEATLESS PHASE IS ACTUALLY OPEN.
+   * DISMISSING THE DIALOG SENDS WHICHEVER SEATLESS PHASE IS ACTUALLY OPEN --
+   * AND DOES NOT CLOSE THE DIALOG UNTIL THE SERVER CONFIRMS IT MOVED.
    *
-   * Every match opens on `TMW_TURN_PHASE_INTRO`, so this is `skipIntro` in
-   * the overwhelming common case. The `reveal` branch exists only for a
-   * genuine edge: `GameIntro`'s own dismiss can race a poll that has already
-   * swept the briefing's (very long, but finite) backstop timeout into the
-   * ceremony between renders. Checking the CURRENT phase rather than always
-   * calling `skipIntro` means dismissing still does something useful even in
-   * that rare race, instead of failing with "there is no briefing to skip"
-   * and leaving the ceremony to run its own course unskipped.
+   * THE DEADLOCK THIS FIXES (production regression). `markIntroSeen` writes to
+   * localStorage FOREVER for this match id, and the dialog's own initial-open
+   * state (`useState(() => !hasSeenIntro(...))`) only ever reads that flag
+   * once, on mount. The previous version called `markIntroSeen` and closed the
+   * dialog THE INSTANT the button was pressed, before the server had answered
+   * at all: `skipIntro`/`skipReveal` fired the command and swallowed whatever
+   * came back, success or not. A single dropped response, a stale
+   * `expected_state_version`, or the `busy`/`inFlight` guard above simply
+   * declining to send (a fast double-press) all left `PHASE_INTRO` (or
+   * `PHASE_REVEAL`) open on the SERVER while the CLIENT had already thrown
+   * away its only door out of it -- the dialog will not reopen on this
+   * browser, ever, for this match, and nothing else in the room can act
+   * during a seatless phase (`isBriefing`/`isRevealing` gate `canPick`
+   * unconditionally). The room then sits exactly as reported: the roll
+   * already visible (drawn at match creation), "Rolling the next franchise
+   * and decade" (`current_turn_seat_index` is null throughout both seatless
+   * phases), "Standing by", and no legal command anywhere -- for up to
+   * `INTRO_SECONDS` (30 minutes) until the server's own backstop abandons the
+   * match outright.
+   *
+   * THE FIX. Closing the dialog is now conditioned on the SERVER'S answer,
+   * read off the response's own `match.turn_phase` rather than off whether
+   * this particular command was the one `accepted`: a rejection can still
+   * carry proof the match already moved past the gate (a resolved race with
+   * another seat's dismiss, or a replay of an earlier attempt that actually
+   * landed), and that must close the dialog exactly as a fresh acceptance
+   * would. Only when the authoritative phase is STILL a seatless one does the
+   * dialog stay open and mounted -- with `starting` disabling its buttons
+   * while a request is in flight, never leaving the player with no door at
+   * all. A retry press is always available, and because the mode never
+   * caches a REJECTION under a request that never reached the server (a
+   * dropped/timed-out fetch), a genuine transport failure heals on the very
+   * next press.
    */
   const dismissIntro = useCallback(() => {
-    markIntroSeen(initialMatch.match_id);
-    setIntroOpen(false);
-    if (match.turn_phase === TMW_TURN_PHASE_INTRO) {
-      void skipIntro();
-    } else if (match.turn_phase === "reveal") {
-      void skipReveal();
+    const phaseAtDismiss = match.turn_phase;
+    const request =
+      phaseAtDismiss === TMW_TURN_PHASE_INTRO
+        ? skipIntro()
+        : phaseAtDismiss === TMW_TURN_PHASE_REVEAL
+          ? skipReveal()
+          : null;
+    if (request === null) {
+      // Nothing to gate on -- the dialog should not normally still be open
+      // once the match has left both seatless phases, but closing it is
+      // always safe in that case.
+      markIntroSeen(initialMatch.match_id);
+      setIntroOpen(false);
+      return;
     }
+    void request.then((response) => {
+      // THE DIALOG GATES `PHASE_INTRO` ONLY. Once the authoritative phase has
+      // left it -- for "reveal" exactly as much as for "pick" or anything
+      // past it -- `GameIntro` has nothing left to do: `WeaveSpinner` already
+      // renders the ceremony on its own, gated by `turn_phase` alone (see
+      // `ceremonyOpen` below), so leaving this dialog open through "reveal"
+      // would stack a second gate over the same phase for no reason.
+      const settledPhase = response?.match.turn_phase ?? match.turn_phase;
+      if (settledPhase !== TMW_TURN_PHASE_INTRO) {
+        markIntroSeen(initialMatch.match_id);
+        setIntroOpen(false);
+      } else {
+        setRejection(
+          response?.message ??
+            "Could not enter the draft room — check your connection and try again.",
+        );
+      }
+    });
   }, [initialMatch.match_id, match.turn_phase, skipIntro, skipReveal]);
 
   const connection = connectionState(failures);
@@ -558,6 +615,10 @@ export default function ThreeManWeaveGame({
         visual={introVisual}
         accent="var(--comp-rec)"
         startLabel="Enter the draft room"
+        // Disabled while `dismissIntro`'s request is in flight -- a second
+        // press before the server confirms the phase moved must not fire a
+        // second command (see `dismissIntro`).
+        starting={busy}
         testId="tmw-game-intro"
       />
       <header className="ar-room-head">

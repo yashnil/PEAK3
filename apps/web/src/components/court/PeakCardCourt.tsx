@@ -156,7 +156,7 @@ export default function PeakCardCourt({
            change the slot's bounds), and on a narrow corner slot the season
            line's second row would otherwise run underneath it. Padding inside
            the fixed box changes text wrap, never geometry. */
-        <div className={`flex items-center gap-2.5 w-full min-w-0 ${onMove ? "pr-7" : ""}`}>
+        <div className={`flex items-center gap-3 w-full min-w-0 ${onMove ? "pr-9" : ""}`}>
           {/* Phase 8C: portrait "medallion" -- a colored ring in the
               player's real team color (never a logo) instead of a plain
               inline avatar, so the card reads as a collectible object with
@@ -345,7 +345,7 @@ export default function PeakCardCourt({
     // E2: `roster-board-slot-card-fixed` (height:100% + overflow:hidden) —
     // the slot CELL owns the geometry (`--court-slot-h` in globals.css) and
     // the card fills it exactly, so no content state can reflow the court.
-    className: `rounded-xl px-2.5 py-2.5 flex flex-col items-start justify-center gap-1 roster-board-slot-card-fixed w-full transition-colors ${isPendingTarget ? "court-slot-drop-target" : ""} ${slot.filled ? "roster-board-slot-card-filled" : "roster-board-slot-card-open"}`,
+    className: `rounded-xl px-3 py-3 flex flex-col items-start justify-center gap-1.5 roster-board-slot-card-fixed w-full transition-colors ${isPendingTarget ? "court-slot-drop-target" : ""} ${slot.filled ? "roster-board-slot-card-filled" : "roster-board-slot-card-open"}`,
     style: {
       // Phase 8C: empty slots get a dashed border -- reads as an active
       // draft target waiting for a card, not an inert disabled box.
