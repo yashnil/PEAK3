@@ -529,8 +529,31 @@ class PostgresArenaRepository:
                         out.resolve_turn, request.idempotency_key,
                     )
 
-                next_deadline: Optional[datetime] = None
-                next_turn_seq: Optional[int] = None
+                # DEFAULT TO THE MATCH'S OWN CURRENT VALUES, NOT TO NULL.
+                #
+                # `out.open_turn is None` has two entirely different meanings
+                # depending on `out.resolve_turn`: a rearrangement
+                # (`three_man_weave.mode._reduce_rearrange`) returns both as
+                # `None` to mean "leave the open turn exactly as it is", never
+                # "there is no longer an open turn". Only a resolution with no
+                # replacement (completion, abandonment) means the latter, and
+                # that case already clears these two columns explicitly via
+                # `out.resolve_turn` below. Seeding from `match.turn_deadline_at`
+                # / `match.current_turn_seq` here, rather than from a bare
+                # `None`, is what makes a no-op reducer output a true no-op on
+                # this row -- the in-memory repository's `apply_command` gives
+                # the same guarantee (it only touches these fields inside the
+                # `out.open_turn is not None` / `out.resolve_turn is not None`
+                # branches). Without it, a match's `turn_deadline_at` and
+                # `current_turn_seq` silently went to NULL on every
+                # rearrangement while the actual open turn in `arena_turns`
+                # stayed live and unresolved -- these two denormalized columns
+                # going stale rather than any live query, since `get_open_turn`
+                # and `list_overdue_matches` both read `arena_turns` directly,
+                # but a wrong value on the authoritative match row is a defect
+                # regardless of who reads it today.
+                next_deadline: Optional[datetime] = match.turn_deadline_at
+                next_turn_seq: Optional[int] = match.current_turn_seq
                 if out.open_turn is not None:
                     highest = await conn.fetchval(
                         "SELECT max(turn_seq) FROM arena_turns WHERE match_id = $1",
@@ -547,6 +570,9 @@ class PostgresArenaRepository:
                         out.open_turn.phase, now, out.open_turn.deadline_at,
                     )
                     next_deadline = out.open_turn.deadline_at
+                elif out.resolve_turn is not None:
+                    next_deadline = None
+                    next_turn_seq = None
 
                 new_status = out.status or match.status
                 completed_at = (

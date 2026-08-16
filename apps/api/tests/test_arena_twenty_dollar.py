@@ -48,7 +48,10 @@ from app.services.twenty_dollar.mode import bot as td_bot
 from app.services.twenty_dollar.mode import mode as td_mode
 from app.services.arena.modes import ArenaMode, initial_turn_seat
 
+from nba_peak.twenty_dollar import feasibility
 from nba_peak.twenty_dollar import state as S
+from nba_peak.twenty_dollar.config import ROSTER_SIZE
+from nba_peak.twenty_dollar.pool import get_pool
 
 NOW = datetime(2026, 8, 4, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -957,25 +960,35 @@ def _status_after(out) -> str:
     return MATCH_STATUS_COMPLETED if out.status == MATCH_STATUS_COMPLETED else MATCH_STATUS_ACTIVE
 
 
-def _drive_until_unwinnable_beat(seed: int, seats=SEATS):
-    """Drive a real match through `td_mode.reduce`, both seats played by the
-    shipped bot, until the reducer itself opens the seatless
-    `PHASE_LOT_UNWINNABLE` turn.
+def _build_parked_snapshot(seed: int, seats=SEATS) -> tuple[dict, str]:
+    """A REAL match, driven forward through `td_mode.reduce` by the shipped
+    bot until one seat's roster is full, then hand-parked: the live lot is
+    swapped for a real pool candidate that fits none of the still-open seat's
+    remaining slots, and `active_seat`/`passed` are set to the shape
+    `_advance_lot` used to leave behind on its own.
 
-    Returns `(parked_match, out)` -- `parked_match` is a FRESH `ArenaMatch`
-    built from `out.snapshot`, i.e. exactly what any later read (a poll, a
-    reconnect) would be handed -- or `None` if this seed's match completes
-    without ever reaching that beat.
+    WHY HAND-BUILT RATHER THAN FOUND. `_eligible_candidates`
+    (`nba_peak/twenty_dollar/state.py`) is the fix for the defect THIS pass
+    exists to close: the standard and closeout markets now draw only from
+    candidates at least one still-incomplete seat could legally win, so
+    `_advance_lot` cannot produce this shape through ordinary play any more --
+    a search across seeds that used to find one within the first handful now
+    finds none at all (see `tests/twenty_dollar/test_phantom_lot_fix.py`,
+    which proves exactly that directly). `_resolve_unwinnable_lot` and
+    `_open_turn_for_snapshot` do not care how their precondition arose, so it
+    is built directly here, the same way `test_phantom_lot_fix.py`'s
+    `_build_parked_state` does at the pure-engine layer -- this is the
+    orchestration seam's equivalent proof that the MECHANISM still behaves
+    correctly if a snapshot should ever carry the shape again (most plausibly
+    one written by a build that predates this fix).
     """
     match = make_match(seed=seed)
     rng = random.Random(seed ^ 0x20D0)
     for step in range(2000):
+        if any(len(s["roster"]) >= ROSTER_SIZE for s in match.snapshot["seats"]):
+            break
         seat = active(match)
-        assert seat is not None, (
-            f"seed {seed}: active_seat is None at the top of the loop, which "
-            "should be unreachable -- the loop always stops the instant the "
-            "reducer opens the unwinnable beat, before looping again"
-        )
+        assert seat is not None, f"seed {seed}: active_seat is None mid-match"
         public, private, _ = td_mode.project(match, seats, seat)
         command, payload = td_bot.decide(public, private, rng)
         out = td_mode.reduce(
@@ -986,24 +999,51 @@ def _drive_until_unwinnable_beat(seed: int, seats=SEATS):
             )
         )
         assert out.accepted, out.rejection_code
-        if out.open_turn is not None and out.open_turn.phase == PHASE_LOT_UNWINNABLE:
-            parked = make_match(snapshot=out.snapshot, seed=seed, status=_status_after(out))
-            return parked, out
         if out.status == MATCH_STATUS_COMPLETED:
-            return None
+            raise AssertionError(f"seed {seed}: match completed before any roster filled solo")
         match = make_match(snapshot=out.snapshot, seed=seed)
-    raise AssertionError(f"seed {seed}: match did not terminate")
+    else:
+        raise AssertionError(f"seed {seed}: no roster filled before the guard tripped")
 
-
-def _find_unwinnable_beat(seeds=range(60), seats=SEATS):
-    for seed in seeds:
-        found = _drive_until_unwinnable_beat(seed, seats=seats)
-        if found is not None:
-            return seed, found[0], found[1]
-    raise AssertionError(
-        f"no seed in {seeds.start}..{seeds.stop - 1} reached the unwinnable "
-        "beat through the real reducer -- widen the search range"
+    pool = get_pool()
+    snapshot = copy.deepcopy(match.snapshot)
+    full_index = next(
+        i for i, s in enumerate(snapshot["seats"]) if len(s["roster"]) >= ROSTER_SIZE
     )
+    open_index = 1 - full_index
+    open_seat = snapshot["seats"][open_index]
+    owned = [
+        (entry["player_slug"], pool.get(entry["player_slug"]).positions)
+        for entry in open_seat["roster"]
+    ]
+    open_slots = set(feasibility.open_slots_for(owned))
+    assert open_slots, f"seed {seed}: the still-incomplete seat has no legal open slot"
+
+    gone = {
+        entry["player_slug"] for s in snapshot["seats"] for entry in s["roster"]
+    } | set(snapshot["offered"])
+    outsider = next(
+        (
+            c
+            for c in pool.qualified
+            if c.player_slug not in gone and not (set(c.positions) & open_slots)
+        ),
+        None,
+    )
+    assert outsider is not None, (
+        f"seed {seed}: no qualified candidate misses every one of {open_slots}"
+    )
+
+    snapshot["current_candidate"] = outsider.player_slug
+    snapshot["current_candidate_tier"] = "1-100"
+    snapshot["offered"].append(outsider.player_slug)
+    snapshot["active_seat"] = None
+    snapshot["current_bid"] = 0
+    snapshot["high_bidder"] = None
+    snapshot["lot_bids"] = [0] * len(snapshot["seats"])
+    snapshot["lot_actions"] = []
+    snapshot["passed"] = [True] * len(snapshot["seats"])
+    return snapshot, outsider.player_slug
 
 
 class TestPhantomLotFixRequestCycle:
@@ -1016,31 +1056,39 @@ class TestPhantomLotFixRequestCycle:
     """
 
     def test_the_reducer_opens_the_beat_as_a_real_seatless_turn(self):
-        _seed, _parked, out = _find_unwinnable_beat()
-        assert out.accepted
-        assert out.open_turn is not None
-        assert out.open_turn.phase == PHASE_LOT_UNWINNABLE
-        assert out.open_turn.seat_index is None
-        assert out.open_turn.deadline_at == NOW + timedelta(seconds=LOT_UNWINNABLE_SECONDS)
+        snapshot, slug = _build_parked_snapshot(0)
+        parked = make_match(snapshot=snapshot, seed=0)
+        # `_open_turn_for_snapshot` is the ONE place that decides what turn
+        # follows a snapshot the rules engine has already advanced -- every
+        # caller that opens a turn after a rules call routes through it, so
+        # this is the direct, adapter-level proof that a parked snapshot is
+        # ALWAYS surfaced as the seatless beat rather than a normal per-seat
+        # turn naming no seat.
+        turn_draft = td_mode._open_turn_for_snapshot(
+            snapshot,
+            ReducerInput(
+                match=parked, seats=SEATS, open_turn=None, command=TIMEOUT_CMD, now=NOW
+            ),
+        )
+        assert turn_draft.phase == PHASE_LOT_UNWINNABLE
+        assert turn_draft.seat_index is None
+        assert turn_draft.deadline_at == NOW + timedelta(seconds=LOT_UNWINNABLE_SECONDS)
 
         # THE RULE UNDER IT: neither seat could, in fact, act on this
         # candidate -- restated at the rules level so this is not merely
         # trusting the phase name.
-        slug = out.snapshot["current_candidate"]
-        assert slug is not None
-        from nba_peak.twenty_dollar.pool import get_pool
-
-        candidate = get_pool().get(slug)
+        assert slug == snapshot["current_candidate"]
         pool = get_pool()
-        for seat_index in range(len(out.snapshot["seats"])):
-            assert not S.can_seat_acquire(out.snapshot, seat_index, candidate, pool)
+        candidate = pool.get(slug)
+        for seat_index in range(len(snapshot["seats"])):
+            assert not S.can_seat_acquire(snapshot, seat_index, candidate, pool)
 
     def test_a_client_read_during_the_beat_sees_the_parked_candidate_not_a_gap(self):
         """A GET-equivalent projection taken while the beat is open must show
         `current_candidate` populated and `active_seat` null -- a real,
         readable turn, not an internal-only detail and not a silent skip."""
-        _seed, parked, out = _find_unwinnable_beat()
-        slug = out.snapshot["current_candidate"]
+        snapshot, slug = _build_parked_snapshot(1)
+        parked = make_match(snapshot=snapshot, seed=1)
 
         for seat_index in (0, 1):
             public, _private, commands = td_mode.project(parked, SEATS, seat_index)
@@ -1060,14 +1108,15 @@ class TestPhantomLotFixRequestCycle:
         """The beat's OWN timeout -- and only it -- settles the lot. One new
         `lot_resolved` event, `decided_by == "unsold"`, for that candidate,
         and the match opens whatever real turn comes next."""
-        seed, parked, out = _find_unwinnable_beat()
-        slug = out.snapshot["current_candidate"]
+        snapshot, slug = _build_parked_snapshot(2)
+        parked = make_match(snapshot=snapshot, seed=2)
+        open_turn = unwinnable_turn()
         history_before = len(parked.snapshot["history"])
-        deadline = out.open_turn.deadline_at
+        deadline = open_turn.deadline_at
 
         resolved = td_mode.reduce(
             ReducerInput(
-                match=parked, seats=SEATS, open_turn=out.open_turn,
+                match=parked, seats=SEATS, open_turn=open_turn,
                 command=TIMEOUT_CMD, now=deadline,
             )
         )
@@ -1106,7 +1155,8 @@ class TestPhantomLotFixReconnect:
         -- a reconnect, a second tab, a page reload -- must see the same
         parked-but-real state a continuously-connected client saw, not an
         error and not a state that has quietly moved on without an event."""
-        _seed, parked, out = _find_unwinnable_beat()
+        snapshot, slug = _build_parked_snapshot(3)
+        parked = make_match(snapshot=snapshot, seed=3)
 
         before = copy.deepcopy(parked.snapshot)
         first_read = td_mode.project(parked, SEATS, 0)
@@ -1115,16 +1165,13 @@ class TestPhantomLotFixReconnect:
         # persisted snapshot -- exactly what a reconnecting client's own GET
         # would build server-side, independent of whatever object reference
         # produced the beat in the first place.
-        reconnected = make_match(
-            snapshot=copy.deepcopy(out.snapshot), seed=out.snapshot["seed"],
-            status=_status_after(out),
-        )
+        reconnected = make_match(snapshot=copy.deepcopy(snapshot), seed=3)
         second_read = td_mode.project(reconnected, SEATS, 0)
 
         assert first_read[0] == second_read[0], "a reconnect saw a different public state"
         assert second_read[0]["active_seat"] is None
         assert second_read[0]["candidate"] is not None
-        assert second_read[0]["candidate"]["player_slug"] == out.snapshot["current_candidate"]
+        assert second_read[0]["candidate"]["player_slug"] == slug
 
         # Reading -- polling, reconnecting -- must never itself mutate the
         # persisted snapshot. Only an accepted command may.
@@ -1134,7 +1181,8 @@ class TestPhantomLotFixReconnect:
         """Two polls a client makes seconds apart during the same beat must
         agree with each other, since nothing but the beat's own timeout can
         move this state."""
-        _seed, parked, _out = _find_unwinnable_beat()
+        snapshot, _slug = _build_parked_snapshot(4)
+        parked = make_match(snapshot=snapshot, seed=4)
         first = td_mode.project(parked, SEATS, 1)
         second = td_mode.project(parked, SEATS, 1)
         assert first[0] == second[0]
@@ -1150,11 +1198,12 @@ class TestPhantomLotFixBotPractice:
         that beat at all (`phase_accepts_action` blocks it; this proves the
         block actually holds for a real match that reaches the beat, not
         merely in isolation)."""
-        seed, parked, first_beat = _find_unwinnable_beat(seats=BOT_SEATS)
-        assert td_mode.phase_accepts_action(first_beat.open_turn.phase) is False
+        seed = 5
+        snapshot, _slug = _build_parked_snapshot(seed, seats=BOT_SEATS)
+        match = make_match(snapshot=snapshot, seed=seed)
+        open_turn = unwinnable_turn()
+        assert td_mode.phase_accepts_action(open_turn.phase) is False
 
-        match = parked
-        open_turn = first_beat.open_turn
         rng = random.Random(seed ^ 0x5CA1E)
         beats_seen = 1
         for step in range(2000):
@@ -1269,17 +1318,27 @@ class TestPhantomLotFixInvariant:
 
             # A record with NO recorded actions and `decided_by == 'unsold'`
             # is the specific phantom-lot shape: nobody was ever handed a
-            # turn to act on it, because neither seat legally could. Counted
-            # across seeds so the test proves it actually exercised the path
-            # the fix exists for, not merely a property that happens to hold
-            # vacuously.
+            # turn to act on it, because neither seat legally could.
+            #
+            # THIS IS NOW EXPECTED TO BE ZERO, EVERY SEED. Before the
+            # eligibility pre-filter (`nba_peak/twenty_dollar/state.py::
+            # _eligible_candidates`), this count being positive was the proof
+            # the sweep had actually exercised defect 1's fix rather than
+            # holding vacuously. After it, `_advance_lot` never draws a
+            # candidate neither still-incomplete seat can act on in the first
+            # place, so the shape this counts should never occur through
+            # ordinary play again -- see `TestPhantomLotFixRequestCycle` /
+            # `TestPhantomLotFixReconnect` above for direct, hand-built proof
+            # that the RESOLUTION mechanism still behaves correctly on the
+            # rare occasions (a pre-fix snapshot, say) it might still see one.
             phantom_parked_total += sum(
                 1
                 for r in auctioned
                 if r["decided_by"] == S.DECIDED_BY_UNSOLD and not r["actions"]
             )
 
-        assert phantom_parked_total > 0, (
-            "no seed in the sweep ever produced a phantom-parked lot -- the "
-            "invariant was proven vacuously; widen the seed list"
+        assert phantom_parked_total == 0, (
+            f"{phantom_parked_total} phantom-parked lot(s) occurred through "
+            "ordinary play -- the eligibility pre-filter should make this "
+            "unreachable; see `nba_peak.twenty_dollar.state._eligible_candidates`"
         )

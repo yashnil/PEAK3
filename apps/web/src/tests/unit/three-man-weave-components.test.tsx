@@ -37,6 +37,7 @@ import type {
 import {
   TMW_OPENING_REVEAL_SECONDS,
   TMW_REVEAL_SECONDS,
+  TMW_TURN_PHASE_INTRO,
   TMW_TURN_PHASE_PICK,
   TMW_TURN_PHASE_REVEAL,
 } from "@/types/three-man-weave";
@@ -443,6 +444,170 @@ describe("the ceremony is the server's reveal phase, and nothing else", () => {
     // TMW-14: the rosters ARE the ranking cards now, so a second collapsed copy
     // of all three courts under the podium is duplication, not disclosure.
     expect(screen.queryByTestId("tmw-final-courts-toggle")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE PRE-MATCH BRIEFING DISMISSAL, PRODUCTION REGRESSION
+//
+// A fresh match opens on `PHASE_INTRO` (`turn_phase: "intro"`), and
+// `GameIntro` is the ONLY thing that can end it before its own 1800-second
+// backstop -- see `three_man_weave/mode.py::PHASE_INTRO`. `dismissIntro` used
+// to mark the briefing "seen" in localStorage and close the dialog the
+// instant a button was pressed, before the server had answered at all. If
+// that `tmw_skip_intro` command was then rejected or its response dropped,
+// the dialog -- gone for this match id, forever, even across a reload -- was
+// the only door out of a match that was, from the server's point of view,
+// still sitting on the briefing: no ceremony, no pick turn, no legal command
+// anywhere, "Rolling the next franchise and decade" / "Standing by" with the
+// franchise and decade already visible (round one's roll is drawn at match
+// creation). This is the exact defect reported from manual testing.
+// ---------------------------------------------------------------------------
+
+describe("the pre-match briefing never becomes a dead end", () => {
+  beforeEach(() => {
+    mockMatchMedia(false);
+    getMatch.mockReset();
+    getMatchResults.mockReset();
+    submitCommand.mockReset();
+    getMatch.mockImplementation(async () => introView());
+    getMatchResults.mockResolvedValue({ results: [] });
+    window.localStorage.clear();
+  });
+
+  function introView(overrides: Partial<TmwMatchView> = {}): TmwMatchView {
+    return matchView({
+      turn_phase: TMW_TURN_PHASE_INTRO,
+      current_turn_seat_index: null,
+      seconds_remaining: null,
+      turn_seconds_remaining: 1800,
+      legal_commands: [],
+      ...overrides,
+    });
+  }
+
+  it("keeps the briefing open and offers a retry when the dismiss command is rejected, instead of vanishing", async () => {
+    const matchId = "m-intro-rejected";
+    // THE SERVER'S ANSWER SAYS NOTHING MOVED: still `intro`, exactly the
+    // shape a stale `expected_state_version` or a genuine `not_your_turn`
+    // rejection would carry.
+    submitCommand.mockResolvedValueOnce({
+      accepted: false,
+      replayed: false,
+      rejection_code: "not_your_turn",
+      message: "There is no briefing to skip.",
+      match: introView({ match_id: matchId, state_version: 1 }),
+    });
+
+    render(<ThreeManWeaveGame initialMatch={introView({ match_id: matchId })} />);
+    expect(screen.getByTestId("tmw-game-intro")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("game-intro-start"));
+    await waitFor(() => expect(submitCommand).toHaveBeenCalledTimes(1));
+
+    // THE DOOR IS STILL THERE. A rejected command must not have thrown away
+    // the only way to leave `PHASE_INTRO`.
+    await waitFor(() =>
+      expect(screen.getByTestId("tmw-game-intro")).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("tmw-rejection")).toHaveTextContent(
+      "There is no briefing to skip.",
+    );
+    // Never marked "seen" -- a reload of this browser must still show the
+    // briefing rather than silently skipping straight to a stuck room.
+    expect(
+      window.localStorage.getItem(`peak3.tmw.intro-seen.${matchId}`),
+    ).toBeNull();
+    // And still genuinely stuck server-side: no ceremony, no pick surface.
+    expect(screen.queryByTestId("tmw-ceremony-scrim")).toBeNull();
+    expect(screen.queryByTestId("tmw-pick-overlay")).toBeNull();
+
+    // A SECOND PRESS -- the real recovery path -- now succeeds, and the
+    // briefing closes onto the ceremony it gates.
+    submitCommand.mockResolvedValueOnce({
+      accepted: true,
+      replayed: false,
+      rejection_code: null,
+      message: null,
+      match: matchView({
+        match_id: matchId,
+        turn_phase: TMW_TURN_PHASE_REVEAL,
+        current_turn_seat_index: null,
+        state_version: 2,
+      }),
+    });
+    await userEvent.click(screen.getByTestId("game-intro-start"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("tmw-game-intro")).toBeNull(),
+    );
+    expect(
+      window.localStorage.getItem(`peak3.tmw.intro-seen.${matchId}`),
+    ).toBe("1");
+    expect(screen.getByTestId("tmw-ceremony-scrim")).toBeInTheDocument();
+  });
+
+  it("closes the briefing on a rejection whose OWN response already shows the phase moved on", async () => {
+    // A rejection is not always a failure to progress: another seat's
+    // dismiss (or a replay of an earlier attempt that actually landed) can
+    // resolve the race first, and the response the server sends back with
+    // this rejection already carries the true, moved-on phase. The dialog
+    // must close on THAT evidence, not only on `accepted`.
+    const matchId = "m-intro-already-moved";
+    submitCommand.mockResolvedValueOnce({
+      accepted: false,
+      replayed: false,
+      rejection_code: "not_your_turn",
+      message: "There is no briefing to skip.",
+      match: matchView({
+        match_id: matchId,
+        turn_phase: TMW_TURN_PHASE_REVEAL,
+        current_turn_seat_index: null,
+        state_version: 5,
+      }),
+    });
+
+    render(<ThreeManWeaveGame initialMatch={introView({ match_id: matchId })} />);
+    await userEvent.click(screen.getByTestId("game-intro-start"));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("tmw-game-intro")).toBeNull(),
+    );
+    expect(
+      window.localStorage.getItem(`peak3.tmw.intro-seen.${matchId}`),
+    ).toBe("1");
+    expect(screen.getByTestId("tmw-ceremony-scrim")).toBeInTheDocument();
+  });
+
+  it("survives a dropped request (thrown network error) without losing the door, and recovers on retry", async () => {
+    const matchId = "m-intro-network-error";
+    submitCommand.mockRejectedValueOnce(new Error("network error"));
+
+    render(<ThreeManWeaveGame initialMatch={introView({ match_id: matchId })} />);
+    await userEvent.click(screen.getByTestId("game-intro-start"));
+    await waitFor(() => expect(submitCommand).toHaveBeenCalledTimes(1));
+
+    expect(screen.getByTestId("tmw-game-intro")).toBeInTheDocument();
+    expect(
+      window.localStorage.getItem(`peak3.tmw.intro-seen.${matchId}`),
+    ).toBeNull();
+
+    submitCommand.mockResolvedValueOnce({
+      accepted: true,
+      replayed: false,
+      rejection_code: null,
+      message: null,
+      match: matchView({
+        match_id: matchId,
+        turn_phase: TMW_TURN_PHASE_REVEAL,
+        current_turn_seat_index: null,
+        state_version: 2,
+      }),
+    });
+    await userEvent.click(screen.getByTestId("game-intro-start"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("tmw-game-intro")).toBeNull(),
+    );
+    expect(screen.getByTestId("tmw-ceremony-scrim")).toBeInTheDocument();
   });
 });
 

@@ -22,6 +22,7 @@ REPO_ROOT = API_ROOT.parent.parent
 
 from app.repositories.arena_protocols import (
     COMMAND_TYPE_TIMEOUT,
+    MATCH_STATUS_ABANDONED,
     MATCH_STATUS_ACTIVE,
     MATCH_STATUS_COMPLETED,
     TURN_RESOLUTION_ACTION,
@@ -701,6 +702,169 @@ def test_the_opening_ceremony_gets_a_longer_window_than_the_later_ones(opening):
     # Enough for an intro to be read AND for the settled pair to be perceived.
     assert OPENING_REVEAL_SECONDS - REVEAL_SECONDS >= 4.0
     assert REVEAL_SECONDS >= 4.0
+
+
+# ---------------------------------------------------------------------------
+# THE PRE-MATCH BRIEFING, AS A SERVER PHASE
+#
+# THE PRODUCTION REGRESSION THIS PINS. `ThreeManWeaveGame.tsx`'s `dismissIntro`
+# used to mark the briefing "seen" in localStorage and close `GameIntro` the
+# INSTANT the button was pressed, before the server had answered
+# `tmw_skip_intro` at all. A dropped response, a stale `expected_state_
+# version`, or the client's own `busy`/`inFlight` guard silently declining to
+# send left the match sitting in `PHASE_INTRO` on the server while the client
+# had already thrown away its only door out of it: the roll already visible
+# (drawn at match creation), "Rolling the next franchise and decade", "Standing
+# by", and no legal command anywhere -- reachable from a perfectly valid
+# reducer, because nothing here was ever wrong at the state-machine layer. The
+# fix lives in the client (`ThreeManWeaveGame.tsx::dismissIntro`, which now
+# waits for the server's own answer before closing the dialog); what belongs
+# here is proof that the AUTHORITATIVE transition `_reduce_skip_intro` drives
+# is itself correct, deterministic and reachable -- so a future regression in
+# either layer is caught at the layer it is in.
+# ---------------------------------------------------------------------------
+def test_the_intro_phase_gates_everything_else(opening):
+    """PHASE_INTRO -> (tmw_skip_intro) -> PHASE_REVEAL, and nothing else moves
+    a match still sitting on the briefing.
+
+    Referenced by name in `test_every_round_opens_on_the_ceremony_and_no_mid_
+    round_pick_does` and in `test_arena_practice_e2e.py`'s `_skip_weave_intro_
+    if_open`, neither of which exercises the reducer's OWN transition directly.
+    """
+    assert mode.initial_phase() == PHASE_INTRO
+    assert mode.phase_seconds(PHASE_INTRO) == INTRO_SECONDS
+
+    intro_turn = _intro_turn()
+
+    # Nobody may draft under the briefing, human or bot -- the bot driver is
+    # also stopped upstream by `phase_accepts_action`; this is the rule.
+    seat = opening["current_seat"]
+    slug, slot = _first_legal_pick(opening, seat)
+    picked = _reduce(
+        opening,
+        _command(COMMAND_PICK, {"player_slug": slug, "slot_type": slot}, seat_index=seat),
+        open_turn=intro_turn,
+    )
+    assert not picked.accepted
+    assert picked.rejection_code == REJECT_NOT_YOUR_TURN
+
+    # There is no ceremony to skip yet -- `tmw_skip_reveal` must not reach into
+    # the briefing and open the pick turn early.
+    skip_reveal_too_early = _reduce(
+        opening, _command(COMMAND_SKIP_REVEAL, {}, seat_index=0), open_turn=intro_turn
+    )
+    assert not skip_reveal_too_early.accepted
+    assert skip_reveal_too_early.rejection_code == REJECT_NOT_YOUR_TURN
+
+    # THE ACTUAL DOOR. Any seated participant's `tmw_skip_intro` ends the
+    # briefing for the whole table and opens round one's ceremony with the
+    # FULL matchup-card window, measured from the instant the skip landed.
+    at = NOW + timedelta(seconds=3.0)
+    out = _reduce(
+        opening, _command(COMMAND_SKIP_INTRO, {}, seat_index=1), open_turn=intro_turn, now=at
+    )
+    assert out.accepted, out.rejection_message
+    assert out.status == MATCH_STATUS_ACTIVE
+    assert out.open_turn is not None
+    assert out.open_turn.phase == PHASE_REVEAL
+    assert out.open_turn.seat_index is None
+    assert out.open_turn.deadline_at == at + timedelta(seconds=OPENING_REVEAL_SECONDS)
+    # A clock transition, not a game event: nothing is drafted and the round
+    # one roll -- already drawn at match creation -- is not redrawn.
+    assert out.events == ()
+    assert out.snapshot["picks"] == opening["picks"] == []
+    assert out.snapshot["current_roll"] == opening["current_roll"]
+
+
+def test_a_skip_intro_with_no_briefing_open_is_refused(opening):
+    """It cannot be used to reopen a phase that has already moved on.
+
+    Without this guard `tmw_skip_intro` posted after the briefing already
+    ended would re-open `PHASE_REVEAL`, resetting the table's ceremony clock
+    on demand.
+    """
+    refused = _reduce(
+        opening, _command(COMMAND_SKIP_INTRO, {}, seat_index=0), open_turn=_reveal_turn()
+    )
+    assert not refused.accepted
+    assert refused.rejection_code == REJECT_NOT_YOUR_TURN
+
+    also_refused = _reduce(
+        opening, _command(COMMAND_SKIP_INTRO, {}, seat_index=0), open_turn=None
+    )
+    assert not also_refused.accepted
+
+
+def test_the_intros_own_backstop_abandons_the_match_instead_of_opening_the_ceremony(
+    opening,
+):
+    """THE INVARIANT THAT MAKES THE BRIEFING SAFE TO GATE EVERYTHING ELSE ON.
+
+    Every other phase's timeout in this mode ADVANCES the match, because
+    reaching it means a player who was genuinely still deciding already acted
+    long before. The briefing has no such floor -- `GameIntro` has no
+    auto-dismiss -- so its own (very long) backstop must never do the thing
+    every other timeout does. If it opened the ceremony instead of abandoning
+    the match, this IS the exact defect `PHASE_INTRO` exists to close, just
+    reintroduced at its own boundary: a pick clock starting behind a briefing
+    nobody ever dismissed.
+    """
+    ended = NOW + timedelta(seconds=INTRO_SECONDS)
+    before = copy.deepcopy(opening)
+    out = _reduce(opening, _timeout(), open_turn=_intro_turn(), now=ended)
+
+    assert out.accepted
+    assert out.status == MATCH_STATUS_ABANDONED
+    assert out.open_turn is None, "an abandoned match leaves no turn to time out again"
+    assert out.resolve_turn == TURN_RESOLUTION_TIMEOUT
+    assert out.events == ()
+    # Nothing was ever played: the snapshot is untouched, not merely unscored.
+    assert out.snapshot == before
+    assert out.snapshot["picks"] == []
+
+
+def test_a_fresh_match_never_reaches_an_active_state_with_no_open_turn_and_no_command():
+    """END TO END: every ACTIVE state a brand-new match can reach either names
+    an open turn or is terminal -- never both "active" and "nothing to do".
+
+    Walks the exact sequence a client drives: intro -> skip -> reveal -> its
+    own timeout -> pick. At every step where `status` is `MATCH_STATUS_ACTIVE`,
+    `open_turn` must be present, because an active match with no open turn and
+    no scheduled server transition is precisely the deadlock a newly-created
+    match must never be able to reach.
+    """
+    snapshot = mode.initial_snapshot(4242, _seats())
+    assert mode.initial_phase() == PHASE_INTRO
+
+    steps = [
+        (_command(COMMAND_SKIP_INTRO, {}, seat_index=0), _intro_turn(), NOW),
+        (
+            _timeout(key="reveal-timeout"),
+            None,  # set below, once the intro step's own turn is known
+            NOW + timedelta(seconds=OPENING_REVEAL_SECONDS + 1),
+        ),
+    ]
+
+    out = _reduce(snapshot, steps[0][0], open_turn=steps[0][1], now=steps[0][2])
+    assert out.accepted
+    assert out.status == MATCH_STATUS_ACTIVE
+    assert out.open_turn is not None, "active with no open turn -- the deadlock"
+    assert out.open_turn.phase == PHASE_REVEAL
+
+    reveal_turn = _turn(
+        out.open_turn.phase, out.open_turn.seat_index, deadline=out.open_turn.deadline_at, seq=1
+    )
+    out2 = _reduce(out.snapshot, steps[1][0], open_turn=reveal_turn, now=steps[1][2])
+    assert out2.accepted
+    assert out2.status == MATCH_STATUS_ACTIVE
+    assert out2.open_turn is not None, "active with no open turn -- the deadlock"
+    assert out2.open_turn.phase == PHASE_PICK
+    assert out2.open_turn.seat_index is not None
+
+    # And the seat now on the clock has a legal command available -- the
+    # actionable pick surface a real client would render.
+    _public, _private, legal = mode.project(_match(out2.snapshot), _seats(), out2.open_turn.seat_index)
+    assert COMMAND_PICK in legal
 
 
 def test_skipping_the_reveal_opens_the_pick_turn_with_a_full_clock(opening):

@@ -137,8 +137,10 @@ TIMEOUT_IS_PASS: Final[bool] = True
 #: Ten acquisitions fill both rosters, so 24 lots is well over double what a
 #: decisive match needs -- long enough that reaching the end means both seats
 #: genuinely declined a lot of players, short enough that a match is a session
-#: rather than an evening. Candidate generation in this phase is INDEPENDENT of
-#: either roster's missing positions (see `state._available_candidates`).
+#: rather than an evening. Candidate generation in this phase draws freely
+#: across whatever EITHER incomplete roster could still legally use (see
+#: `state._eligible_candidates`) -- unrestricted by any one roster's own
+#: missing positions until a slot has closed for every remaining bidder.
 STANDARD_MARKET_LOTS: Final[int] = 24
 
 #: The hard ceiling on total lots, standard plus closeout.

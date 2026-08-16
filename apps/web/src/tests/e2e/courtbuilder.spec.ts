@@ -1151,16 +1151,25 @@ test.describe("CourtBuilder respins", () => {
     await respinResponse.json();
 
     // Mid-flight: the respin banner is now mounted inside its reserved
-    // slot. The stage's own height (and, critically, the Y position of the
-    // candidate panel below it) must not have moved -- that vertical jump
-    // was the bug (a collapse/shift, not a smooth transition).
+    // slot. THE ORIGINAL BUG THIS GUARDS AGAINST was the stage COLLAPSING --
+    // shrinking and shoving the candidate panel upward into it -- because the
+    // banner's mount/unmount had no reserved height. That is still checked
+    // below as a floor, not an exact match: Bug 4 (production regression,
+    // separate from the banner) is `.spin-reel` clipping a respin's own
+    // content (a two-line locked team name, the ticking reel window) when it
+    // legitimately needs MORE room than the settled state did -- the fix
+    // (`flex-shrink: 0`, globals.css) lets the card grow to fit that content
+    // instead of clipping it, with the candidate panel moving DOWN
+    // naturally. A downward move is the fix working; only a shrink below the
+    // settled height, or the candidate panel moving UP into the stage, is
+    // the collapse this test exists to catch.
     await expect(page.locator('[data-testid="respin-banner"]')).toBeVisible();
     const boxDuring = await stage.boundingBox();
     const candidateBoxDuring = await candidatePanel.boundingBox();
     expect(boxDuring).toBeTruthy();
     expect(candidateBoxDuring).toBeTruthy();
-    expect(Math.abs(boxDuring!.height - boxBefore!.height)).toBeLessThanOrEqual(2);
-    expect(Math.abs(candidateBoxDuring!.y - candidateBoxBefore!.y)).toBeLessThanOrEqual(2);
+    expect(boxDuring!.height).toBeGreaterThanOrEqual(boxBefore!.height - 2);
+    expect(candidateBoxDuring!.y).toBeGreaterThanOrEqual(candidateBoxBefore!.y - 2);
 
     await expect(page.locator('[data-testid="respin-banner"]')).toHaveCount(0, { timeout: 3_500 });
     await waitForReelsSettled(page);
@@ -1168,8 +1177,8 @@ test.describe("CourtBuilder respins", () => {
     const candidateBoxAfter = await candidatePanel.boundingBox();
     expect(boxAfter).toBeTruthy();
     expect(candidateBoxAfter).toBeTruthy();
-    expect(Math.abs(boxAfter!.height - boxBefore!.height)).toBeLessThanOrEqual(2);
-    expect(Math.abs(candidateBoxAfter!.y - candidateBoxBefore!.y)).toBeLessThanOrEqual(2);
+    expect(boxAfter!.height).toBeGreaterThanOrEqual(boxBefore!.height - 2);
+    expect(candidateBoxAfter!.y).toBeGreaterThanOrEqual(candidateBoxBefore!.y - 2);
   });
 
   test("respin controls disappear once a player is selected", async ({ page }) => {
@@ -2909,9 +2918,16 @@ test.describe("selection overlay (E1)", () => {
       await startCourtBuilder(page);
       const overlay = page.locator('[data-testid="selection-overlay"]');
       await expect(overlay).toBeVisible();
+      await waitForReelsSettled(page);
+      const rollBefore = await page.locator('[data-testid="overlay-roll-summary"]').innerText();
+      const roundBefore = await page.locator('[data-testid="selection-overlay"]').getAttribute("aria-label");
 
-      // A click inside the panel (on its header) must NOT minimize it.
+      // A click inside the panel (on its header) must NOT minimize it -- and
+      // must not be swallowed by the search box or a candidate row either,
+      // both of which sit further inside the same bubble path as the header.
       await page.locator(".courtb-overlay-head").first().click({ position: { x: 4, y: 4 } });
+      await expect(overlay).toBeVisible();
+      await page.locator('[data-testid="candidate-card"]').first().hover();
       await expect(overlay).toBeVisible();
 
       // A click on the scrim itself, outside the panel, enters View Court --
@@ -2920,13 +2936,134 @@ test.describe("selection overlay (E1)", () => {
       await expect(overlay).toBeHidden();
       await expect(page.locator('[data-testid="resume-selection-banner"]')).toBeVisible();
 
-      // No state mutation happened -- the same roll and respin budget are
-      // still there on return.
+      // No state mutation happened -- the same roll, the same round, and the
+      // same respin budget are all still there on return.
       await page.locator('[data-testid="resume-selection-btn"]').click();
       await expect(overlay).toBeVisible();
       await expect(page.locator('[data-testid="respin-team-btn"]')).toContainText("3 left");
+      await expect(page.locator('[data-testid="overlay-roll-summary"]')).toHaveText(rollBefore);
+      await expect(page.locator('[data-testid="selection-overlay"]')).toHaveAttribute("aria-label", roundBefore!);
     } finally {
       await context.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug 4: a respin's reel/lockup content must never be clipped by its own
+// roll-stage card, and the card must never overlap the Step 1 chooser below
+// it. Root cause: `.spin-reel` (data-testid="spin-stage") sat inside
+// `.courtb-overlay-body`, a column flexbox with `overflow-y: auto`. A flex
+// item whose own `overflow` is non-visible gets an AUTOMATIC MIN-HEIGHT OF 0
+// (CSS Flexbox spec 4.5), so the browser was free to shrink `.spin-reel`
+// below its content's real height whenever a respin needed more room (a
+// two-line locked team name, the ticking reel window) than the settled state
+// did -- and because the shrink target was this element's OWN
+// `overflow: hidden`, the deficit was clipped silently at the card's own
+// bottom edge, which sits just above the Step 1 chooser. The fix is
+// `flex-shrink: 0` on `.spin-reel` (globals.css) -- it forces layout at full
+// natural height every time, so `.courtb-overlay-body`'s already-existing
+// scroll region takes over instead of anything clipping.
+// ---------------------------------------------------------------------------
+test.describe("respin animation stays contained (Bug 4)", () => {
+  const TOLERANCE = 4; // a small, intentional spacing allowance, not a hard pixel match
+
+  type Box = { top: number; bottom: number; left: number; right: number } | null;
+
+  async function containmentBoxes(page: Page): Promise<{
+    spinStage: Box;
+    candidatePanel: Box;
+    teamWheel: Box;
+    eraWheel: Box;
+  }> {
+    return page.evaluate(() => {
+      const box = (sel: string) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const r = (el as HTMLElement).getBoundingClientRect();
+        // DOMRect's top/bottom/left/right are accessor getters, not own
+        // enumerable properties -- copied out explicitly so they survive
+        // Playwright's structured-clone serialization back to the test.
+        return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+      };
+      return {
+        spinStage: box('[data-testid="spin-stage"]'),
+        candidatePanel: box('[data-testid="candidate-panel"]'),
+        teamWheel: box('[data-testid="team-wheel"]'),
+        eraWheel: box('[data-testid="era-wheel"]'),
+      };
+    });
+  }
+
+  function assertContained(
+    boxes: { spinStage: Box; candidatePanel: Box; teamWheel: Box; eraWheel: Box },
+    label: string,
+  ) {
+    const stage = boxes.spinStage;
+    expect(stage, `${label}: spin-stage is not mounted`).toBeTruthy();
+    // Neither wheel may extend past the roll-stage card's own bottom edge --
+    // this is Bug 4's exact defect, the card silently clipping its own
+    // content instead of growing to fit it.
+    for (const [name, wheel] of [
+      ["team", boxes.teamWheel],
+      ["era", boxes.eraWheel],
+    ] as const) {
+      if (!wheel) continue;
+      expect(
+        wheel.bottom,
+        `${label}: ${name} wheel bottom (${wheel.bottom}) escapes the roll-stage card's bottom (${stage!.bottom})`,
+      ).toBeLessThanOrEqual(stage!.bottom + TOLERANCE);
+    }
+    // The roll-stage card may grow, but it must never overlap the Step 1
+    // chooser below it -- the chooser has to move down with it.
+    if (boxes.candidatePanel) {
+      expect(
+        stage!.bottom,
+        `${label}: roll-stage bottom (${stage!.bottom}) overlaps the Step 1 chooser top (${boxes.candidatePanel.top})`,
+      ).toBeLessThanOrEqual(boxes.candidatePanel.top + TOLERANCE);
+    }
+  }
+
+  for (const respin of ["team", "season"] as const) {
+    test(`${respin} respin: the reel never clips against its own card or the Step 1 chooser`, async ({
+      page,
+    }) => {
+      await startCourtBuilder(page);
+      await waitForReelsSettled(page);
+      assertContained(await containmentBoxes(page), `${respin} settled (before)`);
+
+      const [response] = await Promise.all([
+        page.waitForResponse((r) => r.url().includes(`/respin-${respin}`) && r.status() === 200),
+        page.locator(`[data-testid="respin-${respin}-btn"]`).click(),
+      ]);
+      expect(response.status()).toBe(200);
+
+      // Sample repeatedly through the ~1.25s reel animation — the clipping
+      // bug only appeared once the ticking reel/locked name actually needed
+      // more vertical room than the settled state did, not at every instant.
+      for (let i = 0; i < 6; i++) {
+        assertContained(await containmentBoxes(page), `${respin} mid-respin (sample ${i})`);
+        await page.waitForTimeout(200);
+      }
+
+      await waitForReelsSettled(page);
+      assertContained(await containmentBoxes(page), `${respin} settled (after)`);
+    });
+  }
+
+  test("@mobile team and season respin stay contained on a phone viewport", async ({ page }) => {
+    await startCourtBuilder(page);
+    await waitForReelsSettled(page);
+    for (const respin of ["team", "season"] as const) {
+      const [response] = await Promise.all([
+        page.waitForResponse((r) => r.url().includes(`/respin-${respin}`) && r.status() === 200),
+        page.locator(`[data-testid="respin-${respin}-btn"]`).click(),
+      ]);
+      expect(response.status()).toBe(200);
+      await page.waitForTimeout(400);
+      assertContained(await containmentBoxes(page), `${respin} mid-respin (mobile)`);
+      await waitForReelsSettled(page);
+      assertContained(await containmentBoxes(page), `${respin} settled (mobile)`);
     }
   });
 });
