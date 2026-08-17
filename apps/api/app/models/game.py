@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -37,7 +39,10 @@ class EndlessGameResponse(BaseModel):
 class AnswerRequest(BaseModel):
     session_token: str
     duel_id: str
-    selected_peak_id: str
+    # None represents a genuine no-pick: the decision clock expired before the
+    # player selected either side. It is scored as incorrect, exactly like a
+    # wrong pick, never silently dropped from the session.
+    selected_peak_id: Optional[str] = None
     elapsed_ms: int = Field(ge=0, le=300000)
     current_streak: int = Field(ge=0, le=50)
 

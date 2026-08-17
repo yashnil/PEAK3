@@ -827,15 +827,14 @@ test.describe("Three-Man Weave", () => {
       const intended = await pressRow(0);
       expect(intended.ok, `"${intended.name}" did not stage in the final seconds`).toBe(true);
 
-      // 3.2 (gameplay-experience-polish): a legal candidate clicked before
-      // the deadline now COMMITS on the click itself, not on a separate
-      // confirm press. With exactly one legal slot the press above already
-      // submitted the pick. With more than one legal slot, the drafter still
-      // has to choose which — but clicking that slot now commits it
-      // immediately too. Either way, this test intentionally never presses
-      // "confirm": the overlay may already be advancing to the next turn by
-      // the time a further click would land, and asserting on a button that
-      // might not exist anymore would defeat the point of the fix. See
+      // PASS 1: a legal candidate clicked before the deadline STAGES on the
+      // click — a single legal slot stages that pair immediately, more than
+      // one legal slot still needs its destination clicked to complete the
+      // staged pair. Neither click commits: this test intentionally never
+      // presses "confirm" and instead lets the clock run all the way out
+      // (see below), so what actually proves the fix is that the SERVER's
+      // timeout drafts this exact staged choice rather than the weaker
+      // `autopick` fallback — see `mode._reduce_timeout` and
       // `PickOverlay`'s `select`/`selectPlacementSlot` docstrings.
       if (await confirm.isDisabled()) {
         await page.locator('[data-testid^="tmw-place-"][data-legal="true"]').first().click();
@@ -853,18 +852,24 @@ test.describe("Three-Man Weave", () => {
   });
 
   /**
-   * 3.2 (gameplay-experience-polish): CLICK PLAYER -> COMMIT PLAYER.
+   * PASS 1: a STAGED (never drafted) candidate is what a timeout drafts.
    *
-   * The reported bug: a player clicked a legal candidate (Amar'e Stoudemire,
-   * on a 2000s Suns offer) WELL BEFORE the deadline, never pressed a separate
-   * "Lock In Selection" action, and the timeout fallback assigned a
-   * different, weaker legal player (Brevin Knight) instead of honoring the
-   * click. This test reproduces the shape of that report end-to-end: click a
-   * legal candidate with time to spare, touch NOTHING else, let the full
-   * clock (and the server's grace window) run out, and assert the exact
-   * player clicked is who the server actually drafted — never a fallback.
+   * The original incident (gameplay-experience-polish 3.2): a player clicked
+   * a legal candidate (Amar'e Stoudemire, on a 2000s Suns offer) WELL BEFORE
+   * the deadline, never pressed a separate confirm action, and the timeout
+   * fallback assigned a different, weaker legal player (Brevin Knight)
+   * instead of honoring the click. 3.2's fix made the click itself commit;
+   * Pass 1 reverses that (selection must never equal commit) but closes the
+   * SAME incident a different way: staging is now server-visible, and a
+   * timeout prefers a legal staged choice over `autopick`
+   * (`mode._reduce_timeout`). This test reproduces the original report
+   * end-to-end: click (and, if needed, stage a slot for) a legal candidate
+   * with time to spare, touch NOTHING else — no confirm press either — let
+   * the full clock (and the server's grace window) run out, and assert the
+   * exact player clicked is who the server actually drafted — never a
+   * fallback.
    */
-  test("3.2: a candidate clicked well before the deadline is the pick, even if the clock runs all the way out", async ({
+  test("Pass 1: a candidate staged well before the deadline is what the timeout drafts, never the fallback", async ({
     browser,
   }) => {
     test.setTimeout(120_000);
@@ -892,9 +897,10 @@ test.describe("Three-Man Weave", () => {
       await row.click();
       await expect(row).toHaveAttribute("data-selected", "true");
 
-      // A multi-slot candidate still needs its destination chosen — but
-      // choosing it commits immediately (3.2), same as a single-slot press.
-      // Beyond that, NOTHING is pressed: no "confirm", no second action.
+      // A multi-slot candidate still needs its destination chosen — clicking
+      // it only completes the staged pair, same as a single-slot press.
+      // Beyond that, NOTHING is pressed: no "confirm", no second action. The
+      // clock is left to run all the way out onto the staged choice.
       if (await confirm.isDisabled()) {
         await page.locator('[data-testid^="tmw-place-"][data-legal="true"]').first().click();
       }

@@ -1,84 +1,89 @@
-# Visual identity + game-feel upgrade — progress
+# PEAK3 Pass 1 — gameplay + interaction correctness — progress
 
-Branch: `fix/gameplay-ux-production-polish`. Started from `4a2b50b`. **Nothing pushed.**
+Branch: `main` (working tree only — **nothing committed, per instruction**).
+Started from `d7aff08` (HEAD at start of this pass; still HEAD, no commits made).
 
-## Status: complete and green
+## Status: complete and green, not committed
 
-| Commit | What |
-|---|---|
-| `353c5a8` | Design foundation — Space Grotesk, token layer, motion primitives, test lock |
-| `8dcd82f` | Shared UI primitives — depth by meaning, fine-grey audit, `ScorePill` defect |
-| `312925e` | Cross-session progress tracking |
-| `75d9d3b` | Two composability traps (`.pk-lift-lg` standalone, `.pk-depth` shorthand) |
-| `7f22bef` | `.pk-crown-accent` drew nothing alone; `.pk-lift` lied about `:disabled` |
-| `6a77e20` | Game-feel across multiplayer, result screens, homepage, nav + bundle fix |
-| `3d9ca61` | Fact-bank hardening — 91 audited, build-time structural gate |
-| *(final)* | Review close-out — deterministic e2e, retired-claims register, cleanup |
+All four modes (Run the Table, $20 Showdown, Three-Man Weave, Peak Duel Daily)
+implemented and verified locally. See the final report delivered to the user
+in-conversation for the full writeup (root causes, before/after semantics,
+file-by-file changes, test counts, the two product decisions the user made
+mid-pass, and the SAFE-for-Pass-2 recommendation). This file is the
+continuation anchor if a future session needs to pick the work back up
+before it's committed.
 
-## Verification
+## Verification, last run clean
 
-- `scripts/ci/frontend-verify.sh` — green (typecheck, lint 0 warnings, 1952 unit tests, prod build)
-- `scripts/ci/api-unit-tests.sh` — 1651 passed, 2 skipped
-- `scripts/ci/model-tests.sh` — 1677 passed, 1 xfailed
-- Fact-bank targeted — 296 passed (`test_nba_facts`, `_validation`, `_retired_claims`, `_deployment`, API route)
-- `scripts/ci/e2e-tests.sh` at `PLAYWRIGHT_RETRIES=0` — **411 passed, 0 failed**
-- Stability: the two repaired specs 10/10 (×5 each); all accessibility specs 130/130 (×5)
+- `scripts/ci/model-tests.sh`: 1806 passed, 1 xfailed
+- `scripts/ci/api-unit-tests.sh`: 1779 passed, 2 skipped, 15 deselected
+- `scripts/ci/frontend-verify.sh` (typecheck, lint 0 warnings, vitest, prod build): green, 2057/2057 unit tests
+- Targeted Playwright e2e (`run-the-table`, `arena-multiplayer`, `showdown-two-tab`,
+  `gameplay`, `daily-challenge`, `duel-viewport`): all green after one fix
+  (see below)
+- `git diff --check`: clean
 
-## The three e2e defects that were fixed, and what each really was
+## The one bug caught by e2e that unit tests missed
 
-1. **Daily Grid optimal-grid avatars.** Asserted `img` count 0, which in practice
-   meant "all nine `a.espncdn.com` portraits failed to load within 5s". It passed
-   when the CDN was slow and failed when it served bytes — green precisely when
-   the product worked least well, and no timeout could fix that. Now every
-   cross-origin *image* request is aborted before navigation, so `onError` fires
-   deterministically and offline, and the assertion is on the rendered fallback
-   (nine `div.player-avatar`, no surviving `<img>`).
-2. **Rankings mobile sheet.** `390.0000071525574 <= 390` — the residue of the
-   browser's 1/64px LayoutUnit → double conversion, not an overflow. Now measured
-   against `window.innerWidth` with a 0.5 CSS px tolerance (half a device pixel at
-   DPR 1). The zero-tolerance no-horizontal-scroll assertion is untouched.
-3. **Draft card season labels (axe, serious `color-contrast`).** `--text-muted`
-   is 4.6:1 on `--bg-surface-hover` and the card is hoverable — clearing AA by a
-   tenth of a point. Promoted to `--text-secondary` (9.1:1). Also correct on the
-   merits: the season window is *which peak this card is*, not metadata.
+RTT's boss-auto-reveal (the fork's own new test) failed in a real browser:
+reloading mid-presentation dropped the player straight to the boss briefing
+instead of resuming the reveal, because `bossSequence.started` and the two
+dismissal ids (`dismissedBossIntroId`/`dismissedBossRevealId`) are plain
+component state, gone on remount, while the server's `boss.complete` flips
+true the instant the one-shot batched reveal POST resolves — long before the
+paced local presentation or a Continue click. Fixed in
+`RunTheTableGame.tsx`'s `bossActive`/`bossIntroDone` derivation: treat
+`bossTrack.revealed > 0` (server truth) as proof the presentation already
+began, gated on `status === "boss_ready"` so it can never fire once play has
+moved past that status (a first attempt without the status gate broke two
+unrelated existing tests whose fixtures keep a stale `reveal.boss` block
+around after the battle resolves). One pre-existing unit test's expectation
+changed as a deliberate, explained consequence (see the test's own comment) —
+not an accidental rewrite.
 
-## A methodology trap worth not repeating
+## Two product decisions the user made mid-pass (both implemented as given)
 
-Attributing #1 initially pointed the wrong way. A `git worktree` of the pre-pass
-commit passed it twice while this branch failed twice. That baseline was invalid:
-the worktree differed from the main working copy, and the test's outcome depends
-on external network reachability. Checking `4a2b50b -- apps/web/` out **in the
-main working copy** reproduced the failure exactly. Use the same working copy.
+1. **$20 Showdown**: normal-market lots now require candidates legal for
+   BOTH incomplete rosters (intersection, not the old union rule). When that
+   intersection empties but completion is still required, the engine
+   transitions to an explicit `PHASE_LOT_FORCED_FILL` state — never a market
+   skip, priced by `forced_fill_reserve_price()` (tier-banded off observed
+   contested prices, not a flat $1), capped by the existing reserve ceiling.
+2. **Three-Man Weave**: server-visible staged pick (`tmw_stage_pick`),
+   survives refresh/reconnect, timeout drafts the staged choice when legal
+   else the existing `auto_pick` fallback, race-safe via the existing
+   `expected_state_version` mechanism.
 
-## Architectural decisions worth not re-litigating
+## What's deliberately deferred to Pass 2/3 (do not build without the user)
 
-1. **No new text colours in this pass.** Every measured ratio in `globals.css`
-   came from an earlier audit. Where this pass touches text it only moves UP a
-   tier, which can only increase contrast.
-2. **Reduced-motion is scoped to the `.pk-*` primitives**, not folded into the
-   global blanket rule, which collapses `animation-duration` but not
-   `animation-delay` — and existing cinematic sequences pair CSS delays with JS
-   timers.
-3. **`checked_on` is never compared to the clock.** The fact build stays a pure
-   function of committed inputs and byte-reproducible.
-4. **Deep imports, not the `@/components/ui` barrel**, on any route not already
-   carrying `lucide-react`. The barrel reaches it via `ThemeToggle`; one number
-   component cost `/play/daily` 74 kB of First Load JS.
-5. **Structural validation does not prove truth.** `validation.py` gates
-   sourcing, review date, claim type and language. Truth is established by human
-   audit and ratcheted by `tests/test_nba_facts_retired_claims.py`.
+- RTT: the reveal animation's final visual polish (Pass 3, per the user's
+  own instruction).
+- RTT: a soft balance-audit signal (passive/zero-decision play clears 2.6%
+  of runs vs. the harness's own 2% threshold) — flagged, not acted on; no
+  named failure mode in the brief matched it.
+- Peak Duel Daily: the lifetime 0/10–10/10 distribution graph UI and any new
+  GET route to read back accumulated history — only the write path
+  (`POST /game/daily/result`, now actually called by the frontend) was
+  wired up this pass, per explicit scope boundary.
+- $20 Showdown: no pricing-model redesign beyond the forced-fill tier bands;
+  `BOT_THINK_SECONDS` left untouched (the poll-kick fix was sufficient).
 
-## Deliberately out of scope
+## Do not re-litigate
 
-- Rankings bar composition logic and the visual bar concept — off limits, untouched.
-- `components/court/**`, `spinner.css`, `tour.css` — not named in the brief.
-- No CI link-checker for fact `source_url`s: several cited hosts answer
-  automated requests with 403/429, so it would be flaky rather than a guard.
+- The $20 union-vs-intersection eligibility rule and the TMW staged-pick
+  server-visibility requirement are **user decisions**, not open design
+  questions — see above.
+- RTT lane semantics (`player_lineup_rating`/`boss_lineup_rating` as the
+  primary YOU-vs-BOSS numbers, `top_contributor` secondary) were already
+  correct going into this pass (prior work, PR #17) — this pass only added
+  a regression lock, it did not rebuild anything.
+- Round-10 in Peak Duel Daily stays manual ("See results") by deliberate
+  choice — auto-advancing rounds 1-9 was extended to 10 and rejected.
 
-## Known limits
+## Known limits carried forward
 
-- `ResultNumber` server-renders `0`; documented in its docstring, not observable
-  because every call site is a post-gameplay screen requiring JS.
-- The fact schedule's period is 93 days against a 187-fact bank, so roughly half
-  the bank is reachable in a cycle. Pre-existing rotation behaviour, unchanged by
-  this pass, and worth a look separately.
+- e2e was run for the four touched modes' spec files, not the full suite
+  (explicit instruction: local only, do not spend CI minutes broadly).
+- "Manual exercise" of the four flows was done via real-browser Playwright
+  runs against a live local API + web server, not literal hands-on clicking
+  by a human — flagged as such in the final report rather than overclaimed.

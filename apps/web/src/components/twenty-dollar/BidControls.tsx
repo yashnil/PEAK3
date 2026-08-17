@@ -101,6 +101,15 @@ export default function BidControls({
   const canBid = blocked === null && min <= max && !expired;
   const kind = passKind(privateState);
 
+  // NO OTHER ROSTER LEFT THIS AUCTION CAN EVER ACT ON THIS PLAYER
+  // (`LOT_KIND_UNCONTESTED`, decided server-side the instant the lot was
+  // drawn — see `nba_peak/twenty_dollar/state.py`). A raise stepper implies a
+  // fight nobody left in the match can join, which is the "fake competitive
+  // auction" defect the union eligibility rule can otherwise produce. The
+  // money and the legality are completely unchanged — this only replaces the
+  // presentation with an explicit claim affordance at the opening floor.
+  const uncontested = publicState.lot_kind === "uncontested" && opening;
+
   /* WHICH command is in flight, not merely THAT one is. `busy` is one flag for
      the whole board and both buttons were reading it, so pressing Bid made the
      pass control announce "Submitting…" as well — the screen claimed to be
@@ -121,82 +130,97 @@ export default function BidControls({
   const primaryLabel =
     busy && sent !== "pass"
       ? `Sending ${formatDollars(clamped)}…`
-      : opening
-        ? `Open at ${formatDollars(clamped)}`
-        : `Raise to ${formatDollars(clamped)}`;
+      : uncontested
+        ? `Claim for ${formatDollars(clamped)}`
+        : opening
+          ? `Open at ${formatDollars(clamped)}`
+          : `Raise to ${formatDollars(clamped)}`;
 
   return (
-    <section className="td-bid" data-testid="td-bid-controls" data-live={live ? "true" : "false"}>
+    <section className="td-bid" data-testid="td-bid-controls" data-live={live ? "true" : "false"} data-lot-kind={publicState.lot_kind ?? "standard"}>
       <div className="td-bid-head">
         <p className="td-bid-label" id="td-bid-label">
-          {opening ? "Open the bidding" : "Raise or step aside"}
+          {uncontested ? "No one else can compete for this player" : opening ? "Open the bidding" : "Raise or step aside"}
         </p>
         {/* THE BUDGET LIMIT IS OBVIOUS, and it is a value rather than a
             parenthetical: "$1–$16 legal" was 12 px of grey beside the label. */}
         <p className="td-bid-range pk-numeral" data-testid="td-bid-range">
-          {canBid ? `${formatDollars(min)}–${formatDollars(max)}` : `Reserve ${formatDollars(privateState.reserve_floor)}`}
+          {uncontested
+            ? `Uncontested — floor price ${formatDollars(clamped)}`
+            : canBid
+              ? `${formatDollars(min)}–${formatDollars(max)}`
+              : `Reserve ${formatDollars(privateState.reserve_floor)}`}
         </p>
       </div>
 
-      <div className="td-stepper" role="group" aria-labelledby="td-bid-label">
-        <button
-          type="button"
-          className="td-step pk-lift pk-press"
-          data-testid="td-bid-minus"
-          disabled={!canBid || pending || clamped <= min}
-          onClick={() => step(-1)}
-          aria-label="Decrease bid by one dollar"
-        >
-          &minus;
-        </button>
-        <output
-          className="td-bid-amount pk-numeral"
-          data-testid="td-bid-amount"
-          aria-label={`Bid entry ${formatDollars(clamped)}`}
-        >
-          {formatDollars(clamped)}
-        </output>
-        <button
-          type="button"
-          className="td-step pk-lift pk-press"
-          data-testid="td-bid-plus"
-          disabled={!canBid || pending || clamped >= max}
-          onClick={() => step(1)}
-          aria-label="Increase bid by one dollar"
-        >
-          +
-        </button>
-      </div>
+      {/* NO RAISE MECHANIC ON AN UNCONTESTED LOT. Nobody left in the auction
+          can answer a higher number, so a stepper here would offer a choice
+          that only ever costs the one eligible seat more money for the same
+          guaranteed outcome — the "fake competitive auction" shape the union
+          eligibility rule can otherwise produce (see `uncontested` above). */}
+      {uncontested ? null : (
+        <>
+          <div className="td-stepper" role="group" aria-labelledby="td-bid-label">
+            <button
+              type="button"
+              className="td-step pk-lift pk-press"
+              data-testid="td-bid-minus"
+              disabled={!canBid || pending || clamped <= min}
+              onClick={() => step(-1)}
+              aria-label="Decrease bid by one dollar"
+            >
+              &minus;
+            </button>
+            <output
+              className="td-bid-amount pk-numeral"
+              data-testid="td-bid-amount"
+              aria-label={`Bid entry ${formatDollars(clamped)}`}
+            >
+              {formatDollars(clamped)}
+            </output>
+            <button
+              type="button"
+              className="td-step pk-lift pk-press"
+              data-testid="td-bid-plus"
+              disabled={!canBid || pending || clamped >= max}
+              onClick={() => step(1)}
+              aria-label="Increase bid by one dollar"
+            >
+              +
+            </button>
+          </div>
 
-      <div className="td-quick">
-        <button
-          type="button"
-          className="td-chip-btn pk-lift pk-press"
-          data-testid="td-bid-plus-1"
-          disabled={!canBid || pending || clamped + 1 > max}
-          onClick={() => step(1)}
-        >
-          +$1
-        </button>
-        <button
-          type="button"
-          className="td-chip-btn pk-lift pk-press"
-          data-testid="td-bid-plus-2"
-          disabled={!canBid || pending || clamped + 2 > max}
-          onClick={() => step(2)}
-        >
-          +$2
-        </button>
-        <button
-          type="button"
-          className="td-chip-btn pk-lift pk-press"
-          data-testid="td-bid-max"
-          disabled={!canBid || pending || clamped >= max}
-          onClick={() => setAmount(max)}
-        >
-          Max {formatDollars(max)}
-        </button>
-      </div>
+          <div className="td-quick">
+            <button
+              type="button"
+              className="td-chip-btn pk-lift pk-press"
+              data-testid="td-bid-plus-1"
+              disabled={!canBid || pending || clamped + 1 > max}
+              onClick={() => step(1)}
+            >
+              +$1
+            </button>
+            <button
+              type="button"
+              className="td-chip-btn pk-lift pk-press"
+              data-testid="td-bid-plus-2"
+              disabled={!canBid || pending || clamped + 2 > max}
+              onClick={() => step(2)}
+            >
+              +$2
+            </button>
+            <button
+              type="button"
+              className="td-chip-btn pk-lift pk-press"
+              data-testid="td-bid-max"
+              disabled={!canBid || pending || clamped >= max}
+              onClick={() => setAmount(max)}
+            >
+              Max {formatDollars(max)}
+            </button>
+          </div>
+        </>
+      )}
 
       <div className="td-bid-actions">
         {/* A REAL FILLED PRIMARY, carrying the amount it will submit.
@@ -210,6 +234,7 @@ export default function BidControls({
           type="button"
           className="td-btn td-btn-primary pk-lift pk-press pk-sheen"
           data-testid="td-submit-bid"
+          data-uncontested={uncontested ? "true" : "false"}
           disabled={!canBid || pending}
           data-loading={busy && sent !== "pass" ? "true" : "false"}
           onClick={() => send("bid", clamped)}
@@ -247,9 +272,11 @@ export default function BidControls({
         </p>
       ) : (
         <p className="td-bid-hint" data-testid="td-bid-hint">
-          {!privateState.can_pass
-            ? `No market skips left, and this player fits your roster — you must open at ${formatDollars(min)}.`
-            : passActionCost(privateState, publicState)}
+          {uncontested
+            ? "The other roster has no legal way to use this player, so there is no one to bid against."
+            : !privateState.can_pass
+              ? `No market skips left, and this player fits your roster — you must open at ${formatDollars(min)}.`
+              : passActionCost(privateState, publicState)}
         </p>
       )}
     </section>

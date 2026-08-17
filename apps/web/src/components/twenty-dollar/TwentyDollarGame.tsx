@@ -82,9 +82,23 @@ import { useShowdownPhase } from "./useShowdownPhase";
  * now an immediate re-poll on `visibilitychange` and on `focus`. The interval
  * itself no longer depends on `view`, which used to tear it down and recreate
  * it on every single response.
+ *
+ * WHY A BOT'S MOVE COULD TAKE UP TO ~3.2s TO APPEAR, AND WHAT NARROWS IT. The
+ * server applies a pending bot's move lazily, on the next authoritated read,
+ * once `BOT_THINK_SECONDS` (1.2s, `apps/api/app/services/arena/bots.py`) has
+ * elapsed since its turn opened — there is no push. Left to the fixed
+ * `POLL_MS` cadence alone, a bot move that becomes due one tick late can sit
+ * unseen for up to another full interval on top of the think time. Every
+ * submit that hands the turn to a seat other than the player's own now also
+ * arms one extra one-shot poll timed just past `BOT_THINK_MS`, so the
+ * player's own action is what schedules the read most likely to catch the
+ * reply, instead of leaving it to chance against a clock that was already
+ * running before the click.
  */
 
 const POLL_MS = 2000;
+const BOT_THINK_MS = 1200;
+const BOT_FOLLOW_UP_POLL_MS = BOT_THINK_MS + 200;
 
 export default function TwentyDollarGame({ matchId }: { matchId: string }) {
   const router = useRouter();
@@ -115,6 +129,11 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
   // overlapping requests can complete out of order, and the newer state must
   // win regardless of arrival order.
   const appliedVersion = useRef(-1);
+  // The one armed-but-not-yet-fired bot follow-up poll (see the module
+  // docstring). Re-arming clears whatever was already pending so a fast
+  // human — pass, then bid, then pass again — cannot stack timers that all
+  // fire into the same `load()` guard for no benefit.
+  const botFollowUpTimer = useRef<number | null>(null);
 
   /**
    * Apply an authoritative view, unless it is older than what is on screen.
@@ -189,6 +208,10 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", tick);
+      if (botFollowUpTimer.current !== null) {
+        window.clearTimeout(botFollowUpTimer.current);
+        botFollowUpTimer.current = null;
+      }
     };
   }, []);
 
@@ -235,6 +258,27 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
         // derived from the board as it now is rather than from the stale render
         // the click was made against.
         applyView(result.match);
+        // THE TURN JUST LEFT THE HUMAN'S HANDS. If it is now on the clock for
+        // anyone else — bot or opponent — arm one extra poll timed just past
+        // `BOT_THINK_MS` so a bot's reply is read as soon as it is likely to
+        // be due, rather than waiting on whatever is left of the fixed
+        // interval. Harmless against a human opponent: the poll simply finds
+        // them still deciding and the normal interval carries on.
+        if (botFollowUpTimer.current !== null) {
+          window.clearTimeout(botFollowUpTimer.current);
+          botFollowUpTimer.current = null;
+        }
+        const nextActive = result.match.public_state.active_seat;
+        if (
+          result.match.public_state.phase !== "complete" &&
+          nextActive !== null &&
+          nextActive !== result.match.your_seat_index
+        ) {
+          botFollowUpTimer.current = window.setTimeout(() => {
+            botFollowUpTimer.current = null;
+            void loadRef.current();
+          }, BOT_FOLLOW_UP_POLL_MS);
+        }
         // `replayed` NO LONGER SUPPRESSES THE EXPLANATION. A replayed rejection
         // is still a rejection the player has not been told about, and the old
         // guard turned exactly that case into a silent no-op.

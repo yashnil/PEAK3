@@ -44,6 +44,7 @@ pass made deliberately rare-to-impossible.
 from __future__ import annotations
 
 import random
+from typing import Optional
 
 from nba_peak.twenty_dollar import feasibility
 from nba_peak.twenty_dollar import state as S
@@ -77,18 +78,71 @@ def _build_parked_state(pool, seed: int) -> tuple[dict, str]:
     incidentally. `resolve_unwinnable_lot` does not care how its precondition
     arose; it only has to settle it correctly once it has.
     """
+    # RETRIED ACROSS A FEW DETERMINISTIC SEED OFFSETS, NOT JUST THE ONE
+    # PASSED IN. Intersection-drawn lots (PEAK3 Pass 1) converge a leading
+    # roster faster than the old union draw did, so `always_min_raise`
+    # (deliberately the most one-sided policy this file uses, chosen to reach
+    # "one roster full" in as few actions as possible) can now leave the
+    # OTHER seat with only zero or one players at that exact moment far more
+    # often than before -- and a roster that sparse is so flexible that the
+    # 500-player qualified pool sometimes contains no candidate that is BOTH
+    # outside its naive open slots AND provably unacquirable once multi-
+    # position reassignment is considered. That is a property of this one
+    # aggressive test-only policy meeting a real, wide-open roster, not a
+    # defect in `can_seat_acquire` or in the eligibility rule -- retrying a
+    # few seeds away finds one where the split left enough commitment behind
+    # to make a genuine outsider constructible, without weakening what the
+    # outsider is actually proven against.
+    last_error: Optional[AssertionError] = None
+    for attempt in range(6):
+        attempt_seed = seed + attempt * 100_000
+        try:
+            return _try_build_parked_state(pool, attempt_seed)
+        except AssertionError as exc:
+            last_error = exc
+    assert last_error is not None
+    raise last_error
+
+
+#: THE MINIMUM COMMITMENT THE STILL-OPEN SEAT MUST HOLD before this helper
+#: treats "one seat full" as the moment to stop and hand-park. `>= 1` alone
+#: is not enough: intersection-drawn lots (PEAK3 Pass 1) can converge the
+#: leading seat so fast against `always_min_raise` that the open seat is
+#: still sitting on a COMPLETELY EMPTY roster the instant the other fills --
+#: and no outsider is constructible against an empty roster at all, by
+#: definition (every real qualified player fits at least one of five open
+#: slots). Two players still leaves the open seat visibly incomplete while
+#: giving `_try_build_parked_state` a roster with real position commitments
+#: to search an outsider against.
+_MIN_OPEN_SEAT_COMMITMENT = 2
+
+
+def _try_build_parked_state(pool, seed: int) -> tuple[dict, str]:
     state = S.initial_state(seed=seed)
     rng = random.Random(seed ^ 0xF17)
     play = always_min_raise
     guard = 0
-    while not any(len(seat["roster"]) >= ROSTER_SIZE for seat in state["seats"]):
+
+    def _ready() -> bool:
+        sizes = sorted(len(seat["roster"]) for seat in state["seats"])
+        return sizes[-1] >= ROSTER_SIZE and _MIN_OPEN_SEAT_COMMITMENT <= sizes[0] < ROSTER_SIZE
+
+    while not _ready():
         guard += 1
         assert guard < MAX_ACTIONS, f"seed {seed}: no roster filled before the guard tripped"
         if S.is_complete(state):
             raise AssertionError(f"seed {seed}: match completed before any roster filled solo")
         seat_index = state["active_seat"]
         if seat_index is None:
-            S.resolve_unwinnable_lot(state, pool)
+            # A forced-fill park (PEAK3 Pass 1) shares this file's own
+            # `current_candidate is not None, active_seat is None` shape --
+            # resolving it via `resolve_unwinnable_lot` would settle it
+            # `unsold`, DISCARDING the intended assignment rather than
+            # awarding it, so it must be routed to its own resolver.
+            if S.is_forced_fill_pending(state):
+                S.resolve_forced_fill(state, pool)
+            else:
+                S.resolve_unwinnable_lot(state, pool)
             continue
         command, amount = play(state, seat_index, pool, rng)
         _, code, message = S.submit_action(state, seat_index, command, amount, pool)
@@ -105,20 +159,45 @@ def _build_parked_state(pool, seed: int) -> tuple[dict, str]:
     ]
     open_slots = set(feasibility.open_slots_for(owned))
     assert open_slots, f"seed {seed}: the still-incomplete seat has no legal open slot"
+    # A COMPLETELY EMPTY ROSTER CANNOT CONSTRUCT AN OUTSIDER, EVER: every real
+    # qualified player has at least one of the five canonical positions, so
+    # with all five slots open there is no candidate outside them by
+    # definition -- not a search that needs a wider retry, a structurally
+    # impossible one. Signalled as a failed attempt so the caller retries a
+    # different seed offset instead of asserting on an unsatisfiable search.
+    assert len(open_slots) < ROSTER_SIZE, (
+        f"seed {seed}: the still-incomplete seat owns nothing yet -- no outsider is "
+        "constructible against a fully open roster"
+    )
 
     gone = {
         entry["player_slug"] for seat in state["seats"] for entry in seat["roster"]
     } | set(state["offered"])
+    # THE AUTHORITATIVE CHECK, NOT THE `open_slots_for(owned)` HEURISTIC. A
+    # candidate whose positions miss the CURRENT naive assignment's open
+    # slots can still be legally acquirable if adding them unlocks a BETTER
+    # joint assignment -- a multi-position player already on the roster can
+    # be reassigned to make room, exactly the "Brian Grant / Mike Bantom"
+    # rearrangement `state.project`'s own docstring describes. That is a real
+    # roster with only one or two flexible players still on it, which this
+    # helper's setup can now reach (a forced-fill park can settle a roster's
+    # OWN needs at any point, not just after the market has broadened it with
+    # several players) -- so the outsider must be proven unacquirable by
+    # `can_seat_acquire` itself, the same function the product rule actually
+    # uses, not by a proxy that predates that case being reachable here.
     outsider = next(
         (
             c
             for c in pool.qualified
-            if c.player_slug not in gone and not (set(c.positions) & open_slots)
+            if c.player_slug not in gone
+            and not (set(c.positions) & open_slots)
+            and not S.can_seat_acquire(state, open_index, c, pool)
         ),
         None,
     )
     assert outsider is not None, (
-        f"seed {seed}: no qualified candidate misses every one of {open_slots}"
+        f"seed {seed}: no qualified candidate is both outside {open_slots} and "
+        "unacquirable by can_seat_acquire"
     )
 
     state["current_candidate"] = outsider.player_slug
@@ -237,6 +316,15 @@ def _play_recording_observations(seed: int, pool, seat_strategies) -> tuple[dict
             observed.add(state["current_candidate"])
         seat_index = state["active_seat"]
         if seat_index is None:
+            # A forced-fill park (PEAK3 Pass 1) is a DIFFERENT, expected beat
+            # -- it settles a position no other still-competing seat could
+            # ever have contested, not one nobody at all could act on -- so it
+            # is resolved (and still counted as `observed` above, same as any
+            # other park) without counting toward `parks`, which this file's
+            # own invariant defines specifically as an UNWINNABLE draw.
+            if S.is_forced_fill_pending(state):
+                S.resolve_forced_fill(state, pool)
+                continue
             assert S.is_unwinnable_lot_pending(state)
             parks += 1
             S.resolve_unwinnable_lot(state, pool)
@@ -340,6 +428,13 @@ def test_a_real_market_never_parks_on_an_unwinnable_draw(pool):
                 f"seed {seed}: the market drew a candidate neither seat could act on "
                 "-- exactly the reported deadlock this pass fixes"
             )
+            if S.is_forced_fill_pending(state):
+                # A genuinely divergent-needs endgame (PEAK3 Pass 1): expected
+                # here, unlike the unwinnable case above -- resolve the beat
+                # and continue driving with the bot, same as `conftest.
+                # play_match` does.
+                S.resolve_forced_fill(state, pool)
+                continue
             seat_index = state["active_seat"]
             public, private, _ = S.project(state, seat_index, pool)
             private = {**private, "candidate_tier": state.get("current_candidate_tier")}

@@ -224,8 +224,16 @@ async function stepOnce(page: Page, surface: SurfaceId): Promise<void> {
       // this file that reaches a reveal has been hanging for the full 20s
       // timeout and then failing, unnoticed only because the suite has not
       // actually been run this pass.
+      //
+      // Pass 1 (gameplay correctness): the boss lineup now auto-starts its
+      // reveal with zero clicks (`RevealSequenceSurface`'s boss-only
+      // auto-start effect) — there is no `rtt-reveal-start-boss` button to
+      // click at all. The roster path is untouched and still requires the
+      // one manual press.
       const kind = surface === "rtt-opening-reveal" ? "roster" : "boss";
-      await page.locator(`[data-testid="rtt-reveal-start-${kind}"]`).click();
+      if (kind === "roster") {
+        await page.locator(`[data-testid="rtt-reveal-start-${kind}"]`).click();
+      }
       const skip = page.locator(`[data-testid="rtt-reveal-skip-${kind}"]`);
       await skip.waitFor({ state: "visible", timeout: 20_000 });
       await skip.click();
@@ -679,7 +687,10 @@ test.describe("RUN THE TABLE full run", () => {
     // Deliberately NOT `stepOnce` here — it also waits for the surface to be
     // replaced (by the "Continue" click), and the settled-but-still-mounted
     // moment in between is exactly what needs inspecting.
-    await page.locator('[data-testid="rtt-reveal-start-boss"]').click();
+    //
+    // No click to start the boss reveal (Pass 1): it auto-starts the instant
+    // this surface mounts, so there is no `rtt-reveal-start-boss` button —
+    // go straight to waiting for "Skip all" to appear.
     const skip = page.locator('[data-testid="rtt-reveal-skip-boss"]');
     await skip.waitFor({ state: "visible", timeout: 20_000 });
     await skip.click();
@@ -730,6 +741,38 @@ test.describe("RUN THE TABLE resume", () => {
 
     // And it is still playable from there.
     await stepOnce(page, before);
+  });
+
+  /**
+   * Pass 1 (gameplay correctness): the boss reveal must never require a
+   * click to start, and a reload mid-presentation must never strand the
+   * match behind it — the reveal auto-fires again on remount, same as the
+   * first time, and the battle is still reachable afterward.
+   */
+  test("boss reveal auto-starts with zero clicks, and a reload mid-reveal does not strand the match", async ({
+    page,
+  }) => {
+    test.setTimeout(FULL_RUN_TIMEOUT_MS);
+    await freshGate(page);
+    await startRun(page, "rtt-start-standard");
+    await skipOpeningReveal(page);
+    await driveTo(page, "rtt-boss-reveal");
+
+    // No click starts it — the "Skip all" control (only rendered once the
+    // sequence has started) appears on its own.
+    await expect(page.locator('[data-testid="rtt-reveal-start-boss"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="rtt-reveal-skip-boss"]')).toBeVisible({ timeout: 20_000 });
+
+    // Reload mid-presentation, before ever pressing skip/continue.
+    await page.reload({ waitUntil: "load" });
+    await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible({ timeout: 20_000 });
+    expect(await currentSurface(page)).toBe("rtt-boss-reveal");
+
+    // It auto-starts again, with no click required, and the match is still
+    // completable from here — not stuck behind the presentation.
+    await expect(page.locator('[data-testid="rtt-reveal-start-boss"]')).toHaveCount(0);
+    await stepOnce(page, "rtt-boss-reveal");
+    expect(await currentSurface(page)).not.toBe("rtt-boss-reveal");
   });
 });
 

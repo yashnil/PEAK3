@@ -314,10 +314,37 @@ export default function RunTheTableGame({
   const showRosterReveal =
     !!state && (needsOpeningReveal(state) || rosterSequence.started) && !rosterRevealDismissed;
 
-  const bossActive =
-    !!state && !!bossTrack && (needsBossReveal(state) || bossSequence.started);
-  const bossIntroDone = !bossTrack || dismissedBossIntroId === bossTrack.boss_id;
   const bossRevealDismissedNow = !!bossTrack && dismissedBossRevealId === bossTrack.boss_id;
+  const bossActive =
+    !!state &&
+    !!bossTrack &&
+    (needsBossReveal(state) ||
+      bossSequence.started ||
+      // The boss reveal is ONE batched POST (SYNTHESIS_CONTRACT.md §2.2):
+      // `boss.complete` flips true server-side the instant it resolves, well
+      // before the local, paced presentation (`bossSequence.started`) has
+      // even had a chance to run — and `bossSequence.started` is plain
+      // component state, gone the instant a reload remounts this component.
+      // Without this clause, a reload in that narrow but real window (reveal
+      // already fired, presentation not yet dismissed) drops straight past
+      // the boss reveal into the briefing screen, silently skipping a
+      // presentation the player never actually saw. `bossTrack.revealed > 0`
+      // is the SERVER's proof the reveal has begun; `!bossRevealDismissedNow`
+      // stops this from re-opening a reveal the player already continued past
+      // in THIS session (dismissal just cannot survive a reload itself, same
+      // limitation the pre-existing roster reveal already has). Gated on
+      // `status === "boss_ready"` because `state.reveal.boss` keeps carrying
+      // the finished track's data long after the battle resolves (the
+      // "names the boss" HUD-objective test depends on exactly that) — this
+      // clause must never fire once play has moved past the boss_ready
+      // status the reveal belongs to.
+      (state.status === "boss_ready" && bossTrack.revealed > 0 && !bossRevealDismissedNow));
+  const bossIntroDone =
+    !bossTrack ||
+    dismissedBossIntroId === bossTrack.boss_id ||
+    // Same reload gap as above, one screen earlier: skip the intro once the
+    // server shows the reveal already began, rather than replaying it.
+    bossTrack.revealed > 0;
   /** The pre-roll: name, philosophy, win condition, countdown, skip. */
   const showBossIntro = bossActive && !bossIntroDone;
   /** The paired lineup reveal, after the intro is dismissed. */

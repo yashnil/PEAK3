@@ -175,6 +175,21 @@ export function verdictOf(
       ? "Auto-filled."
       : `Auto-filled to ${who(lot.winner_seat).toLowerCase()}.`;
   }
+  // NEVER A "LOT" AT ALL, LET ALONE A WON ONE. `LOT_KIND_FORCED_FILL` settles
+  // a position no OTHER still-competing roster's needs ever overlapped with
+  // this one — the market never opened it as a bid/raise auction in the
+  // first place (see `nba_peak/twenty_dollar/state.py::_park_forced_fill`).
+  if (lot.decided_by === "forced_fill" && lot.winner_seat !== null) {
+    return `Forced fill — no other roster's needs overlapped, ${who(lot.winner_seat).toLowerCase()} for ${formatDollars(lot.price)}.`;
+  }
+  // NO "TOOK THEM" WORDING HERE. That phrase reads as a contest won, and an
+  // uncontested lot never had one — the other roster had no legal way to use
+  // this player from the moment the lot opened (`LOT_KIND_UNCONTESTED`). A
+  // receipt claiming a fight nobody could join is the "fake competitive
+  // auction" defect in words.
+  if (lot.lot_kind === "uncontested" && lot.winner_seat !== null) {
+    return `Uncontested — ${who(lot.winner_seat).toLowerCase()} was the only roster that could use ${lot.candidate.player_name}, ${formatDollars(lot.price)}.`;
+  }
   if (lot.winner_seat === null) {
     const skipped = (lot.actions ?? []).filter((a) => a.consumed_skip).length;
     const timedOut = (lot.actions ?? []).some((a) => a.timed_out);

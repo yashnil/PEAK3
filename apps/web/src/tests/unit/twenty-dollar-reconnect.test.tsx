@@ -71,6 +71,7 @@ function lot(index: number, overrides: Partial<ResolvedLot> = {}): ResolvedLot {
     winner_seat: 0,
     price: 1,
     decided_by: "bid",
+    lot_kind: "standard",
     actions: [{ seat_index: 0, action: "bid", amount: 1 }],
     ...overrides,
   };
@@ -105,6 +106,7 @@ function state(
     qualified_pool_size: 500,
     history,
     seat_names: ["You", "Floor General"],
+    lot_kind: "standard",
     ...overrides,
   };
 }

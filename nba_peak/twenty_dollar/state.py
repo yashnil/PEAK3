@@ -84,6 +84,29 @@ DECIDED_BY_BID = "bid"
 DECIDED_BY_PASS_OUT = "pass_out"
 DECIDED_BY_UNSOLD = "unsold"
 DECIDED_BY_AUTOFILL = "autofill"
+#: A position no OTHER still-competing seat could ever have contested settled
+#: outside the auction entirely -- see `_park_forced_fill` and
+#: `LOT_KIND_FORCED_FILL`. Distinct from `DECIDED_BY_AUTOFILL`: autofill means
+#: the pool ran out or the lot clock did; forced-fill means the market is
+#: still very much alive, just not for this one diverged need.
+DECIDED_BY_FORCED_FILL = "forced_fill"
+
+#: Whether a lot, AT THE MOMENT IT WAS DRAWN, had more than one seat able to
+#: act on it at all. Normal lots are now drawn from the INTERSECTION of every
+#: still-incomplete seat's legal wins (`_intersection_eligible_candidates`),
+#: so an ordinary standard/closeout lot with two incomplete seats is standard
+#: by construction -- every member of the intersection already fits both.
+#: `LOT_KIND_UNCONTESTED` survives for the one case that is still genuinely
+#: uncontested without being unfair: exactly ONE seat is still incomplete (the
+#: other has already finished its roster and is not a competitor to protect).
+#: `LOT_KIND_FORCED_FILL` is not a live lot at all -- see `_park_forced_fill`.
+#: Recorded once, at draw time, on both the live projection and the settled
+#: history row, so neither a live UI nor a receipt has to re-derive it from
+#: counting `passed`/`in_lot` flags itself.
+LOT_KIND_STANDARD = "standard"
+LOT_KIND_UNCONTESTED = "uncontested"
+LOT_KIND_AUTOFILL = "autofill"
+LOT_KIND_FORCED_FILL = "forced_fill"
 
 #: Rejection codes. Distinct strings so a route can map them without parsing
 #: prose, and so a test asserts on the code rather than on a sentence. Each one
@@ -193,6 +216,8 @@ def initial_state(seed: int, seat_count: int = SEAT_COUNT) -> dict:
         "lot_bids": [0] * seat_count,
         "lot_actions": [],
         "autofilled": False,
+        "lot_kind": None,
+        "forced_fill_pending": None,
     }
     _advance_lot(state, pool, first=True)
     return state
@@ -491,6 +516,53 @@ def _eligible_candidates(
     return out
 
 
+def _intersection_eligible_candidates(
+    state: dict,
+    pool: CandidatePool,
+    available: list[Candidate],
+    supply: Optional[feasibility.PositionSupply] = None,
+) -> list[Candidate]:
+    """`available`, narrowed to candidates EVERY still-incomplete seat could
+    legally acquire.
+
+    THE NORMAL MARKET'S ACTUAL DRAW POOL. `_eligible_candidates` (the UNION)
+    still exists and still means what it always has -- "is there anything left
+    in the pool anybody could win" -- but a candidate only one side of a live,
+    two-sided market could ever act on is not a competitive lot, it is a
+    walkover with an audience. Opening it as an ordinary bid/raise auction is
+    exactly the "fake competitive auction" defect the Pass 1 brief names: the
+    seat that cannot act did not lose a fight, it was never in one.
+
+    With exactly one still-incomplete seat this reduces to that seat's own
+    eligibility -- there is nothing to intersect against, and a lone bidder
+    with the field to itself is an ordinary endgame, not a walkover (see
+    `LOT_KIND_UNCONTESTED`'s own comment).
+
+    Returns an EMPTY list whenever the two (or more) incomplete seats' needs
+    have genuinely diverged -- most visibly once they no longer share ANY
+    open position. That is not pool exhaustion (`_eligible_candidates` may
+    still be non-empty) and it is not a market stall to route through
+    `_autofill`; it is `_park_forced_fill`'s trigger. See `_advance_lot`.
+    """
+    incomplete = _incomplete_seats(state)
+    if not incomplete:
+        return []
+    base = supply if supply is not None else _supply(state, pool)
+    verdict: dict[frozenset[str], bool] = {}
+    out: list[Candidate] = []
+    for candidate in available:
+        cached = verdict.get(candidate.positions)
+        if cached is None:
+            cached = all(
+                can_seat_acquire(state, seat_index, candidate, pool, base)
+                for seat_index in incomplete
+            )
+            verdict[candidate.positions] = cached
+        if cached:
+            out.append(candidate)
+    return out
+
+
 def _fits_seat(
     state: dict,
     seat_index: int,
@@ -602,7 +674,7 @@ def _draw_candidate(
 def _advance_lot(state: dict, pool: CandidatePool, *, first: bool = False) -> None:
     """Put the next candidate up, or end the match.
 
-    Termination is decided here and it is decided four ways, in order:
+    Termination is decided here and it is decided five ways, in order:
 
       1. Both rosters full -> the match is over, normally.
       2. `HARD_MAX_LOTS` reached -> auto-fill the remaining slots. This is the
@@ -614,12 +686,21 @@ def _advance_lot(state: dict, pool: CandidatePool, *, first: bool = False) -> No
          incomplete -> switch to the CLOSEOUT MARKET, which keeps drawing but
          guarantees each incomplete roster a usable candidate on a bounded
          schedule.
-      4. No ELIGIBLE candidate remains -> auto-fill. Either the qualified pool
-         is genuinely empty, or everything left in it is unwinnable by every
-         seat still short a slot (`_eligible_candidates`) -- both mean no
-         further lot could ever be validly offered. Reaching this against the
-         qualified 500 would require a pathological board; implemented rather
-         than asserted-impossible because "cannot happen" is not a proof.
+      4. No candidate left is winnable by ANY still-incomplete seat
+         (`_eligible_candidates`, the union) -> auto-fill. Either the
+         qualified pool is genuinely empty, or everything left in it is
+         unwinnable by everybody -- both mean no further lot could ever be
+         validly offered.
+      5. Something is still winnable by SOME incomplete seat, but nothing is
+         winnable by EVERY incomplete seat at once
+         (`_intersection_eligible_candidates` is empty while the union is
+         not) -> the incomplete seats' needs have diverged far enough that no
+         candidate left could ever create a real two-sided lot, so
+         `_park_forced_fill` PARKS the one stranded assignment as a real,
+         observable beat (never commits it inline -- see that function's own
+         comment) and only its own resolution actually settles it and lets
+         the market resume; see that function for why this is not the same
+         as (2) or (4).
     """
     if all(_roster_full(s) for s in state["seats"]):
         _complete(state)
@@ -652,8 +733,8 @@ def _advance_lot(state: dict, pool: CandidatePool, *, first: bool = False) -> No
     # reused everywhere the verdict must agree with `_eligible_candidates`'
     # own, closes it.
     supply = _supply(state, pool) if available else None
-    eligible = _eligible_candidates(state, pool, available, supply) if available else []
-    if not eligible:
+    union_eligible = _eligible_candidates(state, pool, available, supply) if available else []
+    if not union_eligible:
         # EITHER the pool is genuinely empty, OR it is not -- but nothing left
         # in it can be legally won by any seat still short a slot. Both are
         # the same deterministic terminal path: nothing further can be validly
@@ -662,13 +743,28 @@ def _advance_lot(state: dict, pool: CandidatePool, *, first: bool = False) -> No
         _autofill(state, pool, reason="pool_exhausted")
         return
 
+    # THE NORMAL MARKET DRAWS FROM THE INTERSECTION, NOT THE UNION. Something
+    # is winnable by SOME incomplete seat (`union_eligible` above proves it),
+    # but a normal lot is only a real, two-sided auction if EVERY still-
+    # incomplete seat could act on it -- see `_intersection_eligible_
+    # candidates`'s own docstring for why the union alone let a lot only one
+    # side could ever contest through as an ordinary bid/raise auction.
+    eligible = _intersection_eligible_candidates(state, pool, available, supply)
+    if not eligible:
+        # Something is winnable, just never by every incomplete seat at once:
+        # their needs have diverged. Not pool exhaustion, not the lot clock --
+        # settle the one stranded position and let the market resume.
+        _park_forced_fill(state, pool, union_eligible, supply)
+        return
+
     rng = _lot_stream(state["seed"], state["lot_index"])
     # THE DRAW IS FREE FIRST WITHIN THE ELIGIBLE POOL, GUARANTEED SECOND. Every
-    # member of `eligible` already fits at least one still-incomplete seat --
-    # see `_eligible_candidates` -- so this draw can never surface a candidate
-    # nobody could act on. What is not yet guaranteed is BOTH waiting seats at
-    # once in the closeout market; only if the free draw misses one of them is
-    # it redrawn among candidates that seat specifically can use.
+    # member of `eligible` already fits EVERY still-incomplete seat -- see
+    # `_intersection_eligible_candidates` -- so this draw can never surface a
+    # candidate only one side could act on. What is not yet guaranteed is
+    # BOTH waiting seats at once in the closeout market; only if the free draw
+    # misses one of them is it redrawn among candidates that seat specifically
+    # can use.
     chosen, tier_label = _draw_candidate(eligible, rng)
     priority = _closeout_priority_seats(state)
     if priority and not any(
@@ -723,6 +819,15 @@ def _advance_lot(state: dict, pool: CandidatePool, *, first: bool = False) -> No
         not can_seat_acquire(state, i, chosen, pool, supply)
         for i in range(len(state["seats"]))
     ]
+    # DECIDED HERE, ONCE, FROM THE SAME PRE-SEEDED `passed` ARRAY, AND NEVER
+    # RECOMPUTED. A lot with exactly one non-pre-passed seat cannot become
+    # contested later -- the other seat is already out before its first
+    # possible action -- so this is a property of the draw, not of whatever
+    # the eligible seat goes on to do with it.
+    eligible_seat_count = sum(1 for passed in state["passed"] if not passed)
+    state["lot_kind"] = (
+        LOT_KIND_UNCONTESTED if eligible_seat_count == 1 else LOT_KIND_STANDARD
+    )
     state["active_seat"] = _next_actor(state, state["opening_seat"])
     # NOBODY CAN USE THIS CANDIDATE is a normal outcome, not an impossible
     # one: the market draws without regard to either roster's needs.
@@ -750,6 +855,197 @@ def _advance_lot(state: dict, pool: CandidatePool, *, first: bool = False) -> No
     # Only that turn's OWN timeout calls `resolve_unwinnable_lot` below to
     # actually settle it -- see that function and `mode.py`'s
     # `_resolve_unwinnable_lot`/`_open_turn_for_snapshot`.
+
+
+def _park_forced_fill(
+    state: dict,
+    pool: CandidatePool,
+    union_eligible: list[Candidate],
+    supply: feasibility.PositionSupply,
+) -> None:
+    """PARK a forced-fill candidate as a real, externally observable beat --
+    exactly the phantom-lot fix's own pattern, never commit one inline.
+
+    TRIGGERED FROM `_advance_lot` the moment `_intersection_eligible_
+    candidates` is empty while `_eligible_candidates` (the union, passed in as
+    `union_eligible`) is not: every remaining incomplete seat's needs have
+    diverged far enough that no candidate left in the pool could ever create a
+    real two-sided lot. THIS IS NOT POOL EXHAUSTION (`_autofill`'s job when
+    the union itself is empty) AND NOT THE LOT CLOCK RUNNING OUT (`_autofill`'s
+    other job, at `HARD_MAX_LOTS`): the market is still very much alive, just
+    not for this one seat's one stranded need -- so only that one need settles,
+    not the whole roster, and play resumes normally afterward.
+
+    WHY THIS ONLY PARKS -- AN EARLIER VERSION OF THIS FUNCTION COMMITTED THE
+    ASSIGNMENT INLINE, AND THAT WAS THE PHANTOM-LOT BUG AGAIN, REOPENED. This
+    module's own `_advance_lot` comment already tells this exact story once,
+    about the standard-lot path: settling a candidate inside the same call
+    that draws it means `current_candidate` is set and cleared before any
+    client poll can ever observe it, so a settled history row can name a
+    player nobody watching ever saw as current. `tests/twenty_dollar/
+    test_phantom_lot_fix.py::TestTheMarketNeverParksAnyMore::test_no_bids_at_
+    all` caught exactly that here: Mark Eaton settled `forced_fill` on a seed
+    where he was never `current_candidate` on any observed read. The fix is
+    the same fix, reapplied: park (`current_candidate` set, `active_seat`
+    None, nothing accepts a command), and only the beat's OWN resolution
+    (`resolve_forced_fill`, driven by `apps/api/app/services/twenty_dollar/
+    mode.py`'s `PHASE_LOT_FORCED_FILL` turn, mirroring `PHASE_LOT_UNWINNABLE`)
+    actually commits the roster mutation and the history row.
+
+    `forced_fill_pending` (the seat this beat is headed for) is what tells
+    `is_unwinnable_lot_pending` and `is_forced_fill_pending` apart -- both
+    states otherwise share the identical `current_candidate is not None,
+    active_seat is None` shape, and routing a forced-fill park through the
+    UNWINNABLE beat's own resolution would settle it `unsold` -- discarding
+    the assignment -- instead of awarding it. See both functions' comments.
+
+    DETERMINISTIC. Seat and candidate are chosen HERE, at park time, from the
+    SAME keyed `_lot_stream` every ordinary lot uses, and persisted in
+    `forced_fill_pending` rather than re-derived on resolve -- nothing can
+    move between the two since no command is ever accepted during the park,
+    but persisting the decision once matches this module's stated posture
+    toward every other settled-outcome field (`lot_kind`, `current_candidate`
+    itself) never being recomputed after the fact.
+
+    PRIORITY ROTATES WITH `opening_seat`, THE SAME ALTERNATION EVERY ORDINARY
+    LOT ALREADY USES (brief rule 5: "alternates after every lot, resolved or
+    unsold"). A fixed seat-index preference was tried first and was wrong: it
+    let seat 0's stranded needs always jump ahead of seat 1's, every single
+    time both were stranded at once, which starves seat 1 rather than merely
+    settling one diverged position (caught by `TestPhantomLotFixRequestCycle`
+    -- a bot-vs-bot simulation ran seat 1's roster to zero players while seat
+    0 filled solo). Longest-closeout-wait (`_closeout_priority_seats`'s own
+    signal) still breaks ties first where that tracking exists; the rotation
+    is the tiebreaker for the STANDARD market, where the intersection can
+    empty before any closeout dry-lot counter has ever been kept. The
+    rotation itself only advances on RESOLVE (`resolve_forced_fill`), the same
+    moment an ordinary lot's alternation advances -- not here at park time,
+    which is observation, not settlement.
+    """
+    incomplete = _incomplete_seats(state)
+    dry = state.get("closeout_dry_lots") or [0] * len(state["seats"])
+    seat_count = len(state["seats"])
+    rotation_start = int(state.get("opening_seat", 0))
+    ordered = sorted(
+        incomplete,
+        key=lambda i: (-dry[i], (i - rotation_start) % seat_count),
+    )
+
+    seat_index: Optional[int] = None
+    fitting: list[Candidate] = []
+    for candidate_seat in ordered:
+        fitting = _fits_seat(state, candidate_seat, union_eligible, pool)
+        if fitting:
+            seat_index = candidate_seat
+            break
+    if seat_index is None:
+        # UNREACHABLE BY CONSTRUCTION -- `_advance_lot` only calls this when
+        # `union_eligible` is non-empty, and `_eligible_candidates` is defined
+        # as the union of every incomplete seat's own fit, so at least one
+        # `incomplete` seat must have a non-empty `fitting`. Guarded rather
+        # than asserted-impossible, matching this module's stated posture
+        # toward "cannot happen": the deterministic terminal path still exists
+        # if this is ever wrong.
+        _autofill(state, pool, reason="pool_exhausted")
+        return
+
+    rng = _lot_stream(state["seed"], state["lot_index"])
+    chosen, tier_label = _draw_candidate(fitting, rng)
+
+    state["current_candidate"] = chosen.player_slug
+    state["current_candidate_tier"] = tier_label
+    state["offered"].append(chosen.player_slug)
+    state["active_seat"] = None
+    state["passed"] = [True] * len(state["seats"])
+    state["lot_kind"] = LOT_KIND_FORCED_FILL
+    state["forced_fill_pending"] = {"seat_index": seat_index}
+
+
+def resolve_forced_fill(state: dict, pool: Optional[CandidatePool] = None) -> dict:
+    """Commit the parked forced-fill beat, then draw whatever comes next.
+
+    Callable only when `is_forced_fill_pending(state)` is true -- the
+    orchestration layer only ever reaches this from the timeout of a turn it
+    itself only ever opened when that was already the case (mirrors
+    `resolve_unwinnable_lot`'s own contract exactly).
+
+    PRICED, NOT GIVEN AWAY, computed here at commit time rather than at park
+    time: `rules.forced_fill_reserve_price` bands the price by the candidate's
+    own published tier, so an elite player is not handed away at the
+    replacement-level floor merely because the intersection emptied -- the
+    cheap-star exploit this exists to prevent. Clamped through
+    `rules.max_legal_bid`, so the reserve owed to every OTHER slot this seat
+    has yet to fill is never spent to pay this one -- exactly the discipline an
+    ordinary bid is already held to. NO MARKET SKIP IS EVER CONSUMED: this
+    never touches `market_skips`, matching `_autofill`.
+
+    `state["lot_index"]` still advances -- a forced-fill counts as a turn
+    against `HARD_MAX_LOTS` like any other lot -- which is what keeps
+    `_advance_lot`'s own termination bound intact rather than opening a
+    second, uncounted path to the infinite-loop risk that check already
+    exists to close.
+    """
+    pool = pool or warm_pool()
+    pending = state["forced_fill_pending"]
+    seat_index = pending["seat_index"]
+    candidate = pool.get(state["current_candidate"])
+    tier_label = state.get("current_candidate_tier")
+    seat = state["seats"][seat_index]
+
+    price = min(
+        rules.forced_fill_reserve_price(candidate.rank),
+        rules.max_legal_bid(seat["budget"], _filled(seat)),
+    )
+    slots = feasibility.fillable_slots(_owned(seat, pool), candidate.positions)
+
+    seat["budget"] -= price
+    seat["roster"].append(
+        {
+            "player_slug": candidate.player_slug,
+            "price": price,
+            "lot_index": state["lot_index"],
+            "round_index": state["lot_index"],
+            "forced_fill": True,
+        }
+    )
+    state["history"].append(
+        {
+            "lot_index": state["lot_index"],
+            "round_index": state["lot_index"],
+            "candidate": candidate.revealed_dict(),
+            "candidate_tier": tier_label,
+            "opening_seat": state["opening_seat"],
+            "bids": [0] * len(state["seats"]),
+            "timed_out": [False] * len(state["seats"]),
+            "winner_seat": seat_index,
+            "price": price,
+            "decided_by": DECIDED_BY_FORCED_FILL,
+            "lot_kind": LOT_KIND_FORCED_FILL,
+            "actions": [],
+            "slot_options": list(slots),
+            "forced_fill_reason": "intersection_empty",
+        }
+    )
+    if state.get("market_phase") == MARKET_CLOSEOUT:
+        dry_list = list(state.get("closeout_dry_lots") or [0] * len(state["seats"]))
+        dry_list[seat_index] = 0
+        state["closeout_dry_lots"] = dry_list
+
+    # THE ROTATION ADVANCES HERE TOO, exactly as an ordinary resolved lot
+    # advances it -- otherwise the SAME seat stays "next due" turn after turn
+    # whenever forced-fill keeps firing, reintroducing the fixed-priority bias
+    # `_park_forced_fill`'s own comment describes catching.
+    state["opening_seat"] = state["next_opening_seat"]
+    state["next_opening_seat"] = (state["opening_seat"] + 1) % len(state["seats"])
+
+    state["lot_index"] += 1
+    state["current_candidate"] = None
+    state["current_candidate_tier"] = None
+    state["lot_kind"] = None
+    state["forced_fill_pending"] = None
+    state["passed"] = [False] * len(state["seats"])
+    _advance_lot(state, pool)
+    return state
 
 
 def _next_actor(state: dict, start: int) -> Optional[int]:
@@ -1138,6 +1434,13 @@ def _resolve_lot(
         "winner_seat": winner,
         "price": price,
         "decided_by": decided_by,
+        # See `LOT_KIND_UNCONTESTED`'s own comment. Recorded on the row exactly
+        # as it stood at draw time, so a receipt never has to guess whether a
+        # `pass_out`/`unsold` outcome was a real concession or the only move
+        # available -- a settlement worth $1 to a seat nobody else could ever
+        # have outbid is not the same fact as a seat winning a real fight for
+        # $1, even though the ledger entry looks identical either way.
+        "lot_kind": state.get("lot_kind") or LOT_KIND_STANDARD,
         "actions": [dict(a) for a in state["lot_actions"]],
         "slot_options": slot_options,
     }
@@ -1150,6 +1453,7 @@ def _resolve_lot(
     state["high_bidder"] = None
     state["current_bid"] = 0
     state["lot_timeouts"] = [False] * len(state["seats"])
+    state["lot_kind"] = None
     _advance_lot(state, pool)
 
 
@@ -1161,11 +1465,20 @@ def is_unwinnable_lot_pending(state: dict) -> bool:
     layer checks this after every rules call to decide whether to open a
     normal per-seat auction turn or the short, seatless "nobody can use this
     candidate" beat (`PHASE_LOT_UNWINNABLE` in `mode.py`).
+
+    EXCLUDES A FORCED-FILL PARK, which shares the identical `current_candidate
+    is not None, active_seat is None` shape -- see `is_forced_fill_pending`
+    and `_park_forced_fill`'s own comment for why conflating the two would
+    settle a forced-fill assignment `unsold` (discarding it) instead of
+    awarding it. `forced_fill_pending` is the discriminator: unset for every
+    snapshot shape that predates forced-fill, so this preserves the exact
+    prior behaviour for anything that is not one.
     """
     return (
         state.get("phase") == PHASE_AUCTION
         and state.get("current_candidate") is not None
         and state.get("active_seat") is None
+        and state.get("forced_fill_pending") is None
     )
 
 
@@ -1188,6 +1501,21 @@ def resolve_unwinnable_lot(state: dict, pool: Optional[CandidatePool] = None) ->
     pool = pool or warm_pool()
     _resolve_lot(state, pool, decided_by=DECIDED_BY_UNSOLD)
     return state
+
+
+def is_forced_fill_pending(state: dict) -> bool:
+    """True while a forced-fill candidate is parked, observable, and not yet
+    committed. The forced-fill sibling of `is_unwinnable_lot_pending` -- see
+    that function and `_park_forced_fill`'s own comment for why a forced-fill
+    assignment must be surfaced as a real, externally observable beat before
+    it settles, never committed inline the moment the intersection is found
+    empty (the phantom-lot bug, reopened, if it were)."""
+    return (
+        state.get("phase") == PHASE_AUCTION
+        and state.get("current_candidate") is not None
+        and state.get("active_seat") is None
+        and state.get("forced_fill_pending") is not None
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1253,6 +1581,7 @@ def _autofill(state: dict, pool: CandidatePool, *, reason: str) -> None:
                     "winner_seat": seat_index,
                     "price": price,
                     "decided_by": DECIDED_BY_AUTOFILL,
+                    "lot_kind": LOT_KIND_AUTOFILL,
                     "actions": [],
                     "slot_options": list(slots),
                     "autofill_reason": reason,
@@ -1418,6 +1747,10 @@ def project(
         "candidate": candidate.public_dict() if candidate else None,
         "qualified_pool_size": QUALIFIED_POOL_SIZE,
         "history": [dict(record) for record in state["history"]],
+        # See `LOT_KIND_UNCONTESTED`. `None` only ever while no lot is up yet
+        # (before the very first draw); every drawn lot sets one of the two
+        # real values before it is ever externally observable.
+        "lot_kind": state.get("lot_kind"),
     }
 
     seat = state["seats"][seat_index]

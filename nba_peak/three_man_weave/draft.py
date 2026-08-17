@@ -83,6 +83,36 @@ def snake_turn_order(
 
 
 @dataclass(frozen=True)
+class StagedPick:
+    """The seat-on-the-clock's not-yet-committed candidate/slot choice.
+
+    Drafts nothing -- the roster is untouched, exactly like `rearrange`. It
+    exists only so a timeout can safely prefer it over the deterministic
+    `autopick` fallback (see `mode._reduce_timeout`), which is what lets the
+    UI stage a selection (DRAFT PLAYER / CHANGE SELECTION) without the
+    original defect that made a plain, unstaged click commit immediately: a
+    staged-but-unconfirmed choice can no longer be silently overwritten by
+    the timeout, because the timeout now drafts it too.
+
+    Scoped to the CURRENT turn only. It carries no seat index of its own
+    because it is only ever read against `state.current_seat` -- see
+    `apply_pick`/`_advance_after_pick`, which clear it on every turn
+    advance, so a stale staged choice can never leak into a different
+    seat's or a different round's turn.
+    """
+
+    player_slug: str
+    slot_type: str
+
+    def as_dict(self) -> dict:
+        return {"player_slug": self.player_slug, "slot_type": self.slot_type}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "StagedPick":
+        return cls(player_slug=data["player_slug"], slot_type=data["slot_type"])
+
+
+@dataclass(frozen=True)
 class DraftState:
     """A whole match's game-logic state. Immutable; actions return new copies."""
 
@@ -93,6 +123,7 @@ class DraftState:
     picks: tuple[DraftPick, ...]
     used_roll_ids: tuple[str, ...]
     current_roll: Optional[Roll] = None
+    staged_pick: Optional[StagedPick] = None
 
     # -- turn -------------------------------------------------------------
     @property
@@ -127,6 +158,7 @@ class DraftState:
             "used_roll_ids": list(self.used_roll_ids),
             "current_roll": self.current_roll.as_dict() if self.current_roll else None,
             "drafted_identities": sorted(self.drafted_identities()),
+            "staged_pick": self.staged_pick.as_dict() if self.staged_pick else None,
         }
 
     @classmethod
@@ -154,6 +186,9 @@ class DraftState:
             used_roll_ids=tuple(data.get("used_roll_ids") or ()),
             current_roll=(
                 Roll.from_dict(data["current_roll"]) if data.get("current_roll") else None
+            ),
+            staged_pick=(
+                StagedPick.from_dict(data["staged_pick"]) if data.get("staged_pick") else None
             ),
         )
 
@@ -405,6 +440,7 @@ def apply_pick(
         picks=state.picks + (pick,),
         turn_index=advanced,
         current_roll=state.current_roll if keep_roll else None,
+        staged_pick=None,
     )
 
 
@@ -436,6 +472,7 @@ def _advance_after_pick(state: DraftState, seat: int, new_roster: Roster, pick: 
         picks=picks + (by_key[(seat, pick.player_slug)],),
         turn_index=advanced,
         current_roll=state.current_roll if keep_roll else None,
+        staged_pick=None,
     )
 
 
@@ -539,6 +576,85 @@ def rearrange(
     return replace(state, rosters=rosters, picks=picks)
 
 
+def stage_pick(
+    state: DraftState,
+    index: EligibilityIndex,
+    seat_index: int,
+    player_slug: str,
+    slot_type: str,
+) -> DraftState:
+    """Record a NOT-yet-committed candidate/slot choice for the seat on the clock.
+
+    A staging move, not a draft: no roster is mutated and the turn is not
+    consumed, exactly like `rearrange`. Legality is checked with the SAME
+    rules `apply_pick` enforces for a plain (non-arrangement) pick -- on the
+    roll, undrafted, an open slot, legal for that slot -- so a staged choice
+    can never later be drafted (by `apply_pick` or by a timeout preferring it,
+    see `mode._reduce_timeout`) more permissively than a direct pick would be.
+    """
+    if state.is_complete:
+        raise DraftError("match_complete", "The match is already complete")
+    if state.current_roll is None:
+        raise DraftError("no_roll", "No roll has been revealed for this round")
+    if seat_index != state.current_seat:
+        raise DraftError(
+            "not_your_turn", f"It is seat {state.current_seat}'s turn, not seat {seat_index}'s"
+        )
+    if player_slug in state.drafted_identities():
+        raise DraftError(
+            "identity_already_drafted",
+            f"'{player_slug}' has already been drafted in this match",
+        )
+    if player_slug not in state.current_roll.eligible_slugs:
+        raise DraftError(
+            "not_on_roll",
+            f"'{player_slug}' is not eligible for "
+            f"{state.current_roll.franchise_id} x {state.current_roll.decade}",
+        )
+    if slot_type not in SLOT_TYPES:
+        raise DraftError("unknown_slot", f"'{slot_type}' is not a roster slot")
+
+    roster = state.roster(seat_index)
+    if roster.slots.get(slot_type) is not None:
+        raise DraftError("slot_filled", f"Slot {slot_type} is already filled")
+    if not is_legal(player_slug, slot_type, state.slot_rights(index)):
+        raise DraftError("illegal_slot", f"'{player_slug}' cannot play {slot_type}")
+
+    return replace(state, staged_pick=StagedPick(player_slug=player_slug, slot_type=slot_type))
+
+
+def clear_staged_pick(state: DraftState) -> DraftState:
+    """Drop the staged choice without drafting it (CHANGE SELECTION). A no-op
+    if nothing is staged, so a caller need not check first."""
+    if state.staged_pick is None:
+        return state
+    return replace(state, staged_pick=None)
+
+
+def staged_pick_is_still_legal(
+    state: DraftState, index: EligibilityIndex, staged: StagedPick
+) -> bool:
+    """Would `staged` still be a legal pick for the seat on the clock, right now?
+
+    Re-checked rather than trusted at the moment a timeout would draft it: the
+    seat on the clock may `rearrange` its own roster between staging and
+    timing out (rearranging is legal at any time, on or off the clock), which
+    can fill the staged slot with a repositioned pick. Re-running the same
+    checks `stage_pick` made means a stale staged choice can never be drafted
+    illegally.
+    """
+    if state.current_roll is None or staged.player_slug in state.drafted_identities():
+        return False
+    if staged.player_slug not in state.current_roll.eligible_slugs:
+        return False
+    seat = state.current_seat
+    if seat is None:
+        return False
+    return staged.slot_type in legal_slots_for_pick(
+        state, seat, staged.player_slug, state.slot_rights(index)
+    )
+
+
 def reposition(
     state: DraftState,
     index: EligibilityIndex,
@@ -591,8 +707,10 @@ __all__ = [
     "DraftError",
     "DraftState",
     "IllegalPlacement",
+    "StagedPick",
     "apply_pick",
     "candidate_fits",
+    "clear_staged_pick",
     "create_match",
     "legal_picks",
     "legal_slots_for_pick",
@@ -601,5 +719,7 @@ __all__ = [
     "rosters_for_feasibility",
     "set_roll",
     "snake_turn_order",
+    "stage_pick",
+    "staged_pick_is_still_legal",
     "undrafted_pool",
 ]

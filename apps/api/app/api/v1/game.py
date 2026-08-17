@@ -397,8 +397,9 @@ async def post_answer(body: AnswerRequest) -> AnswerResponse:
     left_id = duel_meta["left_id"]
     right_id = duel_meta["right_id"]
 
-    # 3. Validate selected_peak_id is one of the two options
-    if body.selected_peak_id not in (left_id, right_id):
+    # 3. Validate selected_peak_id is one of the two options, or None (a
+    # genuine no-pick — the decision clock expired before the player chose).
+    if body.selected_peak_id is not None and body.selected_peak_id not in (left_id, right_id):
         raise HTTPException(
             status_code=400,
             detail=f"selected_peak_id must be one of '{left_id}' or '{right_id}'",
@@ -420,7 +421,7 @@ async def post_answer(body: AnswerRequest) -> AnswerResponse:
 
     winning_peak_id = winner_peak["id"]
     prime_index_gap = abs(left_peak["prime_index"] - right_peak["prime_index"])
-    correct = body.selected_peak_id == winning_peak_id
+    correct = body.selected_peak_id is not None and body.selected_peak_id == winning_peak_id
 
     # 6. Difficulty — re-derive from gap distribution across session
     all_ids_pairs = [(d["left_id"], d["right_id"]) for d in session_duels]

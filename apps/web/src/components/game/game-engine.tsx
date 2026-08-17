@@ -1,6 +1,6 @@
 "use client";
 
-import { useReducer, useEffect, useRef, useCallback } from "react";
+import { useReducer, useEffect, useRef, useCallback, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import type { GameMode, Duel } from "@/types";
 import {
@@ -9,15 +9,28 @@ import {
   currentDuel,
   isComplete,
 } from "@/lib/game-state";
-import { submitAnswer } from "@/lib/api";
+import { submitAnswer, postDailyResult } from "@/lib/api";
 import { getProgressRepository } from "@/lib/progress";
 // Deep import rather than the `@/components/ui` barrel — see the note in
 // `result-number.tsx`. The barrel reaches `lucide-react` through `ThemeToggle`
 // and costs this route ~74 kB of First Load JS for one number component.
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
+import ArenaTimer, { deadlineFromSeconds } from "@/components/shared/ArenaTimer";
 import { DuelCardComponent } from "./duel-card";
 import { RevealPanel } from "./reveal-panel";
 import { ChallengeSummary } from "./challenge-summary";
+
+// Peak Duel Daily only: a short decision clock per duel, and a fast
+// auto-advance out of the reveal so rounds 1-9 keep momentum. Endless mode
+// stays exactly as it was — untimed, manual-advance only.
+//
+// The clock reuses `ArenaTimer` (the multiplayer arena's decision clock)
+// rather than a hand-rolled interval: it already ticks against a monotonic
+// `performance.now()` deadline in its own isolated component (so a 250ms
+// tick never re-renders the duel cards), and its reduced-motion handling is
+// pure CSS, already audited.
+const DECISION_CLOCK_SECONDS = 5;
+const AUTO_ADVANCE_MS = 1300;
 
 interface GameEngineProps {
   mode: GameMode;
@@ -48,12 +61,20 @@ export function GameEngine({
   const startTimeRef = useRef<number | null>(null);
   const repo = useRef(getProgressRepository());
 
+  // Daily only: a fresh monotonic deadline per duel, converted once at the
+  // moment the duel becomes interactable — never held as a duration that
+  // gets ticked down in this component's own state (see the module note).
+  const [deadlineAt, setDeadlineAt] = useState<number | null>(null);
+
   // Start timer when a duel becomes active
   useEffect(() => {
     if (state.phase === "picking") {
       startTimeRef.current = Date.now();
+      setDeadlineAt(
+        mode === "daily" ? deadlineFromSeconds(DECISION_CLOCK_SECONDS) : null
+      );
     }
-  }, [state.phase, state.current_index]);
+  }, [state.phase, state.current_index, mode]);
 
   // Keyboard support
   useEffect(() => {
@@ -84,7 +105,27 @@ export function GameEngine({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (isComplete(state) && mode === "daily" && date) {
+      // Fast local cache, unchanged — still what the "already completed" gate
+      // on /play/daily reads before a page even reaches this component.
       repo.current.recordDailyCompletion(date, years, state.results);
+
+      // The official record. Idempotent server-side per (owner, mode,
+      // daily_key), so a resubmit from this same effect (e.g. React strict
+      // -mode's dev double-invoke) or a future replay of an already-finished
+      // day just returns `already_recorded: true` rather than double-counting
+      // — no client-side guard needed beyond the one this effect already has
+      // (fires exactly once per real phase transition into "complete").
+      const selections = Object.fromEntries(
+        state.results
+          .filter((r): r is typeof r & { selected_peak_id: string } => r.selected_peak_id !== null)
+          .map((r) => [r.duel_id, r.selected_peak_id])
+      );
+      postDailyResult({ session_token: state.session_token, selections }).catch(() => {
+        // The local record above already stands; a failed official POST
+        // (offline, signed-out edge case, etc.) must not surface as a broken
+        // completion screen the player just earned.
+      });
+
       onComplete?.();
     }
     if (isComplete(state) && mode === "endless") {
@@ -127,6 +168,55 @@ export function GameEngine({
     },
     [state]
   );
+
+  // A genuine no-pick: the decision clock reached zero before the player
+  // chose a side. Scored as incorrect by the server, same as a wrong manual
+  // pick — never silently dropped from the session.
+  const handleTimeout = useCallback(async () => {
+    if (state.phase !== "picking" || state.is_submitting) return;
+    const duel = currentDuel(state);
+    if (!duel) return;
+
+    dispatch({ type: "SUBMIT_TIMEOUT" });
+
+    const elapsed_ms = startTimeRef.current
+      ? Math.max(0, Date.now() - startTimeRef.current)
+      : DECISION_CLOCK_SECONDS * 1000;
+
+    try {
+      const answer = await submitAnswer({
+        session_token: state.session_token,
+        duel_id: duel.id,
+        selected_peak_id: null,
+        elapsed_ms,
+        current_streak: state.current_streak,
+      });
+      dispatch({ type: "SUBMIT_SUCCESS", answer, elapsed_ms });
+      repo.current.recordAnswer(answer.correct);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to submit answer";
+      dispatch({ type: "SUBMIT_ERROR", error: message });
+    }
+  }, [state]);
+
+  // Rounds 1-9 (daily only): auto-advance out of the reveal so the loop stays
+  // fast. Manual Enter/click dispatches ADVANCE directly, which moves the
+  // phase off "revealing" and — via this effect's cleanup — cancels the
+  // pending auto-advance before it can fire a second, now-stale ADVANCE.
+  // The final round stays manual: leaving the last result for a deliberate
+  // "See results" press, not a timer, since that transition changes screen
+  // type (duel -> summary) rather than just moving to the next duel.
+  useEffect(() => {
+    if (mode !== "daily" || state.phase !== "revealing") return;
+    const isLastDuel = state.current_index === state.duels.length - 1;
+    if (isLastDuel) return;
+
+    const id = window.setTimeout(() => {
+      dispatch({ type: "ADVANCE" });
+    }, AUTO_ADVANCE_MS);
+    return () => window.clearTimeout(id);
+  }, [mode, state.phase, state.current_index, state.duels.length]);
 
   const duel = currentDuel(state);
 
@@ -201,6 +291,21 @@ export function GameEngine({
           Peak Duel · {duel.left.duration_years}-Year Window
         </p>
       </div>
+
+      {/* Decision clock — daily only. Its own component so a 250ms tick
+          cannot re-render the duel cards; reduced motion is handled inside
+          it (pure CSS — the deadline itself keeps ticking either way, so
+          turning off motion never grants extra thinking time). */}
+      {mode === "daily" && !revealed && (
+        <ArenaTimer
+          deadlineAt={deadlineAt}
+          totalSeconds={DECISION_CLOCK_SECONDS}
+          label="Time to decide"
+          onExpire={handleTimeout}
+          yours
+          testId="peak-duel-decision-clock"
+        />
+      )}
 
       {/*
         CARDS AND RESULT SHARE ONE GRID CELL.

@@ -198,6 +198,46 @@ describe("game-state", () => {
     expect(getAccuracy(state)).toBe(0.5);
   });
 
+  it("SUBMIT_TIMEOUT enters submitting without a selected peak", () => {
+    const duels = [mockDuel("duel1")];
+    let state = createInitialState("daily", 3, duels, "token");
+    state = gameReducer(state, { type: "SUBMIT_TIMEOUT" });
+    expect(state.is_submitting).toBe(true);
+    expect(state.selected_peak_id).toBeNull();
+    expect(state.phase).toBe("picking");
+  });
+
+  it("SUBMIT_TIMEOUT is ignored outside the picking phase", () => {
+    const duels = [mockDuel("duel1")];
+    let state = createInitialState("daily", 3, duels, "token");
+    state = { ...state, phase: "revealing" };
+    const next = gameReducer(state, { type: "SUBMIT_TIMEOUT" });
+    expect(next.is_submitting).toBe(false);
+  });
+
+  it("SUBMIT_TIMEOUT is ignored while already submitting (no double-submit)", () => {
+    const duels = [mockDuel("duel1")];
+    let state = createInitialState("daily", 3, duels, "token");
+    state = gameReducer(state, { type: "SELECT_PEAK", peak_id: "left-duel1" });
+    state = gameReducer(state, { type: "SUBMIT_START" });
+    const next = gameReducer(state, { type: "SUBMIT_TIMEOUT" });
+    // The already-in-flight manual submission's selection must not be wiped.
+    expect(next.selected_peak_id).toBe("left-duel1");
+  });
+
+  it("a timed-out duel records a null selection as an incorrect result", () => {
+    const duels = [mockDuel("duel1")];
+    let state = createInitialState("daily", 3, duels, "token");
+    state = gameReducer(state, { type: "SUBMIT_TIMEOUT" });
+    const answer = mockAnswer(false, 0, 0);
+    state = gameReducer(state, { type: "SUBMIT_SUCCESS", answer, elapsed_ms: 5000 });
+
+    expect(state.phase).toBe("revealing");
+    expect(state.results).toHaveLength(1);
+    expect(state.results[0].selected_peak_id).toBeNull();
+    expect(state.results[0].correct).toBe(false);
+  });
+
   it("RESET clears game state", () => {
     const duels = [mockDuel("d1")];
     let state = createInitialState("daily", 3, duels, "token");

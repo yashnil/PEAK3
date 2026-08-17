@@ -268,6 +268,121 @@ def test_a_legal_swap_of_two_filled_slots_is_allowed(index):
 
 
 # ---------------------------------------------------------------------------
+# Staging (Pass 1): a not-yet-committed candidate/slot choice
+# ---------------------------------------------------------------------------
+def test_staging_records_a_choice_without_mutating_the_roster_or_advancing_the_turn(index):
+    state = D.create_match(1)
+    state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
+    staged = D.stage_pick(state, index, 0, "michael-jordan", "SG")
+
+    assert staged is not state
+    assert staged.staged_pick == D.StagedPick("michael-jordan", "SG")
+    assert staged.turn_index == state.turn_index == 0
+    assert staged.current_seat == 0
+    assert staged.rosters[0].slots["SG"] is None, "staging must not draft"
+    assert staged.picks == ()
+    assert state.staged_pick is None, "the input state must be untouched"
+
+
+def test_staging_for_a_seat_not_on_the_clock_is_refused(index):
+    state = D.create_match(1)
+    state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
+    with pytest.raises(D.DraftError) as excinfo:
+        D.stage_pick(state, index, 2, "dennis-rodman", "PF")
+    assert excinfo.value.code == "not_your_turn"
+
+
+def test_staging_is_refused_by_the_same_rules_a_pick_would_be(index):
+    state = D.create_match(1)
+    state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
+    with pytest.raises(D.DraftError) as excinfo:
+        D.stage_pick(state, index, 0, "shaquille-o-neal", "SG")  # not on this roll
+    assert excinfo.value.code == "not_on_roll"
+    with pytest.raises(D.DraftError) as excinfo:
+        D.stage_pick(state, index, 0, "michael-jordan", "C")  # illegal for this card
+    assert excinfo.value.code == "illegal_slot"
+
+
+def test_staging_without_a_revealed_roll_is_refused(index):
+    state = D.create_match(1)
+    with pytest.raises(D.DraftError) as excinfo:
+        D.stage_pick(state, index, 0, "michael-jordan", "SG")
+    assert excinfo.value.code == "no_roll"
+
+
+def test_clear_staged_pick_is_a_no_op_when_nothing_is_staged_and_drops_it_otherwise(index):
+    state = D.create_match(1)
+    assert D.clear_staged_pick(state) is state, "a no-op must not allocate a new state"
+
+    state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
+    staged = D.stage_pick(state, index, 0, "michael-jordan", "SG")
+    cleared = D.clear_staged_pick(staged)
+    assert cleared.staged_pick is None
+    assert cleared.rosters == staged.rosters
+    assert cleared.turn_index == staged.turn_index
+
+
+def test_a_committed_pick_always_clears_any_staged_choice(index):
+    """Whether or not the commit matches what was staged -- the turn moved
+    on, so the old turn's staging is never meaningful afterward."""
+    state = D.create_match(1)
+    state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
+    staged = D.stage_pick(state, index, 0, "michael-jordan", "SG")
+    committed = D.apply_pick(staged, index, "michael-jordan", "SG")
+    assert committed.staged_pick is None
+
+    # Also true when the actual pick differs from what was staged.
+    state2 = D.set_roll(D.create_match(1), _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
+    staged2 = D.stage_pick(state2, index, 0, "michael-jordan", "SG")
+    committed2 = D.apply_pick(staged2, index, "scottie-pippen", "SF")
+    assert committed2.staged_pick is None
+
+
+def test_state_round_trips_a_staged_pick_through_as_dict(index):
+    state = D.create_match(1)
+    state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
+    staged = D.stage_pick(state, index, 0, "michael-jordan", "SG")
+    restored = D.DraftState.from_dict(staged.as_dict())
+    assert restored.staged_pick == staged.staged_pick == D.StagedPick("michael-jordan", "SG")
+
+    cleared = D.clear_staged_pick(staged)
+    assert D.DraftState.from_dict(cleared.as_dict()).staged_pick is None
+
+
+def test_staged_pick_is_still_legal_reflects_a_slot_a_same_seat_rearrange_has_since_filled(index):
+    """THE RACE `mode._reduce_timeout` GUARDS AGAINST. The seat on the clock
+    may `rearrange` its own roster at any time -- including between staging a
+    choice and timing out on it. If that fills the exact slot staged, a
+    timeout must not try to draft into it, so this must read False."""
+    state = D.create_match(1)
+    state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
+    state = D.apply_pick(state, index, "michael-jordan", "PG")  # seat 0
+    state = D.apply_pick(state, index, "scottie-pippen", "SF")  # seat 1
+    state = D.apply_pick(state, index, "dennis-rodman", "PF")  # seat 2
+
+    state = D.set_roll(state, _roll(2, ["hakeem-olajuwon", "kenny-smith"], "HOU"))
+    state = D.apply_pick(state, index, "hakeem-olajuwon", "C")  # seat 2
+    state = D.apply_pick(state, index, "kenny-smith", "PG")  # seat 1
+
+    # Seat 0's turn again (round 2 ends where round 1 began). Stage a fresh
+    # candidate at the still-open SF slot.
+    state = D.set_roll(state, _roll(2, ["lebron-james"], "CLE", "2000s"))
+    staged_state = D.stage_pick(state, index, 0, "lebron-james", "SF")
+    assert D.staged_pick_is_still_legal(staged_state, index, staged_state.staged_pick)
+
+    # Seat 0 rearranges its OWN roster before timing out, moving Jordan from
+    # PG (Jordan's 1990-91 card admits PG, SG and SF -- see the swap test
+    # above) into the exact slot staged.
+    rearranged = D.rearrange(staged_state, index, 0, {"SF": "michael-jordan"})
+    assert rearranged.rosters[0].slots["SF"].player_slug == "michael-jordan"
+    # The staged choice is left untouched by the rearrange itself -- only a
+    # commit clears it -- but it is no longer LEGAL, which is exactly what a
+    # timeout must check before drafting it.
+    assert rearranged.staged_pick == staged_state.staged_pick
+    assert not D.staged_pick_is_still_legal(rearranged, index, rearranged.staged_pick)
+
+
+# ---------------------------------------------------------------------------
 # A whole match
 # ---------------------------------------------------------------------------
 def test_a_driven_match_completes_with_full_legal_rosters(completed_match):

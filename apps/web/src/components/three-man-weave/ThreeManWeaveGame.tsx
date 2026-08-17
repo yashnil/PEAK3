@@ -11,6 +11,7 @@ import {
   TMW_COMMAND_REARRANGE,
   TMW_COMMAND_SKIP_INTRO,
   TMW_COMMAND_SKIP_REVEAL,
+  TMW_COMMAND_STAGE_PICK,
   TMW_OPENING_REVEAL_SECONDS,
   TMW_REVEAL_SECONDS,
   TMW_TURN_PHASE_INTRO,
@@ -387,6 +388,43 @@ export default function ThreeManWeaveGame({
     [busy, send],
   );
 
+  /**
+   * Record (or clear) the not-yet-committed choice, server-side.
+   *
+   * NOT A COMMIT. `pick` below is the only thing that drafts. This exists so
+   * a timeout can safely prefer whatever the player last staged instead of
+   * the deliberately-weak `autopick` fallback -- see
+   * `mode._reduce_timeout`'s docstring in the API for why that closes the
+   * original defect (a visibly-selected pick silently overwritten by the
+   * fallback) rather than reintroducing it.
+   *
+   * DELIBERATELY DOES NOT SET `busy`. Staging happens on every candidate and
+   * slot click, and gating the whole panel on each one's round trip would
+   * make selection itself feel laggy -- the property this pass exists to
+   * fix. `inFlight.current` (set inside `send`) still prevents it from
+   * overlapping a real command, so a fast "select then Draft" can, in the
+   * rare case the stage request is still in flight, need one extra click;
+   * nothing incorrect can commit from that, since `pick` itself always
+   * gates on `busy`/`inFlight` and only ever submits what is on screen.
+   * Failures are swallowed on purpose: staging is a convenience for the
+   * timeout path, not the commit, so nothing here needs a rejection banner.
+   */
+  const stage = useCallback(
+    async (candidate: TmwCandidate | null, slotType: TmwSlotType | null) => {
+      if (busy || inFlight.current) return;
+      const payload: Record<string, unknown> =
+        candidate && slotType
+          ? { player_slug: candidate.player_slug, slot_type: slotType }
+          : { clear: true };
+      try {
+        await send(TMW_COMMAND_STAGE_PICK, payload);
+      } catch {
+        // Best-effort -- see docstring above.
+      }
+    },
+    [busy, send],
+  );
+
   const rearrange = useCallback(
     async (placements: Record<string, string>) => {
       if (busy || inFlight.current) return;
@@ -538,6 +576,11 @@ export default function ThreeManWeaveGame({
   const yourTurn = isYourTurn(match);
   const candidates = useMemo(() => candidatesForSeat(match), [match]);
   const lockedEntries = useMemo(() => identityLock(state), [state]);
+  // SERVER-VISIBLE, SURVIVES A REFRESH. Read straight off the current
+  // projection rather than local state -- a reload re-fetches the match and
+  // this is part of that response, so a player who staged a choice and then
+  // reloaded the page sees it still staged, not blank.
+  const stagedPick = match.private_state.staged_pick ?? null;
   const yourRoster =
     state.rosters.find((roster) => roster.seat_index === match.your_seat_index) ??
     null;
@@ -736,10 +779,12 @@ export default function ThreeManWeaveGame({
             seats={match.seats}
             yourSeatIndex={match.your_seat_index}
             lockedEntries={lockedEntries}
+            stagedPick={stagedPick}
             deadlineAt={deadlineAt}
             turnSeconds={TURN_SECONDS}
             busy={busy}
             onPick={pick}
+            onStage={stage}
             onMove={rearrange}
             // A turn you must resolve has no cancel, so closing simply returns
             // to the board -- the overlay reopens on the next render because

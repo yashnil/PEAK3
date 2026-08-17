@@ -102,6 +102,36 @@ export default function RevealSequenceSurface({
     sequence.start();
   };
 
+  /**
+   * AUTOMATIC BOSS REVEAL (Pass 1, gameplay correctness): the boss lineup is
+   * already server-authoritative the moment this surface can render at all —
+   * `needsBossReveal` only gates the surface on once `state.status ===
+   * "boss_ready"`. Requiring a manual "Reveal the lineup" press added a
+   * gameplay-meaningless click between the boss becoming known and the
+   * player being allowed to see it, so the boss path now fires the same
+   * `handleReveal` a click would have, once, as soon as the surface mounts
+   * with an unstarted sequence.
+   *
+   * The roster path (`kind === "roster"`) is deliberately untouched — this
+   * effect is a no-op for it — so "Reveal your roster" stays the one
+   * intentional manual beat this component still gates on a press.
+   *
+   * Guarded by a ref (not just `sequence.started`) because `onStartReveal`
+   * and the `sequence` object are both fresh references every render, which
+   * would otherwise be indistinguishable from "still needs to be started."
+   * `busy` in the dependency list lets a boss surface that first mounts
+   * while an unrelated request is in flight retry on the next render instead
+   * of firing into a rejected/queued request.
+   */
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (kind !== "boss") return;
+    if (sequence.started || busy || autoStartedRef.current) return;
+    autoStartedRef.current = true;
+    handleReveal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, sequence.started, busy]);
+
   return (
     <section
       data-testid={kind === "roster" ? "rtt-opening-reveal" : "rtt-boss-reveal"}
