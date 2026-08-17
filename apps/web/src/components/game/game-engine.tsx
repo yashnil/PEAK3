@@ -19,6 +19,8 @@ import ArenaTimer, { deadlineFromSeconds } from "@/components/shared/ArenaTimer"
 import { DuelCardComponent } from "./duel-card";
 import { RevealPanel } from "./reveal-panel";
 import { ChallengeSummary } from "./challenge-summary";
+import UiVersionSwitch from "@/components/v2/UiVersionSwitch";
+import PeakDuelV2Stage from "@/components/v2/duel/PeakDuelV2Stage";
 
 // Peak Duel Daily only: a short decision clock per duel, and a fast
 // auto-advance out of the reveal so rounds 1-9 keep momentum. Endless mode
@@ -220,11 +222,26 @@ export function GameEngine({
 
   const duel = currentDuel(state);
 
+  // V2's own presentation branch (Pass 3) consumes this exact `state` —
+  // same reducer, same handlers, same deadline — so it is built once here
+  // rather than re-derived inside a second data path. `UiVersionSwitch`
+  // decides which of the two already-built trees actually reaches the DOM.
+  const v2Stage = (
+    <PeakDuelV2Stage
+      state={state}
+      date={date}
+      deadlineAt={deadlineAt}
+      onSelect={handleSelect}
+      onTimeout={handleTimeout}
+      onNext={() => dispatch({ type: "ADVANCE" })}
+    />
+  );
+
   if (isComplete(state)) {
     return (
-      <ChallengeSummary
-        state={state}
-        date={date}
+      <UiVersionSwitch
+        legacy={<ChallengeSummary state={state} date={date} />}
+        v2={v2Stage}
       />
     );
   }
@@ -237,6 +254,8 @@ export function GameEngine({
   const winnerId = state.current_answer?.winning_peak_id;
 
   return (
+    <UiVersionSwitch
+      legacy={
     <div className="mx-auto max-w-2xl space-y-5 py-6">
       {/* Progress + score bar */}
       <div className="flex items-center justify-between text-sm">
@@ -474,5 +493,8 @@ export function GameEngine({
 
       </div>
     </div>
+      }
+      v2={v2Stage}
+    />
   );
 }

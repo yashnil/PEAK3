@@ -345,6 +345,64 @@ async def post_daily_result(
     )
 
 
+class DailyDistributionResponse(BaseModel):
+    """Lifetime distribution of one identity's OFFICIAL Peak Duel Daily
+    scores, bucketed 0/10 through 10/10.
+
+    `counts[i]` is the number of full, ten-duel attempts this identity has
+    on record scoring exactly `i` correct — real rows from
+    `PeakDuelDailyResultRepository`, never a client-asserted figure. A
+    freshly-created identity with no attempts yet returns all zeros, not an
+    error: an empty distribution is the honest answer, not a missing one.
+    """
+
+    total: int
+    counts: list[int] = Field(default_factory=lambda: [0] * 11)
+
+
+@router.get("/game/daily/distribution", response_model=DailyDistributionResponse)
+async def get_daily_distribution(
+    request: Request,
+    response: Response,
+    repo: PeakDuelDailyResultRepoDep,
+    auth: OptionalAuth = None,
+) -> DailyDistributionResponse:
+    """This identity's lifetime Peak Duel Daily score distribution.
+
+    Same identity resolution as `POST /game/daily/result`: the authenticated
+    sub when signed in, otherwise the signed `peak3_anon` cookie (minted here
+    if this is this browser's first request of any kind), so a guest's own
+    history reads back consistently before they ever create an account.
+
+    Read-only aggregation over `list_results_for_owner` — no new mutation
+    path, and nothing here can duplicate or alter a recorded attempt.
+    Attempts are already idempotent per `(owner_sub, mode, daily_key)` at the
+    write path (`save_result`'s `UNIQUE` constraint), so this can only ever
+    count a given daily board once per identity; only full ten-duel boards
+    are counted; a shorter or malformed record is skipped rather than
+    guessed at.
+    """
+    owner_sub = resolve_owner_sub(
+        auth, request.cookies.get(ANON_COOKIE_NAME), response, settings.SIGNING_SECRET
+    )
+    # Bounded well past any real lifetime of daily play (~10 years) rather
+    # than unbounded, so one identity's row count can never turn this into an
+    # unbounded query.
+    results = await repo.list_results_for_owner(owner_sub, limit=3650)
+
+    counts = [0] * 11
+    total = 0
+    for record in results:
+        if record.duels_total != 10:
+            continue
+        if not (0 <= record.correct_count <= 10):
+            continue
+        counts[record.correct_count] += 1
+        total += 1
+
+    return DailyDistributionResponse(total=total, counts=counts)
+
+
 @router.get("/game/endless", response_model=EndlessGameResponse)
 async def get_endless_game(
     years: int = Query(default=3),

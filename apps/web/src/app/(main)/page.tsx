@@ -766,7 +766,17 @@ export default async function HomePage({
           componentWeights={COMPONENT_WEIGHTS.map(({ label, pct, tone }) => ({ label, pct, tone }))}
           proof={modelData.proof}
           flagship={flagship}
+          runTheTable={flagship}
           dailyModes={[dailyGrid, peakDuel]}
+          multiplayerModes={
+            arenaCatalogue.available
+              ? arenaCatalogue.modes.map((mode) => ({
+                  href: mode.href,
+                  title: mode.name,
+                  description: mode.description,
+                }))
+              : []
+          }
         />
       }
     />

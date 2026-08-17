@@ -1,0 +1,211 @@
+"use client";
+
+/**
+ * PeakV2TMWReveal — the round-opening ceremony (Pass 3): "large franchise /
+ * decade identity, split-flap roll resolution, short controlled lighting,
+ * automatic transition into drafting" (brief). Reuses `SpinReel` verbatim —
+ * the real split-flap/slot-reel primitive already in production for this
+ * exact roll, per its own docstring — and the exact same server-timed
+ * schedule fractions `WeaveSpinner` uses, so the ceremony's length is still
+ * the server's turn window, never a client-invented duration.
+ *
+ * Courts stay mounted and visible BEHIND this overlay (dimmed by the scrim,
+ * not replaced) — the caller renders `PeakV2TMWCourts` underneath and this
+ * component only adds the cinematic scrim + card on top, exactly like
+ * legacy `WeaveSpinner`'s own `.tmw-ceremony-scrim` positioning.
+ */
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { usePrefersReducedMotion } from "@/lib/a11y";
+import { seatAccent } from "@/lib/three-man-weave-state";
+import SpinReel, { REEL_SPIN_MS } from "@/components/shared/SpinReel";
+import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
+import PeakV2DisplayEmphasis from "../PeakV2DisplayEmphasis";
+import PeakV2SecondaryAction from "../PeakV2SecondaryAction";
+import type { ArenaSeatPublic, TmwRoll } from "@/types/three-man-weave";
+
+const DECADES = ["1980s", "1990s", "2000s", "2010s", "2020s"] as const;
+const FRANCHISE_FILLER = [
+  "Boston Celtics", "Chicago Bulls", "Detroit Pistons", "Golden State Warriors",
+  "Houston Rockets", "Los Angeles Lakers", "Miami Heat", "New York Knicks",
+  "Philadelphia 76ers", "Phoenix Suns", "San Antonio Spurs", "Utah Jazz",
+];
+
+const INTRO_SHARE = 0.5;
+const SPIN_SHARE = 0.34;
+const RESOLVE_SHARE = 0.35;
+const PRIMARY_REEL_SHARE = REEL_SPIN_MS.primary / REEL_SPIN_MS.secondary;
+
+type Stage = "intro" | "spinning" | "locked" | "resolved";
+
+function schedule(totalMs: number, showIntro: boolean) {
+  const total = Math.max(1, totalMs);
+  const introEnds = showIntro ? total * INTRO_SHARE : 0;
+  const reelSpan = total - introEnds;
+  const secondaryMs = reelSpan * SPIN_SHARE;
+  return {
+    total,
+    introEnds,
+    spinEnds: introEnds + secondaryMs,
+    resolvesAt: introEnds + reelSpan * RESOLVE_SHARE,
+    primaryMs: secondaryMs * PRIMARY_REEL_SHARE,
+    secondaryMs,
+  };
+}
+
+function stageAt(elapsed: number, plan: ReturnType<typeof schedule>): Stage {
+  if (elapsed < plan.introEnds) return "intro";
+  if (elapsed < plan.spinEnds) return "spinning";
+  if (elapsed < plan.resolvesAt) return "locked";
+  return "resolved";
+}
+
+export interface PeakV2TMWRevealProps {
+  roll: TmwRoll | null;
+  roundNumber: number | null;
+  totalRounds: number;
+  open?: boolean;
+  seats?: ArenaSeatPublic[];
+  yourSeatIndex?: number | null;
+  handoffLabel?: string;
+  showIntro?: boolean;
+  deadlineAt?: number | null;
+  revealSeconds: number;
+  onSkip?: () => void;
+  skipping?: boolean;
+}
+
+export default function PeakV2TMWReveal({
+  roll,
+  roundNumber,
+  totalRounds,
+  open = true,
+  seats,
+  yourSeatIndex,
+  handoffLabel,
+  showIntro = false,
+  deadlineAt,
+  revealSeconds,
+  onSkip,
+  skipping = false,
+}: PeakV2TMWRevealProps) {
+  const reduced = usePrefersReducedMotion();
+  const rollId = roll?.roll_id ?? null;
+  const totalMs = Math.max(1, revealSeconds * 1000);
+  const plan = useMemo(() => schedule(totalMs, showIntro), [totalMs, showIntro]);
+  const [stage, setStage] = useState<Stage>(showIntro ? "intro" : "spinning");
+  const decidedFor = useRef<string | null>(null);
+  const [animate, setAnimate] = useState(true);
+
+  useEffect(() => {
+    if (!rollId || !open) return;
+    const remaining = deadlineAt === null || deadlineAt === undefined ? plan.total : deadlineAt - performance.now();
+    const elapsed = Math.min(plan.total, Math.max(0, plan.total - remaining));
+    if (decidedFor.current !== rollId) {
+      decidedFor.current = rollId;
+      setAnimate(elapsed < plan.spinEnds);
+    }
+    setStage(stageAt(elapsed, plan));
+    const timers: number[] = [];
+    const arm = (at: number, next: Stage) => {
+      if (at <= elapsed) return;
+      timers.push(window.setTimeout(() => setStage(next), at - elapsed));
+    };
+    arm(plan.introEnds, "spinning");
+    arm(plan.spinEnds, "locked");
+    arm(plan.resolvesAt, "resolved");
+    return () => timers.forEach((id) => window.clearTimeout(id));
+  }, [rollId, open, plan, deadlineAt]);
+
+  const franchisePool = useMemo(() => {
+    if (!roll) return FRANCHISE_FILLER;
+    return [...new Set([roll.franchise_display_name, ...FRANCHISE_FILLER])];
+  }, [roll]);
+
+  const noteSettled = () => {};
+
+  if (!open) return null;
+
+  const resolved = stage === "resolved";
+  const still = reduced || !animate;
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto"
+      style={{ background: "color-mix(in srgb, var(--v2-bg-page) 88%, transparent)" }}
+      data-ui-version="v2"
+      data-stage={stage}
+    >
+      <div className="mx-auto max-w-xl px-6 py-16 text-center">
+        {!roll ? (
+          <p style={{ fontFamily: "var(--v2-font-ui)", color: "var(--v2-text-secondary)" }}>Rolling the next franchise and decade…</p>
+        ) : showIntro && stage === "intro" ? (
+          <div>
+            <p style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--v2-color-accent)" }}>
+              PEAK3 Arena
+            </p>
+            <PeakV2ResultHeadline as="h1" scale="hero" className="mt-2">
+              Three-Man <PeakV2DisplayEmphasis>Weave</PeakV2DisplayEmphasis>
+            </PeakV2ResultHeadline>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-4">
+              {(seats ?? []).map((seat) => (
+                <span
+                  key={seat.seat_index}
+                  style={{
+                    fontFamily: "var(--v2-font-ui)",
+                    fontWeight: 700,
+                    fontSize: "0.875rem",
+                    color: seat.seat_index === yourSeatIndex ? "var(--v2-color-accent)" : "var(--v2-text-secondary)",
+                  }}
+                >
+                  {seat.display_name}
+                  {seat.seat_index === yourSeatIndex ? " · You" : ""}
+                </span>
+              ))}
+            </div>
+            <p className="mt-4" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.875rem", color: "var(--v2-text-secondary)" }}>
+              {totalRounds} franchise × decade rounds. Build the best legal five and a bench.
+            </p>
+          </div>
+        ) : (
+          <div>
+            <p style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--v2-text-muted)" }}>
+              Round {roundNumber ?? "—"} of {totalRounds} · everyone drafts from this
+            </p>
+            {/* `tmw-ceremony` is a CSS hook only (three-man-weave.css's real,
+                already-tuned `.tmw-ceremony .spin-reel-strip` aperture/mask/
+                payline rules) — reusing the exact real split-flap frame
+                rather than approximating it a second time. */}
+            <div className="tmw-ceremony mt-4 flex items-center justify-center gap-6">
+              <span style={{ fontFamily: "var(--v2-font-display)", fontSize: "var(--v2-display-size-line)", color: "var(--v2-text-primary)" }} data-seat-accent={seatAccent(0)}>
+                <SpinReel pool={franchisePool} target={roll.franchise_display_name} spinMs={plan.primaryMs} runKey={`${roll.roll_id}-franchise`} reduced={still} testId="tmw-roll-franchise" onSettled={noteSettled} />
+              </span>
+              <span aria-hidden="true" style={{ fontFamily: "var(--v2-font-display)", fontStyle: "italic", fontSize: "1.5rem", color: "var(--v2-color-accent)" }}>
+                ×
+              </span>
+              <span style={{ fontFamily: "var(--v2-font-display)", fontSize: "var(--v2-display-size-line)", color: "var(--v2-color-accent)" }}>
+                <SpinReel pool={DECADES} target={roll.decade} spinMs={plan.secondaryMs} runKey={`${roll.roll_id}-decade`} reduced={still} testId="tmw-roll-decade" onSettled={noteSettled} />
+              </span>
+            </div>
+            <p className="mt-4" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}>
+              {resolved ? `${roll.candidates.length} eligible ${roll.candidates.length === 1 ? "player" : "players"} still undrafted` : "Rolling…"}
+            </p>
+            {resolved && handoffLabel ? (
+              <p className="mt-2" style={{ fontFamily: "var(--v2-font-ui)", fontWeight: 700, fontSize: "0.875rem", color: "var(--v2-color-accent)" }}>
+                {handoffLabel}
+              </p>
+            ) : null}
+          </div>
+        )}
+
+        {onSkip ? (
+          <div className="mt-8">
+            <PeakV2SecondaryAction disabled={skipping} onClick={onSkip}>
+              {skipping ? "Starting…" : stage === "intro" ? "Skip intro" : resolved ? "Draft now" : "Skip reveal"}
+            </PeakV2SecondaryAction>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}

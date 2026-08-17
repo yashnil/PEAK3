@@ -585,6 +585,14 @@ export interface DailyResultResponse {
   played_on_daily_key: boolean;
 }
 
+// Mirrors `DailyDistributionResponse` in apps/api/app/api/v1/game.py — the
+// real, server-recorded lifetime 0/10..10/10 histogram for this identity
+// (signed-in sub, or the anon cookie). `counts` is always length 11.
+export interface DailyDistributionResponse {
+  total: number;
+  counts: number[];
+}
+
 export interface LocalProgress {
   schema_version: number;
   daily_completions: Record<string, DailyCompletion>;

@@ -229,7 +229,9 @@ describe("HomePageV2 — real data only, no fabricated stats", () => {
       generatedAt: null,
     },
     flagship: { href: "/arena/run-the-table", title: "RUN THE TABLE", description: "Flagship mode" },
+    runTheTable: { href: "/arena/run-the-table", title: "RUN THE TABLE", description: "Flagship mode" },
     dailyModes: [],
+    multiplayerModes: [],
   };
 
   it("omits the data-object slot entirely when no real top window is available — never a placeholder", () => {
@@ -252,7 +254,7 @@ describe("HomePageV2 — real data only, no fabricated stats", () => {
         }}
       />,
     );
-    expect(screen.getByText("Rank 1")).toBeInTheDocument();
+    expect(screen.getByText(/Rank 1/)).toBeInTheDocument();
     expect(screen.getByText("Sample Player")).toBeInTheDocument();
     expect(screen.getByText("97.3")).toBeInTheDocument();
   });

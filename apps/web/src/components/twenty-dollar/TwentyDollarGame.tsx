@@ -38,6 +38,9 @@ import TwentyDollarReceipt, {
   type TwentyDollarReceiptData,
 } from "./TwentyDollarReceipt";
 import { useShowdownPhase } from "./useShowdownPhase";
+import UiVersionSwitch from "@/components/v2/UiVersionSwitch";
+import PeakV2ShowdownIntro from "@/components/v2/showdown/PeakV2ShowdownIntro";
+import PeakV2ShowdownLive from "@/components/v2/showdown/PeakV2ShowdownLive";
 
 /**
  * One $20 Showdown match — the auction room.
@@ -544,7 +547,34 @@ function AuctionRoom({
     );
   }
 
+  // V2's own live board — same already-computed state/handlers, no second
+  // poll or reducer. Built once here so it composes with the intro overlay
+  // exactly like legacy's `MatchIntro` (mounted OVER an already-live board,
+  // never gating it) rather than as a separate first screen.
+  const v2Live = (
+    <PeakV2ShowdownLive
+      publicState={publicState}
+      privateState={privateState}
+      seatNames={seatNames}
+      yourSeat={yourSeat}
+      phase={phase}
+      clockDeadlineAt={clockDeadlineAt}
+      turnDeadlineAt={turnDeadlineAt}
+      controlsLive={controlsLive}
+      busy={busy}
+      inFlightAction={inFlightAction}
+      locallyExpired={locallyExpired}
+      consequence={yourTurn ? timeoutConsequence(privateState, seatNames, publicState) : null}
+      revealedHistory={revealedHistory}
+      onExpire={onExpire}
+      onSubmit={onSubmit}
+    />
+  );
+
   return (
+    <>
+    <UiVersionSwitch
+      legacy={
     /* `.pk-atmosphere` is globals' arena lighting -- two floodlights and the
        court grid -- applied on the room shell so the auction happens somewhere
        rather than on a flat page. The grid pitch is widened for this room in
@@ -750,6 +780,25 @@ function AuctionRoom({
         />
       ) : null}
     </div>
+      }
+      v2={v2Live}
+    />
+    {phase === "intro" ? (
+      <UiVersionSwitch
+        legacy={null}
+        v2={
+          <PeakV2ShowdownIntro
+            opponentName={opponentName}
+            startingBudget={yourSeatPublic?.budget ?? 20}
+            slots={publicState.slots.length}
+            marketSkips={publicState.market_skips_per_seat}
+            rated={view.rated}
+            onDismiss={onSkipIntro}
+          />
+        }
+      />
+    ) : null}
+    </>
   );
 }
 

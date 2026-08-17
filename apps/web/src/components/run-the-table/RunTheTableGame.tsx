@@ -70,6 +70,12 @@ import BossIntro from "./BossIntro";
 import BossPreview from "./BossPreview";
 import BattleReveal from "./BattleReveal";
 import RunResult from "./RunResult";
+import UiVersionSwitch from "@/components/v2/UiVersionSwitch";
+import PeakV2RTTShell from "@/components/v2/rtt/PeakV2RTTShell";
+import PeakV2RTTBossIntro from "@/components/v2/rtt/PeakV2RTTBossIntro";
+import PeakV2RTTBossLineup from "@/components/v2/rtt/PeakV2RTTBossLineup";
+import PeakV2RTTBattleResult from "@/components/v2/rtt/PeakV2RTTBattleResult";
+import PeakV2RTTDraftRoom from "@/components/v2/rtt/PeakV2RTTDraftRoom";
 
 /**
  * RUN THE TABLE, top to bottom.
@@ -1244,6 +1250,94 @@ export default function RunTheTableGame({
   }
 
   /**
+   * V2's presentation of the SAME screen this function just resolved into
+   * `surface` (Pass 3, product-direction). Three moments get a real V2
+   * rebuild — Draft Room (the flagship decision), the boss-reveal cinematic
+   * (`showBossIntro`/`showBossReveal`) and the boss battle result — because
+   * those are the surfaces the brief calls out by name. Every other node
+   * type (Trade Desk, Scout & Prepare, Choice/Rest Bank, System Select, Node
+   * Select, Boss Preview, the opening roster reveal, the run receipt) reuses
+   * the EXACT already-built `surface` node above rather than a second,
+   * divergent implementation of mechanics this pass does not need to
+   * redesign — `PeakV2RTTShell` still gives it the V2 status strip, run map
+   * and roster/lane rails around it.
+   */
+  let v2Content: React.ReactNode = surface;
+  let v2Layout: "live" | "cinematic" | "bare" = "live";
+
+  if (showBossIntro && bossTrack && state.next_boss) {
+    v2Layout = "cinematic";
+    v2Content = (
+      <PeakV2RTTBossIntro
+        boss={state.next_boss}
+        lanesToWin={state.next_boss.lanes_to_win ?? state.lanes_to_win}
+        reducedMotion={reducedMotion}
+        onComplete={() => setDismissedBossIntroId(bossTrack.boss_id)}
+      />
+    );
+  } else if (showBossReveal && bossTrack) {
+    v2Layout = "cinematic";
+    v2Content = (
+      <PeakV2RTTBossLineup
+        title={bossTrack.name}
+        subtitle={bossTrack.tagline}
+        track={bossTrack}
+        sequence={bossSequence}
+        reducedMotion={reducedMotion}
+        busy={busy}
+        onStartReveal={(count) => reveal("boss", count)}
+        onContinue={() => setDismissedBossRevealId(bossTrack.boss_id)}
+      />
+    );
+  } else if (screen === "node_active" && node && node.node_type === "draft_room") {
+    v2Content = (
+      <PeakV2RTTDraftRoom
+        node={node}
+        slots={[...state.starters, ...state.bench]}
+        credits={state.credits}
+        busy={busy}
+        onBuy={(offer, slotId, useVetMin) => {
+          trackRunTheTable({
+            type: "rtt_acquisition",
+            cost: useVetMin ? 0 : offer.cost,
+            veteran_minimum: useVetMin,
+            act: state.act,
+          });
+          act(
+            runActions.draftBuy(offer.card_id, slotId, useVetMin),
+            `buy:${offer.card_id}:${slotId}`,
+            `${offer.player_name} signed.`,
+          );
+        }}
+        onPass={() => {
+          trackRunTheTable({ type: "rtt_offer_passed", node_type: "draft_room", act: state.act });
+          act(runActions.draftPass(), "draft_pass", "Passed on the draft room.");
+        }}
+      />
+    );
+  } else if (screen === "battle" && battle) {
+    v2Layout = "cinematic";
+    v2Content = (
+      <PeakV2RTTBattleResult
+        battle={battle}
+        boss={state.next_boss}
+        onAdvance={() => {
+          trackRunTheTable({
+            type: "rtt_boss_completed",
+            act: battle.act,
+            boss_id: battle.boss_id,
+            outcome: battle.outcome,
+          });
+          act(runActions.advance(), `advance:${battle.act}`, "Moving on.");
+        }}
+        advanceLabel={battle.act >= state.acts_total ? "See the receipt" : "Next act"}
+      />
+    );
+  } else if (screen === "result") {
+    v2Layout = "bare";
+  }
+
+  /**
    * Is a guided tour allowed to run right now?
    *
    * True while a server round-trip is in flight (`busy` — the surface is about
@@ -1253,6 +1347,8 @@ export default function RunTheTableGame({
   const tourBlocked = busy || screen === "battle";
 
   return (
+    <UiVersionSwitch
+      legacy={
     <div className="rtt-shell" data-testid="rtt-shell" data-tour-blocked={tourBlocked ? "true" : "false"}>
       {/* Top HUD (PRODUCT_EXPERIENCE_CONTRACT.md §4) — credits, lives, act
           progress and the current objective, always visible above the
@@ -1388,6 +1484,9 @@ export default function RunTheTableGame({
         primaryDisabled={busy}
       />
     </div>
+      }
+      v2={<PeakV2RTTShell state={state} objective={objective} layout={v2Layout} content={v2Content} />}
+    />
   );
 }
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type {
   DailyChallenge,
+  DailyDistributionResponse,
   DailyResultRequest,
   DailyResultResponse,
   EndlessSession,
@@ -413,6 +414,25 @@ export async function postDailyResult(
     throw new APIError(res.status, message);
   }
   return res.json() as Promise<DailyResultResponse>;
+}
+
+// GET, not POST, but still needs the anon cookie round-trip — same as
+// `postDailyResult`, and for the same reason: an identity with no account
+// yet is resolved from `peak3_anon`, which only travels cross-origin
+// (web on :3000, API on :8000 in dev) with `credentials: "include"`.
+export async function getDailyDistribution(): Promise<DailyDistributionResponse> {
+  const res = await fetch(`${API_BASE}/api/v1/game/daily/distribution`, {
+    credentials: "include",
+  });
+  if (!res.ok) {
+    let message = `API error ${res.status}`;
+    try {
+      const errBody = await res.json();
+      message = errBody.detail ?? message;
+    } catch {}
+    throw new APIError(res.status, message);
+  }
+  return res.json() as Promise<DailyDistributionResponse>;
 }
 
 export async function submitAnswer(body: {

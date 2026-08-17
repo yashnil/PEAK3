@@ -20,6 +20,7 @@ from app.main import app
 DAILY_URL = "/api/v1/game/daily"
 RESULT_URL = "/api/v1/game/daily/result"
 ANSWER_URL = "/api/v1/game/answer"
+DISTRIBUTION_URL = "/api/v1/game/daily/distribution"
 
 
 @pytest.fixture
@@ -275,6 +276,87 @@ class TestArchiveReplay:
 
         assert body["already_recorded"] is False
         assert body["played_on_daily_key"] is True
+
+
+class TestLifetimeDistribution:
+    """GET /game/daily/distribution — the real 0/10..10/10 histogram.
+
+    Built entirely from `PeakDuelDailyResultRepository` rows this same test
+    file already proves are server-scored and idempotent; these tests only
+    check the read/aggregation path is honest about what it counts.
+    """
+
+    def test_a_fresh_identity_has_an_all_zero_distribution(self, player: TestClient):
+        body = player.get(DISTRIBUTION_URL).json()
+        assert body["total"] == 0
+        assert body["counts"] == [0] * 11
+
+    def test_one_perfect_attempt_lands_in_bucket_ten(self, player: TestClient):
+        board = _start_daily(player)
+        perfect = _winning_selections(player, board)
+        player.post(
+            RESULT_URL,
+            json={"session_token": board["session_token"], "selections": perfect},
+        )
+
+        body = player.get(DISTRIBUTION_URL).json()
+        assert body["total"] == 1
+        assert body["counts"][10] == 1
+        assert sum(body["counts"]) == 1
+
+    def test_multiple_archive_days_each_count_once(self, player: TestClient):
+        from datetime import timedelta
+
+        from nba_peak.daily_key import daily_key, parse_daily_key
+
+        today_board = _start_daily(player)
+        player.post(
+            RESULT_URL,
+            json={"session_token": today_board["session_token"], "selections": {}},
+        )  # 0/10
+
+        yesterday = (parse_daily_key(daily_key()) - timedelta(days=1)).strftime("%Y-%m-%d")
+        archive_board = player.get(DAILY_URL, params={"years": 3, "date": yesterday}).json()
+        perfect = _winning_selections(player, archive_board)
+        player.post(
+            RESULT_URL,
+            json={"session_token": archive_board["session_token"], "selections": perfect},
+        )  # 10/10
+
+        body = player.get(DISTRIBUTION_URL).json()
+        assert body["total"] == 2
+        assert body["counts"][0] == 1
+        assert body["counts"][10] == 1
+
+    def test_resubmitting_the_same_day_does_not_double_count(self, player: TestClient):
+        """Idempotent at the write path, so the histogram cannot see a
+        retried submission as a second attempt."""
+        board = _start_daily(player)
+        player.post(
+            RESULT_URL,
+            json={"session_token": board["session_token"], "selections": {}},
+        )
+        player.post(
+            RESULT_URL,
+            json={"session_token": board["session_token"], "selections": {}},
+        )
+
+        body = player.get(DISTRIBUTION_URL).json()
+        assert body["total"] == 1
+
+    def test_two_identities_have_independent_distributions(self, player: TestClient):
+        board = _start_daily(player)
+        perfect = _winning_selections(player, board)
+        player.post(
+            RESULT_URL,
+            json={"session_token": board["session_token"], "selections": perfect},
+        )
+
+        with TestClient(app) as other:
+            body = other.get(DISTRIBUTION_URL).json()
+            assert body["total"] == 0
+
+        assert player.get(DISTRIBUTION_URL).json()["total"] == 1
 
 
 class TestRateLimiting:

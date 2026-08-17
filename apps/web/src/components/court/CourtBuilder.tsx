@@ -33,6 +33,9 @@ import SeasonResultStub from "./SeasonResultStub";
 import LiveBuildPanel from "./LiveBuildPanel";
 import ActionToast from "./ActionToast";
 import { getTeamColors } from "@/lib/team-colors";
+import UiVersionSwitch from "@/components/v2/UiVersionSwitch";
+import PeakV2CourtLive from "@/components/v2/court/PeakV2CourtLive";
+import PeakV2CourtChooser from "@/components/v2/court/PeakV2CourtChooser";
 
 interface Props {
   initialGameState: CourtLineupPublicState;
@@ -480,7 +483,74 @@ export default function CourtBuilder({
     );
   }
 
+  // V2's own live court + chooser (Pass 3) — the exact same state/handlers
+  // computed above, no second reducer or API call. `PeakV2CourtChooser`
+  // reuses `SpinStage`/`EligiblePlayerSearch` verbatim (see its own
+  // docstring); only the chrome around them and the court itself are new.
+  const v2View = (
+    <>
+      <PeakV2CourtLive
+        state={state}
+        phase={phase}
+        busy={busy}
+        starterSlots={starterSlots}
+        benchSlots={benchSlots}
+        movingSlot={movingSlot}
+        rearrangeAvailable={rearrangeAvailable}
+        onPlace={handlePlace}
+        onStartMove={(slotType) => setMovingSlot(slotType)}
+        onSwapTarget={requestSwap}
+        onCancelMove={cancelRearrange}
+        slotLabel={(slot) => SLOT_LABELS[slot]}
+        onComplete={handleComplete}
+      />
+      {(phase === "spinning" || phase === "placing") && roundSpin && (
+        <PeakV2CourtChooser
+          // Mirrors legacy's own `hidden={phase !== "spinning" || overlayMinimized}`
+          // exactly, inverted for an `open` prop: the panel auto-steps aside
+          // the instant a selection is pending (`phase === "placing"`) so the
+          // now-clickable court slots underneath are reachable, not just
+          // visible — the same real state `renderSlot`'s `onClick` already
+          // gates on. Never a second, drifted copy of that condition.
+          open={phase === "spinning" && !overlayMinimized}
+          onClose={() => setOverlayMinimized(true)}
+          roundNumber={state.current_round}
+          totalRounds={state.total_rounds}
+          spin={roundSpin}
+          franchiseNames={franchiseNames}
+          seasonLabels={seasonLabels}
+          teamLogoUrls={teamLogoUrls}
+          onRevealComplete={() => setRevealedRound(state.current_round)}
+          onRespinSettled={() => setRespinPending(false)}
+          respinFlashKey={respinFlashKey}
+          respinKind={respinKind}
+          respinFrom={lastRespin}
+          collapsed={phase === "placing"}
+          ceremonyRevealed={ceremonyRevealed}
+          displaySpin={displaySpin}
+          candidates={displaySpin?.candidates ?? null}
+          onSelectCandidate={handleSelect}
+          busy={busy}
+          respinPending={respinPending}
+          canRespinTeam={state.team_respins_remaining_total > 0}
+          canRespinSeason={state.season_respins_remaining_total > 0}
+          teamRespinsLeft={state.team_respins_remaining_total}
+          seasonRespinsLeft={state.season_respins_remaining_total}
+          onRespinTeam={handleRespinTeam}
+          onRespinSeason={handleRespinSeason}
+          difficulty={state.difficulty ?? "easy"}
+          hintUsed={!!state.hint_used}
+          hintMessage={hint ? `PEAK3 suggests: ${hint.playerName}` : null}
+          onHint={handleHint}
+        />
+      )}
+    </>
+  );
+
   return (
+    <>
+    <UiVersionSwitch
+      legacy={
     <div data-testid="court-builder" className="mx-auto max-w-7xl px-4 py-8 flex flex-col gap-5">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
@@ -855,7 +925,10 @@ export default function CourtBuilder({
           </div>
         </div>
       )}
-
+    </div>
+      }
+      v2={v2View}
+    />
       {state.simulation_result && (
         <div className="mx-auto max-w-2xl w-full">
           <SeasonResultStub
@@ -875,6 +948,6 @@ export default function CourtBuilder({
           onDismiss={dismissToast}
         />
       )}
-    </div>
+    </>
   );
 }

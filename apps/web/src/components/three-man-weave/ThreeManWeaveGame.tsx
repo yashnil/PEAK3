@@ -46,6 +46,9 @@ import PodiumReceipt from "./PodiumReceipt";
 import RosterBoard from "./RosterBoard";
 import TurnStatus from "./TurnStatus";
 import WeaveSpinner from "./WeaveSpinner";
+import UiVersionSwitch from "@/components/v2/UiVersionSwitch";
+import PeakV2TMWCourts from "@/components/v2/tmw/PeakV2TMWCourts";
+import PeakV2TMWReveal from "@/components/v2/tmw/PeakV2TMWReveal";
 
 const TMW_INTRO_RULES = [
   { label: "Shared roll", detail: "one real franchise and decade, rolled once for all three drafters" },
@@ -711,6 +714,8 @@ export default function ThreeManWeaveGame({
           onPlayAgain={() => router.push("/arena/three-man-weave")}
         />
       ) : (
+        <UiVersionSwitch
+          legacy={
         <>
           <WeaveSpinner
             open={ceremonyOpen}
@@ -793,6 +798,57 @@ export default function ThreeManWeaveGame({
             onClose={() => setRejection(null)}
           />
         </>
+          }
+          v2={
+            <>
+              <PeakV2TMWCourts
+                state={state}
+                seats={match.seats}
+                yourSeatIndex={match.your_seat_index}
+                currentTurnSeatIndex={match.current_turn_seat_index}
+                poolSize={candidates.length}
+                deadlineAt={deadlineAt}
+                picksMade={picksMade}
+                totalPicks={state.total_rounds * match.seat_count}
+              >
+                <PickOverlay
+                  open={overlayOpen}
+                  roll={state.current_roll}
+                  roundNumber={state.current_round}
+                  pickNumber={picksMade + 1}
+                  totalRounds={state.total_rounds}
+                  candidates={candidates}
+                  roster={yourRoster}
+                  seats={match.seats}
+                  yourSeatIndex={match.your_seat_index}
+                  lockedEntries={lockedEntries}
+                  stagedPick={stagedPick}
+                  deadlineAt={deadlineAt}
+                  turnSeconds={TURN_SECONDS}
+                  busy={busy}
+                  onPick={pick}
+                  onStage={stage}
+                  onMove={rearrange}
+                  onClose={() => setRejection(null)}
+                />
+              </PeakV2TMWCourts>
+              <PeakV2TMWReveal
+                open={ceremonyOpen}
+                roll={state.current_roll}
+                roundNumber={state.current_round}
+                totalRounds={state.total_rounds}
+                seats={match.seats}
+                yourSeatIndex={match.your_seat_index}
+                handoffLabel={nextUp ?? undefined}
+                showIntro={openingCeremony}
+                deadlineAt={deadlineAt}
+                revealSeconds={openingCeremony ? TMW_OPENING_REVEAL_SECONDS : TMW_REVEAL_SECONDS}
+                onSkip={skipReveal}
+                skipping={busy}
+              />
+            </>
+          }
+        />
       )}
     </div>
   );

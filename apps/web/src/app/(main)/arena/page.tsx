@@ -9,6 +9,8 @@ import MultiplayerSection, {
 import { MODE_COPY, RUN_THE_TABLE_RUNS_HREF } from "@/lib/modes";
 import { getArenaCatalogue } from "@/lib/arena-readiness-server";
 import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
+import UiVersionSwitch from "@/components/v2/UiVersionSwitch";
+import ArenaPageV2 from "@/components/v2/ArenaPageV2";
 
 /**
  * The Arena catalog: every playable PEAK3 mode, in one hierarchy.
@@ -96,6 +98,8 @@ export default async function ArenaPage() {
   const peakDuel = MODE_COPY["peak-duel"];
 
   return (
+    <UiVersionSwitch
+      legacy={
     <div className="mx-auto max-w-5xl px-4 py-10">
       <h1 className="font-display text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
         Arena
@@ -383,5 +387,8 @@ export default async function ArenaPage() {
         .
       </p>
     </div>
+      }
+      v2={<ArenaPageV2 courtBuilderEnabled={courtBuilderEnabled} arenaCatalogue={arenaCatalogue} />}
+    />
   );
 }
