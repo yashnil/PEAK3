@@ -4,6 +4,9 @@ import { createCourtGame, getCourtGame, PerfectSeasonAPIError } from "@/lib/perf
 import { useAuth } from "@/lib/auth-context";
 import { CourtDifficulty, CourtLineupPublicState, CourtMode } from "@/types/perfect-season";
 import CourtBuilder from "./CourtBuilder";
+import { useUiVersion } from "@/lib/ui-version";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
 
 interface Props {
   mode: CourtMode;
@@ -80,6 +83,7 @@ export default function PeakSeasonStartGate({
   const { loading: authLoading } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const isDaily = challengeKind === "daily";
+  const uiVersion = useUiVersion();
 
   const resume = useCallback(async (gameId: string) => {
     setBusy(true);
@@ -140,6 +144,94 @@ export default function PeakSeasonStartGate({
         seasonLabels={seasonLabels}
         teamLogoUrls={teamLogoUrls}
       />
+    );
+  }
+
+  if (uiVersion === "v2") {
+    return (
+      <PeakV2Shell width="cinematic">
+        <div className="v2-rtt-gate" data-testid="peak-season-start-gate">
+          <p className="v2-page-kicker" data-testid={isDaily ? "daily-challenge-header" : undefined}>
+            {isDaily ? "Daily PEAK Season" : "82-0 PEAK Season"}
+          </p>
+          <h1 className="v2-page-title" style={{ fontSize: "var(--v2-display-size-line)" }}>
+            {isDaily ? "Today's shared challenge" : "Build a perfect season."}
+          </h1>
+          <p className="v2-page-lede">
+            Spin a real NBA team-season, draft exact player-season cards, place them on the
+            court, and chase 82-0 with receipts.
+          </p>
+
+          {isDaily && (
+            <p className="v2-rtt-gate-notice" data-testid="start-gate-daily-note">
+              Everyone gets this exact spin sequence today
+              {challengeDate ? ` (${challengeDate}, UTC)` : ""} — same teams, same seasons, same
+              candidates.
+            </p>
+          )}
+
+          <div data-testid="difficulty-selector">
+            <span className="v2-slate-heading" style={{ display: "block", marginBottom: "var(--v2-space-2)" }}>
+              Difficulty
+            </span>
+            <div className="v2-rtt-gate-nodes" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
+              <button
+                type="button"
+                data-testid="difficulty-easy-btn"
+                onClick={() => setDifficulty("easy")}
+                aria-pressed={difficulty === "easy"}
+                className="v2-rtt-gate-node v2-difficulty-node"
+                data-selected={difficulty === "easy" ? "true" : undefined}
+                style={{ borderTopColor: "var(--v2-color-accent)", textAlign: "left" }}
+              >
+                <span className="v2-rtt-gate-node-label" style={{ color: "var(--v2-color-accent)" }}>
+                  Easy
+                </span>
+                <span className="v2-rtt-gate-node-purpose">
+                  3 team + 3 season respins for the run, plus a one-time hint.
+                </span>
+              </button>
+              <button
+                type="button"
+                data-testid="difficulty-hard-btn"
+                onClick={() => setDifficulty("hard")}
+                aria-pressed={difficulty === "hard"}
+                className="v2-rtt-gate-node v2-difficulty-node"
+                data-selected={difficulty === "hard" ? "true" : undefined}
+                style={{ borderTopColor: "var(--v2-color-negative)", textAlign: "left" }}
+              >
+                <span className="v2-rtt-gate-node-label" style={{ color: "var(--v2-color-negative)" }}>
+                  Hard
+                </span>
+                <span className="v2-rtt-gate-node-purpose">
+                  Only 1 team + 1 season respin for the run, no hint.
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {error && (
+            <p role="alert" className="v2-rtt-gate-error" data-testid="start-gate-error">
+              {error}
+            </p>
+          )}
+
+          <PeakV2PrimaryAction
+            type="button"
+            data-testid="begin-run-btn"
+            onClick={handleBegin}
+            disabled={busy || authLoading}
+            busy={busy}
+            className="self-start mt-1"
+          >
+            {authLoading ? "Checking your session…" : busy ? "Starting…" : isDaily ? "Begin Daily Run" : "Begin 82-0 Run"}
+          </PeakV2PrimaryAction>
+
+          <p className="v2-rtt-gate-footnote">
+            No account needed to play — signing in only adds saved runs and personal bests.
+          </p>
+        </div>
+      </PeakV2Shell>
     );
   }
 

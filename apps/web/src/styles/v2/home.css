@@ -1,0 +1,238 @@
+/* ================================================================
+   V2 · Broadcast Arena — homepage composition layer (Pass 5)
+   ================================================================
+   The hero's right-side data object and the horizontal game slate need
+   real layout (grid, dividers, a bounded panel) beyond what inline styles
+   comfortably express. Scoped to the V2 homepage's own classes only —
+   nothing here reaches into legacy.
+   ================================================================ */
+
+.v2-eyebrow {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-color-accent);
+  margin: 0;
+}
+
+/* ---- Hero data object: real bounded mass, not a thin border-left rule ---- */
+.v2-hero-object {
+  background: var(--v2-bg-plane);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  padding: var(--v2-space-6) var(--v2-space-6);
+  box-shadow: var(--v2-elev-plane);
+}
+
+.v2-hero-object-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--v2-space-3);
+  padding-bottom: var(--v2-space-3);
+  border-bottom: 1px solid var(--v2-border-subtle);
+}
+
+.v2-hero-object-kicker {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: var(--v2-mono-track);
+  color: var(--v2-text-muted);
+  text-transform: uppercase;
+}
+
+.v2-hero-object-score {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--v2-color-accent);
+}
+
+.v2-hero-object-link {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--v2-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.v2-hero-object-link:hover {
+  color: var(--v2-color-accent);
+}
+
+/* ---- Game slate: ONE instrument strip, vertical hairline dividers ---- */
+.v2-slate-section {
+  margin-top: var(--v2-space-12);
+}
+
+.v2-slate-heading-row {
+  display: flex;
+  align-items: center;
+  gap: var(--v2-space-2);
+  margin-bottom: var(--v2-space-3);
+}
+
+.v2-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--v2-color-positive);
+}
+
+.v2-slate-heading {
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--v2-text-primary);
+  margin: 0;
+}
+
+.v2-slate-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  overflow: hidden;
+  background: var(--v2-bg-plane);
+}
+
+.v2-slate-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: var(--v2-space-5) var(--v2-space-4);
+  border-left: 1px solid var(--v2-border-subtle);
+  min-height: 168px;
+  transition: background-color var(--v2-dur-transition) var(--v2-ease-standard);
+}
+
+.v2-slate-cell:first-child {
+  border-left: none;
+}
+
+.v2-slate-cell:hover,
+.v2-slate-cell:focus-visible {
+  background: var(--v2-bg-surface);
+  outline: none;
+}
+
+.v2-slate-cell-flagship {
+  background: color-mix(in srgb, var(--v2-color-accent) 7%, var(--v2-bg-plane));
+}
+
+.v2-slate-cell-flagship:hover,
+.v2-slate-cell-flagship:focus-visible {
+  background: color-mix(in srgb, var(--v2-color-accent) 12%, var(--v2-bg-plane));
+}
+
+.v2-slate-cell-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  min-height: 1.1rem;
+}
+
+.v2-slate-cell-tag {
+  font-family: var(--v2-font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: var(--v2-mono-track);
+  text-transform: uppercase;
+  color: var(--v2-color-accent);
+}
+
+.v2-slate-cell-badge {
+  font-family: var(--v2-font-ui);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.0625rem 0.375rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--v2-color-positive) 16%, transparent);
+  color: var(--v2-color-positive);
+}
+
+.v2-slate-cell-title {
+  font-family: var(--v2-font-ui);
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: var(--v2-text-primary);
+  line-height: 1.25;
+}
+
+.v2-slate-cell-desc {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--v2-text-secondary);
+  flex: 1 1 auto;
+}
+
+.v2-slate-cell-action {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--v2-color-accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: auto;
+}
+
+.v2-slate-cell-arrow {
+  transition: transform var(--v2-dur-control) var(--v2-ease-standard);
+}
+
+.v2-slate-cell:hover .v2-slate-cell-arrow {
+  transform: translateX(2px);
+}
+
+@media (max-width: 1024px) {
+  .v2-slate-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .v2-slate-cell:nth-child(2n+1) {
+    border-left: none;
+  }
+  .v2-slate-cell:nth-child(-n+2) {
+    border-top: none;
+  }
+  .v2-slate-cell {
+    border-top: 1px solid var(--v2-border-subtle);
+  }
+  .v2-slate-cell:nth-child(1),
+  .v2-slate-cell:nth-child(2) {
+    border-top: none;
+  }
+}
+
+@media (max-width: 639px) {
+  .v2-slate-grid {
+    grid-template-columns: 1fr;
+  }
+  .v2-slate-cell {
+    border-left: none !important;
+    border-top: 1px solid var(--v2-border-subtle);
+    min-height: 0;
+  }
+  .v2-slate-cell:first-child {
+    border-top: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v2-slate-cell,
+  .v2-slate-cell-arrow {
+    transition: none;
+  }
+}

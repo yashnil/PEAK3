@@ -280,9 +280,9 @@ export default function RankingsPage() {
   const isSorted = !isDefaultSort(sortKey, sortDirection);
 
   return (
-    <div className="min-h-screen px-4 py-8">
+    <div className="v2-info-page min-h-screen px-4 py-8">
       <div className="mx-auto max-w-5xl flex flex-col gap-5">
-        <header className="flex flex-col gap-1.5">
+        <header className="v2-info-page-head flex flex-col gap-1.5">
           <h1 className="font-display text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
             PEAK3 Rankings
           </h1>

@@ -15,6 +15,8 @@ import {
   localDailyWindow,
 } from "@/lib/daily-time";
 import { useDailyReset } from "@/lib/use-daily-reset";
+import UiVersionSwitch from "@/components/v2/UiVersionSwitch";
+import PeakV2DailyHub from "@/components/v2/PeakV2DailyHub";
 
 /**
  * The Daily hub: every PEAK3 game that resets once a day, in one place.
@@ -89,6 +91,20 @@ export default function DailyHub() {
   const peakSeason = MODE_COPY["peak-season"];
 
   return (
+    <UiVersionSwitch
+      v2={
+        <PeakV2DailyHub
+          dailyGrid={dailyGrid}
+          peakDuel={peakDuel}
+          flagship={flagship}
+          peakSeason={peakSeason}
+          countdownLabel={countdown !== null ? formatCountdown(countdown) : null}
+          gridPlayed={gridPlayed}
+          streak={streak}
+          totalCompleted={archive?.total_completed ?? 0}
+        />
+      }
+      legacy={
     <div className="mx-auto w-full max-w-5xl px-3 pb-16 pt-8 sm:px-4">
       {/* `.pk-atmosphere`, not the retired `.home-hero-glow`. Same two
           floodlights and the same court grid, but the alphas come from
@@ -226,5 +242,7 @@ export default function DailyHub() {
         </div>
       </section>
     </div>
+      }
+    />
   );
 }

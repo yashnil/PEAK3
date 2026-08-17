@@ -42,9 +42,9 @@ export default function MethodologyPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-[var(--text-muted)] animate-pulse" role="status">
-          Loading…
+      <div className="v2-info-page min-h-screen flex items-center justify-center">
+        <p className="v2-info-loading text-[var(--text-muted)]" role="status">
+          Loading the methodology…
         </p>
       </div>
     );
@@ -52,8 +52,8 @@ export default function MethodologyPage() {
 
   if (error || !methodology) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="card-elevated max-w-md p-8 text-center space-y-4">
+      <div className="v2-info-page min-h-screen flex items-center justify-center px-4">
+        <div className="v2-info-error card-elevated max-w-md p-8 text-center space-y-4">
           <p className="text-[var(--incorrect)]" role="alert">
             {error ?? "Could not load methodology."}
           </p>
@@ -70,10 +70,10 @@ export default function MethodologyPage() {
   }
 
   return (
-    <div className="min-h-screen px-4 py-8">
+    <div className="v2-info-page min-h-screen px-4 py-8">
       <div className="mx-auto max-w-3xl space-y-10">
         {/* Header */}
-        <div>
+        <div className="v2-info-page-head">
           <h1 className="font-display text-3xl font-bold">Formula Explorer</h1>
           <p className="mt-2 text-sm text-[var(--text-secondary)]">
             The PEAK3 scoring formula, explained component by component.

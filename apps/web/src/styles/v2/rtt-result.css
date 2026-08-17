@@ -1,0 +1,111 @@
+/* ================================================================
+   V2 · Broadcast Arena — Run the Table final receipt layer (Pass 5)
+   ================================================================
+   `RunResult` (`components/run-the-table/RunResult.tsx`) is reused
+   VERBATIM — every field, testid, action and piece of state is the real
+   receipt the engine built; only presentation changes here, CSS-only,
+   scoped to [data-ui-version="v2"]. This was the single most-cited "still
+   visibly legacy" surface in the prior pass's own disclosed gaps: stacked
+   bordered cards, sans headings, no cinematic verdict moment. Brief:
+   "Strong result hierarchy: outcome, boss record, run MVP / meaningful
+   takeaways, roster, detailed receipt. Use hairlines and hierarchy instead
+   of stacked gray cards."
+   ================================================================ */
+
+[data-ui-version="v2"] .share-card-shell {
+  font-family: var(--v2-font-ui);
+  padding: var(--v2-space-8) 0 var(--v2-space-12);
+  gap: var(--v2-space-6) !important;
+}
+
+/* ---- The verdict: a cinematic moment, not a bordered card ---- */
+[data-ui-version="v2"] .share-card-shell .rtt-result-verdict-block {
+  background: radial-gradient(120% 140% at 20% 0%, color-mix(in srgb, var(--v2-color-accent) 10%, transparent), transparent 65%);
+  border: none !important;
+  border-bottom: 1px solid var(--v2-border-subtle) !important;
+  border-radius: 0 !important;
+  padding: var(--v2-space-6) 0 var(--v2-space-6) !important;
+  box-shadow: none !important;
+}
+
+[data-ui-version="v2"] .share-card-shell .rtt-result-verdict-block [data-testid="rtt-result-verdict"] {
+  font-family: var(--v2-font-display) !important;
+  font-weight: 400 !important;
+  font-size: var(--v2-display-size-hero) !important;
+  letter-spacing: var(--v2-display-track) !important;
+  text-transform: none !important;
+  line-height: var(--v2-display-leading);
+}
+
+[data-ui-version="v2"] .share-card-shell .rtt-result-verdict-block h2 {
+  font-family: var(--v2-font-ui);
+  font-size: 1.0625rem;
+}
+
+/* ---- Section headings: quiet instrument labels ---- */
+[data-ui-version="v2"] .share-card-shell .rtt-result-heading {
+  font-family: var(--v2-font-ui) !important;
+  font-size: 0.75rem !important;
+  letter-spacing: 0.06em;
+  color: var(--v2-text-muted) !important;
+}
+
+/* ---- Every "card" (boss record rows, highlight tiles, roster lines,
+   reason rows) flattens to a hairline row — no fill, no border box, no
+   raised/crowned treatment. This is the "hairlines and hierarchy instead
+   of stacked gray cards" instruction applied literally. ---- */
+[data-ui-version="v2"] .share-card-shell .rtt-result-row {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid var(--v2-border-subtle) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: var(--v2-space-3) 0 !important;
+}
+
+[data-ui-version="v2"] .share-card-shell section > ul,
+[data-ui-version="v2"] .share-card-shell section > .grid {
+  border-top: 1px solid var(--v2-border-subtle);
+}
+
+[data-ui-version="v2"] .share-card-shell section > ul > li:last-child,
+[data-ui-version="v2"] .share-card-shell section > .grid > div:last-child {
+  border-bottom: none !important;
+}
+
+/* Highlight tiles specifically: one column of hairline rows reads calmer
+   than a 2-col card grid for a receipt this dense. */
+[data-ui-version="v2"] .share-card-shell section > .grid.sm\:grid-cols-2 {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Actions: gold primary for the one committing action, quiet text
+   links for the rest — never four identically-weighted rectangles. ---- */
+[data-ui-version="v2"] .share-card-shell .rtt-tap {
+  font-family: var(--v2-font-ui) !important;
+  border-radius: var(--v2-radius-control) !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-weight: 600 !important;
+}
+
+[data-ui-version="v2"] .share-card-shell [data-testid="rtt-run-it-back"] {
+  background: var(--v2-color-accent) !important;
+  color: var(--text-inverse) !important;
+}
+
+[data-ui-version="v2"] .share-card-shell [data-testid="rtt-back-to-arena"],
+[data-ui-version="v2"] .share-card-shell [data-testid="rtt-challenge"],
+[data-ui-version="v2"] .share-card-shell [data-testid="rtt-copy-summary"],
+[data-ui-version="v2"] .share-card-shell [data-testid="rtt-share-card"] {
+  background: transparent !important;
+  border-color: var(--v2-border-subtle) !important;
+  color: var(--v2-text-secondary) !important;
+}
+
+[data-ui-version="v2"] .share-card-shell details {
+  font-family: var(--v2-font-ui);
+  border-top: 1px solid var(--v2-border-subtle);
+  padding-top: var(--v2-space-3);
+}

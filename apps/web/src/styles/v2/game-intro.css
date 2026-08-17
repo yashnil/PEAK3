@@ -1,0 +1,63 @@
+/* ================================================================
+   V2 · Broadcast Arena — shared pre-game briefing dialog (Pass 5)
+   ================================================================
+   `GameIntro` (`components/shared/GameIntro.tsx`) is reused verbatim —
+   same Dialog, same focus-trap/Escape/backdrop/reduced-motion behavior,
+   same testids (`game-intro-start`/`game-intro-skip`/mode-specific
+   testId). CSS-only reskin, used by Peak Duel Daily and Three-Man Weave's
+   round-1 intro. Brief: "minimal copy", quiet accent, no heavy card.
+   ================================================================ */
+
+[data-ui-version="v2"] .game-intro-panel {
+  border-radius: var(--v2-radius-modal) !important;
+  border-color: var(--v2-border-subtle) !important;
+  background: var(--v2-bg-plane) !important;
+  box-shadow: var(--v2-elev-modal) !important;
+}
+
+[data-ui-version="v2"] .game-intro-accent-rail {
+  opacity: 0.55;
+}
+
+[data-ui-version="v2"] .game-intro-panel h2 {
+  font-family: var(--v2-font-display) !important;
+  font-weight: 400 !important;
+  font-size: 1.75rem !important;
+  letter-spacing: var(--v2-display-track);
+}
+
+[data-ui-version="v2"] .game-intro-panel p,
+[data-ui-version="v2"] .game-intro-panel li {
+  font-family: var(--v2-font-ui);
+}
+
+/* The primary action is always gold in V2 — brief: "gold must remain
+   scarce enough to mean something," and the one committing action on a
+   screen is exactly where it belongs. The `accent` prop (sometimes a
+   PEAK3 component color, e.g. Peak Duel's Statistical Impact blue) stays
+   real differentiation on the rail/visual only, never on the CTA. */
+[data-ui-version="v2"] .game-intro-panel [data-testid="game-intro-start"] {
+  border-radius: var(--v2-radius-control) !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  background: var(--v2-color-accent) !important;
+  color: var(--text-inverse) !important;
+}
+
+[data-ui-version="v2"] .game-intro-panel [data-testid="game-intro-skip"] {
+  font-family: var(--v2-font-ui);
+}
+
+[data-ui-version="v2"] .game-intro-visual {
+  border-radius: var(--v2-radius-control) !important;
+  background: var(--v2-bg-page) !important;
+  border-color: var(--v2-border-subtle) !important;
+}
+
+/* Peak Duel's "VS" glyph inside the intro visual — was Statistical Impact
+   blue (a real component color used decoratively here, off-brand next to
+   the gold CTA immediately below it). Neutral in V2, matching the plain
+   "Player A / Player B" placeholder cards beside it. */
+[data-ui-version="v2"] .pd-intro-vs {
+  color: var(--v2-text-muted) !important;
+}

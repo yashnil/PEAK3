@@ -1,0 +1,133 @@
+/* ================================================================
+   V2 · Broadcast Arena — multiplayer lobby layer (Pass 5)
+   ================================================================
+   `ArenaLobby` (`components/arena/ArenaLobby.tsx`) is reused verbatim —
+   readiness fetch, queue/room/matchmaking state machine, every testid and
+   handler untouched. CSS-only reskin of its `.ar-*` classes, scoped to
+   [data-ui-version="v2"]. Was a fully legacy island (bordered rounded
+   cards, pill badges) with zero V2 presence.
+   ================================================================ */
+
+[data-ui-version="v2"] .ar-lobby {
+  max-width: var(--v2-width-live);
+  margin: 0 auto;
+  padding: var(--v2-space-10) var(--v2-gutter) var(--v2-space-12);
+  background: none;
+}
+
+[data-ui-version="v2"] .ar-lobby-head::after {
+  display: none;
+}
+
+[data-ui-version="v2"] .ar-eyebrow {
+  font-family: var(--v2-font-ui);
+  color: var(--v2-color-accent);
+}
+
+[data-ui-version="v2"] .ar-lobby-title {
+  font-family: var(--v2-font-display) !important;
+  font-weight: 400 !important;
+  font-size: var(--v2-display-size-moment) !important;
+  letter-spacing: var(--v2-display-track);
+}
+
+[data-ui-version="v2"] .ar-lobby-intro,
+[data-ui-version="v2"] .ar-notice,
+[data-ui-version="v2"] .ar-card-body,
+[data-ui-version="v2"] .ar-card-tagline,
+[data-ui-version="v2"] .ar-panel-body {
+  font-family: var(--v2-font-ui);
+}
+
+[data-ui-version="v2"] .ar-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  background: var(--v2-border-subtle);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  overflow: hidden;
+  margin-top: var(--v2-space-6);
+}
+
+@media (max-width: 760px) {
+  [data-ui-version="v2"] .ar-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+[data-ui-version="v2"] .ar-card {
+  background: var(--v2-bg-plane) !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: var(--v2-space-5) var(--v2-space-5) var(--v2-space-4) !important;
+}
+
+[data-ui-version="v2"] .ar-card-rail {
+  display: none;
+}
+
+[data-ui-version="v2"] .ar-card-title {
+  font-family: var(--v2-font-display) !important;
+  font-weight: 400 !important;
+  font-size: 1.5rem !important;
+}
+
+[data-ui-version="v2"] .ar-badge {
+  font-family: var(--v2-font-mono);
+  border-radius: var(--v2-radius-instrument);
+  background: transparent;
+  border: 1px solid var(--v2-border-subtle);
+  color: var(--v2-text-muted);
+}
+
+[data-ui-version="v2"] .ar-badge-alpha {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 45%, transparent);
+  color: var(--v2-color-accent);
+}
+
+[data-ui-version="v2"] .ar-badge-play {
+  border-color: color-mix(in srgb, var(--v2-color-positive) 45%, transparent);
+  color: var(--v2-color-positive);
+}
+
+[data-ui-version="v2"] .ar-facts {
+  font-family: var(--v2-font-mono);
+  color: var(--v2-text-muted);
+}
+
+[data-ui-version="v2"] .ar-btn {
+  font-family: var(--v2-font-ui) !important;
+  border-radius: var(--v2-radius-control) !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-weight: 600 !important;
+  background: transparent !important;
+  border: 1px solid var(--v2-border-subtle) !important;
+  color: var(--v2-text-primary) !important;
+}
+
+[data-ui-version="v2"] .ar-btn-primary {
+  background: var(--v2-color-accent) !important;
+  border-color: transparent !important;
+  color: var(--text-inverse) !important;
+}
+
+[data-ui-version="v2"] .ar-panel,
+[data-ui-version="v2"] .ar-later {
+  background: var(--v2-bg-plane);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+}
+
+[data-ui-version="v2"] .ar-panel-title,
+[data-ui-version="v2"] .ar-later-title {
+  font-family: var(--v2-font-display) !important;
+  font-weight: 400 !important;
+}
+
+[data-ui-version="v2"] .ar-code-input {
+  font-family: var(--v2-font-mono);
+  border-radius: var(--v2-radius-control);
+}

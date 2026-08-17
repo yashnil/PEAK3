@@ -1,0 +1,45 @@
+/* ================================================================
+   V2 · Broadcast Arena — 82-0 court floor layer (Pass 5)
+   ================================================================
+   `CourtLayout`/`.roster-board*` are reused verbatim from legacy (real
+   thin-line court markings — paint/arc/rim). What made the V2 court read as
+   "chalky/unfinished" was legacy's OWN `.roster-board::before` — a 28px
+   tiled grid-line texture washed across the entire panel, not just near the
+   court markings, competing with the actual court geometry (the brief's
+   "background grids competing with content" anti-pattern, verified in a
+   real browser capture). Killed here, V2-scoped only — legacy keeps it
+   exactly as designed.
+   ================================================================ */
+
+[data-ui-version="v2"] .roster-board::before {
+  display: none;
+}
+
+[data-ui-version="v2"] .roster-board {
+  background: var(--v2-bg-plane);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  padding: var(--v2-space-5) var(--v2-space-4) var(--v2-space-4);
+}
+
+[data-ui-version="v2"] .roster-board::after {
+  opacity: 0.7;
+  background: var(--v2-border-emphasis);
+}
+
+[data-ui-version="v2"] .court-panel-wrapper {
+  box-shadow: var(--v2-elev-plane);
+  border-radius: var(--v2-radius-control);
+}
+
+[data-ui-version="v2"] .roster-board-bench-row {
+  background: var(--v2-bg-page);
+  border: 1px solid var(--v2-border-subtle);
+  border-top: none;
+  border-radius: 0 0 var(--v2-radius-control) var(--v2-radius-control);
+}
+
+[data-ui-version="v2"] .roster-board-bench-label {
+  font-family: var(--v2-font-ui);
+  color: var(--v2-text-muted);
+}

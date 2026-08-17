@@ -9,6 +9,10 @@ import {
   creditSinkPlainEffect,
   lanesToWinSentence,
 } from "@/lib/run-the-table-copy";
+import { useUiVersion } from "@/lib/ui-version";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
 
 /**
  * The explicit Start gate.
@@ -112,6 +116,173 @@ export default function RunStartGate({
   const lives = meta?.economy?.starting_lives ?? null;
   const lanesToWin = meta?.battle?.lanes_to_win ?? null;
   const sinks = meta?.credit_sinks ?? [];
+  const uiVersion = useUiVersion();
+
+  if (uiVersion === "v2") {
+    return (
+      <PeakV2Shell width="cinematic">
+        <div className="v2-rtt-gate" data-testid="rtt-start-gate">
+          <p className="v2-page-kicker">Run the Table</p>
+          <h1 className="v2-page-title" style={{ fontSize: "var(--v2-display-size-line)" }}>
+            Take over a front office.
+          </h1>
+          <p className="v2-page-lede">{RTT_COPY.promise}</p>
+
+          <div className="v2-rtt-gate-nodes">
+            {NODE_ORDER.map((type) => {
+              const copy = NODE_TYPE_COPY[type];
+              return (
+                <div key={type} className="v2-rtt-gate-node" style={{ borderTopColor: copy.accentVar }}>
+                  <span className="v2-rtt-gate-node-label" style={{ color: copy.accentTextVar }}>
+                    {copy.label}
+                  </span>
+                  <span className="v2-rtt-gate-node-purpose">{copy.purpose}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="v2-rtt-gate-rule">
+            {acts ? <>One of two nodes per stage, across <strong>{acts} acts</strong>. </> : null}
+            {battles ? (
+              <span data-testid="rtt-gate-battles">
+                {battles} boss battles decide the run
+                {lives ? <>, and you start with <span data-testid="rtt-gate-lives">{lives} lives</span></> : null}.
+              </span>
+            ) : (
+              <>Every act ends in a boss battle.</>
+            )}{" "}
+            {lanesToWinSentence(lanesToWin)}
+          </p>
+
+          {sinks.length > 0 && (
+            <details className="v2-rtt-gate-disclosure" data-testid="rtt-gate-credit-sinks">
+              <summary>What credits buy besides players</summary>
+              <ul>
+                {sinks.map((sink) => (
+                  <li key={sink.id} data-testid={`rtt-gate-sink-${sink.id}`}>
+                    <span className="v2-rtt-gate-sink-row">
+                      <strong>{sink.name}</strong>
+                      <span className="v2-rtt-gate-sink-cost">{sink.cost} cr</span>
+                    </span>
+                    <span className="v2-rtt-gate-sink-desc">{creditSinkPlainEffect(sink.id) ?? sink.summary}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          {resumeNotice && (
+            <p className="v2-rtt-gate-notice" data-testid="rtt-resume-notice">
+              {resumeNotice}
+            </p>
+          )}
+
+          {persistenceDown && (
+            <p className="v2-rtt-gate-notice" data-testid="rtt-local-demo-notice">
+              <strong style={{ color: "var(--v2-color-accent)" }}>Local demo mode.</strong> The card pool
+              has not been built in this environment
+              {readiness?.card_pool?.error ? ` (${readiness.card_pool.error})` : ""}, so starting a run
+              will fail until it is.
+            </p>
+          )}
+
+          {disabled && (
+            <p className="v2-rtt-gate-notice" data-testid="rtt-disabled-notice">
+              Run the Table is not enabled in this environment yet.
+            </p>
+          )}
+
+          {error && (
+            <div className="flex flex-wrap items-center gap-3" data-testid="rtt-start-error">
+              <p role="alert" className="v2-rtt-gate-error">
+                {error}
+              </p>
+              <PeakV2SecondaryAction type="button" data-testid="rtt-start-retry" onClick={onRetry} size="sm">
+                Try again
+              </PeakV2SecondaryAction>
+            </div>
+          )}
+
+          {hasChallenge && (
+            <p className="v2-rtt-gate-notice" data-testid="rtt-challenge-note">
+              {challengeError ? (
+                <>
+                  <strong style={{ color: "var(--v2-color-negative)" }}>This challenge link could not be opened.</strong>{" "}
+                  {challengeError} You can still start a run of your own below.
+                </>
+              ) : challenge ? (
+                <>
+                  <strong style={{ color: "var(--v2-color-accent)" }}>You were challenged to a board.</strong> Seed{" "}
+                  {challenge.seed}
+                  {challenge.date ? ` (${challenge.date})` : ""} — the same starting roster, offers and bosses the sender played.
+                </>
+              ) : (
+                <>
+                  <strong style={{ color: "var(--v2-color-accent)" }}>You were challenged to a board.</strong> Checking the
+                  link…
+                </>
+              )}
+            </p>
+          )}
+
+          <div className="flex flex-wrap gap-3 mt-2">
+            {hasChallenge && (
+              <PeakV2PrimaryAction
+                type="button"
+                data-testid="rtt-start-challenge"
+                onClick={() => onStart("challenge")}
+                disabled={busy || disabled || Boolean(challengeError)}
+                busy={busy}
+              >
+                {busy ? "Starting…" : "Play this challenge"}
+              </PeakV2PrimaryAction>
+            )}
+            {dailyFirst || hasChallenge ? (
+              <PeakV2SecondaryAction
+                type="button"
+                data-testid="rtt-start-standard"
+                onClick={() => onStart("standard")}
+                disabled={busy || disabled}
+              >
+                {busy ? "Starting…" : "Start a run"}
+              </PeakV2SecondaryAction>
+            ) : (
+              <PeakV2PrimaryAction
+                type="button"
+                data-testid="rtt-start-standard"
+                onClick={() => onStart("standard")}
+                disabled={busy || disabled}
+                busy={busy}
+              >
+                {busy ? "Starting…" : "Start a run"}
+              </PeakV2PrimaryAction>
+            )}
+            {dailyFirst && (
+              <PeakV2PrimaryAction
+                type="button"
+                data-testid="rtt-start-daily"
+                onClick={() => onStart("daily")}
+                disabled={busy || disabled || dailyDisabled}
+              >
+                Today&apos;s run
+              </PeakV2PrimaryAction>
+            )}
+          </div>
+
+          {dailyFirst && daily && (
+            <p className="v2-rtt-gate-footnote" data-testid="rtt-daily-note">
+              Today&apos;s run is {daily.date} (UTC) — everyone gets the same acts, offers and bosses.
+            </p>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3 mt-1">
+            <TourLauncher label="Take the tour" autoStart={false} data-testid="rtt-start-tour" />
+          </div>
+        </div>
+      </PeakV2Shell>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-2xl" data-testid="rtt-start-gate">

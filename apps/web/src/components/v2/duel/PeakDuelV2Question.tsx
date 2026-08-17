@@ -237,18 +237,36 @@ export default function PeakDuelV2Question({
               Higher peak?
             </span>
             {mode === "daily" && remaining !== null ? (
-              <span
-                data-testid="peak-duel-v2-clock"
-                style={{
-                  fontFamily: "var(--v2-font-mono)",
-                  fontVariantNumeric: "tabular-nums",
-                  fontSize: "2.5rem",
-                  fontWeight: 700,
-                  lineHeight: 1,
-                  color: remaining <= 2 ? "var(--v2-color-negative)" : "var(--v2-color-accent)",
-                }}
-              >
-                {(fractionalRemaining ?? remaining).toFixed(1)}
+              <span className="flex items-baseline gap-1">
+                <span
+                  data-testid="peak-duel-v2-clock"
+                  style={{
+                    fontFamily: "var(--v2-font-mono)",
+                    fontVariantNumeric: "tabular-nums",
+                    fontSize: "2.5rem",
+                    fontWeight: 700,
+                    lineHeight: 1,
+                    color: remaining <= 2 ? "var(--v2-color-negative)" : "var(--v2-color-accent)",
+                  }}
+                >
+                  {(fractionalRemaining ?? remaining).toFixed(1)}
+                </span>
+                {/* Disambiguates the countdown from a score reveal — same
+                    face/size as a `prime_score` readout otherwise, on the
+                    single most gameplay-critical screen in the product. */}
+                <span
+                  aria-hidden="true"
+                  style={{
+                    fontFamily: "var(--v2-font-ui)",
+                    fontSize: "0.625rem",
+                    fontWeight: 700,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    color: "var(--v2-text-muted)",
+                  }}
+                >
+                  sec
+                </span>
               </span>
             ) : (
               <span style={{ fontFamily: "var(--v2-font-display)", fontStyle: "italic", fontSize: "1.5rem", color: "var(--v2-text-secondary)" }}>

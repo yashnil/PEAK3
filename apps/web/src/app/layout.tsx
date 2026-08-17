@@ -6,6 +6,15 @@ import { uiVersionInitScript } from "@/lib/ui-version-script";
 import UiVersionDevSwitch from "@/components/v2/UiVersionDevSwitch";
 import "@/styles/globals.css";
 import "@/styles/v2/tokens.css";
+import "@/styles/v2/nav.css";
+import "@/styles/v2/footer.css";
+import "@/styles/v2/home.css";
+import "@/styles/v2/discovery.css";
+import "@/styles/v2/rtt.css";
+import "@/styles/v2/court.css";
+import "@/styles/v2/rtt-result.css";
+import "@/styles/v2/game-intro.css";
+import "@/styles/v2/arena-lobby.css";
 
 /* SELF-HOSTED, NOT `next/font/google`.
  *

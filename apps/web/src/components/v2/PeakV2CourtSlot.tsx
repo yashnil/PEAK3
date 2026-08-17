@@ -112,7 +112,9 @@ export default function PeakV2CourtSlot({
         ? "color-mix(in srgb, var(--v2-color-accent) 12%, var(--v2-bg-plane))"
         : state === "staged"
           ? "var(--v2-bg-plane)"
-          : "transparent",
+          : state === "empty"
+            ? "color-mix(in srgb, var(--v2-bg-page) 55%, transparent)"
+            : "transparent",
   };
 
   const body = (

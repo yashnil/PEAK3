@@ -46,7 +46,11 @@ export default async function RunTheTablePage({ searchParams }: Props) {
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-8 flex flex-col gap-5">
-      <header className="flex flex-col gap-1">
+      {/* V2 screens (start gate, draft room, boss battle, etc.) each carry their
+          own identity via PeakV2RTTShell/PeakV2LiveHeader — this generic legacy
+          page title would sit as a redundant shell above every one of them, so
+          it is hidden (CSS-only, `styles/v2/rtt.css`) once V2 is active. */}
+      <header className="rtt-page-legacy-header flex flex-col gap-1">
         <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
           Run the Table
         </h1>

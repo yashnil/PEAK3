@@ -1,0 +1,32 @@
+/* ================================================================
+   V2 · Broadcast Arena — footer override layer (Pass 5)
+   ================================================================
+   Scoped under [data-ui-version="v2"]. Zero DOM change — Footer.tsx is
+   unmodified. Brief: "quiet and coherent, not a large generic corporate
+   footer." Legacy's footer is already restrained (hairline columns, no
+   boxes); this pass only brings its typography/rhythm into the V2 family.
+   ================================================================ */
+
+[data-ui-version="v2"] footer {
+  background: var(--v2-bg-page);
+  box-shadow: none;
+  border-top: 1px solid var(--v2-border-subtle);
+  margin-top: var(--v2-space-16);
+}
+
+[data-ui-version="v2"] footer h2 {
+  font-family: var(--v2-font-ui);
+  font-weight: 700;
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  color: var(--v2-text-muted);
+}
+
+[data-ui-version="v2"] footer a,
+[data-ui-version="v2"] footer p {
+  font-family: var(--v2-font-ui);
+}
+
+[data-ui-version="v2"] footer ul li a {
+  font-size: 0.8125rem;
+}

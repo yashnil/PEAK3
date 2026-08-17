@@ -1,30 +1,30 @@
 /**
- * HomePageV2 — PEAK3 V2's real, production-data-driven homepage (Pass 3,
- * product-direction — full redesign, superseding Pass 2's foundation-only
- * cut).
+ * HomePageV2 — PEAK3 V2's production-data-driven homepage (Pass 5 —
+ * comprehensive recomposition, superseding Pass 3's foundation cut).
  *
- * Structure, per the brief's <homepage> section, verified against the real
- * Claude Design reference (`.claude-private/design/PEAK3-Directions-E.pdf`,
- * E2 pages 2-3 — "Five lanes. *One point each.*" / the Q&A hairline-row
- * block):
+ * Structure, per the brief's <homepage> section — blending E1/3a's strong
+ * COMPOSITION (commanding hero, substantial right-side data object, a
+ * horizontal game slate spanning the content width directly below the hero)
+ * with E2's refined typography/whitespace/serif restraint. Verified against
+ * both references (`.claude-private/design/PEAK3-Directions-E.pdf`, pages
+ * 2-3 and 12-13):
  *
- *   1. CINEMATIC HERO — a two-column editorial layout at desktop (statement
- *      left, one real ranked window's five-lane breakdown right), one
- *      column on mobile. Mixed regular/italic display via
- *      `PeakV2DisplayEmphasis`, restrained arena light, a real PEAK3
- *      explanation sentence.
- *   2. MODE SLATE — hairline rows, not SaaS cards. RUN THE TABLE's row
- *      swaps in real resume state (`HomeV2ResumeRow`, client-only, since
- *      progress is localStorage-only per CLAUDE.md's Phase 1 limitation).
- *      Multiplayer rows are omitted entirely when the Arena catalogue is
- *      unavailable — never a card that would 403.
- *   3. Q&A — plain hairline question rows linking into the real
- *      Methodology route, never a bordered accordion card grid.
+ *   1. CINEMATIC HERO — two columns at desktop. Left: the product thesis in
+ *      mixed regular/italic display type, one explanation sentence, primary
+ *      + secondary actions. Right: a BOUNDED panel (real visual mass, not a
+ *      thin border-left rule) holding a real #1 ranked window's five-lane
+ *      breakdown — the "basketball/data object" the brief calls for.
+ *   2. GAME SLATE — one wide instrument strip with vertical hairline
+ *      dividers between cells (not five independent cards), spanning the
+ *      full content width. Every finished mode reads together as one
+ *      designed row at desktop; 2-column then stacked on narrower widths.
+ *   3. Weights — the frozen source of truth, plainly stated.
+ *   4. Q&A — plain hairline rows linking into the real Methodology route.
  *
- * Server-safe except for the one resume-state child, exactly like Pass 2:
- * every value here is a prop this file's own caller (`app/(main)/page.tsx`)
- * already computed server-side from real fetches — nothing is fabricated,
- * nothing is fetched a second time.
+ * Server-safe except for the one resume-state cell (`HomeV2ResumeRow`,
+ * client-only, localStorage-only per CLAUDE.md's Phase 1 limitation).
+ * Nothing here is fabricated — every value is a prop this file's caller
+ * (`app/(main)/page.tsx`) already computed server-side from real fetches.
  */
 
 import Link from "next/link";
@@ -35,8 +35,6 @@ import PeakV2DisplayEmphasis from "./PeakV2DisplayEmphasis";
 import PeakV2Rule from "./PeakV2Rule";
 import PeakV2DataLane from "./PeakV2DataLane";
 import PeakV2PlayerIdentity from "./PeakV2PlayerIdentity";
-import PeakV2LiveHeader from "./PeakV2LiveHeader";
-import PeakV2GameStatus from "./PeakV2GameStatus";
 import PeakV2PrimaryAction from "./PeakV2PrimaryAction";
 import PeakV2SecondaryAction from "./PeakV2SecondaryAction";
 import HomeV2ResumeRow from "./HomeV2ResumeRow";
@@ -54,6 +52,8 @@ export interface HomePageV2Mode {
   href: string;
   title: string;
   description: string;
+  /** Short instrument-role tag, e.g. "5 QUESTIONS", "3 COURTS", "24 LOTS". Real, never fabricated. */
+  tag?: string;
 }
 
 export interface HomePageV2Props {
@@ -93,30 +93,20 @@ const COMPONENT_ORDER: RankingComponentKey[] = [
   "team_achievement",
 ];
 
-function ModeRow({ mode }: { mode: HomePageV2Mode }) {
+/** One cell of the horizontal game slate. Shared shape for every mode,
+ *  including the RTT resume cell (`HomeV2ResumeRow` renders this same
+ *  markup so the strip never has one visually different cell). */
+export function ModeSlateCell({ mode, badge }: { mode: HomePageV2Mode; badge?: string }) {
   return (
-    <Link
-      href={mode.href}
-      className="flex items-center justify-between gap-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-      style={{ borderBottom: "1px solid var(--v2-border-subtle)" }}
-    >
-      <div>
-        <div
-          style={{
-            fontFamily: "var(--v2-font-ui)",
-            fontWeight: 700,
-            fontSize: "0.9375rem",
-            color: "var(--v2-text-primary)",
-          }}
-        >
-          {mode.title}
-        </div>
-        <div style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-secondary)" }}>
-          {mode.description}
-        </div>
-      </div>
-      <span aria-hidden="true" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 700, color: "var(--v2-color-accent)" }}>
-        →
+    <Link href={mode.href} className="v2-slate-cell group">
+      <span className="v2-slate-cell-head">
+        {mode.tag ? <span className="v2-slate-cell-tag">{mode.tag}</span> : null}
+        {badge ? <span className="v2-slate-cell-badge">{badge}</span> : null}
+      </span>
+      <span className="v2-slate-cell-title">{mode.title}</span>
+      <span className="v2-slate-cell-desc">{mode.description}</span>
+      <span className="v2-slate-cell-action" aria-hidden="true">
+        Play <span className="v2-slate-cell-arrow">→</span>
       </span>
     </Link>
   );
@@ -160,25 +150,16 @@ export default function HomePageV2({
       )
     : [];
 
+  const [daily1, daily2] = dailyModes;
+  const [mp1, mp2] = multiplayerModes;
+
   return (
     <PeakV2Shell width="live">
-      {/* ---- 1. CINEMATIC HERO — two columns at desktop, one on mobile ---- */}
-      <PeakV2CinematicStage light={{ y: "-10%" }} align="start">
-        <div className="grid w-full grid-cols-1 gap-10 text-left lg:grid-cols-[1.15fr_1fr] lg:items-center">
-          <div>
-            <p
-              style={{
-                fontFamily: "var(--v2-font-ui)",
-                fontSize: "0.75rem",
-                fontWeight: 700,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                color: "var(--v2-color-accent)",
-                margin: 0,
-              }}
-            >
-              PEAK3 Arena
-            </p>
+      {/* ---- 1. CINEMATIC HERO — commanding left statement, substantial right data object ---- */}
+      <PeakV2CinematicStage light={{ y: "-10%" }} align="start" className="v2-home-hero">
+        <div className="grid w-full grid-cols-1 gap-10 text-left lg:grid-cols-[1.2fr_1fr] lg:items-stretch">
+          <div className="flex flex-col justify-center">
+            <p className="v2-eyebrow">PEAK3 Arena</p>
             <PeakV2ResultHeadline as="h1" scale="hero" style={{ margin: 0, marginTop: "var(--v2-space-3)", textAlign: "left" }}>
               Five lanes.
               <br />
@@ -200,18 +181,14 @@ export default function HomePageV2({
           </div>
 
           {topWindow ? (
-            <div className="lg:pl-8 lg:border-l" style={{ borderColor: "var(--v2-border-subtle)" }}>
-              <div className="flex items-baseline justify-between gap-3">
-                <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.04em", color: "var(--v2-text-muted)" }}>
-                  Rank {topWindow.rank} · 3-Year Window
-                </span>
+            <div className="v2-hero-object">
+              <div className="v2-hero-object-head">
+                <span className="v2-hero-object-kicker">Rank {topWindow.rank} · 3-Year Window</span>
                 {topWindow.primeScore !== null ? (
-                  <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "1.25rem", fontWeight: 700, color: "var(--v2-color-accent)" }}>
-                    {topWindow.primeScore.toFixed(1)}
-                  </span>
+                  <span className="v2-hero-object-score">{topWindow.primeScore.toFixed(1)}</span>
                 ) : null}
               </div>
-              <div className="mt-1">
+              <div className="mt-2">
                 <PeakV2PlayerIdentity
                   name={topWindow.playerName}
                   meta={topWindow.team ? `${topWindow.team} · ${topWindow.label}` : topWindow.label}
@@ -219,7 +196,7 @@ export default function HomePageV2({
                 />
               </div>
               {laneEntries.length > 0 ? (
-                <div className="mt-5 flex flex-col gap-3">
+                <div className="mt-6 flex flex-col gap-3">
                   {laneEntries.map((e) => (
                     <PeakV2DataLane
                       key={e.key}
@@ -234,12 +211,8 @@ export default function HomePageV2({
                   ))}
                 </div>
               ) : null}
-              <p className="mt-4 text-right">
-                <Link
-                  href="/rankings"
-                  className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-                  style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 700, color: "var(--v2-text-secondary)" }}
-                >
+              <p className="mt-5 text-right">
+                <Link href="/rankings" className="v2-hero-object-link">
                   {proof.rankedWindows !== null ? `${proof.rankedWindows.toLocaleString()} windows on the board` : "See the full board"} →
                 </Link>
               </p>
@@ -247,6 +220,23 @@ export default function HomePageV2({
           ) : null}
         </div>
       </PeakV2CinematicStage>
+
+      {/* ---- 2. GAME SLATE — one instrument strip, full content width ---- */}
+      <section aria-labelledby="v2-modes-heading" className="v2-slate-section">
+        <div className="v2-slate-heading-row">
+          <span className="v2-live-dot" aria-hidden="true" />
+          <h2 id="v2-modes-heading" className="v2-slate-heading">
+            Choose a game
+          </h2>
+        </div>
+        <div className="v2-slate-grid">
+          <HomeV2ResumeRow mode={runTheTable} />
+          {daily1 ? <ModeSlateCell mode={daily1} /> : null}
+          {daily2 ? <ModeSlateCell mode={daily2} /> : null}
+          {mp1 ? <ModeSlateCell mode={mp1} badge="Live" /> : null}
+          {mp2 ? <ModeSlateCell mode={mp2} badge="Live" /> : null}
+        </div>
+      </section>
 
       <PeakV2Rule spacing="lg" />
 
@@ -270,22 +260,6 @@ export default function HomePageV2({
           </div>
         </section>
       ) : null}
-
-      <PeakV2Rule spacing="lg" />
-
-      {/* ---- 2. MODE SLATE — hairline rows, obvious CTA hierarchy ---- */}
-      <section aria-labelledby="v2-modes-heading">
-        <PeakV2LiveHeader title="Choose a game" status={<PeakV2GameStatus label="Live" state="active" />} />
-        <div className="mt-3 flex flex-col gap-1">
-          <HomeV2ResumeRow mode={runTheTable} />
-          {dailyModes.map((mode) => (
-            <ModeRow key={mode.href} mode={mode} />
-          ))}
-          {multiplayerModes.map((mode) => (
-            <ModeRow key={mode.href} mode={mode} />
-          ))}
-        </div>
-      </section>
 
       <PeakV2Rule spacing="lg" />
 

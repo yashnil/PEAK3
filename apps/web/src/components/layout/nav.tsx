@@ -103,6 +103,27 @@ export function Nav() {
   // this component's own hydration has run. See the header note.
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(true), []);
+  // V2 ONLY: purely presentational — a `data-scrolled` flag so V2's nav CSS
+  // (styles/v2/nav.css) can go from "quiet, integrated with the page" at the
+  // top to a subtle surface/hairline once content is scrolling under it, per
+  // the brief's navbar section. Legacy's own `.pk-nav-header` never reads
+  // this attribute, so it is inert there. rAF-throttled scroll listener,
+  // passive, no state that legacy rendering paths observe.
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    let ticking = false;
+    function onScroll() {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        setScrolled(window.scrollY > 8);
+        ticking = false;
+      });
+    }
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
   // Pulls the account's saved theme preference onto this device once per
   // sign-in (launch-polish IMPLEMENTATION_CONTRACT.md §2). Lives here
   // rather than inside `AccountMenu` because that component's wrapping
@@ -121,6 +142,7 @@ export function Nav() {
     <header
       className="pk-nav-header sticky top-0 z-40"
       data-nav-ready={ready ? "true" : undefined}
+      data-scrolled={scrolled ? "true" : undefined}
     >
       <div className="pk-nav-bar mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
         <Link
