@@ -19,7 +19,15 @@
  *   - the entrance transition is skipped entirely under `prefers-reduced-motion`
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { cn } from "@/lib/utils";
 import {
   useBodyScrollLock,
@@ -53,6 +61,18 @@ interface DialogBaseProps {
   className?: string;
   /** Class applied to the full-screen backdrop layer. */
   backdropClassName?: string;
+  /**
+   * Style overrides for the panel/backdrop, merged AFTER (so they win over)
+   * this component's own inline defaults — panel color/radius/elevation are
+   * set inline, not via a class, so `className` alone cannot reskin them.
+   * Added for `PeakV2Modal` (Pass 2, product-direction): a V2-styled
+   * dialog reuses this component's focus trap / restore-focus / scroll
+   * lock / Escape / portal wiring exactly rather than re-deriving it, and
+   * only changes presentation. Optional and additive — every existing
+   * caller passes neither and is completely unaffected.
+   */
+  panelStyle?: CSSProperties;
+  backdropStyle?: CSSProperties;
   /** When false, neither Escape nor a backdrop click closes the dialog. */
   dismissible?: boolean;
   describedBy?: string;
@@ -75,6 +95,8 @@ export function Dialog({
   describedBy,
   label,
   labelledBy,
+  panelStyle,
+  backdropStyle,
   "data-testid": testId,
 }: DialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -195,6 +217,7 @@ export function Dialog({
             backdropFilter: "blur(2px)",
             opacity: visible ? 1 : 0,
             transition: `opacity ${durationMs}ms ${easing}`,
+            ...backdropStyle,
           }}
         />
         <div
@@ -217,6 +240,7 @@ export function Dialog({
             opacity: visible ? 1 : 0,
             transform: visible ? "translateY(0) scale(1)" : "translateY(8px) scale(0.98)",
             transition: `opacity ${durationMs}ms ${easing}, transform ${durationMs}ms ${easing}`,
+            ...panelStyle,
           }}
         >
           {children}

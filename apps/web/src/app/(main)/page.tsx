@@ -27,6 +27,9 @@ import MultiplayerSection, {
 import { MODE_COPY } from "@/lib/modes";
 import { getArenaCatalogue } from "@/lib/arena-readiness-server";
 import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
+import UiVersionSwitch from "@/components/v2/UiVersionSwitch";
+import HomePageV2 from "@/components/v2/HomePageV2";
+import type { V2Tone } from "@/components/v2/v2-tone";
 
 export const metadata: Metadata = {
   title: "PEAK3 Arena — Run the Table",
@@ -52,13 +55,16 @@ const HOW_IT_WORKS: { icon: typeof Users; title: string; body: string }[] = [
   },
 ];
 
-/** The five official component weights, the same numbers the model uses. */
-const COMPONENT_WEIGHTS: { label: string; pct: string; color: string }[] = [
-  { label: "Statistical Impact", pct: "38%", color: "var(--comp-si)" },
-  { label: "Traditional Production", pct: "21%", color: "var(--comp-tp)" },
-  { label: "Individual Recognition", pct: "20%", color: "var(--comp-rec)" },
-  { label: "Playoff Rate Impact", pct: "18%", color: "var(--comp-po)" },
-  { label: "Team Result", pct: "3%", color: "var(--comp-team)" },
+/** The five official component weights, the same numbers the model uses.
+ *  `tone` is the V2 token name for the same frozen `--comp-*` hue as
+ *  `color` — one real source (`CLAUDE.md`'s five weights), two presentation
+ *  layers reading it, per `PeakV2Score`'s tone contract. */
+const COMPONENT_WEIGHTS: { label: string; pct: string; color: string; tone: V2Tone }[] = [
+  { label: "Statistical Impact", pct: "38%", color: "var(--comp-si)", tone: "si" },
+  { label: "Traditional Production", pct: "21%", color: "var(--comp-tp)", tone: "tp" },
+  { label: "Individual Recognition", pct: "20%", color: "var(--comp-rec)", tone: "rec" },
+  { label: "Playoff Rate Impact", pct: "18%", color: "var(--comp-po)", tone: "po" },
+  { label: "Team Result", pct: "3%", color: "var(--comp-team)", tone: "team" },
 ];
 
 /**
@@ -221,6 +227,8 @@ export default async function HomePage({
   const peakDuel = MODE_COPY["peak-duel"];
 
   return (
+    <UiVersionSwitch
+      legacy={
     <div className="min-h-screen">
       {/* ---------------------------------------------------------------
           1. Hero — one promise, one headline, one primary action, and a
@@ -751,5 +759,16 @@ export default async function HomePage({
         </div>
       </section>
     </div>
+      }
+      v2={
+        <HomePageV2
+          topWindow={modelData.windows[0] ?? null}
+          componentWeights={COMPONENT_WEIGHTS.map(({ label, pct, tone }) => ({ label, pct, tone }))}
+          proof={modelData.proof}
+          flagship={flagship}
+          dailyModes={[dailyGrid, peakDuel]}
+        />
+      }
+    />
   );
 }

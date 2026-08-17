@@ -2,7 +2,10 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { AuthProvider } from "@/lib/auth-context";
 import { themeInitScript } from "@/lib/theme-script";
+import { uiVersionInitScript } from "@/lib/ui-version-script";
+import UiVersionDevSwitch from "@/components/v2/UiVersionDevSwitch";
 import "@/styles/globals.css";
+import "@/styles/v2/tokens.css";
 
 /* SELF-HOSTED, NOT `next/font/google`.
  *
@@ -62,6 +65,37 @@ const spaceGrotesk = localFont({
   weight: "300 700",
 });
 
+/**
+ * PEAK3 V2 · BROADCAST ARENA — the DISPLAY/MOMENT typography role (see
+ * `styles/v2/tokens.css`'s module docstring for the full three-role system).
+ * Legacy render is completely unaffected: this variable is only ever
+ * referenced from `--v2-font-display`, which nothing in `globals.css` or any
+ * legacy component reads.
+ *
+ * Single static weight (400) plus its italic — Instrument Serif ships no
+ * other weight — self-hosted via `@fontsource/instrument-serif`, the same
+ * "resolved from the lockfile, no network at build time" pattern as `inter`/
+ * `spaceGrotesk` above. Used ONLY for cinematic display moments (a boss
+ * name, a franchise · decade line, a result headline, a homepage
+ * statement) — never for routine controls, per the brief.
+ */
+const instrumentSerif = localFont({
+  src: [
+    {
+      path: "../../node_modules/@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "../../node_modules/@fontsource/instrument-serif/files/instrument-serif-latin-400-italic.woff2",
+      weight: "400",
+      style: "italic",
+    },
+  ],
+  variable: "--font-instrument-serif",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: {
     default: "PEAK3 Arena",
@@ -93,7 +127,8 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${inter.variable} ${spaceGrotesk.variable}`}
+      data-ui-version="legacy"
+      className={`${inter.variable} ${spaceGrotesk.variable} ${instrumentSerif.variable}`}
     >
       <head>
         {/* Sets `data-theme` synchronously, before first paint, so there is
@@ -104,6 +139,15 @@ export default function RootLayout({
             `content` matches Arena Night (`--bg-page`); the script
             overwrites it synchronously once it knows the real theme. */}
         <script dangerouslySetInnerHTML={{ __html: themeInitScript() }} />
+        {/* Same contract, for PEAK3 V2's UI-version switch (Pass 2,
+            product-direction): sets `data-ui-version` before first paint so
+            an already-testing visitor's stored `?ui=v2` choice never flashes
+            legacy first. The static `data-ui-version="legacy"` attribute
+            above is the true no-JS/pre-hydration default — this script only
+            ever upgrades it to "v2", never the reverse silently, matching
+            the brief's "default must remain legacy unless explicitly
+            opting in." */}
+        <script dangerouslySetInnerHTML={{ __html: uiVersionInitScript() }} />
         <meta name="theme-color" content="#0a0b0d" />
       </head>
       <body>
@@ -111,6 +155,7 @@ export default function RootLayout({
           Skip to main content
         </a>
         <AuthProvider>{children}</AuthProvider>
+        <UiVersionDevSwitch />
       </body>
     </html>
   );

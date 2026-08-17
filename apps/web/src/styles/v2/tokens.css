@@ -1,0 +1,194 @@
+/* ================================================================
+   PEAK3 V2 · BROADCAST ARENA — token layer
+   ================================================================
+   Pass 2 (product-direction). PEAK3 V2 is a PARALLEL presentation system,
+   not a replacement: legacy consumes `globals.css`'s `--pk-*`/`--bg-*`/
+   `--text-*`/`--comp-*` tokens exactly as before, and none of them are
+   redefined here. Every token in this file is scoped under
+   `[data-ui-version="v2"]` (set on `<html>` by `ui-version-script.ts`'s
+   blocking init script) — a legacy render never matches that selector, so
+   it is structurally impossible for this file to change legacy's rendered
+   output. This is belt-and-suspenders on top of the JS switch already
+   gating which components mount: even if a V2 class name ever leaked onto
+   a legacy tree by mistake, the custom properties it reads would not
+   exist there, so it would fall back to its declared default rather than
+   pick up a stray value.
+
+   THREE THINGS THIS FILE DELIBERATELY DOES NOT DO:
+
+   1. Redefine brand color. `--peak-accent` and the five `--comp-*` hexes
+      are frozen (CLAUDE.md) and already correct — every `--v2-color-*`
+      below is an ALIAS (`var(--peak-accent)`, not a new hex), so a future
+      change to the frozen source of truth propagates here automatically
+      and V2 can never silently drift from the canonical palette.
+   2. Fork light/dark. `--v2-bg-*`/`--v2-text-*` alias the base
+      `--bg-*`/`--text-*` tokens, which already resolve correctly for
+      whichever `data-theme` is active — V2 gets theme support for free
+      instead of a second palette to maintain.
+   3. Invent a fourth typography role. The brief specifies exactly three
+      (DISPLAY/MOMENT, UI/PLAYER IDENTITY, INSTRUMENTATION); body-length
+      copy lives inside the UI role's font stack (Space Grotesk first,
+      Inter as its already-metrics-compatible fallback — see
+      `app/layout.tsx`'s Space Grotesk comment) rather than becoming a
+      separate role.
+   ================================================================ */
+
+[data-ui-version="v2"] {
+  /* ---- Color: brand + status, aliased from the frozen source of truth ---- */
+  --v2-color-accent: var(--peak-accent);
+  --v2-color-accent-dim: var(--peak-accent-dim);
+  --v2-color-accent-text: var(--peak-accent-text);
+  --v2-color-positive: var(--correct, #34d399);
+  --v2-color-negative: var(--incorrect, #f87171);
+
+  /* The five PEAK3 component colors — STRICT semantics (brief): only where a
+     surface encodes real per-component PEAK3 data. Never decorative. */
+  --v2-color-comp-si: var(--comp-si);
+  --v2-color-comp-tp: var(--comp-tp);
+  --v2-color-comp-rec: var(--comp-rec);
+  --v2-color-comp-po: var(--comp-po);
+  --v2-color-comp-team: var(--comp-team);
+
+  /* ---- Color: surfaces + text, aliased from the theme-resolved base ---- */
+  --v2-bg-page: var(--bg-page);
+  --v2-bg-plane: var(--bg-elevated);
+  --v2-bg-surface: var(--bg-surface);
+  --v2-text-primary: var(--text-primary);
+  --v2-text-secondary: var(--text-secondary);
+  --v2-text-muted: var(--text-muted);
+  --v2-text-inverse: var(--text-inverse);
+  --v2-border: var(--border-default);
+  --v2-border-subtle: var(--border-subtle);
+  --v2-border-emphasis: var(--border-emphasis);
+
+  /* ---- Typography: three roles ----
+     1. DISPLAY/MOMENT — editorial serif, CINEMATIC only. A boss name, a
+        franchise · decade line, a result headline, a homepage statement.
+        Never a routine control.
+     2. UI/PLAYER IDENTITY — the existing Space Grotesk, carried forward
+        because V2 stays "unmistakably PEAK3": names, nav, labels, buttons,
+        roster info, interactive text, and body-length copy (Inter fallback
+        shares its vertical metrics — see app/layout.tsx). */
+  --v2-font-display: var(--font-instrument-serif), Georgia, "Times New Roman", serif;
+  --v2-font-ui: var(--font-space-grotesk), var(--font-inter), system-ui, sans-serif;
+  /* 3. INSTRUMENTATION — clocks, scores, credits, bids, round/pick, lane
+        ratings, statistics. Reuses the legacy system-mono stack
+        (`--font-mono` in globals.css) rather than adding a fourth font
+        binary — a system mono stack set with tabular figures and slight
+        tracking already reads as "scoreboard," which is the brief's actual
+        ask ("borrow the SPIRIT of Box Score Evolved," not its typeface). */
+  --v2-font-mono: var(--font-mono);
+
+  /* Display scale — editorial, used only inside PeakV2CinematicStage /
+     PeakV2ResultHeadline. Negative tracking at the largest sizes, same
+     legibility logic as `--pk-track-display` (a tighter serif still opens
+     up enough at this scale to stay readable, and looks intentional rather
+     than loose). */
+  --v2-display-size-hero: clamp(2.75rem, 2rem + 3vw, 5rem);
+  --v2-display-size-moment: clamp(2rem, 1.6rem + 1.8vw, 3.25rem);
+  --v2-display-size-line: clamp(1.375rem, 1.2rem + 0.8vw, 1.75rem);
+  --v2-display-track: -0.01em;
+  --v2-display-leading: 1.05;
+
+  /* Instrumentation scale — tabular, for anything that ticks/updates. */
+  --v2-mono-track: 0.01em;
+  --v2-mono-feature: "tnum" 1, "lnum" 1;
+
+  /* ---- Geometry: an intentional radius vocabulary, three steps only ----
+     Never "every surface independently rounds its own corners" (the
+     anti-pattern the brief calls out) — every V2 surface picks ONE of
+     these three, by what kind of surface it is, not by taste. */
+  --v2-radius-instrument: 3px;  /* LIVE instrumentation: timers, score, bid chips — near-square, hard */
+  --v2-radius-control: 8px;     /* interactive surfaces: buttons, inputs, selectable rows */
+  --v2-radius-modal: 22px;      /* genuine modal/cinematic containers only */
+
+  /* ---- Spacing / grid / page width ----
+     Reuses the existing `--pk-space-*` scale (already measured, already
+     used app-wide) rather than a second competing scale. Page-width is
+     V2-specific: CINEMATIC wants a narrower editorial measure than LIVE's
+     denser working width. */
+  --v2-space-1: var(--pk-space-1);
+  --v2-space-2: var(--pk-space-2);
+  --v2-space-3: var(--pk-space-3);
+  --v2-space-4: var(--pk-space-4);
+  --v2-space-5: var(--pk-space-5);
+  --v2-space-6: var(--pk-space-6);
+  --v2-space-8: var(--pk-space-8);
+  --v2-space-10: var(--pk-space-10);
+  --v2-space-12: var(--pk-space-12);
+  --v2-space-16: var(--pk-space-16);
+
+  --v2-width-shell: 1440px;      /* outer page ceiling, matches the 1440×900 verification viewport */
+  --v2-width-live: 1180px;       /* LIVE working width — compact but breathable */
+  --v2-width-cinematic: 760px;   /* CINEMATIC editorial measure — a serif headline this narrow reads, not sprawls */
+  --v2-gutter: clamp(16px, 4vw, 48px);
+
+  /* ---- Motion: durations, named by what they communicate (brief §Motion) ----
+     REVEAL / SELECTION / COMMITMENT / RESOLUTION, never decoration. */
+  --v2-dur-ack: 100ms;         /* immediate acknowledgement: 80-120ms */
+  --v2-dur-control: 160ms;     /* control state: 140-180ms */
+  --v2-dur-transition: 210ms;  /* UI state transition: 180-240ms */
+  --v2-dur-reveal: 380ms;      /* card/player reveal: 300-450ms */
+  --v2-dur-cinematic: 2800ms;  /* one cinematic sequence, total: ~2-3.5s */
+
+  /* Mirrors `--pk-ease-*` — the same measured curves, aliased rather than
+     re-authored, so a V2 surface sitting next to a legacy one under a
+     shared page (e.g. the homepage during this pass) never feels like a
+     different physics engine. */
+  --v2-ease-standard: var(--pk-ease-standard);
+  --v2-ease-out: var(--pk-ease-out);
+  --v2-ease-in: var(--pk-ease-in);
+  --v2-ease-emphasized: var(--pk-ease-emphasized);
+
+  /* ---- Arena light: ONE controlled source, not a decorative glow ----
+     Broad, soft, low-opacity, tied to whatever is currently the game's
+     focus (PeakV2ArenaLight's `x`/`y` props set the two position
+     variables below per-instance). Default color is the PEAK3 gold — a
+     `tone` prop may swap it to a component color when the lit subject IS
+     that component's data (e.g. a lane comparison), never decoratively. */
+  --v2-light-color: var(--v2-color-accent);
+  --v2-light-opacity: 0.16;
+  --v2-light-spread: 60%;
+  --v2-light-x: 50%;
+  --v2-light-y: 0%;
+
+  /* ---- Court-card grammar (Pass 3 preparation — brief §Court Design
+     Grammar): ONE fixed footprint for every slot regardless of position,
+     so a grid of slots never produces uneven row heights by position. ---- */
+  --v2-court-slot-min-height: 104px;
+  --v2-court-bench-min-height: 76px;
+
+  /* ---- Elevation: two steps only ----
+     LIVE instrumentation and player-identity rows stay flat (typography +
+     alignment carry the hierarchy, per the brief's anti-card-nesting
+     rule). These two exist for the surfaces that genuinely have
+     independent interaction/state: PeakV2Modal and PeakV2CinematicStage's
+     own plane. */
+  --v2-elev-plane: 0 1px 2px color-mix(in srgb, black 40%, transparent);
+  --v2-elev-modal: 0 24px 64px -24px color-mix(in srgb, black 70%, transparent);
+}
+
+/* prefers-reduced-motion is already handled globally in `globals.css`
+   (`animation-duration`/`transition-duration` zeroed for `*`), which
+   covers every V2 keyframe/transition below by construction. The one thing
+   that blanket rule cannot reach is a JS-driven timer chain (a cinematic
+   sequence's staged reveals) — those primitives call
+   `usePrefersReducedMotion()` (`lib/a11y.ts`, already shared with legacy)
+   directly and collapse their own timer chain, exactly as the existing
+   opening-reveal ceremonies already do. */
+
+@keyframes v2-arena-light-pulse {
+  0%, 100% { opacity: var(--v2-light-opacity); }
+  50% { opacity: calc(var(--v2-light-opacity) * 1.4); }
+}
+
+@keyframes v2-reveal-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ui-version="v2"] .v2-arena-light {
+    animation: none !important;
+  }
+}
