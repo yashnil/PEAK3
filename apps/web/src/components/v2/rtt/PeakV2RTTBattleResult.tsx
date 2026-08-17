@@ -44,7 +44,7 @@ export default function PeakV2RTTBattleResult({ battle, boss, onAdvance, advance
   const verdict = battleVerdict(battle);
 
   return (
-    <div>
+    <div data-testid="rtt-battle-reveal">
       <PeakV2CinematicStage light={{ y: "-4%", tone: battle.outcome === "win" ? "positive" : battle.outcome === "loss" ? "negative" : "accent" }}>
         <span
           style={{
@@ -122,7 +122,9 @@ export default function PeakV2RTTBattleResult({ battle, boss, onAdvance, advance
         </p>
 
         <div className="mt-6">
-          <PeakV2PrimaryAction onClick={onAdvance}>{advanceLabel}</PeakV2PrimaryAction>
+          <PeakV2PrimaryAction data-testid="rtt-battle-advance" onClick={onAdvance}>
+            {advanceLabel}
+          </PeakV2PrimaryAction>
         </div>
       </div>
     </div>

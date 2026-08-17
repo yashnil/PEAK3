@@ -68,6 +68,7 @@ function SlotList({
 
 function RosterColumn({
   label,
+  seatIndex,
   budget,
   filledSlots,
   totalSlots,
@@ -78,6 +79,7 @@ function RosterColumn({
   align,
 }: {
   label: string;
+  seatIndex: number;
   budget: number;
   filledSlots: number;
   totalSlots: number;
@@ -94,7 +96,9 @@ function RosterColumn({
         <PeakV2GameStatus label={isActive ? `${label} · on the clock` : label} state={isActive ? "active" : "idle"} />
       </div>
       <div className="flex gap-4" style={{ flexDirection: align === "end" ? "row-reverse" : "row" }}>
-        <PeakV2Score value={formatDollars(budget)} label="Budget left" tone="accent" />
+        <span data-testid={`td-seat-budget-${seatIndex}`}>
+          <PeakV2Score value={formatDollars(budget)} label="Budget left" tone="accent" />
+        </span>
         <PeakV2Score value={`${filledSlots}/${totalSlots}`} label="Roster" />
         <PeakV2Score value={marketSkips} label="Skips" />
       </div>
@@ -131,7 +135,13 @@ export interface PeakV2ShowdownLiveProps {
   locallyExpired: boolean;
   consequence: string | null;
   revealedHistory: ResolvedLot[];
+  /** A rejected command or transport failure, already translated into
+   *  player-facing words by `explainRejection`/`explainTransportError` —
+   *  this component never sees raw server prose. `null` when there is
+   *  nothing to report. */
+  error?: { message: string; tone: "board" | "rule" | "retry" | "reload" } | null;
   onExpire: () => void;
+  onDismissError?: () => void;
   onSubmit: (command: "bid" | "pass", amount: number) => void;
 }
 
@@ -149,7 +159,9 @@ export default function PeakV2ShowdownLive({
   locallyExpired,
   consequence,
   revealedHistory,
+  error = null,
   onExpire,
+  onDismissError,
   onSubmit,
 }: PeakV2ShowdownLiveProps) {
   const yourSeatPublic = publicState.seats[yourSeat ?? 0];
@@ -162,7 +174,7 @@ export default function PeakV2ShowdownLive({
 
   return (
     <PeakV2Shell width="live-wide">
-      <div className="py-6">
+      <div className="py-6" data-testid="td-game">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <PeakV2GameStatus label={`Lot ${Math.min(publicState.lot_index + 1, publicState.max_lots)} of ${publicState.market_phase === "closeout" ? publicState.max_lots : publicState.standard_market_lots}`} state="active" />
           <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
@@ -171,13 +183,53 @@ export default function PeakV2ShowdownLive({
         </div>
         <PeakV2Rule spacing="sm" />
 
+        {/* THE ERROR IS DISMISSIBLE AND SELF-CLEARING, same contract as
+            legacy's `td-error` — this was previously computed by the room
+            (`explainRejection`/`explainTransportError`) and silently
+            dropped on the floor for V2 players: a rejected bid produced no
+            feedback at all, just a clock and controls resetting with no
+            explanation. `tone` picks the same board/rule/retry/reload
+            distinction the message itself was already written for; only
+            `retry`/`reload` — genuine failures, not "the board moved on
+            under you" — get the negative color, so an ordinary "someone
+            else acted first" explanation does not read as an error the
+            player caused. */}
+        {error ? (
+          <div
+            role="alert"
+            data-testid="td-error"
+            data-tone={error.tone}
+            className="mt-3 flex items-start justify-between gap-4"
+            style={{
+              borderLeft: `2px solid ${error.tone === "retry" || error.tone === "reload" ? "var(--v2-color-negative)" : "var(--v2-color-accent)"}`,
+              paddingLeft: "0.75rem",
+            }}
+          >
+            <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}>
+              {error.message}
+            </p>
+            {onDismissError ? (
+              <button
+                type="button"
+                data-testid="td-error-dismiss"
+                onClick={onDismissError}
+                className="shrink-0"
+                style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 600, color: "var(--v2-text-muted)" }}
+              >
+                Dismiss
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
         {/* Mobile: the lot owns the viewport first (`order-1`); each roster
             is a compact disclosure below it. Desktop drops the ordering for
             the real three-column grid. */}
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[220px_1fr_220px]">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[220px_1fr_220px]" data-testid="td-table">
           <div className="order-2 lg:order-none">
             <RosterColumn
               label="You"
+              seatIndex={yourSeatPublic.seat_index}
               budget={yourSeatPublic.budget}
               filledSlots={yourSeatPublic.filled_slots}
               totalSlots={publicState.slots.length}
@@ -251,6 +303,7 @@ export default function PeakV2ShowdownLive({
             <div className="order-3 lg:order-none">
               <RosterColumn
                 label={seatNames[opponent.seat_index] ?? "Opponent"}
+                seatIndex={opponent.seat_index}
                 budget={opponent.budget}
                 filledSlots={opponent.filled_slots}
                 totalSlots={publicState.slots.length}

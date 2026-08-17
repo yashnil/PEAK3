@@ -46,6 +46,7 @@ export default function PeakDuelV2Stage({ state, date, deadlineAt, onSelect, onT
       <div className="flex min-h-[calc(100vh-8rem)] flex-col justify-center py-8">
         {revealed && state.current_answer ? (
           <PeakDuelV2Reveal
+            mode={state.mode}
             duel={duel}
             answer={state.current_answer}
             currentIndex={state.current_index}

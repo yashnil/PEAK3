@@ -15,7 +15,7 @@
 
 import PeakV2CourtPanel from "../PeakV2CourtPanel";
 import PeakV2CourtSlot from "../PeakV2CourtSlot";
-import type { ArenaSeatPublic, TmwEdgeBand, TmwRoster } from "@/types/three-man-weave";
+import type { ArenaSeatPublic, TmwEdgeBand, TmwRoster, TmwSlotType } from "@/types/three-man-weave";
 import { TMW_STARTER_SLOTS, TMW_SLOT_LABELS } from "@/types/three-man-weave";
 import { TMW_EDGE_LABELS, benchSlots, positionsLine } from "@/lib/three-man-weave-state";
 
@@ -34,12 +34,52 @@ export interface PeakV2TMWCourtProps {
   isOnTurn: boolean;
   edge?: TmwEdgeBand | null;
   lit: boolean;
+  /**
+   * Between-turn rearrangement (Pass 4, TMW-10 ported to V2) — only ever
+   * passed for the viewer's OWN court; the other two stay read-only, same
+   * rule legacy `RosterBoard`/`SeatCourt` enforce.
+   */
+  interactive?: boolean;
+  pickedUpSlot?: TmwSlotType | null;
+  legalTargets?: readonly TmwSlotType[];
+  onPickUp?: (slot: TmwSlotType) => void;
+  onDropOn?: (slot: TmwSlotType) => void;
 }
 
-export default function PeakV2TMWCourt({ roster, seat, isYou, isOnTurn, edge, lit }: PeakV2TMWCourtProps) {
+export default function PeakV2TMWCourt({
+  roster,
+  seat,
+  isYou,
+  isOnTurn,
+  edge,
+  lit,
+  interactive = false,
+  pickedUpSlot = null,
+  legalTargets = [],
+  onPickUp,
+  onDropOn,
+}: PeakV2TMWCourtProps) {
   const name = seat?.display_name ?? `Seat ${roster.seat_index + 1}`;
   const filled = Object.values(roster.slots).filter(Boolean).length;
   const bench = benchSlots(roster);
+  const moving = pickedUpSlot !== null;
+  const legal = new Set(legalTargets);
+
+  function slotState(slotType: TmwSlotType): "empty" | "filled" | "staged" | "current" {
+    if (pickedUpSlot === slotType) return "current";
+    if (moving && legal.has(slotType)) return "staged";
+    return roster.slots[slotType] ? "filled" : "empty";
+  }
+
+  function activateLabelFor(slotType: TmwSlotType, pick: TmwRoster["slots"][TmwSlotType]): string | undefined {
+    if (!interactive) return undefined;
+    if (moving) {
+      return legal.has(slotType)
+        ? `Move here: ${TMW_SLOT_LABELS[slotType]}${pick ? `, swapping with ${pick.player_name}` : ", currently open"}`
+        : `${TMW_SLOT_LABELS[slotType]}: not a legal destination`;
+    }
+    return pick ? `Rearrange ${pick.player_name}, currently at ${TMW_SLOT_LABELS[slotType]}` : undefined;
+  }
 
   return (
     <PeakV2CourtPanel
@@ -81,6 +121,12 @@ export default function PeakV2TMWCourt({ roster, seat, isYou, isOnTurn, edge, li
                 player={pick ? { name: pick.player_name, meta: `${pick.scoring_card ? `${pick.scoring_card.season} ${pick.scoring_card.team_id}` : "—"} · ${positionsLine(pick)}` } : undefined}
                 value={pick?.scoring_card ? pick.scoring_card.prime_score.toFixed(1) : undefined}
                 emptyHint={TMW_SLOT_LABELS[slot]}
+                state={slotState(slot)}
+                interactive={interactive}
+                moving={moving}
+                onPickUp={interactive ? () => onPickUp?.(slot) : undefined}
+                onDropOn={interactive ? () => onDropOn?.(slot) : undefined}
+                activateLabel={activateLabelFor(slot, pick)}
               />
             </div>
           );
@@ -99,10 +145,22 @@ export default function PeakV2TMWCourt({ roster, seat, isYou, isOnTurn, edge, li
               bench
               player={pick ? { name: pick.player_name } : undefined}
               emptyHint="Open"
+              state={slotState(slotType)}
+              interactive={interactive}
+              moving={moving}
+              onPickUp={interactive ? () => onPickUp?.(slotType) : undefined}
+              onDropOn={interactive ? () => onDropOn?.(slotType) : undefined}
+              activateLabel={activateLabelFor(slotType, pick)}
             />
           ))}
         </div>
       </div>
+
+      {interactive ? (
+        <p className="mt-2" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.6875rem", color: "var(--v2-text-muted)" }}>
+          {moving ? "Choose a highlighted slot, or press Escape to cancel." : "Select a card to rearrange your roster — this never costs a turn."}
+        </p>
+      ) : null}
     </PeakV2CourtPanel>
   );
 }

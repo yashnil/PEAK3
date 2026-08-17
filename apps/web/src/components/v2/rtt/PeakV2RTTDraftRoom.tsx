@@ -53,7 +53,7 @@ export default function PeakV2RTTDraftRoom({ node, slots, credits, busy, onBuy, 
   const canAfford = payable <= credits;
 
   return (
-    <div>
+    <div data-testid="rtt-draft-room">
       <PeakV2LiveHeader title="Draft Room" subtitle={node.summary} as="h1" />
 
       <ul className="mt-4 flex flex-col">
@@ -152,7 +152,7 @@ export default function PeakV2RTTDraftRoom({ node, slots, credits, busy, onBuy, 
 
       {node.can_pass ? (
         <div className="mt-4">
-          <PeakV2SecondaryAction onClick={onPass} disabled={busy}>
+          <PeakV2SecondaryAction data-testid="rtt-draft-pass" onClick={onPass} disabled={busy}>
             Pass · keep the credits
           </PeakV2SecondaryAction>
         </div>

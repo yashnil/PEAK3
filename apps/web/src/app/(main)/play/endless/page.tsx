@@ -6,6 +6,8 @@ import { GameEngine } from "@/components/game/game-engine";
 import { getProgressRepository } from "@/lib/progress";
 import type { EndlessSession } from "@/types";
 import { cn } from "@/lib/utils";
+import { useUiVersion } from "@/lib/ui-version";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
 
 const DURATION_OPTIONS = [1, 2, 3, 5] as const;
 
@@ -18,6 +20,7 @@ export default function EndlessPage() {
 
   const repo = getProgressRepository();
   const progress = repo.getAll();
+  const uiVersion = useUiVersion();
 
   const startSession = useCallback(async (y: 1 | 2 | 3 | 5) => {
     setLoading(true);
@@ -114,23 +117,54 @@ export default function EndlessPage() {
 
   return (
     <div className="min-h-screen court-grid-bg">
-      <div className="mx-auto max-w-2xl px-4">
-        <div className="pt-8 flex items-center justify-between">
-          <div>
-            <h1 className="font-display text-xl font-bold">Endless Mode</h1>
-            <p className="text-xs text-[var(--text-secondary)]">{years}-year windows</p>
+      <div className={uiVersion === "v2" ? "" : "mx-auto max-w-2xl px-4"}>
+        {/* V2's own in-game header (`PeakV2LiveHeader`, "Peak Duel ·
+            Endless") already carries the mode/title identity, so only the
+            legacy branch repeats it here. "Change duration" is real,
+            reachable functionality (not decoration) so V2 keeps it too —
+            as a single quiet control matching the rest of the V2 duel
+            grammar (muted UI-sans, no boxed button) instead of doubling
+            legacy's title block. */}
+        {uiVersion === "v2" ? (
+          <PeakV2Shell width="live">
+            <div className="flex justify-end pt-6">
+              <button
+                type="button"
+                onClick={() => {
+                  setSession(null);
+                  setError(null);
+                }}
+                className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                style={{
+                  fontFamily: "var(--v2-font-ui)",
+                  fontSize: "0.75rem",
+                  color: "var(--v2-text-secondary)",
+                  textDecoration: "underline",
+                  textUnderlineOffset: "2px",
+                }}
+              >
+                Change duration
+              </button>
+            </div>
+          </PeakV2Shell>
+        ) : (
+          <div className="pt-8 flex items-center justify-between">
+            <div>
+              <h1 className="font-display text-xl font-bold">Endless Mode</h1>
+              <p className="text-xs text-[var(--text-secondary)]">{years}-year windows</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSession(null);
+                setError(null);
+              }}
+              className="pk-press text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] underline"
+            >
+              Change duration
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setSession(null);
-              setError(null);
-            }}
-            className="pk-press text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] underline"
-          >
-            Change duration
-          </button>
-        </div>
+        )}
 
         <GameEngine
           key={key}

@@ -14,6 +14,27 @@
 import PeakV2CourtSlot from "../PeakV2CourtSlot";
 import { fitLabel, type CourtSlotPublic, type RoleFit, type FitSeverity } from "@/types/perfect-season";
 
+/**
+ * Mirrors `PeakCardCourt.tsx`'s own `fitColor` exactly (same trust-bug fix:
+ * "mild" off-position costs 0.0 fit points -- painting it the same warning
+ * color as a real -14.0 structural mismatch told users the model had
+ * penalized something it scored as free). V2's court slots were rendering
+ * every fit caption in flat muted gray regardless of severity, silently
+ * dropping this real, meaningful state -- CLAUDE.md's "positive/negative =
+ * true state only" cuts both ways: omitting real state is as much a
+ * violation as inventing decorative color.
+ */
+function fitColor(roleFit: RoleFit | null | undefined, severity?: FitSeverity | null): string {
+  if (roleFit === "off_position") {
+    if (severity === "mild") return "var(--v2-text-secondary)"; // neutral: costs nothing
+    if (severity === "moderate") return "var(--accent-orange)";
+    return "var(--v2-color-negative)";
+  }
+  if (roleFit === "primary") return "var(--v2-color-accent)";
+  if (roleFit === "natural" || roleFit === "secondary") return "var(--v2-color-positive)";
+  return "var(--v2-text-muted)";
+}
+
 export interface PeakV2CourtSlotCardProps {
   slot: CourtSlotPublic;
   isPendingTarget?: boolean;
@@ -66,7 +87,16 @@ export default function PeakV2CourtSlotCard({
           position={slot.slot_type}
           player={slot.filled ? { name: slot.player_name ?? "", meta } : undefined}
           value={value}
-          emptyHint={movingFromSlotLabel ? `Move ${movingFromSlotLabel} here` : "Open"}
+          // Plain "Move here", matching legacy `PeakCardCourt`'s own
+          // convention exactly (its visible text is the same generic
+          // "Move here"/"Swap here" for every target; the specific
+          // "from POSITION" detail lives only in its aria-label). Naming
+          // the SOURCE slot's POSITION here instead ("Move Point Guard
+          // here") read as an instruction about an abstract position, not
+          // about the actual player being moved, and repeated identically
+          // across every open destination slot regardless of that slot's
+          // own position -- confusing rather than helpful.
+          emptyHint={movingFromSlotLabel ? "Move here" : "Open"}
           state="staged"
         />
       </button>
@@ -111,10 +141,12 @@ export default function PeakV2CourtSlotCard({
         body
       )}
       {fit ? (
-        <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.625rem", color: "var(--v2-text-muted)" }}>{fit}</span>
+        <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.625rem", color: fitColor(slot.role_fit, slot.role_fit_severity) }}>
+          {fit}
+        </span>
       ) : null}
       {isPendingTarget && pendingFit === "off_position" && pendingPrimaryPosition ? (
-        <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.625rem", color: "var(--v2-color-accent)" }}>
+        <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.625rem", color: fitColor(pendingFit, pendingFitSeverity) }}>
           {fitLabel(pendingFit, pendingFitSeverity)} · plays {pendingPrimaryPosition}
         </span>
       ) : null}

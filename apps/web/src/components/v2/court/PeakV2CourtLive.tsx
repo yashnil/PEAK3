@@ -73,6 +73,14 @@ export default function PeakV2CourtLive({
   }
 
   const record = state.live_build?.provisional_record_range;
+  // The caller keeps this component mounted even after the run is complete
+  // (the full result reveal renders ADDITIONALLY below it, not instead of
+  // it -- same as legacy's own CourtBuilder). A hardcoded "Live"/"active"
+  // status left the pulsing dot animating forever on a finished run --
+  // a stale "still live" signal on a screen that no longer is. `state`
+  // already carries the completion signal there is no reason to
+  // re-derive: `simulation_result` is set the moment this run resolves.
+  const isComplete = state.status === "rounds_complete" || state.simulation_result != null;
 
   return (
     <PeakV2Shell width="live">
@@ -81,7 +89,7 @@ export default function PeakV2CourtLive({
           as="h1"
           title="82-0 Peak Season"
           subtitle={`Round ${state.current_round} of ${state.total_rounds} · ${state.difficulty === "hard" ? "Hard" : "Easy"} difficulty`}
-          status={<PeakV2GameStatus label="Live" state="active" />}
+          status={<PeakV2GameStatus label={isComplete ? "Complete" : "Live"} state={isComplete ? "idle" : "active"} />}
           instrument={
             record ? (
               <PeakV2Score

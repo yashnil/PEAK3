@@ -56,7 +56,16 @@ export default function PeakV2RTTBossIntro({ boss, lanesToWin, reducedMotion, on
   const numeral = NUMERALS[NUMERALS.length - count] ?? null;
 
   return (
-    <PeakV2CinematicStage light={{ y: "-4%" }}>
+    // Plain, unstyled wrapper — carries the surface testid only.
+    // `PeakV2CinematicStage` renders a `<section>` with no prop for
+    // arbitrary `data-*` attributes, and every other V2 RTT surface
+    // (system-select, node-choice, choice-node, boss-preview, draft-room,
+    // trade-desk, battle-reveal, the reveal sequence) exposes its own root
+    // testid, so this one should too, for QA/e2e-ability. Adds no visual
+    // nesting: a block-level div with no styling around a full-width
+    // section renders identically to the section alone.
+    <div data-testid="rtt-boss-intro">
+      <PeakV2CinematicStage light={{ y: "-4%" }}>
       <span
         style={{
           fontFamily: "var(--v2-font-mono)",
@@ -105,9 +114,10 @@ export default function PeakV2RTTBossIntro({ boss, lanesToWin, reducedMotion, on
         </span>
       </div>
 
-      <PeakV2SecondaryAction size="sm" className="mt-6" onClick={finish}>
+      <PeakV2SecondaryAction data-testid="rtt-boss-intro-skip" size="sm" className="mt-6" onClick={finish}>
         Skip
       </PeakV2SecondaryAction>
-    </PeakV2CinematicStage>
+      </PeakV2CinematicStage>
+    </div>
   );
 }

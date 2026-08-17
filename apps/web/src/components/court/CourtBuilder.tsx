@@ -36,6 +36,7 @@ import { getTeamColors } from "@/lib/team-colors";
 import UiVersionSwitch from "@/components/v2/UiVersionSwitch";
 import PeakV2CourtLive from "@/components/v2/court/PeakV2CourtLive";
 import PeakV2CourtChooser from "@/components/v2/court/PeakV2CourtChooser";
+import PeakV2CourtResult from "@/components/v2/court/PeakV2CourtResult";
 
 interface Props {
   initialGameState: CourtLineupPublicState;
@@ -930,14 +931,26 @@ export default function CourtBuilder({
       v2={v2View}
     />
       {state.simulation_result && (
-        <div className="mx-auto max-w-2xl w-full">
-          <SeasonResultStub
-            state={state}
-            result={state.simulation_result}
-            onPlayAgain={handlePlayAgain}
-            playAgainBusy={busy}
-          />
-        </div>
+        <UiVersionSwitch
+          legacy={
+            <div className="mx-auto max-w-2xl w-full">
+              <SeasonResultStub
+                state={state}
+                result={state.simulation_result}
+                onPlayAgain={handlePlayAgain}
+                playAgainBusy={busy}
+              />
+            </div>
+          }
+          v2={
+            <PeakV2CourtResult
+              state={state}
+              result={state.simulation_result}
+              onPlayAgain={handlePlayAgain}
+              playAgainBusy={busy}
+            />
+          }
+        />
       )}
 
       {actionToast && (

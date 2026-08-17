@@ -6,15 +6,21 @@
  * siblings dimmed but legible, real round/pick/pool/clock instrumentation.
  */
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import PeakV2Shell from "../PeakV2Shell";
 import PeakV2LiveHeader from "../PeakV2LiveHeader";
 import PeakV2GameStatus from "../PeakV2GameStatus";
 import PeakV2Timer from "../PeakV2Timer";
 import PeakV2TMWCourt from "./PeakV2TMWCourt";
 import { useRemainingSeconds } from "@/components/shared/ArenaTimer";
-import { edgeBandFor, edgeQualifier } from "@/lib/three-man-weave-state";
-import type { ArenaSeatPublic, TmwPublicState } from "@/types/three-man-weave";
+import {
+  edgeBandFor,
+  edgeQualifier,
+  legalMoveTargets,
+  moveRejection,
+  placementsAfterMove,
+} from "@/lib/three-man-weave-state";
+import type { ArenaSeatPublic, TmwPublicState, TmwSlotType } from "@/types/three-man-weave";
 
 export interface PeakV2TMWCourtsProps {
   state: TmwPublicState;
@@ -26,6 +32,16 @@ export interface PeakV2TMWCourtsProps {
   picksMade: number;
   totalPicks: number;
   children?: React.ReactNode;
+  /**
+   * Between-turn rearrangement (Pass 4, TMW-10 ported to V2 — see
+   * `RosterBoard.tsx`'s docstring for the full rule set this ports:
+   * drag/click-to-select a card, click a highlighted destination, Escape
+   * cancels, an occupied destination swaps, and only when the whole
+   * resulting assignment is legal for both slots). Commits a COMPLETE
+   * final assignment; absent in a finished match. Never consumes a turn.
+   */
+  onMove?: (placements: Record<string, string>) => void;
+  busy?: boolean;
 }
 
 export default function PeakV2TMWCourts({
@@ -38,6 +54,8 @@ export default function PeakV2TMWCourts({
   picksMade,
   totalPicks,
   children,
+  onMove,
+  busy = false,
 }: PeakV2TMWCourtsProps) {
   const remaining = useRemainingSeconds(deadlineAt);
   const qualifier = edgeQualifier(state);
@@ -45,6 +63,58 @@ export default function PeakV2TMWCourts({
   // (brief) rather than three courts crushed into one column. Desktop
   // ignores this entirely and shows the real three-column grid.
   const [mobileSeat, setMobileSeat] = useState<number>(yourSeatIndex ?? state.rosters[0]?.seat_index ?? 0);
+
+  const yourRoster = yourSeatIndex === null ? null : (state.rosters.find((r) => r.seat_index === yourSeatIndex) ?? null);
+  const canRearrange = !!onMove && !!yourRoster && !state.is_complete;
+  const [pickedUp, setPickedUp] = useState<TmwSlotType | null>(null);
+  const [notice, setNotice] = useState<{ tone: "error" | "done"; text: string } | null>(null);
+
+  // ESCAPE CANCELS — the accessible half of "drop it" — same as legacy.
+  useEffect(() => {
+    if (pickedUp === null) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setPickedUp(null);
+      setNotice(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pickedUp]);
+
+  const pickUp = useCallback((slot: TmwSlotType) => {
+    setNotice(null);
+    setPickedUp((current) => (current === slot ? null : slot));
+  }, []);
+
+  const dropOn = useCallback(
+    (slot: TmwSlotType) => {
+      if (!yourRoster || pickedUp === null) return;
+      if (slot === pickedUp) {
+        setPickedUp(null);
+        return;
+      }
+      const rejection = moveRejection(yourRoster, pickedUp, slot);
+      if (rejection) {
+        // IMMEDIATE AND SPECIFIC — a drag that simply snaps back teaches
+        // nothing; this names the player and the rule that stopped it.
+        setNotice({ tone: "error", text: rejection });
+        return;
+      }
+      const moving = yourRoster.slots[pickedUp];
+      const displaced = yourRoster.slots[slot];
+      onMove?.(placementsAfterMove(yourRoster, pickedUp, slot));
+      setNotice({
+        tone: "done",
+        text: displaced
+          ? `${moving?.player_name} and ${displaced.player_name} swapped.`
+          : `${moving?.player_name} moved.`,
+      });
+      setPickedUp(null);
+    },
+    [yourRoster, pickedUp, onMove],
+  );
+
+  const legalTargets = canRearrange && pickedUp ? legalMoveTargets(yourRoster, pickedUp) : [];
 
   return (
     <PeakV2Shell width="live-wide">
@@ -64,6 +134,24 @@ export default function PeakV2TMWCourts({
           }
         />
 
+        {/* THE RESULT OF A MOVE, SAID ONCE — `role="status"` rather than an
+            alert, since a refused drag is a correction, not an emergency. */}
+        {notice ? (
+          <p
+            role="status"
+            aria-live="polite"
+            className="mt-2"
+            style={{
+              fontFamily: "var(--v2-font-ui)",
+              fontSize: "0.75rem",
+              fontWeight: 600,
+              color: notice.tone === "error" ? "var(--v2-color-negative)" : "var(--v2-color-positive)",
+            }}
+          >
+            {notice.text}
+          </p>
+        ) : null}
+
         {/* Mobile tab bar — one court at a time, every one a tap away. */}
         <div className="mt-4 flex gap-1 lg:hidden" role="tablist" aria-label="Rosters">
           {state.rosters.map((roster) => {
@@ -75,6 +163,7 @@ export default function PeakV2TMWCourts({
                 key={roster.seat_index}
                 type="button"
                 role="tab"
+                data-testid={`tmw-roster-tab-${roster.seat_index}`}
                 aria-selected={mobileSeat === roster.seat_index}
                 onClick={() => setMobileSeat(roster.seat_index)}
                 className="flex-1 rounded-t px-2 py-2 text-left"
@@ -105,6 +194,11 @@ export default function PeakV2TMWCourts({
                 isOnTurn={!state.is_complete && currentTurnSeatIndex === roster.seat_index}
                 edge={edgeBandFor(state, roster.seat_index)}
                 lit
+                interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
+                pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
+                legalTargets={roster.seat_index === yourSeatIndex ? legalTargets : []}
+                onPickUp={roster.seat_index === yourSeatIndex ? pickUp : undefined}
+                onDropOn={roster.seat_index === yourSeatIndex ? dropOn : undefined}
               />
             ))}
         </div>
@@ -120,6 +214,11 @@ export default function PeakV2TMWCourts({
               isOnTurn={!state.is_complete && currentTurnSeatIndex === roster.seat_index}
               edge={edgeBandFor(state, roster.seat_index)}
               lit={roster.seat_index === yourSeatIndex || (yourSeatIndex === null && roster.seat_index === currentTurnSeatIndex)}
+              interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
+              pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
+              legalTargets={roster.seat_index === yourSeatIndex ? legalTargets : []}
+              onPickUp={roster.seat_index === yourSeatIndex ? pickUp : undefined}
+              onDropOn={roster.seat_index === yourSeatIndex ? dropOn : undefined}
             />
           ))}
         </div>

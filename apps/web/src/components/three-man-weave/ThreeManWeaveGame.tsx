@@ -49,6 +49,7 @@ import WeaveSpinner from "./WeaveSpinner";
 import UiVersionSwitch from "@/components/v2/UiVersionSwitch";
 import PeakV2TMWCourts from "@/components/v2/tmw/PeakV2TMWCourts";
 import PeakV2TMWReveal from "@/components/v2/tmw/PeakV2TMWReveal";
+import PeakV2TMWResult from "@/components/v2/tmw/PeakV2TMWResult";
 
 const TMW_INTRO_RULES = [
   { label: "Shared roll", detail: "one real franchise and decade, rolled once for all three drafters" },
@@ -706,12 +707,25 @@ export default function ThreeManWeaveGame({
       )}
 
       {complete && results ? (
-        <PodiumReceipt
-          results={results}
-          rosters={state.rosters}
-          yourSeatIndex={match.your_seat_index}
-          seed={match.match_id}
-          onPlayAgain={() => router.push("/arena/three-man-weave")}
+        <UiVersionSwitch
+          legacy={
+            <PodiumReceipt
+              results={results}
+              rosters={state.rosters}
+              yourSeatIndex={match.your_seat_index}
+              seed={match.match_id}
+              onPlayAgain={() => router.push("/arena/three-man-weave")}
+            />
+          }
+          v2={
+            <PeakV2TMWResult
+              results={results}
+              rosters={state.rosters}
+              yourSeatIndex={match.your_seat_index}
+              seed={match.match_id}
+              onPlayAgain={() => router.push("/arena/three-man-weave")}
+            />
+          }
         />
       ) : (
         <UiVersionSwitch
@@ -810,6 +824,8 @@ export default function ThreeManWeaveGame({
                 deadlineAt={deadlineAt}
                 picksMade={picksMade}
                 totalPicks={state.total_rounds * match.seat_count}
+                onMove={rearrange}
+                busy={busy}
               >
                 <PickOverlay
                   open={overlayOpen}

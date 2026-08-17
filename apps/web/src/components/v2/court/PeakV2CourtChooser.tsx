@@ -18,7 +18,6 @@ import PeakV2DockedPanel from "../PeakV2DockedPanel";
 import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
 import PeakV2DisplayEmphasis from "../PeakV2DisplayEmphasis";
 import PeakV2SecondaryAction from "../PeakV2SecondaryAction";
-import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
 import SpinStage from "@/components/court/SpinStage";
 import EligiblePlayerSearch from "@/components/court/EligiblePlayerSearch";
 import type { CurrentSpin, SpinCandidate } from "@/types/perfect-season";
@@ -93,22 +92,26 @@ export default function PeakV2CourtChooser({
 }: PeakV2CourtChooserProps) {
   return (
     <PeakV2DockedPanel open={open} onClose={onClose} label={`Round ${roundNumber} of ${totalRounds}`} maxHeightVh={82}>
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <PeakV2ResultHeadline as="h2" scale="line">
           Round {roundNumber} <PeakV2DisplayEmphasis tone="inherit">of {totalRounds}</PeakV2DisplayEmphasis>
         </PeakV2ResultHeadline>
-        <div className="flex items-center gap-2">
+        {/* `whitespace-nowrap` on each pill, `flex-wrap` on the row: at
+            390px three pills plus the headline cannot share one line, so
+            the GROUP wraps to its own row — a label like "Respin team (3)"
+            must never wrap inside its own pill. */}
+        <div className="flex flex-wrap items-center gap-2">
           {ceremonyRevealed && spin.spin_type === "team_year" ? (
             <>
-              <PeakV2SecondaryAction size="sm" disabled={busy || !canRespinTeam} onClick={onRespinTeam}>
+              <PeakV2SecondaryAction size="sm" className="whitespace-nowrap" disabled={busy || !canRespinTeam} onClick={onRespinTeam}>
                 Respin team ({teamRespinsLeft})
               </PeakV2SecondaryAction>
-              <PeakV2SecondaryAction size="sm" disabled={busy || !canRespinSeason} onClick={onRespinSeason}>
+              <PeakV2SecondaryAction size="sm" className="whitespace-nowrap" disabled={busy || !canRespinSeason} onClick={onRespinSeason}>
                 Respin season ({seasonRespinsLeft})
               </PeakV2SecondaryAction>
             </>
           ) : null}
-          <PeakV2SecondaryAction size="sm" onClick={onClose}>
+          <PeakV2SecondaryAction size="sm" className="whitespace-nowrap" onClick={onClose}>
             View court
           </PeakV2SecondaryAction>
         </div>
@@ -134,7 +137,13 @@ export default function PeakV2CourtChooser({
 
       {displaySpin && ceremonyRevealed && candidates ? (
         <div className="mt-4">
-          <div className="flex items-center justify-between gap-2">
+          {/* `flex-wrap`, matching the header row's own pattern above: at
+              narrow widths the label plus the hint button cannot always
+              share one line, so the label wrapping internally (splitting
+              "N ELIGIBLE" across two lines mid-row against a vertically
+              centered button) is worse than letting the button drop to its
+              own row. */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <span
               style={{
                 fontFamily: "var(--v2-font-mono)",
@@ -147,10 +156,17 @@ export default function PeakV2CourtChooser({
             >
               Choose a player · {candidates.length} eligible
             </span>
+            {/* Secondary, not primary: the candidate list below already
+                carries its own gold "Choose" affordance on every single
+                row (`EligiblePlayerSearch`'s "CHOOSE" pill) -- a second,
+                filled-gold CTA sitting directly above a dozen more gold
+                pills competed with them and diluted gold's "one primary
+                action" scarcity (brief §Color/§Button). The hint is a
+                helper for the actual decision, not the decision itself. */}
             {difficulty === "easy" ? (
-              <PeakV2PrimaryAction onClick={onHint} disabled={busy || respinPending || hintUsed}>
+              <PeakV2SecondaryAction size="sm" onClick={onHint} disabled={busy || respinPending || hintUsed}>
                 {hintUsed ? "Hint used" : "Suggest one"}
-              </PeakV2PrimaryAction>
+              </PeakV2SecondaryAction>
             ) : null}
           </div>
           {hintMessage ? (

@@ -41,6 +41,7 @@ import { useShowdownPhase } from "./useShowdownPhase";
 import UiVersionSwitch from "@/components/v2/UiVersionSwitch";
 import PeakV2ShowdownIntro from "@/components/v2/showdown/PeakV2ShowdownIntro";
 import PeakV2ShowdownLive from "@/components/v2/showdown/PeakV2ShowdownLive";
+import PeakV2ShowdownResult from "@/components/v2/showdown/PeakV2ShowdownResult";
 
 /**
  * One $20 Showdown match — the auction room.
@@ -524,26 +525,42 @@ function AuctionRoom({
     seatNames[opponentSeats[0]?.seat_index ?? 1] ?? BOT_DISPLAY_NAME;
 
   if (complete && receipt) {
+    const onCopyResult = () => {
+      void navigator.clipboard
+        ?.writeText(buildShowdownShareText(receipt, yourSeat))
+        .then(() => onCopy(true));
+    };
     return (
-      // The result state keeps the room's lighting: a match ends IN the
-      // building it was played in, not on a blank page.
-      <div className="td-game ar-room pk-atmosphere" data-testid="td-game">
-        <ShowdownResult
-          receipt={receipt}
-          publicState={publicState}
-          seatNames={seatNames}
-          yourSeat={yourSeat}
-          onPlayAgain={onPlayAgain}
-          onCopy={() => {
-            void navigator.clipboard
-              ?.writeText(buildShowdownShareText(receipt, yourSeat))
-              .then(() => onCopy(true));
-          }}
-          copied={copied}
-        >
-          <TwentyDollarReceipt receipt={receipt} seatNames={seatNames} yourSeat={yourSeat} />
-        </ShowdownResult>
-      </div>
+      <UiVersionSwitch
+        legacy={
+          // The result state keeps the room's lighting: a match ends IN the
+          // building it was played in, not on a blank page.
+          <div className="td-game ar-room pk-atmosphere" data-testid="td-game">
+            <ShowdownResult
+              receipt={receipt}
+              publicState={publicState}
+              seatNames={seatNames}
+              yourSeat={yourSeat}
+              onPlayAgain={onPlayAgain}
+              onCopy={onCopyResult}
+              copied={copied}
+            >
+              <TwentyDollarReceipt receipt={receipt} seatNames={seatNames} yourSeat={yourSeat} />
+            </ShowdownResult>
+          </div>
+        }
+        v2={
+          <PeakV2ShowdownResult
+            receipt={receipt}
+            publicState={publicState}
+            seatNames={seatNames}
+            yourSeat={yourSeat}
+            onPlayAgain={onPlayAgain}
+            onCopy={onCopyResult}
+            copied={copied}
+          />
+        }
+      />
     );
   }
 
@@ -566,7 +583,9 @@ function AuctionRoom({
       locallyExpired={locallyExpired}
       consequence={yourTurn ? timeoutConsequence(privateState, seatNames, publicState) : null}
       revealedHistory={revealedHistory}
+      error={error}
       onExpire={onExpire}
+      onDismissError={onDismissError}
       onSubmit={onSubmit}
     />
   );

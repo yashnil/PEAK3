@@ -193,7 +193,7 @@ export default function PeakDuelV2Question({
       <div className="relative">
         <PeakV2LiveHeader
           as="h1"
-          title="Peak Duel · Daily"
+          title={mode === "daily" ? "Peak Duel · Daily" : "Peak Duel · Endless"}
           status={<PeakV2GameStatus label={mode === "daily" ? `${currentIndex + 1} of ${totalDuels}` : "Endless"} state="active" />}
           instrument={
             <div className="flex items-center gap-4">

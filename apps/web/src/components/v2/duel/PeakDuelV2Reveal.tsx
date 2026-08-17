@@ -23,6 +23,7 @@ import { RANKING_COMPONENT_ORDER, RANKING_COMPONENT_TONE, RANKING_COMPONENT_LABE
 import type { AnswerResponse, Duel } from "@/types";
 
 export interface PeakDuelV2RevealProps {
+  mode: "daily" | "endless";
   duel: Duel;
   answer: AnswerResponse;
   currentIndex: number;
@@ -34,6 +35,7 @@ export interface PeakDuelV2RevealProps {
 }
 
 export default function PeakDuelV2Reveal({
+  mode,
   duel,
   answer,
   currentIndex,
@@ -56,8 +58,8 @@ export default function PeakDuelV2Reveal({
     <div>
       <PeakV2LiveHeader
         as="h1"
-        title="Peak Duel · Daily"
-        status={<PeakV2GameStatus label={`${currentIndex + 1} of ${totalDuels}`} state="idle" />}
+        title={mode === "daily" ? "Peak Duel · Daily" : "Peak Duel · Endless"}
+        status={<PeakV2GameStatus label={mode === "daily" ? `${currentIndex + 1} of ${totalDuels}` : "Endless"} state="idle" />}
         instrument={
           <div className="flex items-center gap-4">
             {currentStreak > 0 ? (

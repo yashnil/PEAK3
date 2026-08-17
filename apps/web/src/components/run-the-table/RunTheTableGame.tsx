@@ -76,6 +76,13 @@ import PeakV2RTTBossIntro from "@/components/v2/rtt/PeakV2RTTBossIntro";
 import PeakV2RTTBossLineup from "@/components/v2/rtt/PeakV2RTTBossLineup";
 import PeakV2RTTBattleResult from "@/components/v2/rtt/PeakV2RTTBattleResult";
 import PeakV2RTTDraftRoom from "@/components/v2/rtt/PeakV2RTTDraftRoom";
+import PeakV2RTTTradeDesk from "@/components/v2/rtt/PeakV2RTTTradeDesk";
+import PeakV2RTTScoutPrepare from "@/components/v2/rtt/PeakV2RTTScoutPrepare";
+import PeakV2RTTChoiceNode from "@/components/v2/rtt/PeakV2RTTChoiceNode";
+import PeakV2RTTSystemSelect from "@/components/v2/rtt/PeakV2RTTSystemSelect";
+import PeakV2RTTNodeChoice from "@/components/v2/rtt/PeakV2RTTNodeChoice";
+import PeakV2RTTBossPreview from "@/components/v2/rtt/PeakV2RTTBossPreview";
+import PeakV2RTTCreditSinks from "@/components/v2/rtt/PeakV2RTTCreditSinks";
 
 /**
  * RUN THE TABLE, top to bottom.
@@ -1265,7 +1272,31 @@ export default function RunTheTableGame({
   let v2Content: React.ReactNode = surface;
   let v2Layout: "live" | "cinematic" | "bare" = "live";
 
-  if (showBossIntro && bossTrack && state.next_boss) {
+  if (showRosterReveal && rosterTrack) {
+    // P3 polish gap fix: this branch was previously MISSING, so `v2Content`
+    // fell through to `surface` above — legacy's own `RevealSequenceSurface`
+    // (hardcoded `--peak-accent`/`--text-primary` tokens, no V2 grammar at
+    // all) — meaning every run under `?ui=v2` opened on a fully legacy-styled
+    // screen before a single V2 pixel had rendered. `PeakV2RTTBossLineup`'s
+    // `kind="roster"` (this pass) is the same cinematic card-grid reveal
+    // built for the boss, gated on the same explicit "Reveal your roster"
+    // press legacy also requires.
+    v2Layout = "cinematic";
+    v2Content = (
+      <PeakV2RTTBossLineup
+        kind="roster"
+        title="Meet your roster"
+        subtitle="Five starters and two bench players, revealed together."
+        sourceNote={revealSourceFor("roster")}
+        track={rosterTrack}
+        sequence={rosterSequence}
+        reducedMotion={reducedMotion}
+        busy={busy}
+        onStartReveal={(count) => reveal("roster", count)}
+        onContinue={() => setRosterRevealDismissed(true)}
+      />
+    );
+  } else if (showBossIntro && bossTrack && state.next_boss) {
     v2Layout = "cinematic";
     v2Content = (
       <PeakV2RTTBossIntro
@@ -1279,8 +1310,10 @@ export default function RunTheTableGame({
     v2Layout = "cinematic";
     v2Content = (
       <PeakV2RTTBossLineup
+        kind="boss"
         title={bossTrack.name}
         subtitle={bossTrack.tagline}
+        sourceNote={revealSourceFor("boss")}
         track={bossTrack}
         sequence={bossSequence}
         reducedMotion={reducedMotion}
@@ -1313,6 +1346,131 @@ export default function RunTheTableGame({
           trackRunTheTable({ type: "rtt_offer_passed", node_type: "draft_room", act: state.act });
           act(runActions.draftPass(), "draft_pass", "Passed on the draft room.");
         }}
+      />
+    );
+  } else if (screen === "node_active" && node && node.node_type === "trade_desk") {
+    v2Content = (
+      <>
+        <PeakV2RTTTradeDesk
+          node={node}
+          credits={state.credits}
+          busy={busy}
+          scoutIntel={activeScoutIntel}
+          onTrade={(outgoingSlotId, incomingCardId, netCost) => {
+            trackRunTheTable({ type: "rtt_trade", net_cost: netCost, act: state.act });
+            act(
+              runActions.trade(outgoingSlotId, incomingCardId),
+              `trade:${outgoingSlotId}:${incomingCardId}`,
+              "Trade completed.",
+            );
+          }}
+          onDecline={() => {
+            trackRunTheTable({ type: "rtt_offer_passed", node_type: "trade_desk", act: state.act });
+            act(runActions.declineTrade(), "decline_trade", "Trade declined.");
+          }}
+        />
+        <PeakV2RTTCreditSinks sinks={node.credit_sinks ?? []} busy={busy} onSpend={spendSink} />
+      </>
+    );
+  } else if (screen === "node_active" && node && node.node_type === "film_room") {
+    v2Content = (
+      <PeakV2RTTScoutPrepare
+        node={node}
+        credits={state.credits}
+        busy={busy}
+        onScoutBoss={(lane: LaneField) =>
+          act(
+            runActions.filmRoom("scout_boss", { lane }),
+            `scout:${node.node_id}:${lane}`,
+            "Boss scouted. One lane prepared.",
+          )
+        }
+        onShapeMarket={(role: Role) =>
+          act(
+            runActions.filmRoom("shape_market", { role }),
+            `focus:${node.node_id}:${role}`,
+            "Role Focus armed for the next market.",
+          )
+        }
+        onReserveCard={(cardId: string) =>
+          act(
+            runActions.filmRoom("reserve_card", { card_id: cardId }),
+            `reserve:${node.node_id}:${cardId}`,
+            "Card reserved at today's price.",
+          )
+        }
+      />
+    );
+  } else if (screen === "node_active" && node) {
+    // Every other written-choice node type (rest_bank under v3) shares the
+    // exact `choices` payload shape ChoiceNode already renders for.
+    v2Content = (
+      <>
+        <PeakV2RTTChoiceNode
+          node={node}
+          busy={busy}
+          onChoose={(choiceId) =>
+            act(
+              runActions.restBank(choiceId),
+              `${node.node_type}:${choiceId}`,
+              "Choice taken.",
+            )
+          }
+        />
+        <PeakV2RTTCreditSinks sinks={node.credit_sinks ?? []} busy={busy} onSpend={spendSink} />
+      </>
+    );
+  } else if (screen === "system_select") {
+    v2Content = (
+      <PeakV2RTTSystemSelect
+        offer={state.pending_system_offer ?? []}
+        active={state.systems}
+        act={state.act}
+        busy={busy}
+        onSelect={(systemId) => {
+          trackRunTheTable({ type: "rtt_system_selected", system_id: systemId });
+          act(
+            runActions.selectSystem(systemId),
+            `system:${systemId}`,
+            "Front Office Perk selected.",
+          );
+        }}
+      />
+    );
+  } else if (screen === "node_select") {
+    v2Content = (
+      <PeakV2RTTNodeChoice
+        options={state.stage_options ?? []}
+        act={state.act}
+        stage={state.stage}
+        stagesPerAct={state.stages_per_act}
+        busy={busy}
+        onChoose={(option) => {
+          trackRunTheTable({
+            type: "rtt_node_chosen",
+            node_type: option.node_type,
+            act: state.act,
+            stage: state.stage,
+          });
+          act(runActions.chooseNode(option.node_id), `node:${option.node_id}`, `${option.title} opened.`);
+        }}
+      />
+    );
+  } else if (screen === "boss_preview" && state.next_boss) {
+    const boss = state.next_boss;
+    v2Content = (
+      <PeakV2RTTBossPreview
+        boss={boss}
+        playerLanes={state.lane_profile}
+        playerTotal={state.roster_total}
+        benchWeight={state.bench_weight}
+        lives={state.lives}
+        busy={busy}
+        onResolve={() => {
+          trackRunTheTable({ type: "rtt_boss_started", act: state.act, boss_id: boss.boss_id });
+          act(runActions.resolveBoss(), `resolve:${boss.boss_id}`, "Battle resolved.");
+        }}
+        lanesToWin={boss.lanes_to_win ?? state.lanes_to_win}
       />
     );
   } else if (screen === "battle" && battle) {
