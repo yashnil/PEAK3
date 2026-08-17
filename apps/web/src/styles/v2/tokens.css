@@ -120,6 +120,16 @@
 
   --v2-width-shell: 1440px;      /* outer page ceiling, matches the 1440×900 verification viewport */
   --v2-width-live: 1180px;       /* LIVE working width — compact but breathable */
+  /* Pass 2.5: a DELIBERATE wide-LIVE variant, not a global width increase —
+     for the rare surface that genuinely needs three simultaneous regions
+     (RTT: run-map rail + decision area + roster/lane rail). 1280px, not
+     1440px: audited against real laptop viewports, not just the 1440×900
+     verification fixture — a 1280px-wide physical display has roughly
+     1265px of usable content width after the browser's own scrollbar, and
+     `max-width` is a ceiling, not a forced width, so this still shrinks
+     cleanly on anything narrower. Established here as a container
+     capability only — no screen adopts it in this pass. */
+  --v2-width-live-wide: 1280px;
   --v2-width-cinematic: 760px;   /* CINEMATIC editorial measure — a serif headline this narrow reads, not sprawls */
   --v2-gutter: clamp(16px, 4vw, 48px);
 
@@ -152,11 +162,27 @@
   --v2-light-x: 50%;
   --v2-light-y: 0%;
 
+  /* Pass 2.5: the paired-ambient-wash exception (Peak Duel only — "the one
+     legitimate exception to the usual one-light rule"). Lower opacity than
+     a normal single light (two simultaneous sources read as MORE light
+     overall, so each must be quieter to stay "very subtle… without turning
+     the page into neon/esports UI"), and `--v2-light-neutral` is a real
+     neutral slate — NOT a component tone, so it can never be mistaken for
+     real PEAK3 component data the way reusing `--comp-si`'s blue would. */
+  --v2-light-opacity-paired: 0.10;
+  --v2-light-neutral: #94a3b8;
+
   /* ---- Court-card grammar (Pass 3 preparation — brief §Court Design
      Grammar): ONE fixed footprint for every slot regardless of position,
      so a grid of slots never produces uneven row heights by position. ---- */
   --v2-court-slot-min-height: 104px;
   --v2-court-bench-min-height: 76px;
+  /* Pass 2.5: the dimmed-sibling-court treatment (verified against the
+     reference: "the two dim courts are still fully legible, just not
+     lit"). `--v2-text-primary` on `--v2-bg-page` measures ~18:1 — at this
+     opacity it still lands comfortably inside AA for normal text, so
+     "dimmed" never crosses into "degraded." */
+  --v2-court-dim-opacity: 0.62;
 
   /* ---- Elevation: two steps only ----
      LIVE instrumentation and player-identity rows stay flat (typography +

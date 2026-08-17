@@ -73,6 +73,37 @@ interface DialogBaseProps {
    */
   panelStyle?: CSSProperties;
   backdropStyle?: CSSProperties;
+  /**
+   * `"center"` (default, every existing caller) or `"bottom"` — docks the
+   * panel to the bottom edge instead of centering it. Added for
+   * `PeakV2DockedPanel` (Pass 2.5, product-direction): a temporary
+   * interaction surface (e.g. 82-0's chooser) that must coexist with
+   * still-visible background context reuses this component's real focus
+   * trap / restore-focus / scroll lock / Escape / portal wiring rather
+   * than a second overlay implementation — only the alignment and (via
+   * `panelStyle`/`backdropStyle`) the visual treatment differ.
+   */
+  align?: "center" | "bottom";
+  /**
+   * Sets `data-ui-version="v2"` on the dialog's own PORTAL ROOT (rendered
+   * into `document.body`, a SIBLING of the page's own tree, not a
+   * descendant of it). Added after a real screenshot caught `PeakV2Modal`/
+   * `PeakV2DockedPanel` rendering with a fully transparent panel and no
+   * border on any screen where V2 is active only via `PeakV2Shell`'s own
+   * self-applied attribute (the `/v2-preview` gallery, any isolated
+   * render) rather than on `<html>` itself: `Portal` moves this dialog's
+   * DOM out from under `PeakV2Shell`'s subtree entirely, so its
+   * `panelStyle`/`backdropStyle` `var(--v2-*)` references had no scoped
+   * ancestor to resolve against and silently fell through to nothing —
+   * invisible, not merely unstyled. `PeakV2Modal`/`PeakV2DockedPanel` both
+   * pass `"v2"` here; every existing (legacy) caller passes neither and is
+   * unaffected. In real production use `<html data-ui-version="v2">` is
+   * already set by the blocking init script whenever V2 is genuinely
+   * active, so this is redundant-but-harmless there — it only matters for
+   * an isolated render, which is exactly the case a screenshot exposed and
+   * a DOM-only assertion could not.
+   */
+  rootDataUiVersion?: "v2";
   /** When false, neither Escape nor a backdrop click closes the dialog. */
   dismissible?: boolean;
   describedBy?: string;
@@ -97,6 +128,8 @@ export function Dialog({
   labelledBy,
   panelStyle,
   backdropStyle,
+  align = "center",
+  rootDataUiVersion,
   "data-testid": testId,
 }: DialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -200,9 +233,10 @@ export function Dialog({
   return (
     <Portal>
       <div
-        className="fixed inset-0 flex items-center justify-center"
+        className={cn("fixed inset-0 flex justify-center", align === "bottom" ? "items-end" : "items-center")}
         style={{ zIndex: "var(--pk-z-dialog, 110)", padding: "var(--pk-space-4, 16px)" }}
         data-pk-dialog-root=""
+        data-ui-version={rootDataUiVersion}
       >
         {/* Backdrop is its own element so a click on it is unambiguous — a
             click that started inside the panel and ended on the backdrop

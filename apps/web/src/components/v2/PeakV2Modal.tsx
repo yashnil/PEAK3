@@ -23,7 +23,7 @@ type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : n
 
 export type PeakV2ModalProps = DistributiveOmit<
   ComponentProps<typeof Dialog>,
-  "panelStyle" | "backdropStyle"
+  "panelStyle" | "backdropStyle" | "rootDataUiVersion"
 >;
 
 export default function PeakV2Modal({ className, size = "md", ...rest }: PeakV2ModalProps) {
@@ -32,6 +32,11 @@ export default function PeakV2Modal({ className, size = "md", ...rest }: PeakV2M
       {...rest}
       size={size}
       className={className}
+      // `Portal` renders this outside `PeakV2Shell`'s subtree entirely — see
+      // Dialog's own `rootDataUiVersion` docstring for why this is required,
+      // not redundant, whenever V2 is active only via a self-scoped Shell
+      // (the gallery route, any isolated render) rather than on `<html>`.
+      rootDataUiVersion="v2"
       panelStyle={{
         fontFamily: "var(--v2-font-ui)",
         background: "var(--v2-bg-plane)",

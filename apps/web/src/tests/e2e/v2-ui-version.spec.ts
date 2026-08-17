@@ -91,3 +91,59 @@ test.describe("PEAK3 V2 UI-version switch", () => {
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   });
 });
+
+/**
+ * PASS 2.5 REGRESSION: a real screenshot caught `PeakV2Modal`/
+ * `PeakV2DockedPanel` rendering with a computed background of
+ * `transparent` and no visible border on the `/v2-preview` gallery, where
+ * V2 is active only via `PeakV2Shell`'s own self-applied
+ * `data-ui-version="v2"` (not on `<html>`) — `Dialog`'s `Portal` renders
+ * these into `document.body`, a SIBLING of `PeakV2Shell`'s subtree, so
+ * every `var(--v2-*)` reference in their `panelStyle` had no scoped
+ * ancestor to resolve against. Fixed via `Dialog`'s new
+ * `rootDataUiVersion` prop. Every DOM-only unit test for these components
+ * passed throughout (`.style.background` reads back the literal
+ * `"var(--v2-bg-plane)"` string regardless of whether it resolves to
+ * anything) — jsdom does not load the real stylesheet or apply the real
+ * CSS cascade, so only a real browser's `getComputedStyle` can catch this
+ * class of bug. These tests exist specifically so it cannot silently
+ * return.
+ */
+test.describe("PEAK3 V2 — portal-scoped token resolution (Pass 2.5 regression)", () => {
+  test("PeakV2Modal's panel resolves a real, non-transparent background color", async ({ page }) => {
+    await page.goto("/v2-preview", { waitUntil: "load" });
+    await page.getByRole("button", { name: "Open modal" }).click();
+    const panel = page.getByRole("dialog");
+    await expect(panel).toBeVisible();
+    const bg = await panel.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(bg).not.toBe("rgba(0, 0, 0, 0)");
+    expect(bg).not.toBe("transparent");
+  });
+
+  test("PeakV2DockedPanel's panel resolves a real background AND a real gold top border", async ({ page }) => {
+    await page.goto("/v2-preview", { waitUntil: "load" });
+    await page.getByRole("button", { name: "Open docked panel" }).click();
+    const panel = page.getByRole("dialog");
+    await expect(panel).toBeVisible();
+    const bg = await panel.evaluate((el) => getComputedStyle(el).backgroundColor);
+    const borderTop = await panel.evaluate((el) => getComputedStyle(el).borderTopColor);
+    expect(bg).not.toBe("rgba(0, 0, 0, 0)");
+    // The gold accent, resolved — not "no color at all."
+    expect(borderTop).toBe("rgb(245, 200, 66)");
+  });
+
+  test("the docked panel's backdrop is a light scrim — the background stays clearly visible behind it", async ({
+    page,
+  }) => {
+    await page.goto("/v2-preview", { waitUntil: "load" });
+    await page.getByRole("button", { name: "Open docked panel" }).scrollIntoViewIfNeeded();
+    // The court panels sit directly above the trigger button — guaranteed
+    // in the same viewport, so this is the reliable "background stays
+    // legible" check rather than something further down the page that a
+    // docked-to-the-bottom sheet may itself now cover.
+    await expect(page.getByText("Rim Runner")).toBeVisible();
+    await page.getByRole("button", { name: "Open docked panel" }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(page.getByText("Rim Runner")).toBeVisible();
+  });
+});

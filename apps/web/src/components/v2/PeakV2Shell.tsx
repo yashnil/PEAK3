@@ -9,21 +9,26 @@
  * redundantly when `<html>` already carries it.
  *
  * `width` picks the page-width token: `"live"` (the default — compact but
- * breathable working width) or `"cinematic"` (the narrower editorial
- * measure a serif headline actually wants). Server-safe: no hooks, no
- * client-only state, so this can wrap a Server Component's fetched data.
+ * breathable working width), `"live-wide"` (Pass 2.5 — a deliberate wider
+ * ceiling for the rare LIVE screen that genuinely needs three simultaneous
+ * regions at once, e.g. RTT's run-map + decision area + roster/lane rail;
+ * NOT a default, and not every LIVE screen should reach for it), or
+ * `"cinematic"` (the narrower editorial measure a serif headline actually
+ * wants). Server-safe: no hooks, no client-only state, so this can wrap a
+ * Server Component's fetched data.
  */
 
 import type { ReactNode } from "react";
 
 export interface PeakV2ShellProps {
   children: ReactNode;
-  width?: "live" | "cinematic" | "shell";
+  width?: "live" | "live-wide" | "cinematic" | "shell";
   className?: string;
 }
 
 const WIDTH_VAR: Record<NonNullable<PeakV2ShellProps["width"]>, string> = {
   live: "var(--v2-width-live)",
+  "live-wide": "var(--v2-width-live-wide)",
   cinematic: "var(--v2-width-cinematic)",
   shell: "var(--v2-width-shell)",
 };
