@@ -218,6 +218,8 @@ describe("PeakV2PrimaryAction — polymorphic on href", () => {
 describe("HomePageV2 — real data only, no fabricated stats", () => {
   const baseProps = {
     componentWeights: [],
+    rankingsPreview: [],
+    methodology: null,
     proof: {
       modelLabel: null,
       modelVersion: null,
@@ -228,7 +230,6 @@ describe("HomePageV2 — real data only, no fabricated stats", () => {
       rankedWindows: null,
       generatedAt: null,
     },
-    flagship: { href: "/arena/run-the-table", title: "RUN THE TABLE", description: "Flagship mode" },
     runTheTable: { href: "/arena/run-the-table", title: "RUN THE TABLE", description: "Flagship mode" },
     dailyModes: [],
     multiplayerModes: [],
@@ -262,5 +263,88 @@ describe("HomePageV2 — real data only, no fabricated stats", () => {
   it("omits the proof line when playersEvaluated/rankedWindows are unavailable — a truthful empty state", () => {
     render(<HomePageV2 {...baseProps} topWindow={null} />);
     expect(screen.queryByText(/players evaluated/)).not.toBeInTheDocument();
+  });
+
+  it("the primary CTA reads GO TO ARENA and links to the Arena hub, regardless of the flagship mode", () => {
+    render(<HomePageV2 {...baseProps} topWindow={null} />);
+    const cta = screen.getByRole("link", { name: "GO TO ARENA" });
+    expect(cta).toHaveAttribute("href", "/arena");
+  });
+
+  it("omits the lane explainer when no component weights are given — never invents weights", () => {
+    render(<HomePageV2 {...baseProps} topWindow={null} />);
+    expect(screen.queryByRole("group", { name: /five rating components/i })).not.toBeInTheDocument();
+  });
+
+  it("renders the interactive lane explainer from real weights, with real methodology copy on interaction", async () => {
+    const user = userEvent.setup();
+    render(
+      <HomePageV2
+        {...baseProps}
+        topWindow={null}
+        componentWeights={[
+          { key: "statistical_impact", label: "Statistical Impact", pct: "38%", tone: "si" },
+          { key: "traditional_production", label: "Traditional Production", pct: "21%", tone: "tp" },
+          { key: "individual_recognition", label: "Individual Recognition", pct: "20%", tone: "rec" },
+          { key: "postseason_individual_value", label: "Playoff Rate Impact", pct: "18%", tone: "po" },
+          { key: "team_achievement", label: "Team Result", pct: "3%", tone: "team" },
+        ]}
+        methodology={{
+          weights: {},
+          components: [
+            {
+              id: "statistical_impact",
+              label: "Statistical Impact",
+              weight: 0.38,
+              weight_pct: 38,
+              short_description: "Real per-possession statistical value.",
+              long_description: "",
+              key_inputs: [],
+              common_misconceptions: [],
+            },
+          ],
+          teammate_adjustment: { id: "teammate_adjustment", label: "", description: "", range: [0, 0] },
+          calibration: { description: "", raw_label: "", display_label: "" },
+          window_aggregation: { description: "", weights: {} },
+        }}
+      />,
+    );
+    // Default state: all five lanes shown together, no description surfaced yet.
+    expect(screen.queryByText("Real per-possession statistical value.")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /38%/ }));
+    expect(screen.getByText("Real per-possession statistical value.")).toBeInTheDocument();
+  });
+
+  it("shows a truthful top-of-board rankings preview only when real rows are given", () => {
+    const { rerender } = render(<HomePageV2 {...baseProps} topWindow={null} />);
+    expect(screen.queryByRole("link", { name: /view rankings/i })).not.toBeInTheDocument();
+
+    rerender(
+      <HomePageV2
+        {...baseProps}
+        topWindow={null}
+        rankingsPreview={[
+          {
+            rank: 1,
+            rowId: "row-1",
+            playerName: "Board Player",
+            label: "1990-91 to 1992-93",
+            team: "Board Team",
+            primeScore: 99.1,
+            components: null,
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByText("Board Player")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /view rankings/i })).toHaveAttribute("href", "/rankings");
+  });
+
+  it("FAQ rows are collapsed by default — no answer text competes with play on first paint", () => {
+    render(<HomePageV2 {...baseProps} topWindow={null} />);
+    expect(screen.getByText("What is a PEAK3 peak?")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/A contiguous window of seasons/),
+    ).not.toBeInTheDocument();
   });
 });

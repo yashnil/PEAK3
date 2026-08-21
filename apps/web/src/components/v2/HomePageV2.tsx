@@ -1,30 +1,33 @@
 /**
- * HomePageV2 — PEAK3 V2's production-data-driven homepage (Pass 5 —
- * comprehensive recomposition, superseding Pass 3's foundation cut).
+ * HomePageV2 — PEAK3 V2's production-data-driven homepage.
  *
- * Structure, per the brief's <homepage> section — blending E1/3a's strong
- * COMPOSITION (commanding hero, substantial right-side data object, a
- * horizontal game slate spanning the content width directly below the hero)
- * with E2's refined typography/whitespace/serif restraint. Verified against
- * both references (`.claude-private/design/PEAK3-Directions-E.pdf`, pages
- * 2-3 and 12-13):
+ * Pass 6 (product-direction, "GLOBAL DESIGN CONSISTENCY + HOMEPAGE PRODUCT
+ * DEPTH") recomposes everything below the hero, per the brief's <homepage>
+ * section order:
  *
- *   1. CINEMATIC HERO — two columns at desktop. Left: the product thesis in
- *      mixed regular/italic display type, one explanation sentence, primary
- *      + secondary actions. Right: a BOUNDED panel (real visual mass, not a
- *      thin border-left rule) holding a real #1 ranked window's five-lane
- *      breakdown — the "basketball/data object" the brief calls for.
- *   2. GAME SLATE — one wide instrument strip with vertical hairline
- *      dividers between cells (not five independent cards), spanning the
- *      full content width. Every finished mode reads together as one
- *      designed row at desktop; 2-column then stacked on narrower widths.
- *   3. Weights — the frozen source of truth, plainly stated.
- *   4. Q&A — plain hairline rows linking into the real Methodology route.
+ *   1. HERO — untouched composition (Pass 5's E1-mass/E2-restraint blend).
+ *      Only the primary action changed: "GO TO ARENA" → `/arena`, the same
+ *      arena-first destination legacy's own hero CTA already leads to
+ *      ("Visit Arena" — see `app/(main)/page.tsx`'s docstring). Today's
+ *      duel stays the secondary action, unchanged.
+ *   2. GAME SLATE — untouched (Pass 5's one instrument-strip grammar).
+ *   3. YOUR ARENA — new: a real, personalized/current-state strip
+ *      (`HomeV2YourArena`). Client-only, fails closed to nothing for a
+ *      visitor with no real state to show.
+ *   4. HOW PEAK3 WORKS — the five static percentage labels replaced with
+ *      `HomeV2LaneExplainer`, an interactive single-object visualization of
+ *      the same frozen weights, backed by the real methodology copy
+ *      `/methodology` itself renders.
+ *   5. RANKINGS PREVIEW — new: the top of the real Peak Windows board,
+ *      plain hairline rows, one action into `/rankings`.
+ *   6. WHY PEAKS? — new: a short editorial bridge into Methodology.
+ *   7. FAQ — the same real Q&A, now `HomeV2Faq`'s collapsed accordion
+ *      instead of five permanently-open paragraphs.
  *
- * Server-safe except for the one resume-state cell (`HomeV2ResumeRow`,
- * client-only, localStorage-only per CLAUDE.md's Phase 1 limitation).
  * Nothing here is fabricated — every value is a prop this file's caller
- * (`app/(main)/page.tsx`) already computed server-side from real fetches.
+ * (`app/(main)/page.tsx`) already computed server-side from real fetches,
+ * or (Your Arena) a real client-only read the rest of the app already
+ * trusts (`useResumeState`, `progressionApi`).
  */
 
 import Link from "next/link";
@@ -38,11 +41,15 @@ import PeakV2PlayerIdentity from "./PeakV2PlayerIdentity";
 import PeakV2PrimaryAction from "./PeakV2PrimaryAction";
 import PeakV2SecondaryAction from "./PeakV2SecondaryAction";
 import HomeV2ResumeRow from "./HomeV2ResumeRow";
+import HomeV2YourArena from "./HomeV2YourArena";
+import HomeV2LaneExplainer, { type HomeV2Lane } from "./HomeV2LaneExplainer";
+import HomeV2Faq from "./HomeV2Faq";
 import type { VignetteWindow, HomeModelProof } from "@/components/home/home-data";
-import type { RankingComponentKey } from "@/types";
-import { v2ToneVar, type V2Tone } from "./v2-tone";
+import type { Methodology, RankingComponentKey } from "@/types";
+import type { V2Tone } from "./v2-tone";
 
 export interface HomePageV2ComponentWeight {
+  key: RankingComponentKey;
   label: string;
   pct: string;
   tone: V2Tone;
@@ -60,13 +67,19 @@ export interface HomePageV2Props {
   topWindow: VignetteWindow | null;
   componentWeights: HomePageV2ComponentWeight[];
   proof: HomeModelProof;
-  flagship: HomePageV2Mode;
   /** RTT — gets the real client-side resume treatment via `HomeV2ResumeRow`. */
   runTheTable: HomePageV2Mode;
   dailyModes: HomePageV2Mode[];
   /** Rendered only when the Arena's own readiness check says these exist —
    *  never guessed, never shown 403-prone. */
   multiplayerModes: HomePageV2Mode[];
+  /** The top of the real Peak Windows board — a deeper slice of the same
+   *  fetch the hero's data object draws its rank-1 window from. */
+  rankingsPreview: VignetteWindow[];
+  /** `null` when `/api/v1/methodology` was unreachable — the lane
+   *  explainer still renders (weights are always known locally), just
+   *  without per-lane description copy. */
+  methodology: Methodology | null;
 }
 
 const COMPONENT_KEY_TO_TONE: Record<RankingComponentKey, V2Tone> = {
@@ -112,37 +125,15 @@ export function ModeSlateCell({ mode, badge }: { mode: HomePageV2Mode; badge?: s
   );
 }
 
-const QA: { q: string; a: React.ReactNode }[] = [
-  {
-    q: "What is a PEAK3 peak?",
-    a: "A contiguous window of seasons — one, two, three or five years — scored as a single unit against every other window since 1979-80. It measures how good a player was at their best, not how long they lasted.",
-  },
-  {
-    q: "Windows, or careers?",
-    a: "Windows. A player's greatest stretch can be three seasons or one — PEAK3 never averages a peak down across years that were not part of it.",
-  },
-  {
-    q: "How does PEAK3 rate a player?",
-    a: "Five open components — statistical impact, traditional production, individual recognition, playoff rate impact and team result — combined at fixed, published weights. Every game in the Arena is settled on those same five lanes.",
-  },
-  {
-    q: "Does PEAK3 simulate games?",
-    a: "No. It rates real, already-played peak windows on real box-score and award data. Nothing here predicts a game that has not happened.",
-  },
-  {
-    q: "Can I compete with other people?",
-    a: "Three-Man Weave and The $20 Showdown are live, seat-based games against real opponents. Every other mode is single-player against the model itself, with a leaderboard behind it.",
-  },
-];
-
 export default function HomePageV2({
   topWindow,
   componentWeights,
   proof,
-  flagship,
   runTheTable,
   dailyModes,
   multiplayerModes,
+  rankingsPreview,
+  methodology,
 }: HomePageV2Props) {
   const laneEntries = topWindow?.components
     ? COMPONENT_ORDER.map((key) => ({ key, value: topWindow.components?.[key] ?? null })).filter(
@@ -152,6 +143,17 @@ export default function HomePageV2({
 
   const [daily1, daily2] = dailyModes;
   const [mp1, mp2] = multiplayerModes;
+
+  const laneDescriptions: Record<string, string> = {};
+  for (const c of methodology?.components ?? []) {
+    laneDescriptions[c.id] = c.short_description;
+  }
+  const lanes: HomeV2Lane[] = componentWeights.map((c) => ({
+    key: c.key,
+    label: c.label,
+    weightPct: Number.parseFloat(c.pct),
+    tone: c.tone,
+  }));
 
   return (
     <PeakV2Shell width="live">
@@ -175,7 +177,7 @@ export default function HomePageV2({
               Statistical Impact does.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <PeakV2PrimaryAction href={flagship.href}>{flagship.title}</PeakV2PrimaryAction>
+              <PeakV2PrimaryAction href="/arena">GO TO ARENA</PeakV2PrimaryAction>
               <PeakV2SecondaryAction href="/play/daily">Play today&apos;s duel</PeakV2SecondaryAction>
             </div>
           </div>
@@ -238,61 +240,70 @@ export default function HomePageV2({
         </div>
       </section>
 
+      {/* ---- 3. YOUR ARENA — real personalized/current-state strip ---- */}
+      <HomeV2YourArena multiplayerModes={multiplayerModes} />
+
       <PeakV2Rule spacing="lg" />
 
-      {/* ---- Weights — the frozen source of truth, plainly stated ---- */}
-      {componentWeights.length > 0 ? (
+      {/* ---- 4. HOW PEAK3 WORKS — one interactive object, not five labels ---- */}
+      {lanes.length > 0 ? (
         <section aria-labelledby="v2-weights-heading">
-          <h2
-            id="v2-weights-heading"
-            style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--v2-text-muted)", margin: 0 }}
-          >
+          <h2 id="v2-weights-heading" className="v2-section-eyebrow">
             How a player is rated
           </h2>
-          <div className="mt-4 grid grid-cols-2 gap-6 sm:grid-cols-5">
-            {componentWeights.map((c) => (
-              <div key={c.label} className="flex flex-col gap-1">
-                <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "1.375rem", fontWeight: 700, color: "var(--v2-text-primary)" }}>{c.pct}</span>
-                <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-secondary)" }}>{c.label}</span>
-                <span aria-hidden="true" style={{ height: 2, width: 24, background: v2ToneVar(c.tone) ?? "var(--v2-color-accent)" }} />
-              </div>
-            ))}
+          <div className="mt-4">
+            <HomeV2LaneExplainer lanes={lanes} descriptions={laneDescriptions} />
           </div>
         </section>
       ) : null}
 
       <PeakV2Rule spacing="lg" />
 
-      {/* ---- 3. Q&A — plain hairline rows ---- */}
-      <section aria-labelledby="v2-qa-heading">
-        <h2
-          id="v2-qa-heading"
-          style={{ fontFamily: "var(--v2-font-display)", fontSize: "1.5rem", fontWeight: 400, color: "var(--v2-text-primary)", margin: 0 }}
-        >
-          Questions, answered plainly.
+      {/* ---- 5. GLOBAL BOARD / RANKINGS PREVIEW — real rows, one action ---- */}
+      {rankingsPreview.length > 0 ? (
+        <section aria-labelledby="v2-rankings-heading">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <h2 id="v2-rankings-heading" className="v2-section-eyebrow">
+              The board
+            </h2>
+            <Link href="/rankings" className="v2-hero-object-link">
+              View rankings →
+            </Link>
+          </div>
+          <ol className="v2-rankings-list">
+            {rankingsPreview.map((w) => (
+              <li key={w.rowId} className="v2-rankings-row">
+                <span className="v2-rankings-rank">{w.rank}</span>
+                <span className="v2-rankings-identity">
+                  <span className="v2-rankings-name">{w.playerName}</span>
+                  <span className="v2-rankings-meta">{w.team ? `${w.team} · ${w.label}` : w.label}</span>
+                </span>
+                {w.primeScore !== null ? <span className="v2-rankings-score">{w.primeScore.toFixed(1)}</span> : null}
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
+
+      <PeakV2Rule spacing="lg" />
+
+      {/* ---- 6. WHY PEAKS? — a short editorial bridge into Methodology ---- */}
+      <section aria-labelledby="v2-why-heading" className="v2-why-section">
+        <h2 id="v2-why-heading" className="v2-why-headline">
+          Careers are long. <PeakV2DisplayEmphasis>Peaks are exact.</PeakV2DisplayEmphasis>
         </h2>
-        <div className="mt-5 flex flex-col">
-          {QA.map((item) => (
-            <div key={item.q} className="py-4" style={{ borderBottom: "1px solid var(--v2-border-subtle)" }}>
-              <p style={{ fontFamily: "var(--v2-font-ui)", fontWeight: 700, fontSize: "0.9375rem", color: "var(--v2-text-primary)", margin: 0 }}>
-                {item.q}
-              </p>
-              <p className="mt-1.5 max-w-[62ch]" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", lineHeight: 1.6, color: "var(--v2-text-secondary)" }}>
-                {item.a}
-              </p>
-            </div>
-          ))}
-        </div>
-        <p className="mt-4">
-          <Link
-            href="/methodology"
-            className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-            style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", fontWeight: 700, color: "var(--v2-color-accent)" }}
-          >
-            Read the full methodology →
-          </Link>
+        <p className="v2-why-body">
+          PEAK3 never averages a player down across seasons that were not
+          part of their best stretch. It compares the exact window — one
+          year, or five — against every other window since 1979-80.
         </p>
+        <PeakV2SecondaryAction href="/methodology">EXPLORE THE METHODOLOGY</PeakV2SecondaryAction>
       </section>
+
+      <PeakV2Rule spacing="lg" />
+
+      {/* ---- 7. FAQ — collapsed by default, secondary to everything above it ---- */}
+      <HomeV2Faq />
 
       {proof.playersEvaluated !== null && proof.rankedWindows !== null ? (
         <>

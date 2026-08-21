@@ -1,3 +1,172 @@
+# PEAK3 Pass 6 — global design consistency + homepage product depth — progress
+
+Branch: `recovery/peak3-v2-visual-reconstruction`, HEAD `cdad44a` (Pass 5's
+committed reconstruction) — **nothing committed by this pass; working tree
+only**, per instruction. Pass 5's own progress record (`reconstruction_plan_v5.md`)
+is not superseded — it documents real prior-pass history and stays as-is.
+
+## Status: HOMEPAGE RECOMPOSED PER BRIEF. One real Daily Grid consistency fix
+landed. Global legacy-leak audit (parallel fork, real browser, `?ui=v2`)
+found the codebase in much better shape than Pass 4/5's own docs implied —
+PROGRESS.md had not been updated after Pass 5 landed, so it understated
+current V2 coverage. Full detail in the conversation transcript; this is the
+terse working log.
+
+## What this pass closed
+
+1. **Homepage CTA**: `HomePageV2.tsx`'s primary hero action changed from
+   `{flagship.title}` ("RUN THE TABLE" → `/arena/run-the-table`) to a fixed
+   "GO TO ARENA" → `/arena`, matching legacy's own already-shipped
+   arena-first CTA. Secondary "Play today's duel" → `/play/daily` unchanged.
+   The now-unused `flagship` prop was removed from `HomePageV2Props`.
+2. **Homepage recomposition**, per the brief's exact order — Hero (untouched)
+   → Game Slate (untouched) → **Your Arena** (new, `HomeV2YourArena.tsx`) →
+   **interactive five-lane explainer** (new, `HomeV2LaneExplainer.tsx`,
+   replacing the static 5-cell percentage grid) → **rankings preview** (new,
+   inline in `HomePageV2.tsx`, real top-5 board rows) → **"Why Peaks?"**
+   editorial bridge (new, inline) → **FAQ as a collapsed accordion** (new,
+   `HomeV2Faq.tsx`, same real Q&A copy, was 5 permanently-open paragraphs).
+   - `HomeV2YourArena`: real data only — `useResumeState()` (RTT resume +
+     Daily Grid streak/completed, same hook the nav drawer already trusts),
+     `multiplayerModes` prop (server-computed, fail-closed), and
+     `progressionApi.getSummary()` for signed-in level/streak/achievements
+     (same endpoint `/profile` uses). Anonymous + no-signal visitors get a
+     sign-in nudge tile or nothing — never fabricated activity. Caps at 4
+     tiles, reuses `.v2-slate-cell` markup/CSS verbatim so it reads as the
+     game slate's sibling, not a new component language.
+   - `HomeV2LaneExplainer`: one proportional five-segment bar (real frozen
+     weights), hover/focus previews, click pins. Detail panel copy is
+     `methodology.components[i].short_description` — the exact string
+     `/methodology`'s own accordion renders, never re-authored.
+   - Rankings preview reuses the SAME board fetch as the hero's data object
+     (`home-data.ts`'s `loadHomeModelData` now fetches depth 5, slices 3 for
+     the hero's `windows` — unchanged — and up to 5 for the new
+     `rankingsPreview` field) — no second network call, and legacy's
+     `HeroVignette` rotation depth is provably unchanged (still fed
+     `windows`, still length 3).
+3. **Daily Grid live-board consistency fix** (`discovery.css`): the
+   score/locked/misses/time/difficulty stat strip was five individually-
+   bordered `.card-surface` cells — the exact "everything in its own card"
+   anti-pattern the brief calls out. CSS-only reskin, scoped to
+   `[data-ui-version="v2"] [data-tour-id="dg-score"]` (an existing stable
+   selector already on that container), merges it into one hairline-divided
+   plane matching `.v2-slate-grid`'s grammar. Zero JSX/game-logic touched.
+   Verified `?ui=legacy` renders byte-identical to before (real screenshot
+   diff, not assumed).
+4. **Focus-visible fix on the new lane bar**: a plain `outline` on the
+   Statistical Impact segment nearly disappeared (segment fill and
+   `--focus-ring` are both blue-family in this theme). Replaced with a
+   gapped double inset box-shadow (page-color ring, then focus-ring),
+   verified visible against all five component colors via a 4x-DPI zoomed
+   screenshot — a plain screenshot at normal zoom made it look invisible
+   even though `:focus-visible` was correctly matching; only the crop
+   confirmed it renders.
+5. **Mobile bug found and fixed during this pass, not before**: the new
+   `.v2-arena-grid` CSS rule (Your Arena's variable-column-count override)
+   had no media-query guard, so it beat the game slate's existing
+   1024px/639px responsive breakpoints on specificity+source-order and Your
+   Arena stayed 2-column at 390px instead of collapsing to 1 column like
+   every other slate-grid strip. Fixed by scoping the rule to
+   `@media (min-width: 1025px)`. Confirmed via real 390px screenshot
+   before/after.
+
+## Global legacy-leak audit (parallel fork, real browser, `?ui=v2`)
+
+Confirmed Pass 5 already closed nearly everything PROGRESS.md's stale entry
+implied was still open: global nav/footer, Rankings, Methodology, About,
+RTT/82-0 start gates, Peak Duel entry are all genuinely V2-styled and
+consistent. No `text-gray-*`/`text-slate-*` leaks, no arbitrary radius
+misuse, no legacy `font-display` CLASS leaking into V2 branches (only the
+correct `--v2-font-display` TOKEN appears). `.pk-lift`/`.pk-press` usage in
+3 V2 files is legitimate shared-motion-primitive reuse, not a leak.
+
+**One real, disclosed remaining gap**: Daily Grid's live board interior
+(`GridCell`, `DailyGridBoardView`, `CellPanel`, `CompletionModal`) has no V2
+branch — only its entry gate (`StartGate`) and the stat strip (fixed this
+pass, see above) are V2-styled. A full rebuild is out of proportion for a
+consistency pass (Pass 5's own plan explicitly deferred it as a large
+stretch goal) and was judged out of scope here too — disclosed, not hidden.
+Minor: Rankings' duration-pill toggle uses a fuller pill radius than most
+other V2 controls — low severity, not fixed this pass.
+
+## Verification, this pass
+
+- `npx tsc --noEmit`: clean
+- `npm run lint -- --max-warnings 0`: clean
+- `npm run test -- --run` (vitest): **2134/2134** passed (added 5 new
+  `HomePageV2` tests: CTA text/href, lane explainer omits-when-empty +
+  real-interaction-reveals-real-copy, rankings-preview-real-rows-only,
+  FAQ-collapsed-by-default)
+- `npm run build` (`PEAK3_BUILD_VERIFY_ONLY=1`): 33/33 static pages, clean
+- axe (`@axe-core/playwright`, wcag2a+wcag2aa, `?ui=v2` homepage): **0**
+  violations of any severity
+- e2e, real dev server: `v2-ui-version.spec.ts` 10/10; `gameplay.spec.ts`
+  (legacy homepage/Arena/Rankings/Methodology/draft flows) 35/35;
+  `accessibility.spec.ts` + `progression.spec.ts` + `play-routing.spec.ts`
+  62/62; `daily-grid.spec.ts` — 14-18 failures depending on run, but
+  **confirmed pre-existing/environmental by baseline comparison**: stashed
+  this pass's entire diff, reran the exact same suite against unmodified
+  HEAD, got the same class of failures (auth/profile-endpoint-dependent
+  tests, e.g. `PUT /api/v1/profiles/me` not `.ok()`), popped the stash back.
+  Not a regression this pass introduced.
+- Dev server restarted clean after every production-build check, per the
+  Pass 4 note about `.next` staleness under a live dev process.
+
+## Independent evaluator (fresh agent, no prior context, screenshots + live
+## Playwright, read-only) — findings and disposition
+
+1. **Rankings avatars render real player photos** (LeBron, Curry, SGA, etc.)
+   — HIGH as reported, but investigated and root-caused: `PlayerAvatar.tsx`
+   already gates real photo URLs behind `PEAK3_ENABLE_EXTERNAL_ASSET_URLS`
+   (default OFF, "pending a licensing review nobody has done" per its own
+   docstring). This sandbox's `apps/api/.env` has it set to `true` locally
+   — a pre-existing environment setting, not this pass's code, not a
+   frontend bug, and not something I have the authority to silently
+   "resolve" (a licensing decision). Disclosed to the user, not touched.
+2. **Rankings avatar column visually incoherent** — same root cause as #1;
+   not touched for the same reason.
+3. **Gold overused across the homepage** — investigated instance by
+   instance. Fixed the one genuine overreach that was mine: the new
+   rankings-preview section had every one of 5 real scores in gold; now
+   only rank 1 is (`.v2-rankings-row:first-child .v2-rankings-score`),
+   mirroring the hero object's own single gold score. Everything else the
+   evaluator counted (slate-cell "Play →"/"Enter →"/"Sign in →" arrows,
+   `PeakV2DisplayEmphasis`'s italic gold) is pre-existing Pass 2/5
+   infrastructure reused deliberately for cross-page consistency — each is
+   its own contextual action or an established cinematic-emphasis role, not
+   decorative sprinkle, and reworking those primitives now would ripple
+   into every other V2 route for a subjective call. Left as-is.
+4. **RTT node-type colors (`--foundation-blue`/`--apex-coral`) resemble
+   `--comp-si`/`--comp-po`** — investigated (`run-the-table-copy.ts`):
+   different, deliberately-chosen hex values, and the code's own comment
+   states the `--comp-*`/`--role-*` families were "deliberately avoided"
+   for exactly this reason. Pre-existing, documented, used across the
+   entire RTT mode's node-type system (draft room/trade desk/scout/rest) —
+   changing it is a cross-cutting RTT identity change far outside a
+   consistency pass's mandate and the "preserve mode identity" boundary.
+   Not touched; noted as a legitimate but out-of-scope subjective critique.
+5. **Lane-explainer dimmed state looks "muddy"** — CONFIRMED, and mine.
+   `opacity: 0.35` on a non-active segment collapses `--comp-po` (orange)
+   into a dark, muddy brown against the near-black page background (dimming
+   a warm hue via opacity is a lossy blend, not a clean fade — verified via
+   a 4x-zoomed crop, not assumed). Tried `filter: saturate()/brightness()`
+   combinations first (still browned); the actual fix was simpler — the cut
+   was just too steep. Raised to `opacity: 0.82`, verified clean against
+   all five component colors at that value via zoomed screenshot.
+6. **Two structurally different homepages coexist (`?ui=v2` vs default)** —
+   accurate description of the intentional, deliberate parallel-rollout
+   architecture (`ui-version-script.ts`: legacy is the default until an
+   explicit product decision to flip it; not implied by this task). Noted,
+   not treated as a bug.
+
+## Environment note carried forward
+
+Same as Pass 4's note: a production `next build` against a live dev server
+can leave it serving a stale manifest. Restarted the dev server after every
+build-verify step this pass, not just trusted it to recover.
+
+---
+
 # PEAK3 Pass 4 — V2 completeness + anti-vibe polish + final visual QA — progress
 
 Branch: `feature/peak3-v2-ui`, HEAD `67b1d01` (Pass 3's checkpoint commit)

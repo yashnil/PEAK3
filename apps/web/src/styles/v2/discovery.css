@@ -189,3 +189,32 @@
   font-weight: 400 !important;
   letter-spacing: var(--v2-display-track);
 }
+
+/* ---- Daily Grid's live stat strip: five individually-bordered `.card-
+   surface` cells (Score/Locked/Misses/Time/Difficulty), the exact "every
+   surface independently rounds its own corners" anti-pattern the brief
+   calls out. Reskinned to the one instrument-strip grammar every other V2
+   surface already uses (`.v2-slate-grid`'s single bordered plane, hairline
+   dividers, no per-cell radius) — CSS-only, `DailyGridGame.tsx`'s own
+   `data-tour-id="dg-score"` selector, zero logic/markup touched. Board
+   gameplay (`GridCell`/`DailyGridBoardView`) is untouched — deliberately
+   out of scope for this pass; see PROGRESS.md. */
+[data-ui-version="v2"] [data-tour-id="dg-score"] {
+  gap: 0 !important;
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  overflow: hidden;
+  background: var(--v2-bg-plane);
+  font-family: var(--v2-font-ui);
+}
+
+[data-ui-version="v2"] [data-tour-id="dg-score"] > .card-surface {
+  border-radius: 0 !important;
+  border: none !important;
+  border-left: 1px solid var(--v2-border-subtle) !important;
+  background: transparent !important;
+}
+
+[data-ui-version="v2"] [data-tour-id="dg-score"] > .card-surface:first-child {
+  border-left: none !important;
+}

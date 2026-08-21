@@ -30,6 +30,7 @@ import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
 import UiVersionSwitch from "@/components/v2/UiVersionSwitch";
 import HomePageV2 from "@/components/v2/HomePageV2";
 import type { V2Tone } from "@/components/v2/v2-tone";
+import type { RankingComponentKey } from "@/types";
 
 export const metadata: Metadata = {
   title: "PEAK3 Arena — Run the Table",
@@ -59,12 +60,12 @@ const HOW_IT_WORKS: { icon: typeof Users; title: string; body: string }[] = [
  *  `tone` is the V2 token name for the same frozen `--comp-*` hue as
  *  `color` — one real source (`CLAUDE.md`'s five weights), two presentation
  *  layers reading it, per `PeakV2Score`'s tone contract. */
-const COMPONENT_WEIGHTS: { label: string; pct: string; color: string; tone: V2Tone }[] = [
-  { label: "Statistical Impact", pct: "38%", color: "var(--comp-si)", tone: "si" },
-  { label: "Traditional Production", pct: "21%", color: "var(--comp-tp)", tone: "tp" },
-  { label: "Individual Recognition", pct: "20%", color: "var(--comp-rec)", tone: "rec" },
-  { label: "Playoff Rate Impact", pct: "18%", color: "var(--comp-po)", tone: "po" },
-  { label: "Team Result", pct: "3%", color: "var(--comp-team)", tone: "team" },
+const COMPONENT_WEIGHTS: { key: RankingComponentKey; label: string; pct: string; color: string; tone: V2Tone }[] = [
+  { key: "statistical_impact", label: "Statistical Impact", pct: "38%", color: "var(--comp-si)", tone: "si" },
+  { key: "traditional_production", label: "Traditional Production", pct: "21%", color: "var(--comp-tp)", tone: "tp" },
+  { key: "individual_recognition", label: "Individual Recognition", pct: "20%", color: "var(--comp-rec)", tone: "rec" },
+  { key: "postseason_individual_value", label: "Playoff Rate Impact", pct: "18%", color: "var(--comp-po)", tone: "po" },
+  { key: "team_achievement", label: "Team Result", pct: "3%", color: "var(--comp-team)", tone: "team" },
 ];
 
 /**
@@ -763,9 +764,8 @@ export default async function HomePage({
       v2={
         <HomePageV2
           topWindow={modelData.windows[0] ?? null}
-          componentWeights={COMPONENT_WEIGHTS.map(({ label, pct, tone }) => ({ label, pct, tone }))}
+          componentWeights={COMPONENT_WEIGHTS.map(({ key, label, pct, tone }) => ({ key, label, pct, tone }))}
           proof={modelData.proof}
-          flagship={flagship}
           runTheTable={flagship}
           dailyModes={[dailyGrid, peakDuel]}
           multiplayerModes={
@@ -777,6 +777,8 @@ export default async function HomePage({
                 }))
               : []
           }
+          rankingsPreview={modelData.rankingsPreview}
+          methodology={modelData.methodology}
         />
       }
     />
