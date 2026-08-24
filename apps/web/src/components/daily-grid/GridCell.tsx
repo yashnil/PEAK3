@@ -4,6 +4,7 @@ import { Lock } from "lucide-react";
 import { FilledCell, GridCellSpec } from "@/types/daily-grid";
 import { RARITY_COLOR } from "./constraint-style";
 import { RARITY_POOL_HINT, RARITY_SHORT_LABEL } from "@/lib/daily-grid-state";
+import { useUiVersion } from "@/lib/ui-version";
 
 interface Props {
   row: number;
@@ -42,14 +43,28 @@ export default function GridCell({
   onSelect,
 }: Props) {
   const state = filled ? "filled" : active ? "active" : invalid ? "invalid" : "empty";
+  const v2 = useUiVersion() === "v2";
 
-  const borderColor = filled
-    ? "color-mix(in srgb, var(--peak-accent) 45%, transparent)"
-    : invalid
-      ? "var(--incorrect)"
-      : active
-        ? "var(--peak-accent)"
-        : "var(--border-default)";
+  // Pass 7 (human acceptance testing, task §3): V2 shares the same
+  // court-slot radius/border grammar established elsewhere (`--v2-radius-
+  // control`, `--v2-border*`, `--v2-color-accent`) rather than a one-off
+  // palette -- structure/testids/aria-labels are IDENTICAL either way, only
+  // these token values differ.
+  const borderColor = v2
+    ? filled
+      ? "var(--v2-border-emphasis)"
+      : invalid
+        ? "var(--v2-color-negative)"
+        : active
+          ? "var(--v2-color-accent)"
+          : "var(--v2-border-subtle)"
+    : filled
+      ? "color-mix(in srgb, var(--peak-accent) 45%, transparent)"
+      : invalid
+        ? "var(--incorrect)"
+        : active
+          ? "var(--peak-accent)"
+          : "var(--border-default)";
 
   const poolHint = spec ? RARITY_POOL_HINT[spec.rarity_bucket] : "";
   const ariaLabel = filled
@@ -70,14 +85,26 @@ export default function GridCell({
       className="relative flex w-full flex-col items-center justify-center overflow-hidden rounded-lg px-1 py-1.5 text-center transition-colors"
       style={{
         aspectRatio: "1 / 1",
-        background: filled
-          ? "linear-gradient(180deg, rgba(245,200,66,0.07), rgba(245,200,66,0.02))"
-          : active
-            ? "var(--bg-surface-hover)"
-            : "var(--bg-surface)",
+        borderRadius: v2 ? "var(--v2-radius-control)" : undefined,
+        fontFamily: v2 ? "var(--v2-font-ui)" : undefined,
+        background: v2
+          ? filled
+            ? "var(--v2-bg-plane)"
+            : active
+              ? "var(--v2-bg-surface)"
+              : "var(--v2-bg-page)"
+          : filled
+            ? "linear-gradient(180deg, rgba(245,200,66,0.07), rgba(245,200,66,0.02))"
+            : active
+              ? "var(--bg-surface-hover)"
+              : "var(--bg-surface)",
         border: `1px solid ${borderColor}`,
-        boxShadow: active ? "0 0 0 2px color-mix(in srgb, var(--peak-accent) 28%, transparent)" : "none",
-        color: "var(--text-primary)",
+        boxShadow: active
+          ? v2
+            ? "0 0 0 2px color-mix(in srgb, var(--v2-color-accent) 28%, transparent)"
+            : "0 0 0 2px color-mix(in srgb, var(--peak-accent) 28%, transparent)"
+          : "none",
+        color: v2 ? "var(--v2-text-primary)" : "var(--text-primary)",
       }}
     >
       {filled ? (

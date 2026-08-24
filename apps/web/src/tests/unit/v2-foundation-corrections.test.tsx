@@ -328,13 +328,24 @@ describe("Correction 5: PeakV2DockedPanel", () => {
     expect(backdrop.style.background).toBe("rgba(6, 7, 9, 0)");
   });
 
-  it("caps its own height so background stays visible above it even at its tallest", () => {
+  it("reserves a FIXED height (not a cap) so background stays visible above it and the sheet never resizes with content", () => {
+    // Pass 7 (human acceptance testing): this used to be `maxHeight`, which
+    // let the panel intrinsically size to whatever content happened to be
+    // mounted -- visibly resizing/repositioning as the candidate section
+    // appeared or search narrowed the list. `height` (bounded by the
+    // viewport via `min()`) is a real reserved footprint instead.
     render(
       <PeakV2DockedPanel open onClose={() => {}} label="Sample docked panel" maxHeightVh={70}>
         <p>content</p>
       </PeakV2DockedPanel>,
     );
-    expect(screen.getByRole("dialog").style.maxHeight).toBe("70vh");
+    const dialog = screen.getByRole("dialog");
+    // jsdom's CSSOM serializes `min()` with its own internal spacing --
+    // assert on the values present rather than a brittle exact string.
+    // (`maxHeight` is left at `Dialog`'s own default viewport bound — a
+    // harmless redundant constraint underneath the real fixed `height`.)
+    expect(dialog.style.height).toContain("70vh");
+    expect(dialog.style.height).toContain("calc(100dvh - 32px)");
   });
 
   it("background content OUTSIDE the panel is never hidden or made inert", () => {

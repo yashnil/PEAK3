@@ -24,9 +24,8 @@ import PeakV2ArenaLight from "../PeakV2ArenaLight";
 import PeakV2LiveHeader from "../PeakV2LiveHeader";
 import PeakV2GameStatus from "../PeakV2GameStatus";
 import { v2ActionBaseStyle } from "../v2-action-base";
+import { DECISION_CLOCK_SECONDS } from "@/lib/peak-duel-constants";
 import type { Duel, DuelResult } from "@/types";
-
-const DECISION_CLOCK_SECONDS = 5;
 
 /** The raw (fractional) seconds left on the deadline, ticked at the same
  *  250ms cadence as `ArenaTimer`'s own interval — a display-only derivative

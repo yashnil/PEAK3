@@ -106,6 +106,20 @@ interface DialogBaseProps {
   rootDataUiVersion?: "v2";
   /** When false, neither Escape nor a backdrop click closes the dialog. */
   dismissible?: boolean;
+  /**
+   * When true, `open=false` hides the panel (visually, and out of the a11y
+   * tree) instead of unmounting it. Added for `PeakV2CourtChooser` (Pass 7,
+   * human acceptance testing): its child `SpinStage` restarts its own reveal
+   * ceremony on every mount (documented in its own file, and in legacy
+   * `CourtBuilder`'s equivalent overlay, which avoids this exact problem the
+   * same way — staying mounted for the whole round and toggling `hidden`
+   * rather than conditionally rendering). Every existing caller omits this
+   * and keeps the original unmount-on-close behavior; the focus trap /
+   * escape / scroll-lock hooks already gate their own side effects on
+   * `open` internally, so hiding-not-unmounting while closed does not risk
+   * a stray focus trap or scroll lock.
+   */
+  keepMounted?: boolean;
   describedBy?: string;
   "data-testid"?: string;
 }
@@ -130,6 +144,7 @@ export function Dialog({
   backdropStyle,
   align = "center",
   rootDataUiVersion,
+  keepMounted = false,
   "data-testid": testId,
 }: DialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -221,7 +236,7 @@ export function Dialog({
     node.focus();
   }, []);
 
-  if (!open) return null;
+  if (!open && !keepMounted) return null;
 
   // Under reduced motion the surface is simply present — no opacity/transform
   // ramp at all, rather than a "fast" one.
@@ -234,7 +249,15 @@ export function Dialog({
     <Portal>
       <div
         className={cn("fixed inset-0 flex justify-center", align === "bottom" ? "items-end" : "items-center")}
-        style={{ zIndex: "var(--pk-z-dialog, 110)", padding: "var(--pk-space-4, 16px)" }}
+        style={{
+          zIndex: "var(--pk-z-dialog, 110)",
+          padding: "var(--pk-space-4, 16px)",
+          // `keepMounted` + closed: hidden from view and from the a11y tree,
+          // but still in the DOM/React tree so children (e.g. a reveal
+          // ceremony with its own internal timers) never remount.
+          display: !open ? "none" : undefined,
+        }}
+        aria-hidden={!open}
         data-pk-dialog-root=""
         data-ui-version={rootDataUiVersion}
       >

@@ -58,6 +58,13 @@ type Phase = "checking" | "hidden" | "prompting" | "saving" | "saved";
  * their own `aria-modal` overlays, so two competing dialogs could be open at
  * once.
  *
+ * Pass 7 (human acceptance testing, task §15): the same failure mode recurred
+ * on 82-0 (the roll/chooser/placement decision), Peak Duel (the timed
+ * question), and Daily Grid (the board/chooser) — none of those were in the
+ * original denylist, so the prompt could still land in the lower-right corner
+ * over a court placement, a duel pick, or a grid cell. Extended below rather
+ * than given a second mechanism.
+ *
  * Suppressed rather than delayed: a match is minutes long, the prompt is
  * session-scoped, and it asks again on the next sign-in anyway. Nothing is lost
  * by waiting until the player is not on a clock.
@@ -68,7 +75,15 @@ function isLiveMatchRoute(pathname: string | null): boolean {
   if (!pathname) return false;
   return (
     /^\/arena\/three-man-weave\/[^/]+/.test(pathname) ||
-    /^\/arena\/twenty-dollar\/[^/]+/.test(pathname)
+    /^\/arena\/twenty-dollar\/[^/]+/.test(pathname) ||
+    // 82-0 Peak Season: the roll/chooser and court-placement decision. NOT
+    // `/arena/court/leaderboard|results|history` — those are review pages,
+    // not a live board.
+    /^\/arena\/court\/(daily|practice)\b/.test(pathname) ||
+    // Peak Duel: the timed question and reveal (not the bare `/play` hub).
+    /^\/play\/(daily|endless)\b/.test(pathname) ||
+    // Daily Grid: the board and cell chooser (not the bare `/daily` hub).
+    /^\/daily\/grid\b/.test(pathname)
   );
 }
 

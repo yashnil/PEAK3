@@ -59,11 +59,22 @@ export default function PeakV2CourtPanel({
     <div
       data-testid="peak-v2-court-panel"
       data-v2-court-presentation={presentation}
-      className={`relative flex flex-col gap-2 ${className ?? ""}`}
+      className={`relative flex flex-col gap-2 rounded-r-md ${className ?? ""}`}
       style={{
         opacity: dimmed ? "var(--v2-court-dim-opacity, 0.62)" : 1,
         borderLeft: `2px solid ${dimmed ? "var(--v2-border)" : "var(--v2-color-accent)"}`,
+        // Pass 7 (human acceptance testing, task §13): a border-color-only
+        // difference between the active court and its two siblings read as
+        // too subtle once real rosters filled every slot with color-bearing
+        // content of their own. A very low-opacity accent wash on the LIT
+        // court's own background (never on dimmed — dimming already reads
+        // via opacity, doubling up would fight it) gives "this is the court
+        // that matters right now" a second, independent visual cue.
+        background: dimmed ? "transparent" : "color-mix(in srgb, var(--v2-color-accent) 4%, transparent)",
         paddingLeft: "var(--v2-space-3)",
+        paddingRight: dimmed ? undefined : "var(--v2-space-3)",
+        paddingTop: dimmed ? undefined : "var(--v2-space-2)",
+        paddingBottom: dimmed ? undefined : "var(--v2-space-2)",
       }}
     >
       {!dimmed && light ? <PeakV2ArenaLight tone={lightTone} y="0%" /> : null}

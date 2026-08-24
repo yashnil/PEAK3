@@ -4,6 +4,7 @@ import { DailyGridBoard, DailyGridProgress, GRID_SIZE } from "@/types/daily-grid
 import { cellFullTitle, cellSpec, colConstraint, findFilled, rowConstraint } from "@/lib/daily-grid-state";
 import { categoryColor } from "./constraint-style";
 import GridCell from "./GridCell";
+import { useUiVersion } from "@/lib/ui-version";
 
 interface Props {
   board: DailyGridBoard;
@@ -20,11 +21,13 @@ function HeaderChip({
   title,
   color,
   orientation,
+  v2,
 }: {
   label: string;
   title: string;
   color: string;
   orientation: "row" | "col";
+  v2: boolean;
 }) {
   return (
     <div
@@ -43,7 +46,11 @@ function HeaderChip({
       />
       <span
         className="break-words text-[clamp(9px,2.4vw,12px)] font-bold uppercase tracking-[0.04em]"
-        style={{ color: "var(--text-primary)", lineHeight: 1.15 }}
+        style={{
+          color: v2 ? "var(--v2-text-primary)" : "var(--text-primary)",
+          fontFamily: v2 ? "var(--v2-font-ui)" : undefined,
+          lineHeight: 1.15,
+        }}
       >
         {label}
       </span>
@@ -59,6 +66,7 @@ function HeaderChip({
  * nothing is only available by hovering.
  */
 export default function DailyGridBoardView({ board, progress, selected, invalidCell, onSelect }: Props) {
+  const v2 = useUiVersion() === "v2";
   return (
     <div
       data-testid="daily-grid-board"
@@ -78,6 +86,7 @@ export default function DailyGridBoardView({ board, progress, selected, invalidC
             label={c?.short_label ?? `Col ${col + 1}`}
             title={c ? `${c.label} — ${c.description}` : `Column ${col + 1}`}
             color={c ? categoryColor(c.category) : "var(--border-emphasis)"}
+            v2={v2}
           />
         );
       })}
@@ -91,6 +100,7 @@ export default function DailyGridBoardView({ board, progress, selected, invalidC
               label={r?.short_label ?? `Row ${row + 1}`}
               title={r ? `${r.label} — ${r.description}` : `Row ${row + 1}`}
               color={r ? categoryColor(r.category) : "var(--border-emphasis)"}
+              v2={v2}
             />
             {INDICES.map((col) => (
               <GridCell

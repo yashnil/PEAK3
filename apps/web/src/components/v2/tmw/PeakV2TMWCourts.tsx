@@ -116,6 +116,24 @@ export default function PeakV2TMWCourts({
 
   const legalTargets = canRearrange && pickedUp ? legalMoveTargets(yourRoster, pickedUp) : [];
 
+  // Pass 7 (human acceptance testing, task §11): "who is picking, how much
+  // time is left, what was rolled, what pick/round are we on" must all read
+  // in under a second from ONE always-visible strip. Every value here is
+  // already-computed real state (`state.current_roll`, the same server
+  // field `PickOverlay`'s own header reads; `currentTurnSeatIndex`/`seats`,
+  // the same identity `PeakV2TMWCourt`'s "On the clock" suffix already
+  // uses) — nothing invented.
+  const onClockSeat = state.rosters.find((r) => r.seat_index === currentTurnSeatIndex);
+  const onClockName = state.is_complete
+    ? null
+    : currentTurnSeatIndex === yourSeatIndex
+      ? "You"
+      : (seats.find((s) => s.seat_index === currentTurnSeatIndex)?.display_name ??
+        (onClockSeat ? `Seat ${currentTurnSeatIndex! + 1}` : null));
+  const rollLine = state.current_roll
+    ? `${state.current_roll.franchise_display_name} · ${state.current_roll.decade}`
+    : null;
+
   return (
     <PeakV2Shell width="live-wide">
       <div className="py-6">
@@ -133,6 +151,22 @@ export default function PeakV2TMWCourts({
             </div>
           }
         />
+
+        {/* ONE truthful line: what was rolled, and who is picking right now.
+            Stays in this exact spot across every phase -- never jumps. */}
+        {rollLine || onClockName ? (
+          <p
+            className="mt-2 flex flex-wrap items-center gap-x-2"
+            style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem" }}
+          >
+            {rollLine ? <span style={{ color: "var(--v2-text-secondary)" }}>{rollLine}</span> : null}
+            {onClockName ? (
+              <span style={{ fontWeight: 700, color: "var(--v2-color-accent)" }}>
+                On the clock — {onClockName}
+              </span>
+            ) : null}
+          </p>
+        ) : null}
 
         {/* THE RESULT OF A MOVE, SAID ONCE — `role="status"` rather than an
             alert, since a refused drag is a correction, not an emergency. */}

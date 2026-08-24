@@ -32,10 +32,24 @@
  *     `PeakV2Modal`'s `--v2-bg-plane`) plus a 2px gold top edge — the one
  *     border that visually says "the sheet starts here," on the one edge
  *     that actually meets open background.
- *   - the panel itself is capped at `maxHeightVh` (default 72) so a chunk
- *     of the background stays visible above it even at the panel's
- *     tallest — "mobile can use a bottom-sheet-like composition without
- *     erasing all court context."
+ *   - the panel itself is FIXED at `maxHeightVh` (default 72) — a real,
+ *     reserved footprint, not a cap on intrinsic content — so a chunk of
+ *     the background stays visible above it even at the panel's tallest
+ *     ("mobile can use a bottom-sheet-like composition without erasing all
+ *     court context") AND the sheet never grows/shrinks/repositions as its
+ *     content changes (Pass 7, human acceptance testing: the previous
+ *     `maxHeight` cap let the panel intrinsically size to whatever content
+ *     happened to be mounted, so revealing the candidate section — or
+ *     narrowing it via search — visibly resized and repositioned the whole
+ *     sheet). `display:flex, flexDirection:column, overflow:hidden` turns
+ *     this outer panel into a fixed-size shell; a caller that needs part of
+ *     its content to scroll independently (a candidate list, while the
+ *     round header stays pinned) gives THAT inner region its own
+ *     `flex:1 1 auto; minHeight:0; overflowY:auto` rather than relying on
+ *     this outer element's own scrolling, which the previous
+ *     `overflow-y-auto` (inherited from `Dialog`'s default panel class) is
+ *     now overridden to prevent — one shell, one clearly-scoped scroll
+ *     region, never both fighting over the same scrollbar.
  *   - top corners only are rounded (a docked sheet, not a floating card).
  *
  * KNOWN LIMITATION, left for Pass 3 rather than patched with a margin
@@ -43,7 +57,7 @@
  * (`--pk-space-4`) on all four edges, so this panel currently sits ~16px
  * off the true bottom/side edges instead of flush against them like the
  * reference's edge-to-edge sheet. Everything functional (bottom anchor,
- * background visibility, focus trap, max-height) is unaffected — this is
+ * background visibility, focus trap, fixed height) is unaffected — this is
  * a small cosmetic gap, not a capability gap.
  *
  * Does not duplicate gameplay state: like `PeakV2Modal`, this is a pure
@@ -98,7 +112,16 @@ export default function PeakV2DockedPanel({
         boxShadow: "var(--v2-elev-modal)",
         color: "var(--v2-text-primary)",
         padding: "var(--v2-space-5)",
-        maxHeight: `${maxHeightVh}vh`,
+        // A reserved, FIXED footprint (not a cap) -- see the module
+        // docstring. `height` (not `maxHeight`) so the panel never
+        // shrinks for a short-content state either. Still bounded by the
+        // viewport: `min()` against the same `calc(100dvh - safe margins)`
+        // shape `Dialog`'s own default already uses, so a very short
+        // viewport (mobile) never asks for more height than exists.
+        height: `min(${maxHeightVh}vh, calc(100dvh - 32px))`,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
       }}
     />
   );

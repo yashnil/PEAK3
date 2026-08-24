@@ -504,6 +504,16 @@ export default function CourtBuilder({
         onCancelMove={cancelRearrange}
         slotLabel={(slot) => SLOT_LABELS[slot]}
         onComplete={handleComplete}
+        // Pass 7 (human acceptance testing, §5): the SAME `overlayMinimized`
+        // state that already preserves round/roll/respins/candidates
+        // untouched on close (see the state's own docstring above) -- V2
+        // just never rendered a way back in. `setOverlayMinimized(false)` is
+        // the exact same reopen legacy's "Resume selection" banner already
+        // calls; no new state, no new endpoint.
+        showResumeSelection={phase === "spinning" && overlayMinimized}
+        onResumeSelection={() => setOverlayMinimized(false)}
+        pendingSelectionName={state.pending_selection?.player_name ?? null}
+        onSwitchSelection={handleCancel}
       />
       {(phase === "spinning" || phase === "placing") && roundSpin && (
         <PeakV2CourtChooser

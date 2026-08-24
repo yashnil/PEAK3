@@ -170,6 +170,22 @@ describe("game-state", () => {
     expect(state.phase).toBe("complete");
   });
 
+  it("a second ADVANCE right after the first is a no-op (double-press safe)", () => {
+    // Peak Duel no longer auto-advances -- the only path off the reveal is a
+    // manual press, which can itself fire twice (double-click, or a stray
+    // Enter racing a click). Once the first ADVANCE has already moved the
+    // phase off "revealing", a second dispatch must not skip a further duel.
+    const duels = [mockDuel("duel1"), mockDuel("duel2"), mockDuel("duel3")];
+    let state = createInitialState("daily", 3, duels, "token");
+    state = { ...state, phase: "revealing", current_index: 0 };
+    state = gameReducer(state, { type: "ADVANCE" });
+    expect(state.current_index).toBe(1);
+    const advancedOnce = state;
+    state = gameReducer(state, { type: "ADVANCE" });
+    expect(state).toEqual(advancedOnce);
+    expect(state.current_index).toBe(1);
+  });
+
   it("isComplete returns true only when phase is complete", () => {
     const duels = [mockDuel("duel1")];
     const state = createInitialState("daily", 3, duels, "token");

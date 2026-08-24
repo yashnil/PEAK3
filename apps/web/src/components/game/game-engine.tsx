@@ -21,18 +21,20 @@ import { RevealPanel } from "./reveal-panel";
 import { ChallengeSummary } from "./challenge-summary";
 import UiVersionSwitch from "@/components/v2/UiVersionSwitch";
 import PeakDuelV2Stage from "@/components/v2/duel/PeakDuelV2Stage";
+import { DECISION_CLOCK_SECONDS } from "@/lib/peak-duel-constants";
 
-// Peak Duel Daily only: a short decision clock per duel, and a fast
-// auto-advance out of the reveal so rounds 1-9 keep momentum. Endless mode
-// stays exactly as it was — untimed, manual-advance only.
+// Peak Duel Daily only: a short decision clock per duel. Endless mode stays
+// exactly as it was — untimed, manual-advance only.
 //
 // The clock reuses `ArenaTimer` (the multiplayer arena's decision clock)
 // rather than a hand-rolled interval: it already ticks against a monotonic
 // `performance.now()` deadline in its own isolated component (so a 250ms
 // tick never re-renders the duel cards), and its reduced-motion handling is
 // pure CSS, already audited.
-const DECISION_CLOCK_SECONDS = 5;
-const AUTO_ADVANCE_MS = 1300;
+//
+// The clock LENGTH itself lives in `lib/peak-duel-constants.ts` — the one
+// authoritative source `PeakDuelV2Question` also imports, so V2 and legacy
+// can never drift to two different clock lengths again.
 
 interface GameEngineProps {
   mode: GameMode;
@@ -150,7 +152,7 @@ export function GameEngine({
 
       const elapsed_ms = startTimeRef.current
         ? Math.max(0, Date.now() - startTimeRef.current)
-        : 5000;
+        : DECISION_CLOCK_SECONDS * 1000;
 
       try {
         const answer = await submitAnswer({
@@ -202,24 +204,11 @@ export function GameEngine({
     }
   }, [state]);
 
-  // Rounds 1-9 (daily only): auto-advance out of the reveal so the loop stays
-  // fast. Manual Enter/click dispatches ADVANCE directly, which moves the
-  // phase off "revealing" and — via this effect's cleanup — cancels the
-  // pending auto-advance before it can fire a second, now-stale ADVANCE.
-  // The final round stays manual: leaving the last result for a deliberate
-  // "See results" press, not a timer, since that transition changes screen
-  // type (duel -> summary) rather than just moving to the next duel.
-  useEffect(() => {
-    if (mode !== "daily" || state.phase !== "revealing") return;
-    const isLastDuel = state.current_index === state.duels.length - 1;
-    if (isLastDuel) return;
-
-    const id = window.setTimeout(() => {
-      dispatch({ type: "ADVANCE" });
-    }, AUTO_ADVANCE_MS);
-    return () => window.clearTimeout(id);
-  }, [mode, state.phase, state.current_index, state.duels.length]);
-
+  // Rounds 1-9 (daily) no longer auto-advance out of the reveal: the result
+  // stays on screen indefinitely until the player presses "Next Matchup"
+  // (`onNext` below), which dispatches ADVANCE directly. Round 10 already
+  // used a manual "See results" press for the same reducer action, so no
+  // separate final-round case is needed now that every round is manual.
   const duel = currentDuel(state);
 
   // V2's own presentation branch (Pass 3) consumes this exact `state` —

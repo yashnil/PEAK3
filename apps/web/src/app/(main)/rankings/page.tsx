@@ -21,6 +21,10 @@ import {
   type RankingSortKey,
   type SortDirection,
 } from "@/components/rankings/board-model";
+import UiVersionSwitch from "@/components/v2/UiVersionSwitch";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2ResultHeadline from "@/components/v2/PeakV2ResultHeadline";
+import PeakV2Rule from "@/components/v2/PeakV2Rule";
 
 /**
  * `?sort=statistical_impact` (any `RankingComponentKey`, or `"total"`) —
@@ -279,7 +283,200 @@ export default function RankingsPage() {
   const sortColumn = RANKING_COLUMNS.find((c) => c.key === sortKey);
   const isSorted = !isDefaultSort(sortKey, sortDirection);
 
+  // V2's own chrome (Pass 7) — the EXACT same state/handlers computed above,
+  // no second fetch or reducer. `RankingsTable`/`ComponentLegend`/
+  // `RankingsAnalysis`/`RankingsProvenance` are reused verbatim: this only
+  // restyles the shell, headings, tabs, and search around them. Typography
+  // roles: page identity -> cinematic display (once); controls/table body ->
+  // UI role (inherited by `RankingsTable` -- it sets no font-family of its
+  // own); numeric cells -> instrumentation/mono, via the scoped
+  // `[data-ui-version="v2"] .score-number` rule in `styles/v2/info-pages.css`
+  // rather than editing the shared table component itself.
+  const v2View = (
+    <PeakV2Shell width="live">
+      <div className="py-6 flex flex-col gap-5">
+        <header className="flex flex-col gap-1.5">
+          <PeakV2ResultHeadline as="h1" scale="moment">
+            PEAK3 Rankings
+          </PeakV2ResultHeadline>
+          <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.875rem", color: "var(--v2-text-secondary)", maxWidth: "42rem" }}>
+            Every score below is the official PEAK3 formula. Select any row to see exactly how it
+            was built.
+          </p>
+        </header>
+
+        <div className="flex flex-col gap-2">
+          <div
+            role="tablist"
+            aria-label="Ranking board"
+            className="flex flex-wrap gap-1.5 p-1 w-fit max-w-full"
+            style={{ background: "var(--v2-bg-surface)", border: "1px solid var(--v2-border-subtle)", borderRadius: "var(--v2-radius-control)" }}
+          >
+            {BOARDS.map((b) => {
+              const active = b.id === board;
+              return (
+                <button
+                  key={b.id}
+                  role="tab"
+                  aria-selected={active}
+                  data-testid={b.testId}
+                  onClick={() => selectBoard(b.id)}
+                  className="v2-board-tab text-xs font-semibold uppercase tracking-wide px-3.5 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                  style={{
+                    borderRadius: "var(--v2-radius-control)",
+                    ...(active
+                      ? { background: "var(--v2-color-accent)", color: "var(--text-inverse)" }
+                      : { background: "transparent", color: "var(--v2-text-secondary)" }),
+                  }}
+                >
+                  {b.label}
+                </button>
+              );
+            })}
+          </div>
+          <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.875rem", color: "var(--v2-text-secondary)" }} data-testid="pool-explainer">
+            {explainer}
+          </p>
+        </div>
+
+        {board === "peakWindows" && (
+          <div role="tablist" aria-label="Peak window duration" className="flex flex-wrap gap-1.5">
+            {WINDOW_OPTIONS.map((w) => {
+              const active = w.id === peakWindow;
+              return (
+                <button
+                  key={w.id}
+                  role="tab"
+                  aria-selected={active}
+                  data-testid={`peak-window-tab-${w.id}`}
+                  onClick={() => setPeakWindow(w.id)}
+                  className="v2-peak-window-tab text-xs font-semibold px-3 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                  style={
+                    active
+                      ? { background: "var(--v2-color-accent-dim, rgba(245,200,66,0.12))", color: "var(--v2-color-accent-text, var(--v2-color-accent))", border: "1px solid var(--v2-color-accent-dim)" }
+                      : { background: "var(--v2-bg-surface)", color: "var(--v2-text-secondary)", border: "1px solid var(--v2-border-subtle)" }
+                  }
+                >
+                  {w.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={board === "seasons" ? "Search players or seasons…" : "Search players…"}
+            aria-label="Search rankings"
+            data-testid="rankings-search"
+            className="flex-1 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+            style={{
+              fontFamily: "var(--v2-font-ui)",
+              background: "var(--v2-bg-surface)",
+              color: "var(--v2-text-primary)",
+              border: "1px solid var(--v2-border)",
+              borderRadius: "var(--v2-radius-control)",
+            }}
+          />
+          {isSorted && sortColumn && (
+            <div className="flex items-center gap-2 text-xs shrink-0" data-testid="active-sort-note" style={{ fontFamily: "var(--v2-font-ui)", color: "var(--v2-text-secondary)" }}>
+              <span>
+                Sorted by <strong style={{ color: "var(--v2-color-accent)" }}>{sortColumn.full}</strong>{" "}
+                {sortDirection === "desc" ? "high to low" : "low to high"}
+              </span>
+              <button
+                onClick={() => {
+                  setSortKey(DEFAULT_SORT_KEY);
+                  setSortDirection(DEFAULT_SORT_DIRECTION);
+                }}
+                data-testid="reset-sort-btn"
+                className="font-semibold uppercase tracking-wide px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                style={{ background: "var(--v2-bg-surface)", color: "var(--v2-text-secondary)", border: "1px solid var(--v2-border)", borderRadius: "var(--v2-radius-control)" }}
+              >
+                Reset
+              </button>
+            </div>
+          )}
+        </div>
+
+        {showComponents && <ComponentLegend />}
+
+        {error && (
+          <div role="alert" data-testid="rankings-error" className="p-4 text-sm text-center" style={{ fontFamily: "var(--v2-font-ui)", background: "var(--v2-bg-surface)", color: "var(--v2-color-negative)", borderRadius: "var(--v2-radius-control)" }}>
+            {error}
+          </div>
+        )}
+
+        {loading && !data && (
+          <div className="p-6 text-sm text-center" style={{ fontFamily: "var(--v2-font-ui)", background: "var(--v2-bg-surface)", color: "var(--v2-text-muted)", borderRadius: "var(--v2-radius-control)" }}>
+            Loading rankings…
+          </div>
+        )}
+
+        {data && (
+          <>
+            <PeakV2Rule spacing="sm" />
+            <h2 style={{ fontFamily: "var(--v2-font-ui)", fontSize: "1.0625rem", fontWeight: 700, color: "var(--v2-text-primary)" }} data-testid="rankings-board-heading">
+              {boardHeading}
+            </h2>
+            <div>
+              <RankingsTable
+                rows={shownRows}
+                sortKey={sortKey}
+                sortDirection={sortDirection}
+                onSort={handleSort}
+                showComponents={showComponents}
+                caption={`${boardHeading} — ranked by PEAK3 score. Select a row to see how the score was built.`}
+                emptyMessage={
+                  debouncedSearch
+                    ? `No rows match "${debouncedSearch}".`
+                    : "No rows available for this board."
+                }
+                labelHeading={board === "seasons" ? "Season" : "Window"}
+                selectedRowId={selectedRow?.row_id ?? null}
+                onSelectRow={openAnalysis}
+              />
+            </div>
+
+            {sortedRows.length > shownRows.length && (
+              <button
+                onClick={() => setVisible((v) => v + PAGE_SIZE)}
+                data-testid="rankings-show-more"
+                className="self-center text-xs font-semibold uppercase tracking-wide px-4 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                style={{ fontFamily: "var(--v2-font-ui)", background: "var(--v2-bg-surface)", color: "var(--v2-text-secondary)", border: "1px solid var(--v2-border)", borderRadius: "var(--v2-radius-control)" }}
+              >
+                Show more ({shownRows.length} of {sortedRows.length})
+              </button>
+            )}
+
+            <RankingsProvenance meta={data.meta} fallbackRowCount={rows.length} />
+          </>
+        )}
+      </div>
+
+      <RankingsAnalysis
+        row={selectedRow}
+        board={board}
+        boardLabel={boardLabel}
+        windowLabel={board === "peakWindows" ? peakWindow.toUpperCase() : null}
+        populationNoun={board === "seasons" ? "scored season" : "peak window"}
+        populationNounPlural={board === "seasons" ? "scored seasons" : "peak windows"}
+        boardRowCount={data?.meta.total_available ?? rows.length}
+        methodology={methodology}
+        onClose={closeAnalysis}
+        onNavigate={stepAnalysis}
+        hasPrevious={selectedIndex > 0}
+        hasNext={selectedIndex >= 0 && selectedIndex < sortedRows.length - 1}
+      />
+    </PeakV2Shell>
+  );
+
   return (
+    <UiVersionSwitch
+      legacy={
     <div className="v2-info-page min-h-screen px-4 py-8">
       <div className="mx-auto max-w-5xl flex flex-col gap-5">
         <header className="v2-info-page-head flex flex-col gap-1.5">
@@ -511,5 +708,8 @@ export default function RankingsPage() {
         hasNext={selectedIndex >= 0 && selectedIndex < sortedRows.length - 1}
       />
     </div>
+      }
+      v2={v2View}
+    />
   );
 }

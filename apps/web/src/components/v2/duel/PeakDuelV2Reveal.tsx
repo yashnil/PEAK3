@@ -8,9 +8,10 @@
  * awarded, difficulty/gap, streak/session total), five dot-on-line component
  * lanes (`PeakV2DataLane`, Pass 2.5's grammar) in FIXED left/right position —
  * never resorted by winner/loser — and one real server-generated explanation
- * line. Rounds 1-9 auto-advance from `GameEngine`'s own existing effect
- * (~1.2-1.5s); this component only renders the manual `onNext` control, the
- * same dispatched action legacy's `RevealPanel` already uses.
+ * line. The result stays on screen indefinitely; the player advances only by
+ * pressing "Next Matchup" / "See results", the same `onNext` (dispatched
+ * ADVANCE) action legacy's `RevealPanel` already uses. There is no auto-
+ * advance timer anywhere in Peak Duel — removed entirely, not hidden.
  */
 
 import PeakV2LiveHeader from "../PeakV2LiveHeader";
@@ -167,10 +168,10 @@ export default function PeakDuelV2Reveal({
 
       <div className="mt-6 flex items-center justify-between gap-3">
         <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
-          {isLast ? "Ready when you are." : "Continuing automatically…"}
+          Ready when you are.
         </p>
         <PeakV2PrimaryAction onClick={onNext} autoFocus>
-          {isLast ? "See results" : "Next duel"}
+          {isLast ? "See results" : "Next Matchup"}
         </PeakV2PrimaryAction>
       </div>
     </div>

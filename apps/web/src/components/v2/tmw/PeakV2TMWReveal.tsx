@@ -136,75 +136,118 @@ export default function PeakV2TMWReveal({
       data-ui-version="v2"
       data-stage={stage}
     >
-      <div className="mx-auto max-w-xl px-6 py-16 text-center">
+      {/* RESERVED GEOMETRY (Pass 7, human acceptance testing, task §10): the
+          outer shell above is already a fixed full-viewport overlay, but the
+          centered text block used to change height across intro/spinning/
+          locked/resolved -- read as "recentering" once a reel settled. Both
+          the intro block and the ceremony block are stacked in the SAME
+          grid cell (same technique already used for Peak Duel's cards/
+          reveal, see `game-engine.tsx`'s own comment on it) so this
+          container's height is always the TALLER of the two, never a
+          per-stage size; only the active one is opaque/interactive. Inside
+          the ceremony block, the handoff-label line is likewise always
+          reserved (kept mounted, `visibility: hidden` until resolved)
+          rather than popping into existence and pushing/recentering the
+          block beneath it. */}
+      <div className="mx-auto max-w-xl px-6 py-16 text-center flex flex-col items-center">
+      <div className="grid w-full" style={{ gridTemplateAreas: '"stack"' }}>
         {!roll ? (
-          <p style={{ fontFamily: "var(--v2-font-ui)", color: "var(--v2-text-secondary)" }}>Rolling the next franchise and decade…</p>
-        ) : showIntro && stage === "intro" ? (
-          <div>
-            <p style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--v2-color-accent)" }}>
-              PEAK3 Arena
-            </p>
-            <PeakV2ResultHeadline as="h1" scale="hero" className="mt-2">
-              Three-Man <PeakV2DisplayEmphasis>Weave</PeakV2DisplayEmphasis>
-            </PeakV2ResultHeadline>
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-4">
-              {(seats ?? []).map((seat) => (
-                <span
-                  key={seat.seat_index}
-                  style={{
-                    fontFamily: "var(--v2-font-ui)",
-                    fontWeight: 700,
-                    fontSize: "0.875rem",
-                    color: seat.seat_index === yourSeatIndex ? "var(--v2-color-accent)" : "var(--v2-text-secondary)",
-                  }}
-                >
-                  {seat.display_name}
-                  {seat.seat_index === yourSeatIndex ? " · You" : ""}
-                </span>
-              ))}
-            </div>
-            <p className="mt-4" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.875rem", color: "var(--v2-text-secondary)" }}>
-              {totalRounds} franchise × decade rounds. Build the best legal five and a bench.
-            </p>
-          </div>
+          <p style={{ gridArea: "stack", fontFamily: "var(--v2-font-ui)", color: "var(--v2-text-secondary)" }}>Rolling the next franchise and decade…</p>
         ) : (
-          <div>
-            <p style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--v2-text-muted)" }}>
-              Round {roundNumber ?? "—"} of {totalRounds} · everyone drafts from this
-            </p>
-            {/* `tmw-ceremony` is a CSS hook only (three-man-weave.css's real,
-                already-tuned `.tmw-ceremony .spin-reel-strip` aperture/mask/
-                payline rules) — reusing the exact real split-flap frame
-                rather than approximating it a second time. */}
-            <div className="tmw-ceremony mt-4 flex items-center justify-center gap-6">
-              <span style={{ fontFamily: "var(--v2-font-display)", fontSize: "var(--v2-display-size-line)", color: "var(--v2-text-primary)" }} data-seat-accent={seatAccent(0)}>
-                <SpinReel pool={franchisePool} target={roll.franchise_display_name} spinMs={plan.primaryMs} runKey={`${roll.roll_id}-franchise`} reduced={still} testId="tmw-roll-franchise" onSettled={noteSettled} />
-              </span>
-              <span aria-hidden="true" style={{ fontFamily: "var(--v2-font-display)", fontStyle: "italic", fontSize: "1.5rem", color: "var(--v2-color-accent)" }}>
-                ×
-              </span>
-              <span style={{ fontFamily: "var(--v2-font-display)", fontSize: "var(--v2-display-size-line)", color: "var(--v2-color-accent)" }}>
-                <SpinReel pool={DECADES} target={roll.decade} spinMs={plan.secondaryMs} runKey={`${roll.roll_id}-decade`} reduced={still} testId="tmw-roll-decade" onSettled={noteSettled} />
-              </span>
-            </div>
-            <p className="mt-4" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}>
-              {resolved ? `${roll.candidates.length} eligible ${roll.candidates.length === 1 ? "player" : "players"} still undrafted` : "Rolling…"}
-            </p>
-            {resolved && handoffLabel ? (
-              <p className="mt-2" style={{ fontFamily: "var(--v2-font-ui)", fontWeight: 700, fontSize: "0.875rem", color: "var(--v2-color-accent)" }}>
-                {handoffLabel}
+          <>
+            <div
+              style={{
+                gridArea: "stack",
+                opacity: showIntro && stage === "intro" ? 1 : 0,
+                visibility: showIntro && stage === "intro" ? "visible" : "hidden",
+                pointerEvents: showIntro && stage === "intro" ? "auto" : "none",
+              }}
+              aria-hidden={!(showIntro && stage === "intro")}
+            >
+              <p style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--v2-color-accent)" }}>
+                PEAK3 Arena
               </p>
-            ) : null}
-          </div>
-        )}
+              <PeakV2ResultHeadline as="h1" scale="hero" className="mt-2">
+                Three-Man <PeakV2DisplayEmphasis>Weave</PeakV2DisplayEmphasis>
+              </PeakV2ResultHeadline>
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-4">
+                {(seats ?? []).map((seat) => (
+                  <span
+                    key={seat.seat_index}
+                    style={{
+                      fontFamily: "var(--v2-font-ui)",
+                      fontWeight: 700,
+                      fontSize: "0.875rem",
+                      color: seat.seat_index === yourSeatIndex ? "var(--v2-color-accent)" : "var(--v2-text-secondary)",
+                    }}
+                  >
+                    {seat.display_name}
+                    {seat.seat_index === yourSeatIndex ? " · You" : ""}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-4" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.875rem", color: "var(--v2-text-secondary)" }}>
+                {totalRounds} franchise × decade rounds. Build the best legal five and a bench.
+              </p>
+            </div>
 
-        {onSkip ? (
-          <div className="mt-8">
-            <PeakV2SecondaryAction disabled={skipping} onClick={onSkip}>
-              {skipping ? "Starting…" : stage === "intro" ? "Skip intro" : resolved ? "Draft now" : "Skip reveal"}
-            </PeakV2SecondaryAction>
-          </div>
-        ) : null}
+            <div
+              style={{
+                gridArea: "stack",
+                opacity: showIntro && stage === "intro" ? 0 : 1,
+                visibility: showIntro && stage === "intro" ? "hidden" : "visible",
+                pointerEvents: showIntro && stage === "intro" ? "none" : "auto",
+              }}
+              aria-hidden={showIntro && stage === "intro"}
+            >
+              <p style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--v2-text-muted)" }}>
+                Round {roundNumber ?? "—"} of {totalRounds} · everyone drafts from this
+              </p>
+              {/* `tmw-ceremony` is a CSS hook only (three-man-weave.css's real,
+                  already-tuned `.tmw-ceremony .spin-reel-strip` aperture/mask/
+                  payline rules) — reusing the exact real split-flap frame
+                  rather than approximating it a second time. */}
+              <div className="tmw-ceremony mt-4 flex items-center justify-center gap-6">
+                <span style={{ fontFamily: "var(--v2-font-display)", fontSize: "var(--v2-display-size-line)", color: "var(--v2-text-primary)" }} data-seat-accent={seatAccent(0)}>
+                  <SpinReel pool={franchisePool} target={roll.franchise_display_name} spinMs={plan.primaryMs} runKey={`${roll.roll_id}-franchise`} reduced={still} testId="tmw-roll-franchise" onSettled={noteSettled} />
+                </span>
+                <span aria-hidden="true" style={{ fontFamily: "var(--v2-font-display)", fontStyle: "italic", fontSize: "1.5rem", color: "var(--v2-color-accent)" }}>
+                  ×
+                </span>
+                <span style={{ fontFamily: "var(--v2-font-display)", fontSize: "var(--v2-display-size-line)", color: "var(--v2-color-accent)" }}>
+                  <SpinReel pool={DECADES} target={roll.decade} spinMs={plan.secondaryMs} runKey={`${roll.roll_id}-decade`} reduced={still} testId="tmw-roll-decade" onSettled={noteSettled} />
+                </span>
+              </div>
+              <p className="mt-4" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}>
+                {resolved ? `${roll.candidates.length} eligible ${roll.candidates.length === 1 ? "player" : "players"} still undrafted` : "Rolling…"}
+              </p>
+              {/* Always mounted and reserved, never popping in -- only its
+                  visibility toggles once resolved (task §10: no resizing on
+                  reel settle). */}
+              <p
+                className="mt-2"
+                style={{
+                  fontFamily: "var(--v2-font-ui)",
+                  fontWeight: 700,
+                  fontSize: "0.875rem",
+                  color: "var(--v2-color-accent)",
+                  visibility: resolved && handoffLabel ? "visible" : "hidden",
+                }}
+              >
+                {handoffLabel || " "}
+              </p>
+            </div>
+          </>
+        )}
+      </div>
+
+      {onSkip ? (
+        <div className="mt-8">
+          <PeakV2SecondaryAction disabled={skipping} onClick={onSkip}>
+            {skipping ? "Starting…" : stage === "intro" ? "Skip intro" : resolved ? "Draft now" : "Skip reveal"}
+          </PeakV2SecondaryAction>
+        </div>
+      ) : null}
       </div>
     </div>
   );

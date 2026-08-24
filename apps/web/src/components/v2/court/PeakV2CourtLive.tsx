@@ -7,6 +7,13 @@
  * `PeakV2CourtSlotCard` renderer on top. The projected record renders as
  * the cinematic-number headline stat (`PeakV2Score role="moment"`), from
  * the real `live_build.provisional_record_range` — never a static number.
+ *
+ * Pass 7 (human acceptance testing, §5/§7): a single state banner now covers
+ * all four mutually-exclusive states -- minimized chooser waiting to reopen,
+ * a player staged and waiting to be placed, an existing player mid-move, or
+ * (quietly) rearrange being available with nothing active -- using the exact
+ * same `overlayMinimized`/`pending_selection`/`movingSlot` state
+ * `CourtBuilder` already computes for legacy. No new state, no new endpoint.
  */
 
 import PeakV2Shell from "../PeakV2Shell";
@@ -33,6 +40,16 @@ export interface PeakV2CourtLiveProps {
   onCancelMove: () => void;
   slotLabel: (slot: SlotType) => string;
   onComplete: () => void;
+  /** True whenever the chooser exists but is minimized -- the one moment
+   *  there is currently no way back into it (Pass 7, task §5). */
+  showResumeSelection: boolean;
+  onResumeSelection: () => void;
+  /** The name of the player already chosen and awaiting placement, or null
+   *  when nothing is pending. Drives the "PLACE [PLAYER]" banner (§7). */
+  pendingSelectionName: string | null;
+  /** Returns to the same round's already-revealed roll/candidate list --
+   *  never a respin, never a lost roll (mirrors legacy's "Switch selection"). */
+  onSwitchSelection: () => void;
 }
 
 export default function PeakV2CourtLive({
@@ -49,6 +66,10 @@ export default function PeakV2CourtLive({
   onCancelMove,
   slotLabel,
   onComplete,
+  showResumeSelection,
+  onResumeSelection,
+  pendingSelectionName,
+  onSwitchSelection,
 }: PeakV2CourtLiveProps) {
   function renderSlot(slot: CourtSlotPublic) {
     const pendingSlotFit = phase === "placing" ? state.pending_selection?.fit_by_open_slot?.[slot.slot_type] : undefined;
@@ -107,11 +128,51 @@ export default function PeakV2CourtLive({
           }
         />
 
-        {movingSlot != null ? (
+        {/* ONE stable contextual state banner (Pass 7, task §5/§7) -- exactly
+            one of these four states is ever true at once, so the player
+            always has a single, unambiguous read of "what is happening right
+            now" instead of competing hint/instruction lines. */}
+        {showResumeSelection ? (
+          <div
+            className="mt-3 rounded-xl p-3 flex items-center justify-between gap-3 flex-wrap"
+            style={{ background: "var(--v2-bg-plane)", border: "1px solid var(--v2-color-accent-dim, var(--v2-color-accent))" }}
+          >
+            <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}>
+              Round {state.current_round} is waiting on a player.
+            </p>
+            <PeakV2PrimaryAction size="sm" onClick={onResumeSelection}>
+              Open player pool
+            </PeakV2PrimaryAction>
+          </div>
+        ) : phase === "placing" && pendingSelectionName ? (
+          <div
+            className="mt-3 rounded-xl p-3 flex items-center justify-between gap-3 flex-wrap"
+            style={{ background: "var(--v2-bg-plane)", border: "1px solid var(--v2-color-accent-dim, var(--v2-color-accent))" }}
+          >
+            <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-primary)" }}>
+              <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--v2-color-accent)" }}>
+                Place
+              </span>{" "}
+              {pendingSelectionName} — choose any open spot; the fit badge shows how well they match it.
+            </p>
+            <button
+              type="button"
+              onClick={onSwitchSelection}
+              disabled={busy}
+              className="underline"
+              style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-secondary)" }}
+            >
+              Switch selection
+            </button>
+          </div>
+        ) : movingSlot != null ? (
           <p className="mt-3" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-color-accent)" }}>
-            Moving from {slotLabel(movingSlot)} — pick a destination. No re-spin, no cards lost.{" "}
+            <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+              Moving
+            </span>{" "}
+            {slotLabel(movingSlot)} — pick a destination. No re-spin, no cards lost.{" "}
             <button type="button" onClick={onCancelMove} className="underline">
-              Cancel
+              Cancel move
             </button>
           </p>
         ) : rearrangeAvailable ? (

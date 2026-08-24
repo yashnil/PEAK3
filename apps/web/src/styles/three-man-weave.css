@@ -1989,6 +1989,297 @@
   }
 }
 
+/* =============================================================================
+   Pass 7 (human acceptance testing) — V2 chrome for PickOverlay/PlacementBoard.
+   =============================================================================
+   CSS-ONLY. Zero changes to PickOverlay.tsx/PlacementBoard.tsx — both are
+   872-line-adjacent, correctness-critical stage/commit/timeout/reconnect
+   components, reused verbatim on purpose (same pattern Pass 4 used to skin
+   other legacy-logic-heavy components). Every rule here is scoped to
+   `[data-ui-version="v2"]` (set on <html> whenever V2 is genuinely active,
+   so it reaches this content everywhere including a portal — see
+   `ui-version.ts`/`Dialog.tsx`'s own docstring) and touches ONLY classes
+   already in the legacy markup; `?ui=legacy` matches none of these
+   selectors and is provably unaffected.
+
+   THE GEOMETRY FIX. `.tmw-overlay-head` (round/roll/seat) and
+   `.tmw-overlay-body` (candidate pool + roster/placement) are already
+   SIBLINGS in the existing DOM — the header never scrolled away, and the
+   body's own two columns already scroll independently
+   (`.tmw-overlay-list`/`.tmw-overlay-place` both have their own
+   `overflow-y: auto`). The ONE real bug was the outer `.tmw-overlay`'s
+   `max-height` being a CAP on intrinsic content rather than a reserved
+   height — exactly the same class of bug `PeakV2DockedPanel` had (see its
+   docstring), just in a different file. `height` (not `max-height`) below
+   is the same fix applied here. */
+[data-ui-version="v2"] .tmw-overlay {
+  height: min(46rem, calc(100dvh - 32px));
+  max-height: none;
+  border-color: var(--v2-border-emphasis);
+  border-radius: var(--v2-radius-modal);
+  background: var(--v2-bg-plane);
+  box-shadow: var(--v2-elev-modal);
+}
+
+@media (max-width: 760px) {
+  [data-ui-version="v2"] .tmw-overlay {
+    height: 94dvh;
+  }
+}
+
+[data-ui-version="v2"] .tmw-overlay-head {
+  background: var(--v2-bg-surface);
+  border-bottom: 1px solid var(--v2-border);
+}
+
+/* TIMER DEDUP, CORRECTED (Pass 7 human acceptance testing found the first
+   version of this fix regressed the OTHER way): a first attempt visually
+   hid this overlay's own `ArenaTimer` (`data-testid="tmw-overlay-clock"`)
+   on the theory that `PeakV2LiveHeader`'s always-mounted `PeakV2Timer`
+   instrument was THE one visible clock face. It is not, while this overlay
+   is open: the header sits BEHIND the overlay's own dimmed backdrop scrim,
+   so that instrument reads as a near-invisible ghost exactly during an
+   active pick -- the one moment a countdown matters most. A real screenshot
+   caught this; a DOM-presence check (the element still reports non-zero
+   bounding-box dimensions) could not, since ancestor backdrop dimming is a
+   paint-level effect, not a layout one.
+   RESTORED to visible: this overlay's OWN clock is part of the undimmed
+   foreground surface the player is actually looking at, so it is the
+   correct one to read from during a pick. The header's own instrument
+   stays as-is for the OTHER case it already serves well -- a bot's turn,
+   when no overlay is open and the header is the only clock on screen. A
+   quiet, muted duplicate sitting in the dimmed background behind an open
+   overlay is a acceptable tradeoff against the alternative (no visible
+   timer at all). */
+
+[data-ui-version="v2"] .tmw-overlay-round {
+  font-family: var(--v2-font-mono);
+  color: var(--v2-text-muted);
+}
+
+/* THE ONE GENUINE TYPOGRAPHY LEAK the audit found: this rule hardcoded
+   `var(--font-display)` (legacy Space Grotesk) even under `?ui=v2`. The
+   roll identity is exactly the kind of "major reveal identity" moment the
+   V2 semantic system reserves for the cinematic display role. */
+[data-ui-version="v2"] .tmw-overlay-title {
+  font-family: var(--v2-font-display);
+  color: var(--v2-text-primary);
+}
+
+[data-ui-version="v2"] .tmw-overlay-decade {
+  background: color-mix(in srgb, var(--v2-color-accent) 12%, transparent);
+  border-color: var(--v2-color-accent-dim, var(--v2-color-accent));
+  color: var(--v2-color-accent-text, var(--v2-color-accent));
+}
+
+[data-ui-version="v2"] .tmw-overlay-seat {
+  font-family: var(--v2-font-ui);
+  color: var(--v2-text-secondary);
+}
+
+[data-ui-version="v2"] .tmw-overlay-expired {
+  border-color: var(--v2-color-accent-dim, var(--v2-color-accent));
+  background: color-mix(in srgb, var(--v2-color-accent) 10%, transparent);
+  color: var(--v2-color-accent-text, var(--v2-color-accent));
+}
+
+[data-ui-version="v2"] .tmw-overlay-expired-dot {
+  background: var(--v2-color-accent);
+}
+
+[data-ui-version="v2"] .tmw-overlay-pool {
+  border-right-color: var(--v2-border-subtle);
+}
+
+[data-ui-version="v2"] .tmw-overlay-search input {
+  border-radius: var(--v2-radius-control);
+  border-color: var(--v2-border);
+  background: var(--v2-bg-page);
+  color: var(--v2-text-primary);
+  font-family: var(--v2-font-ui);
+}
+
+[data-ui-version="v2"] .tmw-filter-chip {
+  border-radius: var(--v2-radius-control);
+  background: var(--v2-bg-surface);
+  border-color: var(--v2-border);
+  font-family: var(--v2-font-mono);
+  color: var(--v2-text-secondary);
+}
+
+[data-ui-version="v2"] .tmw-filter-chip[aria-pressed="true"] {
+  border-color: var(--v2-color-accent);
+  background: var(--v2-color-accent);
+  color: var(--v2-text-inverse);
+}
+
+[data-ui-version="v2"] .tmw-filter-clear {
+  color: var(--v2-color-accent-text, var(--v2-color-accent));
+}
+
+[data-ui-version="v2"] .tmw-overlay-count {
+  font-family: var(--v2-font-mono);
+  color: var(--v2-text-secondary);
+}
+
+[data-ui-version="v2"] .tmw-candidate {
+  border-radius: var(--v2-radius-control);
+  border-color: var(--v2-border-subtle);
+  background: var(--v2-bg-surface);
+}
+
+[data-ui-version="v2"] .tmw-candidate:hover:not(:disabled) {
+  border-color: var(--v2-border);
+}
+
+[data-ui-version="v2"] .tmw-candidate[aria-pressed="true"],
+[data-ui-version="v2"] .tmw-candidate[aria-pressed="true"]:hover:not(:disabled),
+[data-ui-version="v2"] .tmw-candidate[aria-pressed="true"]:active:not(:disabled),
+[data-ui-version="v2"] .tmw-candidate[aria-pressed="true"]:focus-visible {
+  border-color: var(--v2-color-accent);
+  background: color-mix(in srgb, var(--v2-color-accent) 10%, transparent);
+  box-shadow: 0 0 0 1px var(--v2-color-accent);
+}
+
+[data-ui-version="v2"] .tmw-candidate-name {
+  font-family: var(--v2-font-ui);
+  color: var(--v2-text-primary);
+}
+
+[data-ui-version="v2"] .tmw-candidate-meta,
+[data-ui-version="v2"] .tmw-candidate-reason {
+  font-family: var(--v2-font-ui);
+  color: var(--v2-text-secondary);
+}
+
+[data-ui-version="v2"] .tmw-candidate-positions {
+  font-family: var(--v2-font-mono);
+  color: var(--v2-text-secondary);
+}
+
+/* Same three-tier legality meaning as legacy (fits now / fits after a
+   rearrangement / no legal arrangement), re-expressed with the V2-aliased
+   status tokens instead of legacy's seat-tone token — never the five
+   PEAK3 component colors, which this state is not. */
+[data-ui-version="v2"] .tmw-candidate-fit[data-fit="fits_now"] {
+  color: var(--v2-color-positive);
+}
+
+[data-ui-version="v2"] .tmw-candidate-fit[data-fit="fits_after_rearrangement"] {
+  color: var(--v2-color-accent-text, var(--v2-color-accent));
+}
+
+[data-ui-version="v2"] .tmw-candidate-fit[data-fit="no_legal_arrangement"] {
+  color: var(--v2-text-secondary);
+}
+
+[data-ui-version="v2"] .tmw-overlay-empty {
+  border-color: var(--v2-border);
+  background: var(--v2-bg-surface);
+}
+
+[data-ui-version="v2"] .tmw-overlay-empty-body {
+  font-family: var(--v2-font-ui);
+  color: var(--v2-text-secondary);
+}
+
+[data-ui-version="v2"] .tmw-overlay-empty-body strong {
+  color: var(--v2-text-primary);
+}
+
+[data-ui-version="v2"] .tmw-overlay-subhead {
+  font-family: var(--v2-font-mono);
+  color: var(--v2-text-secondary);
+}
+
+[data-ui-version="v2"] .tmw-place-instruction,
+[data-ui-version="v2"] .tmw-place-hint {
+  font-family: var(--v2-font-ui);
+  color: var(--v2-text-secondary);
+}
+
+[data-ui-version="v2"] .tmw-place-slot {
+  border-radius: var(--v2-radius-control);
+  border-color: var(--v2-border-subtle);
+  background: var(--v2-bg-surface);
+  color: var(--v2-text-primary);
+}
+
+[data-ui-version="v2"] .tmw-place-slot--interactive:hover {
+  border-color: var(--v2-border);
+}
+
+[data-ui-version="v2"] .tmw-place-slot[data-legal="true"],
+[data-ui-version="v2"] .tmw-place-slot.pk-lift[data-legal="true"]:hover,
+[data-ui-version="v2"] .tmw-place-slot.pk-lift[data-legal="true"]:focus-visible {
+  border-color: var(--v2-color-accent);
+  background: color-mix(in srgb, var(--v2-color-accent) 10%, transparent);
+  box-shadow: 0 0 0 1px var(--v2-color-accent);
+}
+
+[data-ui-version="v2"] .tmw-place-slots[data-mode="placing"] .tmw-place-slot[data-legal="false"],
+[data-ui-version="v2"] .tmw-place-slots[data-mode="moving"] .tmw-place-slot[data-legal="false"] {
+  border-color: var(--v2-border-subtle);
+  color: var(--v2-text-muted);
+}
+
+[data-ui-version="v2"] .tmw-place-slot[data-incoming="true"] {
+  border-color: var(--v2-color-accent);
+  background: color-mix(in srgb, var(--v2-color-accent) 10%, transparent);
+}
+
+[data-ui-version="v2"] .tmw-place-slot[data-vacating="true"] {
+  border-color: var(--v2-color-accent-dim, var(--v2-color-accent));
+}
+
+[data-ui-version="v2"] .tmw-place-slot[data-source="true"] {
+  border-color: var(--v2-color-accent);
+  box-shadow: 0 0 0 2px var(--v2-color-accent);
+}
+
+[data-ui-version="v2"] .tmw-place-tag {
+  font-family: var(--v2-font-mono);
+  color: var(--v2-text-secondary);
+}
+
+[data-ui-version="v2"] .tmw-place-open {
+  font-family: var(--v2-font-ui);
+  color: var(--v2-text-secondary);
+}
+
+[data-ui-version="v2"] .tmw-place-move,
+[data-ui-version="v2"] .tmw-place-swap {
+  font-family: var(--v2-font-mono);
+  color: var(--v2-color-accent-text, var(--v2-color-accent));
+}
+
+[data-ui-version="v2"] .tmw-place-rearrange {
+  border-color: var(--v2-color-accent-dim, var(--v2-color-accent));
+  background: color-mix(in srgb, var(--v2-color-accent) 8%, transparent);
+}
+
+[data-ui-version="v2"] .tmw-place-rearrange-head {
+  font-family: var(--v2-font-ui);
+  color: var(--v2-text-primary);
+}
+
+[data-ui-version="v2"] .tmw-place-rearrange-list {
+  font-family: var(--v2-font-ui);
+  color: var(--v2-text-secondary);
+}
+
+[data-ui-version="v2"] .tmw-place-choice {
+  font-family: var(--v2-font-ui);
+  color: var(--v2-text-secondary);
+}
+
+[data-ui-version="v2"] .tmw-place-choice select {
+  border-radius: var(--v2-radius-control);
+  border-color: var(--v2-border);
+  background: var(--v2-bg-page);
+  color: var(--v2-text-primary);
+}
+
 /* ---------------------------------------------------------------------------
    The finish (TMW-14)
    --------------------------------------------------------------------------- */

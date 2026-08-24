@@ -1,6 +1,8 @@
 /**
- * Peak Duel Daily (PEAK3 Pass 1): the five-second decision clock, left/right
- * side identity through the reveal, and the rounds 1-9 auto-advance loop.
+ * Peak Duel Daily: the ten-second decision clock, left/right side identity
+ * through the reveal, and the manual-only advance out of the reveal (no
+ * auto-advance anywhere in the loop — rounds 1-9 and round 10 both wait for
+ * an explicit press).
  *
  * `submitAnswer`/`postDailyResult` are mocked — this suite is about the game
  * loop's own state machine and timing, not the network layer. `ArenaTimer`'s
@@ -138,7 +140,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("the five-second decision clock", () => {
+describe("the ten-second decision clock", () => {
   it("auto-submits a null pick and reveals when the clock expires", async () => {
     const duel = mockDuel("d1");
     submitAnswer.mockResolvedValue(
@@ -163,7 +165,7 @@ describe("the five-second decision clock", () => {
     expect(screen.getByTestId("peak-duel-decision-clock")).toBeInTheDocument();
 
     await act(async () => {
-      vi.advanceTimersByTime(5250);
+      vi.advanceTimersByTime(10250);
     });
 
     expect(submitAnswer).toHaveBeenCalledWith(
@@ -223,8 +225,8 @@ describe("left/right side continuity", () => {
   });
 });
 
-describe("rounds 1-9 auto-advance", () => {
-  it("advances to the next duel automatically after the reveal", async () => {
+describe("no auto-advance — every round waits for a manual press", () => {
+  it("does not advance out of the reveal on its own, no matter how long it waits", async () => {
     const duels = [mockDuel("d1"), mockDuel("d2"), mockDuel("d3")];
     submitAnswer.mockResolvedValue(
       mockAnswer({
@@ -251,48 +253,17 @@ describe("rounds 1-9 auto-advance", () => {
     });
     expect(screen.getByText("Correct!")).toBeInTheDocument();
 
+    // Long past any plausible reveal-timer duration -- there is no timer to
+    // fire, so this must still be sitting on duel 1's reveal.
     await act(async () => {
-      vi.advanceTimersByTime(1400);
+      vi.advanceTimersByTime(60_000);
     });
 
-    expect(screen.getByText("2 / 3")).toBeInTheDocument();
+    expect(screen.getByText("Correct!")).toBeInTheDocument();
+    expect(screen.queryByText("2 / 3")).toBeNull();
   });
 
-  it("does not auto-advance out of the final round — it waits for a manual press", async () => {
-    const duels = [mockDuel("d1")];
-    submitAnswer.mockResolvedValue(
-      mockAnswer({
-        correct: true,
-        winningPeakId: duels[0].left.peak_id,
-        winnerSlug: "left-player",
-        loserSlug: "right-player",
-      })
-    );
-
-    render(
-      <GameEngine
-        mode="daily"
-        years={3}
-        duels={duels}
-        session_token="token"
-        date="2026-08-16"
-      />
-    );
-
-    fireEvent.click(screen.getByTestId("duel-card-left"));
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      vi.advanceTimersByTime(3000);
-    });
-
-    // Still on the reveal, not swept into the summary screen by a timer.
-    expect(screen.getByText("See results")).toBeInTheDocument();
-  });
-
-  it("a manual advance fires immediately and is not followed by a second, stale advance", async () => {
+  it("a manual press advances exactly one round", async () => {
     const duels = [mockDuel("d1"), mockDuel("d2"), mockDuel("d3")];
     submitAnswer.mockResolvedValue(
       mockAnswer({
@@ -320,13 +291,109 @@ describe("rounds 1-9 auto-advance", () => {
 
     fireEvent.click(screen.getByText("Next duel"));
     expect(screen.getByText("2 / 3")).toBeInTheDocument();
+  });
 
-    // The pending 1.3s auto-advance from the FIRST reveal must have been
-    // cancelled by the manual click — it must not fire a second ADVANCE and
-    // skip duel 2 straight to duel 3.
+  it("double-clicking the advance control cannot skip a round", async () => {
+    const duels = [mockDuel("d1"), mockDuel("d2"), mockDuel("d3")];
+    submitAnswer.mockResolvedValue(
+      mockAnswer({
+        correct: true,
+        winningPeakId: duels[0].left.peak_id,
+        winnerSlug: "left-player",
+        loserSlug: "right-player",
+      })
+    );
+
+    render(
+      <GameEngine
+        mode="daily"
+        years={3}
+        duels={duels}
+        session_token="token"
+        date="2026-08-16"
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("duel-card-left"));
     await act(async () => {
-      vi.advanceTimersByTime(2000);
+      await Promise.resolve();
     });
+
+    // Two rapid clicks on the same advance control (a real double-click) --
+    // the underlying reducer's own guard (`phase !== "revealing"` -> no-op,
+    // covered directly in game-state.test.ts) is what actually makes the
+    // second press inert; this asserts the observable outcome end-to-end:
+    // exactly one duel skipped, never two.
+    const nextButton = screen.getByText("Next duel");
+    fireEvent.click(nextButton);
+    fireEvent.click(nextButton);
     expect(screen.getByText("2 / 3")).toBeInTheDocument();
+    expect(screen.queryByText("3 / 3")).toBeNull();
+  });
+
+  it("does not advance out of the final round — it waits for a manual press", async () => {
+    const duels = [mockDuel("d1")];
+    submitAnswer.mockResolvedValue(
+      mockAnswer({
+        correct: true,
+        winningPeakId: duels[0].left.peak_id,
+        winnerSlug: "left-player",
+        loserSlug: "right-player",
+      })
+    );
+
+    render(
+      <GameEngine
+        mode="daily"
+        years={3}
+        duels={duels}
+        session_token="token"
+        date="2026-08-16"
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("duel-card-left"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+
+    // Still on the reveal, not swept into the summary screen by a timer.
+    expect(screen.getByText("See results")).toBeInTheDocument();
+  });
+
+  it("round 10 (the final round) still completes via the manual press", async () => {
+    const duels = [mockDuel("d1")];
+    submitAnswer.mockResolvedValue(
+      mockAnswer({
+        correct: true,
+        winningPeakId: duels[0].left.peak_id,
+        winnerSlug: "left-player",
+        loserSlug: "right-player",
+      })
+    );
+
+    render(
+      <GameEngine
+        mode="daily"
+        years={3}
+        duels={duels}
+        session_token="token"
+        date="2026-08-16"
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("duel-card-left"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    fireEvent.click(screen.getByText("See results"));
+    // The reveal is gone -- ChallengeSummary (or its V2 equivalent) has taken
+    // over, same completion flow as before this pass.
+    expect(screen.queryByText("See results")).toBeNull();
   });
 });

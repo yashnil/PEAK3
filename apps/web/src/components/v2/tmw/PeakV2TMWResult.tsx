@@ -314,6 +314,50 @@ export default function PeakV2TMWResult({
 
         <PeakV2Rule spacing="lg" />
 
+        {/* Pass 7 (human acceptance testing, task §14): a compact standings
+            strip bridges the hero (which only carried the WINNER's number)
+            and the full per-seat roster breakdown below — "who won, by how
+            much, and what each team looked like" should read in one glance,
+            not only after scrolling into six-row-deep receipts. Same `rows`
+            data the detailed blocks below already use; nothing invented. */}
+        <div className="flex flex-col gap-2" data-testid="tmw-standings">
+          {rows.map((row) => {
+            const isFirst = row.result.placement === 1;
+            const isYou = row.result.seat_index === yourSeatIndex;
+            return (
+              <div key={row.result.seat_index} className="flex items-baseline justify-between gap-3">
+                <span
+                  style={{
+                    fontFamily: "var(--v2-font-ui)",
+                    fontWeight: isFirst ? 700 : 500,
+                    fontSize: "0.875rem",
+                    color: isFirst ? "var(--v2-color-accent)" : "var(--v2-text-secondary)",
+                  }}
+                >
+                  <span style={{ fontFamily: "var(--v2-font-mono)", fontVariantNumeric: "tabular-nums" }}>
+                    {ordinal(row.result.placement)}
+                  </span>{" "}
+                  {row.result.display_name}
+                  {isYou ? <span style={{ color: "var(--v2-text-muted)" }}> · you</span> : null}
+                </span>
+                <span
+                  style={{
+                    fontFamily: "var(--v2-font-mono)",
+                    fontVariantNumeric: "tabular-nums",
+                    fontSize: "0.875rem",
+                    fontWeight: 700,
+                    color: isFirst ? "var(--v2-color-accent)" : "var(--v2-text-primary)",
+                  }}
+                >
+                  {row.score.kind === "scored" ? row.score.value.toFixed(1) : row.score.text}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        <PeakV2Rule spacing="lg" />
+
         {/* LIVE: all three complete rosters, hairline-divided — never three
             bordered cards side by side. */}
         <div>
