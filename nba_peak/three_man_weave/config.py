@@ -134,6 +134,19 @@ FORMULA_VERSION: Final[str] = "peak3_v1"
 # n=5 versus 89.17 / 71.87 at n=6. Six also keeps the roster shorter than
 # CourtBuilder's eight so a three-way draft finishes in a sane number of
 # rounds.
+#
+# NOTE ON THE ARITHMETIC ABOVE: `talent_core`/`bench_strength` and the
+# `(bench_strength - 50.0) * 0.12` term described here are the AUTHORITATIVE
+# EVALUATOR's own numbers (`compute_exact_fit_components`/`expected_wins_
+# base` in `perfect_season/simulation.py`), still computed exactly this way
+# and still correct for CourtBuilder's 8-card roster -- this paragraph's
+# roster-SHAPE reasoning (why 6 slots, not 5) is unaffected by anything
+# below. TMW's own displayed/settled score no longer USES that talent_core/
+# bench_strength split, though: `three_man_weave/evaluation.py`'s
+# `_tmw_lineup_quality` replaces it with a flat, equally-weighted mean across
+# all six cards, because with only ONE bench slot (not CourtBuilder's three)
+# that split gave the single bench player MORE raw weight than an individual
+# starter -- see that function's module comment for the full fix.
 STARTER_SLOT_TYPES: Final[tuple[str, ...]] = ("PG", "SG", "SF", "PF", "C")
 BENCH_SLOT_TYPES: Final[tuple[str, ...]] = ("bench_1",)
 

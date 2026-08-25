@@ -12,10 +12,16 @@
  *
  * 1. THE RANKING BASIS IS NAMED WHEREVER A WINNER IS DECLARED, AND THERE IS
  *    NO PROJECTED RECORD.
- *    The match is decided by the 82-0 model's LINEUP-QUALITY INDEX over the six
- *    drafted cards -- the weighted combination of talent, bench, position fit
- *    and coverage that its record projection is built from. It is deliberately
- *    NOT the mean of the six season scores (that mean is reported separately,
+ *    The match is decided by TMW's own LINEUP-QUALITY INDEX over the six
+ *    drafted cards -- built from the 82-0 model's fit components (position
+ *    fit, creation/scoring/postseason coverage), but with a flat, EQUALLY
+ *    WEIGHTED talent term across all six cards regardless of starter/bench
+ *    slot (bug fix: the raw 82-0 index weights a single bench slot
+ *    differently than a starter slot, which is correct for its own 8-card,
+ *    three-bench-slot roster and wrong for TMW's 6-card, one-bench-slot one
+ *    -- see `nba_peak/three_man_weave/evaluation.py`'s `_tmw_lineup_quality`
+ *    for the full accounting). It is deliberately NOT the mean of the six
+ *    season scores (that mean is reported separately,
  *    labelled, and decides nothing: it cannot tell a correctly-placed lineup
  *    from a scrambled one). And it is deliberately NOT a win total: the 82-0
  *    record projection is calibrated for an eight-card roster, so no record is
@@ -531,9 +537,9 @@ export const RANKING_BASIS_LABEL = "PEAK3 lineup score";
  * which is exactly what it is not, and what it used to be. */
 export function rankingBasisLabel(): string {
   return (
-    `Ranked on ${RANKING_BASIS_LABEL} — the 82-0 model's lineup-quality index ` +
-    "over these six seasons, weighing starter talent, bench, position fit and coverage. " +
-    "Not an average of the six scores."
+    `Ranked on ${RANKING_BASIS_LABEL} — a lineup-quality index over these six ` +
+    "seasons, weighing player talent (all six drafted cards, starter or bench, " +
+    "equally), position fit and coverage. Not an average of the six scores."
   );
 }
 
