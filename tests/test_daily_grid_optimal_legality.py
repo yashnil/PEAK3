@@ -29,6 +29,7 @@ from nba_peak.daily_grid.optimal import build_result, solve_optimal
 from nba_peak.daily_grid.pool import load_pool
 from nba_peak.daily_grid.scoring import score_cell
 from nba_peak.daily_grid.search import unused_answer_for_cell
+from nba_peak.daily_grid.validation import validate_answer
 
 SAMPLE_DATES = [
     "2026-01-01",
@@ -268,3 +269,73 @@ class TestLegalGridVsIsolatedMax:
         )
         with pytest.raises(RuntimeError, match="repeats a player"):
             build_result(board, _reference_fill(board, pool), pool=pool)
+
+
+class TestOptimalCacheDoesNotCollideAcrossTaxonomies:
+    """Regression for a real bug this pass found and fixed: `get_optimal`'s
+    cache was keyed on `board.board_id` alone, and `board_id` is derived only
+    from (date, version) -- see `generator.board_id()` -- never from the
+    board's actual rows/cols. Two DIFFERENT boards for the same date (one
+    built with the real default taxonomy, one with a caller-supplied
+    `constraints=`) share a board_id, so the second board's `get_optimal`
+    call silently returned the first board's mismatched solution.
+
+    Reproduced live: `test_daily_grid.py`'s `boards` fixture generates
+    "2026-11-11" via a custom `constraints=taxonomy`, calls `build_result` on
+    it (caching an optimal solution under board_id "daily-grid-v3-2026-11-11"),
+    and the real `get_board("2026-11-11")` board used here then got that
+    stale solution back -- a real reference fill scoring 865 against a
+    cached "optimal" of 813, exactly the impossible state
+    `test_the_legal_grid_is_never_beaten_in_total_by_a_real_board` exists to
+    catch. This test pins the fix directly, without depending on test
+    collection order across files."""
+
+    def test_two_boards_sharing_a_board_id_do_not_share_a_cached_solution(self, pool):
+        """Deterministic version of the organic reproduction (which depended
+        on two specific dates' score magnitudes and was not guaranteed to
+        fail on every seed/taxonomy pairing): construct a second board that
+        shares `board_id` with a real one by construction -- exactly the
+        situation `test_daily_grid.py`'s `boards` fixture created naturally
+        -- via `dataclasses.replace` on a DIFFERENT date's real board, rather
+        than by hoping a caller-supplied taxonomy happens to diverge enough
+        to expose the bug."""
+        import dataclasses
+
+        from nba_peak.daily_grid.optimal import _OPTIMAL_CACHE, _optimal_cache_key, get_optimal
+
+        real = get_board("2026-11-11")
+        other = get_board("2027-02-02")
+        assert real.board_id != other.board_id
+
+        # Same board_id as `real`, but `other`'s actual rows/cols/cells --
+        # the exact shape of the bug: two DIFFERENT boards, one board_id.
+        impostor = dataclasses.replace(other, board_id=real.board_id)
+        assert impostor.board_id == real.board_id
+        assert {c.id for c in impostor.rows} != {c.id for c in real.rows}
+
+        _OPTIMAL_CACHE.clear()
+        real_solution = get_optimal(real, pool=pool)
+        impostor_solution = get_optimal(impostor, pool=pool)
+
+        # The bug: keyed on board_id alone, this would be a cache HIT
+        # returning `real_solution` again, and `impostor_solution.cells`
+        # would name squares from `real`'s board, not `impostor`'s.
+        assert _optimal_cache_key(real) != _optimal_cache_key(impostor)
+        assert len(_OPTIMAL_CACHE) == 2
+        assert impostor_solution.cells != real_solution.cells
+
+        # And each solution is a genuinely valid, legal fill for its OWN
+        # board's actual cells -- not a mismatched answer key.
+        for board, solution in ((real, real_solution), (impostor, impostor_solution)):
+            used: set[str] = set()
+            for cell in solution.cells:
+                result = validate_answer(
+                    board,
+                    cell.row,
+                    cell.col,
+                    cell.player_season.id,
+                    used_player_slugs=used,
+                    pool=pool,
+                )
+                assert result.valid, (board.board_id, cell.row, cell.col, result.reason)
+                used.add(cell.player_season.player_slug)
