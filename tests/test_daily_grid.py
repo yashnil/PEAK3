@@ -15,11 +15,18 @@ import pytest
 from nba_peak.daily_grid import constraints as constraints_module
 from nba_peak.daily_grid.constraints import (
     COMPONENT_PERCENTILE,
+    DPOY_SEASON_START,
     FRANCHISES,
+    MIP_SEASON_START,
+    SMOY_SEASON_START,
+    V3_ADDED_CONSTRAINT_IDS,
     build_constraints,
     constraint_by_id,
 )
 from nba_peak.daily_grid.generator import (
+    CATEGORY_COOLDOWN_BOARDS,
+    DAILY_GRID_VERSION_V2,
+    DAILY_GRID_VERSION_V3,
     GRID_SIZE,
     GridBoard,
     GridCell as ModelGridCell,
@@ -33,10 +40,14 @@ from nba_peak.daily_grid.generator import (
     MIN_PLAYERS_PER_CELL,
     MIN_STRONG_OPTIONS,
     MIN_TEAM_CONSTRAINTS,
+    NOVELTY_CUTOVER_DATE,
+    PAIR_COOLDOWN_BOARDS,
     THEME_LABELS,
     _BOARD_CACHE,
     _BOARD_CACHE_MAX,
+    _legacy_v2_taxonomy,
     _native_allowance,
+    _version_for_date,
     BoardGenerationFailed,
     InvalidGridDate,
     board_id,
@@ -335,22 +346,43 @@ class TestDeterminism:
         """`date` is caller-supplied, so an unbounded cache would let date
         enumeration grow the process without limit. Eviction is safe: a board
         is a pure function of its date, so an evicted date regenerates to
-        exactly the same board."""
-        start = datetime.date(2030, 1, 1)
+        exactly the same board.
+
+        Starts the day after NOVELTY_CUTOVER_DATE (not some arbitrary far
+        future date) so this walk IS the v3 novelty history from its first
+        day -- a date further out would make its own first `get_board` prime
+        every intervening day first, which is correct but needlessly slow for
+        a test that is only exercising cache bounds.
+        """
+        from nba_peak.daily_grid.generator import NOVELTY_CUTOVER_DATE
+
+        start = datetime.date.fromisoformat(NOVELTY_CUTOVER_DATE) + datetime.timedelta(
+            days=1
+        )
         for offset in range(_BOARD_CACHE_MAX + 25):
             get_board((start + datetime.timedelta(days=offset)).isoformat())
         assert len(_BOARD_CACHE) <= _BOARD_CACHE_MAX
 
     def test_an_evicted_date_regenerates_identically(self):
-        first = get_board("2031-06-01")
+        """Same rationale as test_board_cache_is_bounded above for staying
+        close to NOVELTY_CUTOVER_DATE rather than years past it. Offset well
+        past that test's own range (it walks the cutover's first
+        _BOARD_CACHE_MAX + 25 days) so the two tests' cache-eviction walks
+        cannot leave each other's target already warm and mask what each is
+        actually meant to exercise."""
+        from nba_peak.daily_grid.generator import NOVELTY_CUTOVER_DATE
+
+        cutover = datetime.date.fromisoformat(NOVELTY_CUTOVER_DATE)
+        target = (cutover + datetime.timedelta(days=500)).isoformat()
+        first = get_board(target)
         signature = (
             tuple(c.id for c in first.rows),
             tuple(c.id for c in first.cols),
         )
-        start = datetime.date(2032, 1, 1)
+        start = cutover + datetime.timedelta(days=501)
         for offset in range(_BOARD_CACHE_MAX + 5):
             get_board((start + datetime.timedelta(days=offset)).isoformat())
-        again = get_board("2031-06-01")
+        again = get_board(target)
         assert (
             tuple(c.id for c in again.rows),
             tuple(c.id for c in again.cols),
@@ -1506,10 +1538,10 @@ class TestBoardQuality:
         """The constraint the whole design is built around: the theme is a
         DESCRIPTION, never a generation input. The axes, cells and difficulty
         are produced before any theme work and cannot see one."""
-        from nba_peak.daily_grid.generator import _board_core
+        from nba_peak.daily_grid.generator import _board_core, _version_for_date
 
         for date in SAMPLE_DATES:
-            core = _board_core(date, pool, taxonomy, "daily_grid.v2")
+            core = _board_core(date, pool, taxonomy, _version_for_date(date))
             board = generate_board(date, pool=pool, constraints=taxonomy)
             assert tuple(c.id for c in board.rows) == tuple(c.id for c in core.rows), date
             assert tuple(c.id for c in board.cols) == tuple(c.id for c in core.cols), date
@@ -1584,3 +1616,379 @@ class TestBoardQuality:
                 (tuple(c.id for c in board.rows), tuple(c.id for c in board.cols))
             )
         assert len(signatures) == 365
+
+
+# ---------------------------------------------------------------------------
+# Sixth Man of the Year / Most Improved Player + explicit season validity
+# ---------------------------------------------------------------------------
+
+class TestNewAwardCategories:
+    """Sixth Man of the Year and Most Improved Player, parsed from the same
+    `awards` string mvp_rank/dpoy_rank already come from (pool.py::_award_rank)
+    -- never a new or fabricated source."""
+
+    def test_smoy_and_mip_ship_as_award_constraints(self, taxonomy):
+        ids = {c.id for c in taxonomy}
+        assert {"award_smoy", "award_smoy_votes", "award_mip"} <= ids
+        for cid in ("award_smoy", "award_smoy_votes", "award_mip"):
+            assert constraint_by_id(cid).category == "award"
+
+    @pytest.mark.parametrize(
+        "constraint_id,valid_id,invalid_id",
+        [
+            # Bobby Jones won the first-ever Sixth Man of the Year, 1982-83.
+            ("award_smoy", "bobby-jones-198283-phi", "michael-jordan-199091-chi"),
+            # Alvin Robertson won the first-ever Most Improved Player, 1985-86.
+            ("award_mip", "alvin-robertson-198586-sas", "michael-jordan-199091-chi"),
+        ],
+    )
+    def test_known_valid_and_invalid_smoy_mip_examples(
+        self, taxonomy, pool, constraint_id, valid_id, invalid_id
+    ):
+        constraint = constraint_by_id(constraint_id, pool)
+        mask = constraint.matches(pool.frame)
+        ids = pool.frame["answer_id"].to_numpy()
+        matched = set(ids[mask].tolist())
+        assert valid_id in pool.by_id, f"fixture season missing from pool: {valid_id}"
+        assert invalid_id in pool.by_id, f"fixture season missing from pool: {invalid_id}"
+        assert valid_id in matched, f"{constraint_id} should match {valid_id}"
+        assert invalid_id not in matched, f"{constraint_id} should not match {invalid_id}"
+
+    def test_no_season_satisfies_dpoy_or_smoy_before_1982_83(self, taxonomy, pool):
+        """DPOY and Sixth Man of the Year were both introduced for the
+        1982-83 season -- never true before it, whatever the raw column
+        says."""
+        years = pool.frame["season_start_year"].to_numpy()
+        for constraint_id in (
+            "award_dpoy",
+            "award_dpoy_votes",
+            "award_smoy",
+            "award_smoy_votes",
+        ):
+            mask = constraint_by_id(constraint_id, pool).matches(pool.frame)
+            assert (years[mask] >= DPOY_SEASON_START).all(), constraint_id
+            assert (years[mask] >= SMOY_SEASON_START).all(), constraint_id
+
+    def test_no_season_satisfies_mip_before_1985_86(self, taxonomy, pool):
+        years = pool.frame["season_start_year"].to_numpy()
+        mask = constraint_by_id("award_mip", pool).matches(pool.frame)
+        assert (years[mask] >= MIP_SEASON_START).all()
+
+    def test_valid_from_is_explicit_and_correct_on_the_registry(self, taxonomy):
+        """Gap #2: validity must be provable by reading the registry, not
+        inferred from a column happening to be null."""
+        by_id = {c.id: c for c in taxonomy}
+        assert by_id["award_dpoy"].valid_from == DPOY_SEASON_START == 1982
+        assert by_id["award_dpoy_votes"].valid_from == DPOY_SEASON_START
+        assert by_id["award_smoy"].valid_from == SMOY_SEASON_START == 1982
+        assert by_id["award_smoy_votes"].valid_from == SMOY_SEASON_START
+        assert by_id["award_mip"].valid_from == MIP_SEASON_START == 1985
+        # A constraint whose real-world basis has no introduction date (team
+        # membership, a decade, a position) stays valid for the whole window.
+        assert by_id["team_lal"].valid_from is None
+        assert by_id["era_1990s"].valid_from is None
+        assert by_id["award_mvp"].valid_from is None
+
+    def test_matches_enforces_valid_from_even_if_the_mask_disagreed(self, pool):
+        """Defence in depth: Constraint.matches() ANDs in the season floor
+        itself, so a constraint's validity is never solely at the mercy of
+        its own mask logic. Proven directly by constructing a Constraint
+        whose mask is a lie (always True) and confirming valid_from still
+        wins."""
+        from nba_peak.daily_grid.constraints import Constraint
+
+        always_true = Constraint(
+            id="test_always_true",
+            label="test",
+            short_label="test",
+            category="award",
+            exclusive_group=None,
+            description="test",
+            mask=lambda f: (f["season_start_year"] >= 0).to_numpy(),
+            valid_from=1985,
+        )
+        mask = always_true.matches(pool.frame)
+        years = pool.frame["season_start_year"].to_numpy()
+        assert not mask[years < 1985].any()
+        assert mask[years >= 1985].all()
+
+
+# ---------------------------------------------------------------------------
+# v2 -> v3 cutover: historical-board stability + future determinism
+# ---------------------------------------------------------------------------
+
+class TestVersionCutover:
+    """A date at or before NOVELTY_CUTOVER_DATE must keep resolving EXACTLY
+    as it always has -- same seed, same taxonomy, same board -- forever, even
+    as the taxonomy and generation rules keep evolving for later dates. See
+    generator.py's NOVELTY_CUTOVER_DATE and _legacy_v2_taxonomy()."""
+
+    @pytest.mark.parametrize(
+        "date,expected_board_id,expected_rows,expected_cols,expected_attempts",
+        [
+            (
+                "2026-01-01",
+                "daily-grid-v2-2026-01-01",
+                ("team_uta", "team_nyk", "award_all_nba"),
+                ("outcome_made_playoffs", "outcome_missed_playoffs", "pos_forward"),
+                159,
+            ),
+            (
+                "2026-07-30",
+                "daily-grid-v2-2026-07-30",
+                ("team_bos", "award_stat_leader", "team_orl"),
+                ("era_2020s", "context_mpg_36", "era_1990s"),
+                40,
+            ),
+            (
+                # The cutover date itself is still legacy ("at or before").
+                "2026-08-25",
+                "daily-grid-v2-2026-08-25",
+                ("context_mpg_36", "outcome_conf_finals", "era_2010s"),
+                ("team_atl", "award_stat_leader", "pos_center"),
+                674,
+            ),
+        ],
+    )
+    def test_legacy_dates_resolve_to_their_recorded_board(
+        self, date, expected_board_id, expected_rows, expected_cols, expected_attempts
+    ):
+        """Regression pin: the exact boards these dates resolved to before
+        Sixth Man of the Year / Most Improved Player and the novelty system
+        shipped. This is what makes "historical boards keep resolving
+        identically" a checked property instead of an assumption about the
+        code's intent -- if a future change to the legacy path ever moves
+        one of these, this test is the one that catches it."""
+        board = get_board(date)
+        assert board.version == DAILY_GRID_VERSION_V2
+        assert board.board_id == expected_board_id
+        assert tuple(c.id for c in board.rows) == expected_rows
+        assert tuple(c.id for c in board.cols) == expected_cols
+        assert board.attempts == expected_attempts
+
+    def test_every_date_at_or_before_the_cutover_resolves_to_v2(self):
+        for date in ("1990-01-01", "2020-06-15", "2026-01-01", "2026-08-24", NOVELTY_CUTOVER_DATE):
+            assert _version_for_date(date) == DAILY_GRID_VERSION_V2, date
+
+    def test_every_date_after_the_cutover_resolves_to_v3(self):
+        day_after = (
+            datetime.date.fromisoformat(NOVELTY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        ).isoformat()
+        for date in (day_after, "2030-01-01", "2036-08-25"):
+            assert _version_for_date(date) == DAILY_GRID_VERSION_V3, date
+
+    @pytest.mark.parametrize("date", ["1990-01-01", "2020-06-15", "2025-12-25", "2026-08-25"])
+    def test_legacy_boards_never_use_a_v3_added_constraint(self, date):
+        """Even generated fresh from the LIVE registry (which now includes
+        Sixth Man of the Year / Most Improved Player), a legacy date's board
+        can never contain one -- the legacy taxonomy filter excludes them
+        structurally, not just by chance."""
+        board = get_board(date)
+        ids = {c.id for c in board.rows} | {c.id for c in board.cols}
+        assert not (ids & V3_ADDED_CONSTRAINT_IDS), (date, ids)
+
+    def test_legacy_taxonomy_is_the_full_taxonomy_minus_the_v3_additions(self, taxonomy):
+        legacy = _legacy_v2_taxonomy(taxonomy)
+        assert len(legacy) == len(taxonomy) - len(V3_ADDED_CONSTRAINT_IDS)
+        assert {c.id for c in legacy}.isdisjoint(V3_ADDED_CONSTRAINT_IDS)
+        # Order preserved -- generation samples from this list by index
+        # against a date-seeded RNG, so a legacy date's determinism depends
+        # on the relative order of its members never shifting.
+        legacy_ids = [c.id for c in legacy]
+        full_ids_minus_new = [c.id for c in taxonomy if c.id not in V3_ADDED_CONSTRAINT_IDS]
+        assert legacy_ids == full_ids_minus_new
+
+    def test_a_v3_window_can_actually_reach_the_new_award_categories(self):
+        """The flip side of test_legacy_boards_never_use_a_v3_added_constraint:
+        the cutover has to actually turn Sixth Man of the Year / Most Improved
+        Player ON for later dates, not just keep them off before it. Walks a
+        real window rather than asserting on one date, since composition and
+        novelty may keep any SINGLE date from drawing either one."""
+        start = datetime.date.fromisoformat(NOVELTY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        for offset in range(150):
+            date = (start + datetime.timedelta(days=offset)).isoformat()
+            board = get_board(date)
+            ids = {c.id for c in board.rows} | {c.id for c in board.cols}
+            if ids & V3_ADDED_CONSTRAINT_IDS:
+                return
+        pytest.fail("no Sixth Man of the Year / Most Improved Player axis appeared in 150 v3 days")
+
+
+class TestFutureDeterminism:
+    """Same date, same board, forever -- specifically for the v3 (post-
+    cutover, novelty-enabled) path, which TestDeterminism above does not
+    exercise directly."""
+
+    FUTURE_DATE = "2030-03-14"
+
+    def test_same_future_date_produces_identical_board_and_hash(self):
+        first = get_board(self.FUTURE_DATE)
+        second = get_board(self.FUTURE_DATE)
+        assert first.version == DAILY_GRID_VERSION_V3
+        assert [c.id for c in first.rows] == [c.id for c in second.rows]
+        assert [c.id for c in first.cols] == [c.id for c in second.cols]
+        assert first.board_hash == second.board_hash
+        assert first.attempts == second.attempts
+
+    def test_a_fresh_generation_matches_the_cached_one(self):
+        """Same property as test_get_board_cache_matches_fresh_generation
+        above, on the v3 path specifically -- generate_board() bypasses
+        _BOARD_CACHE but must still agree with get_board()."""
+        cached = get_board(self.FUTURE_DATE)
+        fresh = generate_board(self.FUTURE_DATE)
+        assert [c.id for c in cached.rows] == [c.id for c in fresh.rows]
+        assert [c.id for c in cached.cols] == [c.id for c in fresh.cols]
+        assert cached.seed == fresh.seed
+
+
+# ---------------------------------------------------------------------------
+# Novelty / cooldown: cross-day repetition
+# ---------------------------------------------------------------------------
+
+class TestNoveltyCooldown:
+    """Phase 12B (the human complaint this pass exists to close: "categories
+    becoming repetitive"). Composition rules (TestBoardQuality) make any
+    SINGLE board read like a basketball puzzle; nothing before this stopped
+    the same axis, or the same axis PAIR, from reappearing on a nearby date --
+    a cross-DAY property no single-board check can see. See generator.py's
+    "Novelty / cooldown" section for the full design writeup.
+
+    ON THE BOUNDS BELOW, NOT ABSOLUTE ZERO. Id-level cooldown is enforced by
+    removing a cooling-down id from the population `rng.sample` draws from
+    (see `_cooling_down_ids`), but that filter runs under a real, finite
+    attempt budget (`_PREFER_NOVELTY_UNTIL_ATTEMPT`) precisely because a
+    date's board must NEVER be allowed to fail generation purely because
+    novelty could not be satisfied -- an actual BoardGenerationFailed on any
+    v3 date would permanently break generation for every later date, since
+    `_recent_usage` needs that date's board to compute its own history. So a
+    small residual violation rate, from the rare day that exhausts its
+    strict-phase budget and falls back to unfiltered sampling, is an accepted
+    trade for that guarantee -- measured directly by the model-layer
+    simulation (`scripts/audit_daily_grid_novelty.py`) at ~10-11% for ids and
+    ~4-6% for pairs over runs from 150 days to 10 years. The bounds below are
+    that measurement with headroom, not an aspirational target.
+    """
+
+    WINDOW_DAYS = 365
+
+    def _walk(self, days):
+        start = datetime.date.fromisoformat(NOVELTY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        dates = [(start + datetime.timedelta(days=i)).isoformat() for i in range(days)]
+        id_last: dict[str, int] = {}
+        id_gaps: list[int] = []
+        pair_last: dict[frozenset, int] = {}
+        pair_gaps: list[int] = []
+        for idx, date in enumerate(dates):
+            board = get_board(date)
+            for constraint in list(board.rows) + list(board.cols):
+                if constraint.id in id_last:
+                    id_gaps.append(idx - id_last[constraint.id])
+                id_last[constraint.id] = idx
+            for row in board.rows:
+                for col in board.cols:
+                    pair = frozenset((row.id, col.id))
+                    if pair in pair_last:
+                        pair_gaps.append(idx - pair_last[pair])
+                    pair_last[pair] = idx
+        return id_gaps, pair_gaps
+
+    def test_no_board_ever_fails_to_generate_under_the_cooldown(self):
+        """The safety property the whole design leans on: novelty can make a
+        board harder to find, never impossible to find."""
+        start = datetime.date.fromisoformat(NOVELTY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        for offset in range(self.WINDOW_DAYS):
+            date = (start + datetime.timedelta(days=offset)).isoformat()
+            get_board(date)  # raises BoardGenerationFailed on any real failure
+
+    def test_cooldown_violation_rate_stays_low_over_a_year(self):
+        id_gaps, pair_gaps = self._walk(self.WINDOW_DAYS)
+        id_violations = sum(1 for g in id_gaps if g < CATEGORY_COOLDOWN_BOARDS)
+        pair_violations = sum(1 for g in pair_gaps if g < PAIR_COOLDOWN_BOARDS)
+        id_rate = id_violations / len(id_gaps)
+        pair_rate = pair_violations / len(pair_gaps)
+        assert id_rate < 0.20, id_rate
+        assert pair_rate < 0.12, pair_rate
+
+    @staticmethod
+    def _gap1_rate(dates, expected_version):
+        """Fraction of every axis SLOT (six per board) whose constraint id
+        also appeared on the immediately preceding board -- the "same
+        category two days running" complaint, measured directly rather than
+        assumed."""
+        last_seen: dict[str, int] = {}
+        gap1 = 0
+        total = 0
+        for idx, date in enumerate(dates):
+            board = get_board(date)
+            assert board.version == expected_version, (date, board.version)
+            for constraint in list(board.rows) + list(board.cols):
+                total += 1
+                if last_seen.get(constraint.id) == idx - 1:
+                    gap1 += 1
+                last_seen[constraint.id] = idx
+        return gap1 / total
+
+    def test_cooldown_sharply_reduces_immediate_repeats_vs_the_legacy_system(self):
+        """The direct "actually reduces repeat frequency" comparison: the
+        legacy (v2) system never had any cross-day memory at all, so its
+        immediate-repeat (an axis reappearing on the VERY NEXT board) rate is
+        the honest "no cooldown" baseline -- not a synthetic one. A v3 window
+        of the same length must show a substantially lower rate."""
+        legacy_start = datetime.date(2024, 1, 1)
+        legacy_dates = [
+            (legacy_start + datetime.timedelta(days=i)).isoformat() for i in range(200)
+        ]
+        v3_start = datetime.date.fromisoformat(NOVELTY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        v3_dates = [(v3_start + datetime.timedelta(days=i)).isoformat() for i in range(200)]
+
+        legacy_rate = self._gap1_rate(legacy_dates, DAILY_GRID_VERSION_V2)
+        v3_rate = self._gap1_rate(v3_dates, DAILY_GRID_VERSION_V3)
+
+        assert legacy_rate > 0.08, legacy_rate  # sanity: the comparison means something
+        assert v3_rate < legacy_rate / 2, (v3_rate, legacy_rate)
+
+    def test_every_registered_category_is_reachable(self, taxonomy):
+        """No constraint the taxonomy ships is dead weight -- every id shows
+        up on at least one real board somewhere in a long enough window.
+        Walks both a legacy stretch and a v3 stretch, since the two draw from
+        different (v2-frozen vs full) taxonomies -- Sixth Man of the Year /
+        Most Improved Player can only ever appear in the v3 half, and a
+        handful of the rarer team ids need the full 1,000-day window on
+        either side to show up at all (measured empirically: 900 was not
+        always enough, so this keeps a margin above that rather than
+        chasing the exact minimum)."""
+        seen: set[str] = set()
+        legacy_start = datetime.date(2020, 1, 1)
+        for offset in range(1000):
+            date = (legacy_start + datetime.timedelta(days=offset)).isoformat()
+            board = get_board(date)
+            seen |= {c.id for c in board.rows} | {c.id for c in board.cols}
+
+        v3_start = datetime.date.fromisoformat(NOVELTY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        for offset in range(1000):
+            date = (v3_start + datetime.timedelta(days=offset)).isoformat()
+            board = get_board(date)
+            seen |= {c.id for c in board.rows} | {c.id for c in board.cols}
+
+        unreached = {c.id for c in taxonomy} - seen
+        assert not unreached, unreached
+
+
+# ---------------------------------------------------------------------------
+# Non-empty intersections: zero- and one-answer cells must be structurally
+# impossible, not just empirically rare.
+# ---------------------------------------------------------------------------
+
+class TestNoImpossibleCells:
+    def test_no_generated_cell_ever_has_zero_or_one_answers(self, boards):
+        """MIN_ANSWERS_PER_CELL (6) already makes this true by construction --
+        this test exists so a future change to that floor cannot silently
+        reintroduce an impossible or trivially-guessable cell without a test
+        noticing."""
+        for date, board in boards.items():
+            for cell in board.cells:
+                assert cell.answer_count >= 2, (date, cell.row, cell.col, cell.answer_count)
+                assert cell.answer_count != 1, (date, cell.row, cell.col)
+
+    def test_the_floor_itself_is_well_above_the_brief(self):
+        assert MIN_ANSWERS_PER_CELL >= 3
