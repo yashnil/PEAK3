@@ -112,16 +112,20 @@ async function axeClean(page: Page, context: string): Promise<void> {
 }
 
 test.describe("both games are reachable through normal navigation", () => {
-  test("the homepage lists them under Multiplayer and links to the lobby", async ({ page }) => {
+  test("the homepage lists them in the game slate and links to the lobby", async ({ page }) => {
+    // V2's homepage lists every multiplayer mode as its own game-slate cell
+    // (Pass 2, product-direction) rather than a separate "Multiplayer" band
+    // with one shared generic lobby link — each cell links DIRECTLY into
+    // the lobby with its game pre-selected (arena-readiness-server.ts:
+    // `href: /arena/lobby?game=${meta.id}`), which is the real navigation
+    // path this repository serves today.
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    const band = page.getByTestId("home-multiplayer-grid");
-    await expect(band).toBeVisible();
-    await expect(page.getByTestId("home-three_man_weave-card")).toBeVisible();
-    await expect(page.getByTestId("home-twenty_dollar-card")).toBeVisible();
-    await expect(page.getByTestId("home-multiplayer-lobby-link")).toHaveAttribute(
-      "href",
-      "/arena/lobby",
-    );
+    const tmwCard = page.getByTestId("home-three_man_weave-card");
+    const showdownCard = page.getByTestId("home-twenty_dollar-card");
+    await expect(tmwCard).toBeVisible();
+    await expect(showdownCard).toBeVisible();
+    await expect(tmwCard).toHaveAttribute("href", /^\/arena\/lobby/);
+    await expect(showdownCard).toHaveAttribute("href", /^\/arena\/lobby/);
   });
 
   test("the Arena catalog lists them", async ({ page }) => {

@@ -25,15 +25,18 @@ function ModeGroupRow({
   description,
   href,
   cta,
+  testId,
 }: {
   title: string;
   description: string;
   href: string;
   cta: string;
+  testId?: string;
 }) {
   return (
     <a
       href={href}
+      data-testid={testId}
       className="flex items-center justify-between gap-4 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
       style={{ borderBottom: "1px solid var(--v2-border-subtle)" }}
     >
@@ -115,9 +118,16 @@ export default function ArenaPageV2({
           <PeakV2Rule spacing="md" />
           <section aria-labelledby="v2-arena-multiplayer">
             <PeakV2LiveHeader as="h2" title="Multiplayer · live games" subtitle="Play other people in real time. Bots fill any empty seat." rule={false} />
-            <div className="mt-1 flex flex-col">
+            <div className="mt-1 flex flex-col" data-testid="arena-multiplayer-grid">
               {arenaCatalogue.modes.map((mode) => (
-                <ModeGroupRow key={mode.id} title={mode.name} description={mode.description} href={mode.href} cta="Find a game" />
+                <ModeGroupRow
+                  key={mode.id}
+                  testId={`arena-${mode.id}-card`}
+                  title={mode.name}
+                  description={mode.description}
+                  href={mode.href}
+                  cta="Find a game"
+                />
               ))}
             </div>
           </section>

@@ -437,7 +437,7 @@ export default function CourtBuilder({
   // reuses `SpinStage`/`EligiblePlayerSearch` verbatim (see its own
   // docstring); only the chrome around them and the court itself are new.
   const v2View = (
-    <>
+    <div data-testid="court-builder">
       {/* A rejected action (a bad respin, a stale placement, …) — same
           `error` state legacy's own banner reads, previously computed and
           silently dropped for V2 players (nothing here read it at all). */}
@@ -523,7 +523,7 @@ export default function CourtBuilder({
           onHint={handleHint}
         />
       )}
-    </>
+    </div>
   );
 
   return (

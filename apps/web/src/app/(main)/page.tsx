@@ -54,6 +54,7 @@ export default async function HomePage() {
       multiplayerModes={
         arenaCatalogue.available
           ? arenaCatalogue.modes.map((mode) => ({
+              id: mode.id,
               href: mode.href,
               title: mode.name,
               description: mode.description,

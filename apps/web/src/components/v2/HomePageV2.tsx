@@ -61,6 +61,9 @@ export interface HomePageV2Mode {
   description: string;
   /** Short instrument-role tag, e.g. "5 QUESTIONS", "3 COURTS", "24 LOTS". Real, never fabricated. */
   tag?: string;
+  /** Stable catalogue id (e.g. "three_man_weave"), when the mode came from
+   *  one — drives this cell's `data-testid` for e2e navigation coverage. */
+  id?: string;
 }
 
 export interface HomePageV2Props {
@@ -111,7 +114,11 @@ const COMPONENT_ORDER: RankingComponentKey[] = [
  *  markup so the strip never has one visually different cell). */
 export function ModeSlateCell({ mode, badge }: { mode: HomePageV2Mode; badge?: string }) {
   return (
-    <Link href={mode.href} className="v2-slate-cell group">
+    <Link
+      href={mode.href}
+      className="v2-slate-cell group"
+      data-testid={mode.id ? `home-${mode.id}-card` : undefined}
+    >
       <span className="v2-slate-cell-head">
         {mode.tag ? <span className="v2-slate-cell-tag">{mode.tag}</span> : null}
         {badge ? <span className="v2-slate-cell-badge">{badge}</span> : null}
