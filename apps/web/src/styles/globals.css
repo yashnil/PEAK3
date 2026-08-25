@@ -833,6 +833,20 @@ html, body {
   top: 16px;
 }
 
+/* Font-leak fix (app-wide V2 audit): this element and the auth shell below
+   predate the V2 pass and never got a V2 branch, so they fell through to
+   the legacy body default (--font-inter) instead of one of V2's three
+   system typefaces even while <html data-ui-version="v2"> was set. */
+[data-ui-version="v2"] .skip-link {
+  font-family: var(--v2-font-ui, inherit);
+}
+
+[data-ui-version="v2"] .auth-shell-title,
+[data-ui-version="v2"] .auth-shell-subtitle,
+[data-ui-version="v2"] .auth-shell-wordmark {
+  font-family: var(--v2-font-ui, inherit);
+}
+
 /* ================================================================
    CourtBuilder spin ceremony (Phase 5X.2)
    Pure CSS keyframes -- automatically neutralized by the global
