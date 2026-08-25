@@ -224,7 +224,7 @@ describe("opening the analysis", () => {
       "individual_recognition",
       "postseason_individual_value",
       "team_achievement",
-      "data_completeness",
+      "total",
     ]) {
       expect(within(table).getByTestId(`rk-detail-row-${key}`)).toBeInTheDocument();
     }
