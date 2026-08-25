@@ -10,6 +10,17 @@ either of those games' seeds. Everything downstream -- candidate sampling,
 acceptance order -- is driven by a single random.Random(seed), so the whole
 generator is a pure function of (date, version).
 
+`version` itself is a pure function of the date when a caller does not pin
+one explicitly -- see NOVELTY_CUTOVER_DATE and `_version_for_date()`. A
+taxonomy revision (new constraint ids, a new composition or novelty rule)
+changes what `rng.sample()` returns for EVERY date once the population it
+samples from changes shape, so "same date always resolves the same" and
+"the taxonomy may still evolve" can only both be true if a date on the far
+side of a revision keeps resolving through the taxonomy (and version salt)
+that was actually in force when it shipped. The cutover date is that
+boundary, threaded through grid_seed/board_id/generation rather than left to
+whatever DAILY_GRID_VERSION happens to equal today.
+
 SOLVABILITY
 A board is only published if it passes every one of these, checked against
 the real answer pool at generation time (there is no "probably fine"):
@@ -66,7 +77,11 @@ from typing import Optional, Sequence
 
 import numpy as np
 
-from nba_peak.daily_grid.constraints import Constraint, all_constraints
+from nba_peak.daily_grid.constraints import (
+    Constraint,
+    V3_ADDED_CONSTRAINT_IDS,
+    all_constraints,
+)
 from nba_peak.daily_grid.pool import GridPool, load_pool
 from nba_peak.daily_key import (
     InvalidDailyKey,
@@ -78,7 +93,66 @@ from nba_peak.daily_key import (
 # v2: Phase 11C. The composition rules changed enough that every date's board
 # changes, so the version salt moves with them -- a v1 board_id must never
 # resolve to a v2 board (it is also the client's progress key).
-DAILY_GRID_VERSION = "daily_grid.v2"
+DAILY_GRID_VERSION_V2 = "daily_grid.v2"
+
+# v3: adds Sixth Man of the Year / Most Improved Player (constraints.py),
+# explicit season-validity gating, and the novelty/cooldown system below that
+# keeps a specific axis or axis PAIR from reappearing too soon. Effective
+# only for a board date strictly after NOVELTY_CUTOVER_DATE -- see
+# _version_for_date(). A v2 date must keep resolving under v2 forever, which
+# is the whole reason this is a new symbol rather than a reassignment of the
+# old one.
+DAILY_GRID_VERSION_V3 = "daily_grid.v3"
+
+# The symbol every external caller imports as "the current taxonomy version".
+# Code that needs to know what a SPECIFIC DATE's board actually resolves
+# under -- generation, the seed, the board id -- must go through
+# _version_for_date(date_str), never this constant directly, because a date
+# at or before the cutover has to keep resolving under v2 even after this
+# constant moves on to v4, v5, etc.
+DAILY_GRID_VERSION = DAILY_GRID_VERSION_V3
+
+# THE CUTOVER. A board date <= this value resolves EXACTLY as it always has:
+# same version salt (v2), same frozen v2 taxonomy (no Sixth Man of the Year /
+# Most Improved Player, no novelty system), same seed, same board_id -- see
+# _legacy_v2_taxonomy(). Only a date strictly AFTER this picks up v3. Set to
+# the date this taxonomy revision shipped, so no board a real player could
+# already have seen (today's included) is touched.
+NOVELTY_CUTOVER_DATE = "2026-08-25"
+
+
+def _version_for_date(date_str: str) -> str:
+    """Which taxonomy version `date_str` resolves under, absent an explicit
+    override.
+
+    Plain string comparison: YYYY-MM-DD sorts chronologically, and the caller
+    is always a date that has already been through validate_grid_date. Pure
+    and total -- every date is on exactly one side of the cutover.
+    """
+    return (
+        DAILY_GRID_VERSION_V2
+        if date_str <= NOVELTY_CUTOVER_DATE
+        else DAILY_GRID_VERSION_V3
+    )
+
+
+def _legacy_v2_taxonomy(taxonomy: Sequence[Constraint]) -> list[Constraint]:
+    """Reconstruct the EXACT v2 constraint list -- same members, same
+    relative order -- by filtering the v3-added ids back out of the current
+    full taxonomy.
+
+    Why filtering rather than maintaining a second registry: constraints.py
+    only ever APPENDS new constraints to the end of their category block (its
+    own stated convention), so removing exactly the ids that did not exist in
+    v2 reproduces v2's list byte-for-byte in composition -- and generation
+    samples from this list by index against a date-seeded RNG
+    (`rng.sample(taxonomy, ...)`), so the length and order of the population
+    passed in is itself part of what a legacy date's determinism depends on.
+    Silently leaving new constraints in for an old date would reshuffle what
+    every past board resolves to, even the ones nothing about this change
+    touches.
+    """
+    return [c for c in taxonomy if c.id not in V3_ADDED_CONSTRAINT_IDS]
 
 # Namespace prefix -- never share a raw date salt with another game's daily
 # seed (same discipline as nba_peak/perfect_season/daily.py).
@@ -160,6 +234,98 @@ _PREFER_SPICE_UNTIL_ATTEMPT = 2500
 # _PREFER_SPICE_UNTIL_ATTEMPT rather than sitting just above the observed
 # worst case (~2,700 attempts over a 365-day sample of v2 boards).
 _MAX_ATTEMPTS = 8000
+
+# ---------------------------------------------------------------------------
+# Novelty / cooldown (v3+) -- see NOVELTY_CUTOVER_DATE above.
+#
+# THE GAP THIS CLOSES. Composition rules (above) make any SINGLE board read
+# like a basketball puzzle; nothing before this stopped the same axis, or the
+# same axis PAIR ("Lakers x MVP"), from resolving again on a nearby date --
+# the generator had no notion of what recent boards even were. That is the
+# repetition players actually notice, and it is a cross-DAY property, so it
+# cannot be fixed inside `_composition_ok`, which only ever sees one board.
+#
+# DESIGN. Before sampling a date's board, `_recent_usage` records, for every
+# constraint id and every (row, col) CELL PAIR seen on the most recently
+# published v3 boards (never crossing the cutover -- a legacy board's axes
+# are not part of this bookkeeping), how many boards ago that was.
+#
+# Id-level cooldown is then enforced by REMOVING those ids from the
+# population `rng.sample` draws from (see `_cooling_down_ids` in
+# `_generate_core`), not by rejecting six-axis candidates that happen to
+# contain one after the fact. That distinction matters more than it looks: an
+# early version of this pass rejected post-hoc instead, and because
+# composition already makes a random six-axis draw succeed only rarely (the
+# anchor categories -- award/outcome/era -- have the smallest pools, so the
+# combinations composition actually accepts are concentrated there), an id
+# cooldown checked ex-post compounds that rarity multiplicatively rather than
+# adding to it -- the model-layer simulation measured it burning nearly the
+# whole attempt budget on most dates. Filtering the population up front means
+# every draw already satisfies the id cooldown, so composition keeps its
+# original odds and only the much rarer PAIR cooldown (`_pair_novelty_ok`)
+# still needs to reject after the fact.
+#
+# WHY THIS CANNOT STARVE GENERATION. The soft/hard split below (
+# _PREFER_NOVELTY_UNTIL_ATTEMPT) is the safety margin: the strict phase gets a
+# real budget of attempts against the filtered population, and if it does not
+# succeed inside that budget, generation falls back to the UNFILTERED
+# taxonomy for its remaining attempts -- identical to composition-only
+# generation, whose own worst case is far below the remaining budget (see the
+# model-layer simulation). A date's board is therefore never allowed to fail
+# purely because novelty could not be satisfied, exactly the same shape as
+# the existing spice preference above -- and CRITICALLY so: an actual
+# BoardGenerationFailed on any past v3 date would permanently break every
+# later date too, since `_recent_usage` needs that date's board to compute
+# ITS OWN history.
+
+# An axis id used on any of the last this-many published boards may not
+# reappear. Sized empirically, not just relative to the taxonomy's raw count:
+# the categories composition leans on hardest (award/outcome/era, the anchor
+# pools) are also its SMALLEST, so the id cooldown was measured directly (see
+# scripts/audit_daily_grid_novelty.py) against composition rather than
+# assumed safe from pool size alone. 6 boards produced generation attempts
+# that regularly ran past budget once award/era/outcome ids were disqualified
+# from a large share of the anchor pool at once; 3 keeps the id-level filter
+# (see `_cooling_down_ids`) from ever excluding enough of the anchor
+# categories to make composition itself hard to satisfy.
+CATEGORY_COOLDOWN_BOARDS = 3
+
+# An exact (row, col) CELL PAIR -- the specific matchup a player actually
+# sees, e.g. "Lakers x MVP" -- may not reappear for longer. Pairs have far
+# more headroom than single ids (thousands of possible id combinations
+# against nine consumed per board), so this window can be, and is, longer
+# than the per-id one without risking the same starvation. Also tuned
+# empirically alongside CATEGORY_COOLDOWN_BOARDS rather than picked from pool
+# size alone, for the same reason.
+PAIR_COOLDOWN_BOARDS = 10
+
+# How many boards of history `_recent_usage` actually walks. Must cover the
+# longer of the two cooldowns above.
+NOVELTY_HISTORY_WINDOW = max(CATEGORY_COOLDOWN_BOARDS, PAIR_COOLDOWN_BOARDS)
+
+# Attempts spent insisting on the strict novelty filter before falling back to
+# ordinary (non-novelty-filtered) generation, drawing from the FULL taxonomy.
+# Mirrors _PREFER_SPICE_UNTIL_ATTEMPT: a preference, never a requirement that
+# could cost a date its board. The gap to _MAX_ATTEMPTS below (4,000 attempts)
+# is deliberately generous -- several times the worst composition-only
+# attempt count measured over a multi-year simulation (see
+# scripts/audit_daily_grid_novelty.py) -- because an actual
+# BoardGenerationFailed on any v3 date does not just cost that date: every
+# LATER date's `_recent_usage` needs this date's board to compute its own
+# history, so a single exhausted budget here would permanently break
+# generation for every date after it.
+_PREFER_NOVELTY_UNTIL_ATTEMPT = 4000
+
+# Per-date (row ids, col ids) for every v3 date this process has ever
+# generated -- see `_axis_fingerprint_for`. Deliberately NOT bounded like
+# `_CORE_CACHE`: it holds six short strings per date rather than a full
+# answer key, and decoupling it from `_CORE_CACHE`'s eviction is what makes
+# `_recent_usage` safe against both the quadratic-cost and the
+# RecursionError failure modes documented on that function. Process-global,
+# same "a fresh process just re-derives it" guarantee as every other cache
+# here: it is a performance cache of "what did this date's board already
+# turn out to be", never an input any board's content depends on.
+_AXIS_FINGERPRINT_CACHE: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {}
 
 
 def _native_allowance(seed: int) -> int:
@@ -250,27 +416,33 @@ def validate_grid_request_date(date_str: str, *, now: datetime | None = None) ->
         raise InvalidGridDate(str(exc)) from exc
 
 
-def grid_seed(date_str: str, version: str = DAILY_GRID_VERSION) -> int:
+def grid_seed(date_str: str, version: str | None = None) -> int:
     """The deterministic board seed for one date.
 
     Pure: no clock read, no randomness, no I/O. `version` is part of the salt
     so a future taxonomy revision can reshuffle boards intentionally without
-    colliding with v1's history.
+    colliding with an earlier version's history. Left as None (the default),
+    it resolves via `_version_for_date` -- v2 for a date at or before
+    NOVELTY_CUTOVER_DATE, v3 after -- so a legacy date keeps its original
+    seed even after DAILY_GRID_VERSION itself moves on.
     """
     validate_grid_date(date_str)
-    raw = f"{_SEED_NAMESPACE}:{version}:{date_str}"
+    resolved_version = version if version is not None else _version_for_date(date_str)
+    raw = f"{_SEED_NAMESPACE}:{resolved_version}:{date_str}"
     return int(hashlib.sha256(raw.encode()).hexdigest(), 16) % _SEED_MODULUS
 
 
-def board_id(date_str: str, version: str = DAILY_GRID_VERSION) -> str:
-    """Stable id for one daily board, e.g. 'daily-grid-v1-2026-07-30'.
+def board_id(date_str: str, version: str | None = None) -> str:
+    """Stable id for one daily board, e.g. 'daily-grid-v2-2026-07-30'.
 
     Used as the client-side progress key, so it must stay stable for a given
     (date, version) forever -- and must CHANGE when the date changes, which
-    is what makes yesterday's saved progress fall away on its own.
+    is what makes yesterday's saved progress fall away on its own. `version`
+    resolves the same way as in `grid_seed` when left as None.
     """
     validate_grid_date(date_str)
-    short_version = version.split(".")[-1]
+    resolved_version = version if version is not None else _version_for_date(date_str)
+    short_version = resolved_version.split(".")[-1]
     return f"daily-grid-{short_version}-{date_str}"
 
 
@@ -806,6 +978,185 @@ def _build_cells(
 
 
 # ---------------------------------------------------------------------------
+# Novelty / cooldown (v3+) -- see the constants block above for the design
+# note and NOVELTY_CUTOVER_DATE for why this never touches a legacy board.
+# ---------------------------------------------------------------------------
+
+def _next_date(date_str: str) -> Optional[str]:
+    """The calendar day after `date_str`, or None at the edge of the
+    calendar. Mirror of `_previous_date`, used to walk FORWARD."""
+    try:
+        return (parse_daily_key(date_str) + timedelta(days=1)).strftime(DATE_FORMAT)
+    except (InvalidDailyKey, OverflowError, ValueError):
+        return None
+
+
+def _axis_fingerprint_for(
+    date_str: str, pool: GridPool | None
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The (row ids, col ids) a v3 date's board actually used -- generating it
+    first if this is the first time this date has ever been asked for.
+
+    THE FIX FOR TWO DISTINCT PERFORMANCE/CORRECTNESS FAILURES THIS PASS HIT.
+    `_recent_usage` needs to know, for potentially many historical dates, only
+    six short constraint ids each -- not the full `_BoardCore` (seed, cells,
+    the whole answer key). Reading that fact through `_board_core` directly
+    ties novelty history to `_CORE_CACHE`'s LRU bound, which produced two
+    failure modes in the model-layer simulation and test suite:
+
+      1. QUADRATIC BLOWUP. A first design re-primed from the cutover on every
+         call. Once more dates had been generated than `_CORE_CACHE` holds,
+         "prime from the cutover" started re-GENERATING the evicted earliest
+         ones, on every subsequent call, each eviction making room for
+         another -- turning single-digit milliseconds per day into tens of
+         seconds within the first ~400 days.
+
+      2. RECURSIONERROR ON ARCHIVE ACCESS. A second design tracked a forward
+         high-water mark to stop re-priming already-visited dates -- which
+         fixed (1), but not the case where an OLDER date's own short lookback
+         window had since been evicted by unrelated LATER activity (exactly
+         what browsing the permanently-addressable archive is): regenerating
+         it recursed into `_generate_core` -> `_recent_usage` for each
+         missing predecessor, which needed ITS OWN evicted predecessors, and
+         so on, a call stack as deep as the evicted stretch was wide.
+
+    This cache is the actual fix for both: a plain dict, keyed by date,
+    holding just the two short id tuples. It is deliberately NOT subject to
+    `_CORE_CACHE`'s bound -- six strings times a few thousand dates is a
+    trivial amount of memory next to a full `_BoardCore` (whose `cells` carry
+    the entire answer key), so there is no meaningful cost to letting this
+    one grow for the life of the process. Once a date's fingerprint is
+    recorded here, ANY later call -- forward priming, a backward lookback,
+    an archive replay years later -- is a dict lookup, never a
+    re-generation. Determinism is unaffected either way: the fingerprint
+    recorded is always the output of the same deterministic `_board_core`
+    call this replaces, just computed at most once per date per process.
+    """
+    cached = _AXIS_FINGERPRINT_CACHE.get(date_str)
+    if cached is not None:
+        return cached
+    core = _board_core(date_str, pool, None, DAILY_GRID_VERSION_V3)
+    fingerprint = (
+        tuple(c.id for c in core.rows),
+        tuple(c.id for c in core.cols),
+    )
+    _AXIS_FINGERPRINT_CACHE[date_str] = fingerprint
+    return fingerprint
+
+
+def _recent_usage(
+    date_str: str,
+    pool: GridPool | None,
+    window: int = NOVELTY_HISTORY_WINDOW,
+) -> tuple[dict[str, int], dict[frozenset[str], int]]:
+    """How recently each axis id, and each (row, col) CELL PAIR, appeared on
+    a board immediately before `date_str` -- distance 1 = the board
+    immediately before this one, 2 = the one before that, and so on. Only the
+    FIRST (smallest) distance for a given id/pair is kept, which is all
+    `_novelty_ok` needs to compare against a cooldown.
+
+    Stops at NOVELTY_CUTOVER_DATE rather than walking into legacy boards:
+    those ran a different taxonomy (no Sixth Man of the Year / Most Improved
+    Player) under a different version salt, and are not part of this
+    bookkeeping. Always reads history through `_axis_fingerprint_for` -- the
+    real default taxonomy, never a caller-supplied one -- which is why
+    `_generate_core` only calls this when its OWN `constraints` argument is
+    None; see there.
+
+    WHY THE FORWARD PRIMING PASS BELOW, RATHER THAN JUST WALKING BACKWARD.
+    Determinism requires that history be the ACTUAL generated predecessor
+    boards, not "whatever happens to be cached" -- so an unfingerprinted
+    predecessor cannot simply be skipped, it has to be generated once. A
+    naive backward walk that generates one on demand would, for THAT
+    predecessor, recurse into this exact function again for ITS OWN
+    predecessors -- and so on, all the way back to the cutover for a date
+    requested "cold" (e.g. a test, or a real archive click, that reaches a
+    date far past the cutover with nothing nearby already generated). That is
+    a call stack whose depth is the distance from the cutover, which can and
+    does exceed Python's recursion limit long before it exceeds any real time
+    budget.
+
+    Priming forward instead -- oldest first, via a plain loop rather than
+    recursion -- guarantees that by the time day K is generated, days
+    K-1..K-window are already fingerprinted, so ITS OWN call into this
+    function finds a fully warm cache and never re-enters generation. The
+    call stack never grows past a small constant, regardless of how far
+    `date_str` is from the cutover -- and because `_axis_fingerprint_for`'s
+    cache never evicts, this loop's per-date cost is a dict lookup for every
+    date this process has ever visited before, not just the most recent
+    `_CORE_CACHE_MAX` of them.
+    """
+    cursor = _next_date(NOVELTY_CUTOVER_DATE)
+    while cursor is not None and cursor < date_str:
+        _axis_fingerprint_for(cursor, pool)
+        cursor = _next_date(cursor)
+
+    id_last_seen: dict[str, int] = {}
+    pair_last_seen: dict[frozenset[str], int] = {}
+    cursor = date_str
+    for distance in range(1, window + 1):
+        cursor = _previous_date(cursor)
+        if cursor is None or cursor <= NOVELTY_CUTOVER_DATE:
+            break
+        row_ids, col_ids = _axis_fingerprint_for(cursor, pool)
+        for constraint_id in row_ids + col_ids:
+            id_last_seen.setdefault(constraint_id, distance)
+        for row_id in row_ids:
+            for col_id in col_ids:
+                pair_last_seen.setdefault(frozenset((row_id, col_id)), distance)
+    return id_last_seen, pair_last_seen
+
+
+def _cooling_down_ids(id_last_seen: dict[str, int]) -> frozenset[str]:
+    """The ids still inside CATEGORY_COOLDOWN_BOARDS, per `_recent_usage`.
+
+    Split out from the pair check (below) rather than folded into one
+    "reject the candidate" predicate like `_composition_ok`: an id-level
+    cooldown is cheapest and most effective enforced by REMOVING those ids
+    from the population `rng.sample` draws from in the first place (see
+    `_generate_core`), not by rejecting six-axis candidates after the fact.
+    Composition already makes a random six-axis draw succeed only rarely
+    (roughly one draw in a few hundred, by the pre-novelty measurement this
+    pass shipped with); rejecting AGAIN post-hoc for an id cooldown compounds
+    that rarity multiplicatively; because the axes composition actually needs
+    are concentrated in a fairly small recurring subset (the anchor
+    categories -- award/outcome/era -- have the smallest pools), that subset
+    is exactly what tends to be cooling down, and attempts to satisfy both
+    constraints by pure rejection sampling were observed (in the model-layer
+    simulation) to burn nearly the entire attempt budget on most dates.
+    Pre-filtering the population removes the compounding: every draw already
+    satisfies the id cooldown, so only composition (back to its normal odds)
+    and the much rarer pair cooldown remain to be rejection-sampled.
+    """
+    return frozenset(
+        cid for cid, seen in id_last_seen.items() if seen <= CATEGORY_COOLDOWN_BOARDS
+    )
+
+
+def _pair_novelty_ok(
+    rows: Sequence[Constraint],
+    cols: Sequence[Constraint],
+    pair_last_seen: dict[frozenset[str], int],
+) -> bool:
+    """Does this candidate board avoid every (row, col) CELL PAIR still
+    inside PAIR_COOLDOWN_BOARDS, per the history `_recent_usage` computed?
+
+    Id-level cooldown is handled by pre-filtering the sample population (see
+    `_cooling_down_ids`), not here -- by the time a candidate reaches this
+    check every one of its ids is already known-fresh, so this only ever
+    needs to reject on the pair, a much smaller and rarer set of
+    combinations. Cheap dict lookups only, the same performance shape as
+    `_composition_ok`.
+    """
+    for row in rows:
+        for col in cols:
+            seen = pair_last_seen.get(frozenset((row.id, col.id)))
+            if seen is not None and seen <= PAIR_COOLDOWN_BOARDS:
+                return False
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Generation
 # ---------------------------------------------------------------------------
 
@@ -836,13 +1187,42 @@ def _generate_core(
     """The seeded search for a composition-valid, solvable board."""
     validate_grid_date(date_str)
     grid_pool = pool if pool is not None else load_pool()
+    using_default_taxonomy = constraints is None
     taxonomy = list(constraints) if constraints is not None else all_constraints(
         pool if pool is not None else None
     )
 
+    # A legacy date (version resolved to v2) generates from the FROZEN v2
+    # subset of today's taxonomy, never today's full one -- see
+    # _legacy_v2_taxonomy(). Only applies to the auto/default taxonomy: a
+    # caller that hands its own `constraints` (tests do) gets exactly that
+    # list, at every date, unchanged from before this pass.
+    if using_default_taxonomy and version == DAILY_GRID_VERSION_V2:
+        taxonomy = _legacy_v2_taxonomy(taxonomy)
+
     seed = grid_seed(date_str, version)
     rng = random.Random(seed)
     native_allowance = _native_allowance(seed)
+
+    # Novelty/cooldown only ever runs for the real default taxonomy on a
+    # post-cutover date -- never for a caller-supplied taxonomy (its history
+    # would not mean anything) and never for a legacy date (whose board must
+    # keep resolving exactly as it always has). See _recent_usage.
+    novelty_enabled = using_default_taxonomy and version == DAILY_GRID_VERSION_V3
+    pair_last_seen: dict[frozenset[str], int] = {}
+    # The population `rng.sample` draws from during the strict-preference
+    # phase: the full taxonomy with anything still id-cooling-down removed
+    # (see _cooling_down_ids). Falls back to the full taxonomy if cooling
+    # down has left too few ids to even draw six from -- vanishingly rare
+    # given the taxonomy's size relative to CATEGORY_COOLDOWN_BOARDS, but
+    # cheap to guard against.
+    fresh_taxonomy = taxonomy
+    if novelty_enabled:
+        id_last_seen, pair_last_seen = _recent_usage(date_str, pool)
+        cooling_down = _cooling_down_ids(id_last_seen)
+        candidate_fresh = [c for c in taxonomy if c.id not in cooling_down]
+        if len(candidate_fresh) >= 2 * GRID_SIZE:
+            fresh_taxonomy = candidate_fresh
 
     # Masks are computed once per constraint and reused across every attempt;
     # recomputing them per attempt is what would make generation slow.
@@ -851,10 +1231,19 @@ def _generate_core(
     }
 
     for attempt in range(1, _MAX_ATTEMPTS + 1):
-        picked = rng.sample(taxonomy, 2 * GRID_SIZE)
+        # Soft preference, mirroring _PREFER_SPICE_UNTIL_ATTEMPT: insist on
+        # novelty for a real budget of attempts (by drawing only from ids
+        # that are not cooling down), then accept a repeat rather than ever
+        # costing a date its board.
+        prefer_novelty = novelty_enabled and attempt <= _PREFER_NOVELTY_UNTIL_ATTEMPT
+        sample_from = fresh_taxonomy if prefer_novelty else taxonomy
+        picked = rng.sample(sample_from, 2 * GRID_SIZE)
         rows, cols = picked[:GRID_SIZE], picked[GRID_SIZE:]
 
         if not _composition_ok(rows, cols, attempt, native_allowance):
+            continue
+
+        if prefer_novelty and not _pair_novelty_ok(rows, cols, pair_last_seen):
             continue
 
         cells = _build_cells(rows, cols, grid_pool, masks)
@@ -934,7 +1323,7 @@ def resolve_theme_id(
     date_str: str,
     pool: GridPool | None = None,
     constraints: Sequence[Constraint] | None = None,
-    version: str = DAILY_GRID_VERSION,
+    version: str | None = None,
     _depth: int = 0,
 ) -> str:
     """The theme id this date PUBLISHES: the rarest true description of its
@@ -983,9 +1372,10 @@ def _axes_for(
     date_str: str,
     pool: GridPool | None,
     constraints: Sequence[Constraint] | None,
-    version: str,
+    version: str | None,
 ) -> tuple[tuple[Constraint, ...], tuple[Constraint, ...]]:
-    core = _board_core(date_str, pool, constraints, version)
+    resolved_version = version if version is not None else _version_for_date(date_str)
+    core = _board_core(date_str, pool, constraints, resolved_version)
     return core.rows, core.cols
 
 
@@ -993,22 +1383,35 @@ def generate_board(
     date_str: str,
     pool: GridPool | None = None,
     constraints: Sequence[Constraint] | None = None,
-    version: str = DAILY_GRID_VERSION,
+    version: str | None = None,
 ) -> GridBoard:
     """The board for one date. Pure function of (date, version, taxonomy).
 
     The axes, cells and difficulty come from this date alone. Only the THEME
     LABEL consults the previous daily key, and only to avoid repeating it --
     see `resolve_theme_id`.
+
+    `version` left as None (the default, and what every real caller uses)
+    resolves per-date via `_version_for_date`: a date at or before
+    NOVELTY_CUTOVER_DATE always gets v2, a later date v3 -- so a legacy
+    board's date, seed, taxonomy and board_id are all exactly what they were
+    before this taxonomy revision shipped, forever. Passing an explicit
+    `version` (tests do) pins every internal call to that one value instead.
     """
-    core = _board_core(date_str, pool, constraints, version)
+    resolved_version = version if version is not None else _version_for_date(date_str)
+    core = _board_core(date_str, pool, constraints, resolved_version)
+    # `version` (not `resolved_version`) is threaded through here on purpose:
+    # the recursive lookback in resolve_theme_id must re-resolve EACH date it
+    # visits against its own place relative to the cutover, not inherit
+    # today's. Passing an already-concrete version would force yesterday's
+    # axes to be read under today's taxonomy even across the cutover boundary.
     theme_id = resolve_theme_id(date_str, pool, constraints, version)
 
     return GridBoard(
-        board_id=board_id(date_str, version),
+        board_id=board_id(date_str, resolved_version),
         date=date_str,
         seed=core.seed,
-        version=version,
+        version=resolved_version,
         rows=core.rows,
         cols=core.cols,
         cells=core.cells,
@@ -1032,20 +1435,23 @@ _BOARD_CACHE: "OrderedDict[tuple[str, str], GridBoard]" = OrderedDict()
 _BOARD_CACHE_MAX = 400
 
 
-def get_board(date_str: str, version: str = DAILY_GRID_VERSION) -> GridBoard:
+def get_board(date_str: str, version: str | None = None) -> GridBoard:
     """Process-cached board for a date.
 
     Safe to cache because generation is a pure function of (date, version) over
     committed data -- the cache can never serve a board that differs from what
-    a fresh generation would produce.
+    a fresh generation would produce. `version` resolves per-date exactly as
+    in `generate_board` when left as None, which is how every real caller
+    (the API included) uses this.
     """
     validate_grid_date(date_str)
-    key = (date_str, version)
+    resolved_version = version if version is not None else _version_for_date(date_str)
+    key = (date_str, resolved_version)
     cached = _BOARD_CACHE.get(key)
     if cached is not None:
         _BOARD_CACHE.move_to_end(key)
         return cached
-    board = generate_board(date_str, version=version)
+    board = generate_board(date_str, version=resolved_version)
     _BOARD_CACHE[key] = board
     if len(_BOARD_CACHE) > _BOARD_CACHE_MAX:
         _BOARD_CACHE.popitem(last=False)

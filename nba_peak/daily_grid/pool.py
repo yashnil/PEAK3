@@ -21,6 +21,17 @@ docs/implementation/CI_DATA_CONTRACT.md):
       has the field in this table or it is not eligible for the constraint
       that needs it.
 
+      `smoy_rank` and `mip_rank` (Sixth Man of the Year / Most Improved
+      Player) are the one exception to "already a column": the table carries
+      no pre-parsed rank column for either award the way it does for
+      mvp_rank/dpoy_rank, but it DOES carry the same raw `awards` string
+      those were themselves parsed from (Basketball-Reference's Awards
+      column, e.g. "MVP-13,MIP-1,6MOY-7"). `_award_rank()` below applies the
+      identical `"{CODE}-(\\d+)"` ordinal-rank regex
+      nba_peak.context.awards._rank uses for mvp_rank/dpoy_rank, read
+      directly against that same committed column -- so this is the same
+      data, sourced the same way, not a new pipeline or a fabricated field.
+
   cache/processed/regular_1980_2026.parquet
       Per-team-season roster rows; read ONLY for `pos`, the position the
       player actually logged that season. Season-grain position is the right
@@ -70,7 +81,7 @@ MANIFEST_PATH = (
     / "candidate_identity_manifest.v1.json"
 )
 
-POOL_VERSION = "daily_grid_pool.v2"
+POOL_VERSION = "daily_grid_pool.v3"
 
 # The league-leader flags on the scored table, in the order their labels are
 # read out in a rejection sentence. Each is a real 0/1 column: the player led
@@ -180,6 +191,10 @@ class PlayerSeason:
     # Real recognition/outcome context, straight from the scored table.
     mvp_rank: Optional[int]
     dpoy_rank: Optional[int]
+    # Parsed from the same `awards` string as mvp_rank/dpoy_rank -- see
+    # _award_rank() and the module docstring's note on this column.
+    smoy_rank: Optional[int]
+    mip_rank: Optional[int]
     all_nba_team: Optional[int]
     all_defense_team: Optional[int]
     all_star: bool
@@ -284,6 +299,22 @@ def _load_manifest_slugs(path: Path | None = None) -> set[str]:
     return {entry["player_slug"] for entry in manifest["identities"]}
 
 
+def _award_rank(awards, code: str) -> Optional[int]:
+    """Ordinal finish for `code` in the raw Awards string, e.g. `_award_rank(
+    "MVP-13,MIP-1,6MOY-7", "MIP")` -> 1.
+
+    Same regex convention as nba_peak.context.awards._rank, which is what
+    mvp_rank/dpoy_rank on the scored table were themselves built from -- read
+    here directly (rather than imported) so this module keeps reading a
+    single committed column without a cross-package private import, exactly
+    the same way mvp_rank/dpoy_rank are already read as plain columns below.
+    """
+    if pd.isna(awards):
+        return None
+    match = re.search(rf"{code}-(\d+)", str(awards))
+    return int(match.group(1)) if match else None
+
+
 def _optional_int(value) -> Optional[int]:
     """NaN -> None, else int. Award rank columns are float64 with NaN meaning
     'did not receive votes / was not selected' -- which is information, not a
@@ -378,6 +409,12 @@ def build_pool(
     scored = pd.read_parquet(scored_load)
     scored = scored[~scored["team"].isin(_MULTI_TEAM_CODES)].copy()
     scored["player_slug"] = scored["player"].map(slug)
+    # Sixth Man of the Year / Most Improved Player: not pre-parsed columns on
+    # this table the way mvp_rank/dpoy_rank are, but the raw `awards` string
+    # they were parsed from IS on the table -- see the module docstring and
+    # _award_rank().
+    scored["smoy_rank"] = scored["awards"].map(lambda a: _award_rank(a, "6MOY"))
+    scored["mip_rank"] = scored["awards"].map(lambda a: _award_rank(a, "MIP"))
 
     eligible = _load_manifest_slugs(manifest_path)
     scored = scored[scored["player_slug"].isin(eligible)].copy()
@@ -427,6 +464,8 @@ def build_pool(
             team_achievement=float(row.team_achievement),
             mvp_rank=_optional_int(row.mvp_rank),
             dpoy_rank=_optional_int(row.dpoy_rank),
+            smoy_rank=_optional_int(row.smoy_rank),
+            mip_rank=_optional_int(row.mip_rank),
             all_nba_team=_optional_int(row.all_nba_team),
             all_defense_team=_optional_int(row.all_defense_team),
             all_star=bool(row.all_star == 1),
@@ -464,6 +503,8 @@ def build_pool(
             "team_achievement",
             "mvp_rank",
             "dpoy_rank",
+            "smoy_rank",
+            "mip_rank",
             "all_nba_team",
             "all_defense_team",
             "all_star",
