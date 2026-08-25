@@ -344,6 +344,7 @@ export default function PeakV2TMWCourts({
                 edge={edgeBandFor(state, roster.seat_index)}
                 lit
                 interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
+                rearrangeEligible={canRearrange && roster.seat_index === yourSeatIndex}
                 pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
                 legalTargets={roster.seat_index === yourSeatIndex ? legalTargets : []}
                 onPickUp={roster.seat_index === yourSeatIndex ? pickUp : undefined}
@@ -354,22 +355,36 @@ export default function PeakV2TMWCourts({
 
         {/* Desktop: the real three-column grid, always. */}
         <div className="mt-4 hidden gap-4 lg:grid lg:grid-cols-3">
-          {state.rosters.map((roster) => (
-            <PeakV2TMWCourt
-              key={roster.seat_index}
-              roster={roster}
-              seat={seats.find((s) => s.seat_index === roster.seat_index)}
-              isYou={roster.seat_index === yourSeatIndex}
-              isOnTurn={!state.is_complete && currentTurnSeatIndex === roster.seat_index}
-              edge={edgeBandFor(state, roster.seat_index)}
-              lit={roster.seat_index === yourSeatIndex || (yourSeatIndex === null && roster.seat_index === currentTurnSeatIndex)}
-              interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
-              pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
-              legalTargets={roster.seat_index === yourSeatIndex ? legalTargets : []}
-              onPickUp={roster.seat_index === yourSeatIndex ? pickUp : undefined}
-              onDropOn={roster.seat_index === yourSeatIndex ? dropOn : undefined}
-            />
-          ))}
+          {state.rosters.map((roster) => {
+            // Bug fix (mission §9): the PRIMARY highlight is whoever is
+            // actually on the clock, never "whichever court belongs to
+            // you". "YOU" stays visible as a secondary identity badge
+            // inside `PeakV2TMWCourt`'s own status line (the `isYou` prop,
+            // unchanged below) -- it is no longer what decides `lit`. When
+            // a bot is on the clock, the bot's court is the active one and
+            // the viewer's own court stays legible-but-dimmed; when no seat
+            // is on the clock (a seatless reveal turn), nothing is lit
+            // rather than falsely lighting a seat that isn't actually
+            // deciding anything right now.
+            const isOnTurn = !state.is_complete && currentTurnSeatIndex === roster.seat_index;
+            return (
+              <PeakV2TMWCourt
+                key={roster.seat_index}
+                roster={roster}
+                seat={seats.find((s) => s.seat_index === roster.seat_index)}
+                isYou={roster.seat_index === yourSeatIndex}
+                isOnTurn={isOnTurn}
+                edge={edgeBandFor(state, roster.seat_index)}
+                lit={isOnTurn}
+                interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
+                rearrangeEligible={canRearrange && roster.seat_index === yourSeatIndex}
+                pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
+                legalTargets={roster.seat_index === yourSeatIndex ? legalTargets : []}
+                onPickUp={roster.seat_index === yourSeatIndex ? pickUp : undefined}
+                onDropOn={roster.seat_index === yourSeatIndex ? dropOn : undefined}
+              />
+            );
+          })}
         </div>
 
         {children}

@@ -247,6 +247,20 @@ export default function PeakV2TMWResult({
   const won = placement === 1;
   const band = resultBand(rows, yourSeatIndex);
   const winner = rows.find((row) => row.result.placement === 1) ?? null;
+  // Bug fix (mission §13, score-ownership correctness): the hero number
+  // directly beneath `outcomeHeadline` (e.g. "Rim Runner wins") is the
+  // WINNER's score by design (see this module's docstring) -- which is a
+  // DIFFERENT seat from `yourSeatIndex` whenever the viewer did not win.
+  // A bare "PEAK3 lineup score" caption on that number, sitting right below
+  // the viewer's OWN placement badge, left whose score it was ambiguous —
+  // a losing viewer could misread it as their own result. Naming the seat
+  // explicitly removes that ambiguity without changing which number is
+  // shown or where (no redesign): "Your ..." when the viewer won, the real
+  // display name otherwise.
+  const winnerIsYou = winner !== null && winner.result.seat_index === yourSeatIndex;
+  const winnerScoreLabel = winner
+    ? `${winnerIsYou ? "Your" : `${winner.result.display_name}'s`} ${RANKING_BASIS_LABEL}`
+    : RANKING_BASIS_LABEL;
 
   // Same outcome→ambient-light convention `PeakV2ShowdownResult`/
   // `PeakV2CourtResult` already use: gold reserved for the win, a losing
@@ -300,10 +314,10 @@ export default function PeakV2TMWResult({
           </p>
 
           {winner && winner.score.kind === "scored" ? (
-            <div className="mt-5" data-testid="tmw-winner-score">
+            <div className="mt-5" data-testid="tmw-winner-score" data-winner-is-you={winnerIsYou}>
               <PeakV2Score
                 value={winner.score.value.toFixed(1)}
-                label={RANKING_BASIS_LABEL}
+                label={winnerScoreLabel}
                 tone="accent"
                 role="moment"
                 size="lg"

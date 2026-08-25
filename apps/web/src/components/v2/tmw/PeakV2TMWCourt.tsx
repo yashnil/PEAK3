@@ -40,6 +40,21 @@ export interface PeakV2TMWCourtProps {
    * rule legacy `RosterBoard`/`SeatCourt` enforce.
    */
   interactive?: boolean;
+  /**
+   * Bug fix (mission §10 follow-up): structurally "is this the viewer's own,
+   * rearrangeable court" — TRUE across a transient `busy` window (e.g. while
+   * `dismissIntro`'s request is in flight), unlike `interactive` itself,
+   * which the caller correctly drops to `false` for that same window to
+   * disable clicks. Reusing `interactive` alone to decide whether the
+   * "Select a card to rearrange…" hint paragraph MOUNTS AT ALL made that
+   * paragraph disappear and reappear across every `busy` toggle, which is a
+   * real, measured ~32px outer-shell height dip (confirmed live at 1440x900:
+   * the court panel shrank from 534.5px to 502px for the ~300ms
+   * `dismissIntro` round-trip, before instrument-strip content is even
+   * involved). Defaults to `interactive` so a caller that never has a
+   * transient-busy distinction keeps its previous behaviour exactly.
+   */
+  rearrangeEligible?: boolean;
   pickedUpSlot?: TmwSlotType | null;
   legalTargets?: readonly TmwSlotType[];
   onPickUp?: (slot: TmwSlotType) => void;
@@ -54,6 +69,7 @@ export default function PeakV2TMWCourt({
   edge,
   lit,
   interactive = false,
+  rearrangeEligible = interactive,
   pickedUpSlot = null,
   legalTargets = [],
   onPickUp,
@@ -156,8 +172,21 @@ export default function PeakV2TMWCourt({
         </div>
       </div>
 
-      {interactive ? (
-        <p className="mt-2" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.6875rem", color: "var(--v2-text-muted)" }}>
+      {rearrangeEligible ? (
+        <p
+          className="mt-2"
+          style={{
+            fontFamily: "var(--v2-font-ui)",
+            fontSize: "0.6875rem",
+            color: "var(--v2-text-muted)",
+            // Reserved (mission §10 follow-up): mounted for the whole time
+            // this court is structurally rearrangeable, only its
+            // visibility toggles across a transient `!interactive` window
+            // (e.g. `busy` while a request is in flight) -- never popping
+            // in/out, which is what previously moved the outer shell.
+            visibility: interactive ? "visible" : "hidden",
+          }}
+        >
           {moving ? "Choose a highlighted slot, or press Escape to cancel." : "Select a card to rearrange your roster — this never costs a turn."}
         </p>
       ) : null}

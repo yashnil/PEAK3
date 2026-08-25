@@ -23,12 +23,17 @@ The evaluator is N-agnostic -- it slices `cards[:5]` as starters and
 starters + one bench) is therefore a contract, enforced here: this module
 refuses to evaluate a roster that is not exactly `config.SLOT_TYPES`.
 
-WHAT DECIDES THE MATCH: `lineup_quality`, AND WHY NOT THE OTHER TWO
---------------------------------------------------------------------
-The comparator is `SimulationResult.lineup_quality` -- the weighted fit
-combination the 82-0 model builds its record projection from, before the win
-floor, the 82-win cap and the seeded noise. It is the model's own judgement of
-lineup quality, published by the evaluator rather than recomputed here.
+WHAT DECIDES THE MATCH: `_tmw_lineup_quality`, AND WHY NOT THE OTHER TWO
+--------------------------------------------------------------------------
+The comparator is this module's own `_tmw_lineup_quality` -- the SAME
+weighted-fit shape `SimulationResult.lineup_quality` (the 82-0 model's own
+pre-floor/pre-cap/pre-noise judgement) is built from, with one correction:
+the talent term is a flat, equally-weighted mean across all six cards rather
+than `lineup_quality`'s own 0.8-starters/0.2-bench split, which is right for
+CourtBuilder's 8-card, three-bench-slot roster and wrong for TMW's 6-card,
+one-bench-slot roster (bug fix -- see `_tmw_lineup_quality`'s own comment for
+the full accounting). `lineup_quality` itself is never used as the
+comparator here.
 
   * NOT `wins`, and not `expected_wins`. Both saturate: the cap is 82 and the
     generational floor is 81, so two genuinely different elite rosters tie on
@@ -80,6 +85,7 @@ from dataclasses import dataclass
 from typing import Mapping, Optional, Sequence
 
 from nba_peak.perfect_season.exact_season import PlayerSeasonCard, resolve_player_season_card
+from nba_peak.perfect_season.schemas import LineupFitComponents
 from nba_peak.perfect_season.simulation import simulate_exact_season
 from nba_peak.three_man_weave.config import (
     FORMULA_VERSION,
@@ -199,6 +205,97 @@ class RosterEvaluation:
             "experimental_notice": self.experimental_notice,
             "cards": [card.as_dict() for card in self.cards],
         }
+
+
+# ---------------------------------------------------------------------------
+# Arrangement-invariant total score (bug fix, product-authorized).
+#
+# WHAT WAS WRONG. `simulate_exact_season`'s own `lineup_quality` -- borrowed
+# verbatim from CourtBuilder's 8-card evaluator -- built its talent term from
+# `compute_exact_fit_components`, which slices `cards[:STARTER_SLOTS]` as
+# starters (weighted 0.8, peak-weighted across up to 5 scores) and
+# `cards[STARTER_SLOTS:]` as bench (weighted 0.2, flat-averaged), then ADDS a
+# second, separately-weighted `bench_strength` term on top (`expected_wins_
+# base`'s `(bench_strength - 50.0) * 0.12`). That split is correct for
+# CourtBuilder's 8-card roster (5 starters + THREE bench slots, so the 0.2
+# bench weight is spread thin -- an honest "starters carry more" discount).
+# TMW has exactly ONE bench slot, so that same 0.2 weight lands entirely on a
+# single player -- 0.20 raw weight, MORE than the 0.16 (0.8 / 5) an
+# individual starter gets under the peak-weighted split. A player was
+# therefore NOT worth the same in a starter slot as in the bench slot: which
+# one of a fixed six players occupies the bench slot changed the roster's
+# total score, purely from this weighting artifact of reusing an 8-card
+# formula for a 6-card roster (see config.py's STARTER_SLOT_TYPES/
+# BENCH_SLOT_TYPES comment for the empirical demonstration this fix closes).
+#
+# THE FIX, precisely scoped. Only the TALENT term is replaced: `talent_core`
+# and `bench_strength` collapse into ONE flat, equally-weighted mean across
+# every card in the roster (`_tmw_talent_core` below) at the SAME combined
+# weight (1.0) `talent_core` alone carried, with no extra `bench_strength`
+# term layered on top. Every OTHER fit component is left exactly as the
+# authoritative evaluator computed it, because none of them carry the same
+# starter/bench asymmetry:
+#   * `positional_fit` scores starters against the position they were
+#     ACTUALLY PLACED IN -- a real, legitimate board constraint (can this
+#     player really play this position), not a talent discount. It is
+#     correctly silent on the bench slot (a bench card is real-basketball
+#     "flexible", see simulation.py's own `_fit_points`) and stays that way.
+#   * `creation_coverage`/`scoring_coverage`/`postseason_pedigree` are
+#     already `_avg_percentile(...)` over ALL SIX cards with no starter/
+#     bench split anywhere in `compute_exact_fit_components` -- they were
+#     never part of this bug.
+#
+# Because `_tmw_talent_core` is a flat mean over whatever cards it is given,
+# it is invariant to which specific slot (starter or bench) each card
+# occupies -- the SAME six players in ANY legal starter/bench arrangement
+# produce the identical talent term, and therefore (since every other term
+# is either already flat over all six cards or a legitimate, unaffected
+# starter-position check) the identical total `lineup_score`.
+def _tmw_talent_core(cards: Sequence[PlayerSeasonCard]) -> float:
+    """Flat, equally-weighted mean of every card's own `season_score`.
+
+    Deliberately NOT peak-weighted (unlike CourtBuilder's `_weighted_starter_
+    talent`, which credits the top of a 5-card starter group more than the
+    bottom): peak-weighting by within-group RANK would still be arrangement-
+    invariant on its own, but layering it on top of a starter/bench split
+    is exactly the mechanism this fix removes, and the product direction
+    (mission) calls for the simplest form that satisfies the invariant --
+    "sum all 6 per-player scores with the same weighting" -- not a new
+    weighting scheme. Every roster reaching this function is already
+    verified fully scored (`_assert_evaluable`/`evaluate_roster`'s own
+    completeness gate), so `season_score` is never `None` here; this stays
+    defensive (falls back to 0.0 for a `None`) rather than raising, since a
+    leave-one-out subset (`_decisive_pick`) reuses this same helper.
+    """
+    if not cards:
+        return 0.0
+    scores = [card.season_score if card.season_score is not None else 0.0 for card in cards]
+    return sum(scores) / len(scores)
+
+
+def _tmw_lineup_quality(cards: Sequence[PlayerSeasonCard], fit: LineupFitComponents) -> float:
+    """TMW's own arrangement-invariant lineup-quality index.
+
+    Same additive shape and same weights as `nba_peak.perfect_season.
+    simulation.expected_wins_base` -- reusing that shape (not inventing a
+    new one) keeps this legible against the authoritative formula it
+    corrects -- except the talent term: `(fit.talent_core - 50.0) * 1.0 +
+    (fit.bench_strength - 50.0) * 0.12` collapses into
+    `(_tmw_talent_core(cards) - 50.0) * 1.0` alone. `fit` is the SAME
+    `LineupFitComponents` `simulate_exact_season` already computed for this
+    exact `cards`/`slot_types` pair -- never recomputed here -- so
+    `positional_fit`/`creation_coverage`/`scoring_coverage`/
+    `postseason_pedigree` are the authoritative evaluator's own numbers,
+    untouched.
+    """
+    talent = _tmw_talent_core(cards)
+    quality = 41.0
+    quality += (talent - 50.0) * 1.0
+    quality += (fit.positional_fit - 50.0) * 0.08
+    quality += (fit.creation_coverage - 50.0) * 0.05
+    quality += (fit.scoring_coverage - 50.0) * 0.05
+    quality += (fit.postseason_pedigree - 50.0) * 0.05
+    return quality
 
 
 def resolve_scoring_season_card(
@@ -326,10 +423,19 @@ def evaluate_roster(
         for slot, pick, card in zip(SLOT_TYPES, picks, cards)
     )
 
+    # Bug fix (mission: bench-scoring parity): the comparator is TMW's own
+    # `_tmw_lineup_quality`, NOT the authoritative evaluator's raw
+    # `result.lineup_quality` -- see that function's module comment for why
+    # `result.lineup_quality` bakes in a starter/bench weighting asymmetry
+    # that is correct for CourtBuilder's 8-card roster and wrong for TMW's
+    # 6-card one. `result.fit_components` (positional_fit/creation_coverage/
+    # scoring_coverage/postseason_pedigree) is still the authoritative
+    # evaluator's own output, reused rather than recomputed.
+    #
     # `simulate_exact_season` returns 0.0, not None, for an incomplete roster.
     # Pass None through instead so a caller cannot mistake "we could not score
     # this" for "this roster scored zero".
-    lineup_score = round(result.lineup_quality, 2) if complete else None
+    lineup_score = round(_tmw_lineup_quality(cards, result.fit_components), 2) if complete else None
     mean_season = result.lineup_peak_score if complete else None
 
     return RosterEvaluation(
@@ -360,28 +466,33 @@ def _decisive_pick(
     """The pick this roster could least afford to lose, by leave-one-out.
 
     COMPUTED, NOT ASSERTED. For each slot, the same evaluator is re-run over
-    the other five cards and the drop in `lineup_quality` is recorded; the
-    largest drop wins. That makes "decisive" a measured marginal contribution
-    against the model that decided the match, rather than "whoever scored
-    highest" (which `best_pick` already reports and which is a different
-    claim -- the best card and the load-bearing one are often not the same
-    player, because fit and scarcity are part of the index and not part of a
-    season score).
+    the other five cards and the drop in TMW's own `_tmw_lineup_quality` (see
+    that function -- NOT the authoritative evaluator's raw `lineup_quality`,
+    for the same bench-parity reason `evaluate_roster` itself no longer uses
+    it) is recorded; the largest drop wins. That makes "decisive" a measured
+    marginal contribution against the SAME metric that decided the match,
+    rather than "whoever scored highest" (which `best_pick` already reports
+    and which is a different claim -- the best card and the load-bearing one
+    are often not the same player, because fit and scarcity are part of the
+    index and not part of a season score).
 
     Six extra evaluator calls, run once when a match settles. Never on a poll.
     """
     if len(cards) != len(SLOT_TYPES):  # pragma: no cover - caller guarantees
         return None
 
-    full = simulate_exact_season(list(cards), board_seed, list(SLOT_TYPES)).lineup_quality
+    full = _tmw_lineup_quality(
+        cards, simulate_exact_season(list(cards), board_seed, list(SLOT_TYPES)).fit_components
+    )
 
     best: Optional[dict] = None
     for index_ in range(len(cards)):
         remaining_cards = [c for i, c in enumerate(cards) if i != index_]
         remaining_slots = [s for i, s in enumerate(SLOT_TYPES) if i != index_]
-        without = simulate_exact_season(
-            remaining_cards, board_seed, remaining_slots
-        ).lineup_quality
+        without = _tmw_lineup_quality(
+            remaining_cards,
+            simulate_exact_season(remaining_cards, board_seed, remaining_slots).fit_components,
+        )
         drop = round(full - without, 2)
         if best is None or drop > best["lineup_quality_drop"]:
             best = {
