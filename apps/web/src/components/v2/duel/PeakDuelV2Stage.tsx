@@ -49,6 +49,7 @@ export default function PeakDuelV2Stage({ state, date, deadlineAt, onSelect, onT
             mode={state.mode}
             duel={duel}
             answer={state.current_answer}
+            selectedPeakId={state.selected_peak_id}
             currentIndex={state.current_index}
             totalDuels={state.duels.length}
             totalArenaPoints={state.total_arena_points}

@@ -7,14 +7,23 @@
  *
  * `variant="line"` (the default, and the corrected reading of the real
  * reference) — one thin horizontal rule per row; a FILLED, tone-colored
- * dot for the primary/current/user value; a HOLLOW neutral dot for the
- * comparison/opponent value; both positioned along the rule proportional
- * to their actual magnitude (a real dot-plot, not two dots at fixed
- * ends) — exact numeric values stay printed at both ends regardless. The
- * filled dot ALWAYS marks the primary side, whichever side is actually
- * winning: fill is a ROLE marker (you vs. them), not an outcome marker —
- * the optional `leftCaption`/`rightCaption` text is what states the
- * outcome ("Lane won +5.1", "Wall +4.4").
+ * dot for one side and a HOLLOW neutral dot for the other, both
+ * positioned along the rule proportional to their actual magnitude (a
+ * real dot-plot, not two dots at fixed ends) — exact numeric values stay
+ * printed at both ends regardless. WHICH side is filled is controlled by
+ * `pickedSide` (`"left" | "right" | "none"`) and is a ROLE marker, never
+ * an outcome marker: fill never means "winner" or "higher value" — it
+ * means "this is the side the caller designates as primary" (in Peak
+ * Duel, literally whichever side the player clicked, threaded down from
+ * the reducer's `selected_peak_id`, never from `winnerIsLeft`).
+ * `pickedSide` defaults to `"left"` so every caller that predates this
+ * prop (RTT's boss result, Showdown's result, homepage previews — none of
+ * which resort by outcome) keeps its exact original rendering. Pass
+ * `pickedSide="none"` for the neutral, non-lateralized treatment — both
+ * dots hollow — for a state where no side has actually been chosen yet
+ * (e.g. a duel round the player timed out on with no pick). The optional
+ * `leftCaption`/`rightCaption` text is what states the outcome ("Lane won
+ * +5.1", "Wall +4.4"); fill never does.
  *
  * `variant="paired"` — the original Pass 2 paired-bold-number treatment.
  * Kept, not removed: nothing in production consumed it yet at the time of
@@ -41,9 +50,16 @@ export interface PeakV2DataLaneProps {
   /** `"left"` / `"right"` highlights that side's value in the tone color
    *  (`variant="paired"`); `"tie"` / `undefined` renders both neutral. */
   winner?: "left" | "right" | "tie";
+  /** `variant="line"` only — which side's dot renders FILLED (a role
+   *  marker — "primary"/"the side the caller designates", e.g. the side
+   *  the player actually clicked — never an outcome marker). `"none"`
+   *  renders both dots hollow, for use before any side has been chosen.
+   *  Defaults to `"left"`, matching this component's original fixed
+   *  behavior, so existing callers are unaffected. */
+  pickedSide?: "left" | "right" | "none";
   /** `variant="line"` only — secondary outcome text under each side, e.g.
    *  "Lane won +5.1" / "Wall +4.4" / "Closest". Never affects which dot is
-   *  filled — that is fixed by role (left = primary), not outcome. */
+   *  filled — that is controlled by `pickedSide`, not outcome. */
   leftCaption?: string;
   rightCaption?: string;
   /** `variant="line"` only — the scale the dot POSITIONS are computed
@@ -110,33 +126,57 @@ function ValueBlock({
   );
 }
 
+function Dot({ pct, filled, toneColor }: { pct: number; filled: boolean; toneColor: string }) {
+  return (
+    <span
+      className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full"
+      style={
+        filled
+          ? { left: `${pct}%`, width: 9, height: 9, background: toneColor }
+          : { left: `${pct}%`, width: 8, height: 8, border: "1.5px solid var(--v2-text-muted)", background: "var(--v2-bg-page)" }
+      }
+    />
+  );
+}
+
 function LineRule({
   toneColor,
   leftPct,
   rightPct,
+  pickedSide,
 }: {
   toneColor: string;
   leftPct: number | null;
   rightPct: number | null;
+  pickedSide: "left" | "right" | "none";
 }) {
+  const leftFilled = pickedSide === "left";
+  const rightFilled = pickedSide === "right";
+  // Render the hollow dot first and the filled one last (on top) so two
+  // dots landing at (near-)identical positions still read as "filled wins
+  // the overlap" — matches the original left-always-filled stacking order
+  // when `pickedSide` is left, mirrors it when right, and order is moot
+  // when neither is filled ("none").
+  const renderRightFirst = pickedSide !== "right";
+  const leftDot = leftPct !== null ? <Dot key="left" pct={leftPct} filled={leftFilled} toneColor={toneColor} /> : null;
+  const rightDot = rightPct !== null ? <Dot key="right" pct={rightPct} filled={rightFilled} toneColor={toneColor} /> : null;
   return (
     <div className="relative h-4 w-full min-w-[96px]" aria-hidden="true">
       <div
         className="absolute left-0 right-0 top-1/2 -translate-y-1/2"
         style={{ height: 1, background: "var(--v2-border)" }}
       />
-      {rightPct !== null ? (
-        <span
-          className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full"
-          style={{ left: `${rightPct}%`, width: 8, height: 8, border: "1.5px solid var(--v2-text-muted)", background: "var(--v2-bg-page)" }}
-        />
-      ) : null}
-      {leftPct !== null ? (
-        <span
-          className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full"
-          style={{ left: `${leftPct}%`, width: 9, height: 9, background: toneColor }}
-        />
-      ) : null}
+      {renderRightFirst ? (
+        <>
+          {rightDot}
+          {leftDot}
+        </>
+      ) : (
+        <>
+          {leftDot}
+          {rightDot}
+        </>
+      )}
     </div>
   );
 }
@@ -150,6 +190,7 @@ export default function PeakV2DataLane({
   rightLabel,
   rightValue,
   winner,
+  pickedSide = "left",
   leftCaption,
   rightCaption,
   scaleMin = 0,
@@ -220,7 +261,7 @@ export default function PeakV2DataLane({
         >
           {label}
         </span>
-        <LineRule toneColor={toneColor} leftPct={leftPct} rightPct={rightPct} />
+        <LineRule toneColor={toneColor} leftPct={leftPct} rightPct={rightPct} pickedSide={pickedSide} />
       </div>
 
       {/* Desktop: values flank the line, per the reference. */}
@@ -239,7 +280,7 @@ export default function PeakV2DataLane({
           >
             {label}
           </span>
-          <LineRule toneColor={toneColor} leftPct={leftPct} rightPct={rightPct} />
+          <LineRule toneColor={toneColor} leftPct={leftPct} rightPct={rightPct} pickedSide={pickedSide} />
         </div>
         {rightValue !== undefined ? (
           <ValueBlock label={rightLabel ?? ""} value={rightValue} caption={rightCaption} align="end" color="var(--v2-text-primary)" />

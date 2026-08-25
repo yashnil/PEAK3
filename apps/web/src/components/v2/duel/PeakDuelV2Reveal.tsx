@@ -12,6 +12,18 @@
  * pressing "Next Matchup" / "See results", the same `onNext` (dispatched
  * ADVANCE) action legacy's `RevealPanel` already uses. There is no auto-
  * advance timer anywhere in Peak Duel — removed entirely, not hidden.
+ *
+ * DOT-FILL / "YOUR PICK" SEMANTICS (corrected): `selectedPeakId` — the
+ * reducer's own `selected_peak_id`, still populated in the `revealing`
+ * phase until `ADVANCE` clears it — is the ONLY source of "which side is
+ * the player's". It is never derived from `winnerIsLeft`/`answer.correct`.
+ * The five component lanes below pass `pickedSide` computed from it, so the
+ * FILLED dot always marks the side the player actually clicked, regardless
+ * of position, winner/loser, or which side has the higher value in that
+ * lane. A genuine no-pick (decision clock expired, see `game-engine.tsx`'s
+ * `handleTimeout`) leaves `selectedPeakId` null; `pickedSide` resolves to
+ * `"none"` and both dots render hollow — the neutral treatment for "no side
+ * was ever the player's" rather than defaulting to either.
  */
 
 import PeakV2LiveHeader from "../PeakV2LiveHeader";
@@ -27,6 +39,11 @@ export interface PeakDuelV2RevealProps {
   mode: "daily" | "endless";
   duel: Duel;
   answer: AnswerResponse;
+  /** The reducer's own `selected_peak_id` — null only for a genuine no-pick
+   *  (decision clock expired before the player chose a side). This is the
+   *  sole source of "which side is the player's"; never re-derive it from
+   *  `winning_peak_id`/`answer.correct`. */
+  selectedPeakId: string | null;
   currentIndex: number;
   totalDuels: number;
   totalArenaPoints: number;
@@ -39,6 +56,7 @@ export default function PeakDuelV2Reveal({
   mode,
   duel,
   answer,
+  selectedPeakId,
   currentIndex,
   totalDuels,
   totalArenaPoints,
@@ -53,7 +71,29 @@ export default function PeakDuelV2Reveal({
   const winnerIsLeft = answer.winning_peak_id === duel.left.peak_id;
   const leftWindow = winnerIsLeft ? answer.winner : answer.loser;
   const rightWindow = winnerIsLeft ? answer.loser : answer.winner;
-  const leftCorrect = winnerIsLeft;
+  const leftIsWinner = winnerIsLeft;
+  const rightIsWinner = !winnerIsLeft;
+
+  // WHICH side is the player's — from the actual click, never from the
+  // outcome. `pickedSide="none"` (both dots hollow, no "Your pick" tag
+  // anywhere) is the genuine-no-pick case.
+  const pickedSide: "left" | "right" | "none" =
+    selectedPeakId === null ? "none" : selectedPeakId === duel.left.peak_id ? "left" : "right";
+  const leftPicked = pickedSide === "left";
+  const rightPicked = pickedSide === "right";
+
+  // Per-side tag: distinguishes "the player's pick" from "the correct
+  // answer" — the two used to be silently conflated (the winning side
+  // always read "Your pick · correct" even when the player picked the
+  // OTHER side and was wrong).
+  function sideTag(picked: boolean, isWinner: boolean): { text: string; color: string } {
+    if (picked && isWinner) return { text: "Your pick · correct", color: "var(--v2-color-positive)" };
+    if (picked && !isWinner) return { text: "Your pick · incorrect", color: "var(--v2-color-negative)" };
+    if (!picked && isWinner) return { text: "Correct answer", color: "var(--v2-color-positive)" };
+    return { text: "Not selected", color: "var(--v2-text-muted)" };
+  }
+  const leftTag = sideTag(leftPicked, leftIsWinner);
+  const rightTag = sideTag(rightPicked, rightIsWinner);
 
   return (
     <div>
@@ -84,13 +124,13 @@ export default function PeakDuelV2Reveal({
               fontWeight: 700,
               letterSpacing: "0.04em",
               textTransform: "uppercase",
-              color: leftCorrect ? "var(--v2-color-positive)" : "var(--v2-text-muted)",
+              color: leftTag.color,
             }}
           >
-            {leftCorrect ? "Your pick · correct" : "Still left"}
+            {leftTag.text}
           </span>
-          <PeakV2PlayerIdentity name={duel.left.player_name} align="start" size="lg" state={leftCorrect ? "current" : "default"} />
-          <PeakV2Score value={leftWindow.prime_score.toFixed(1)} tone={leftCorrect ? "positive" : "neutral"} size="lg" />
+          <PeakV2PlayerIdentity name={duel.left.player_name} align="start" size="lg" state={leftIsWinner ? "current" : "default"} />
+          <PeakV2Score value={leftWindow.prime_score.toFixed(1)} tone={leftIsWinner ? "positive" : "neutral"} size="lg" />
         </div>
 
         <div className="flex flex-col items-center gap-1 py-2 text-center">
@@ -114,10 +154,10 @@ export default function PeakDuelV2Reveal({
               fontWeight: 700,
               letterSpacing: "0.04em",
               textTransform: "uppercase",
-              color: !leftCorrect ? "var(--v2-color-positive)" : "var(--v2-text-muted)",
+              color: rightTag.color,
             }}
           >
-            {!leftCorrect ? "Your pick · correct" : "Still right"}
+            {rightTag.text}
           </span>
           {/* Inline rather than `PeakV2PlayerIdentity` (fixed `align`, no
               responsive variant) — mobile stays left-aligned like every
@@ -127,12 +167,12 @@ export default function PeakDuelV2Reveal({
               fontFamily: "var(--v2-font-ui)",
               fontWeight: 700,
               fontSize: "1.25rem",
-              color: !leftCorrect ? "var(--v2-color-accent)" : "var(--v2-text-primary)",
+              color: rightIsWinner ? "var(--v2-color-accent)" : "var(--v2-text-primary)",
             }}
           >
             {duel.right.player_name}
           </span>
-          <PeakV2Score value={rightWindow.prime_score.toFixed(1)} tone={!leftCorrect ? "positive" : "neutral"} size="lg" />
+          <PeakV2Score value={rightWindow.prime_score.toFixed(1)} tone={rightIsWinner ? "positive" : "neutral"} size="lg" />
         </div>
       </div>
 
@@ -154,6 +194,7 @@ export default function PeakDuelV2Reveal({
               rightValue={rightValue.toFixed(1)}
               scaleMin={0}
               scaleMax={max}
+              pickedSide={pickedSide}
             />
           );
         })}
