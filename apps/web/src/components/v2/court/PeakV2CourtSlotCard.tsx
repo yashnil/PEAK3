@@ -12,7 +12,7 @@
  */
 
 import PeakV2CourtSlot from "../PeakV2CourtSlot";
-import { fitLabel, type CourtSlotPublic, type RoleFit, type FitSeverity } from "@/types/perfect-season";
+import { fitLabel, SLOT_LABELS, type CourtSlotPublic, type RoleFit, type FitSeverity } from "@/types/perfect-season";
 
 /**
  * Mirrors `PeakCardCourt.tsx`'s own `fitColor` exactly (same trust-bug fix:
@@ -115,7 +115,7 @@ export default function PeakV2CourtSlotCard({
         style={{ outline: "2px dashed var(--v2-color-accent)", outlineOffset: 2, borderRadius: "var(--v2-radius-control)" }}
       >
         <PeakV2CourtSlot
-          position={slot.slot_type}
+          position={SLOT_LABELS[slot.slot_type] ?? slot.slot_type}
           player={slot.filled ? { name: slot.player_name ?? "", meta } : undefined}
           value={value}
           // Plain "Move here", matching legacy `PeakCardCourt`'s own
@@ -138,7 +138,7 @@ export default function PeakV2CourtSlotCard({
     return (
       <button type="button" onClick={onCancelMove} className="w-full text-left">
         <PeakV2CourtSlot
-          position={slot.slot_type}
+          position={SLOT_LABELS[slot.slot_type] ?? slot.slot_type}
           player={slot.filled ? { name: slot.player_name ?? "", meta: "Moving — click to cancel" } : undefined}
           value={value}
           state="current"
@@ -152,7 +152,7 @@ export default function PeakV2CourtSlotCard({
   const pendingHint = tier === "weak" ? "Off-position" : tier === "stretch" ? "Playable stretch" : "Place here";
   const body = (
     <PeakV2CourtSlot
-      position={slot.slot_type}
+      position={SLOT_LABELS[slot.slot_type] ?? slot.slot_type}
       player={slot.filled ? { name: slot.player_name ?? "", meta } : undefined}
       value={value}
       valueLabel={slot.filled ? "PEAK3" : undefined}

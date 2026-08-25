@@ -157,7 +157,7 @@ export default function PeakV2TMWCourt({
           {bench.map(({ slotType, pick }) => (
             <PeakV2CourtSlot
               key={slotType}
-              position={slotType}
+              position={TMW_SLOT_LABELS[slotType]}
               bench
               player={pick ? { name: pick.player_name } : undefined}
               emptyHint="Open"
