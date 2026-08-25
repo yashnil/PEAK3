@@ -20,7 +20,6 @@
 import PeakV2Shell from "../PeakV2Shell";
 import PeakV2ArenaLight from "../PeakV2ArenaLight";
 import PeakV2GameStatus from "../PeakV2GameStatus";
-import PeakV2PlayerIdentity from "../PeakV2PlayerIdentity";
 import PeakV2Score from "../PeakV2Score";
 import PeakV2Rule from "../PeakV2Rule";
 import PeakV2ShowdownClock from "./PeakV2ShowdownClock";
@@ -224,8 +223,17 @@ export default function PeakV2ShowdownLive({
 
         {/* Mobile: the lot owns the viewport first (`order-1`); each roster
             is a compact disclosure below it. Desktop drops the ordering for
-            the real three-column grid. */}
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[220px_1fr_220px]" data-testid="td-table">
+            the real three-column grid.
+
+            `lg:border-x` + `lg:px-10` (colour set via `style`, width gated
+            by the breakpoint class, same convention as everywhere else in
+            this file) draws the two rosters and the center lot into ONE
+            connected market rather than three independently floating
+            blocks separated only by a wide flex gap — a hairline seam, not
+            a card border, per the brief's "hairlines, not nested cards."
+            `gap-8 lg:gap-6` gives back a little of the width that seam
+            spends. */}
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[220px_1fr_220px] lg:gap-6" data-testid="td-table">
           <div className="order-2 lg:order-none">
             <RosterColumn
               label="You"
@@ -241,11 +249,42 @@ export default function PeakV2ShowdownLive({
             />
           </div>
 
-          <div className="relative order-1 min-w-0 lg:order-none">
-            {candidate ? <PeakV2ArenaLight y="-8%" intensity="focus" /> : null}
+          <div
+            className="relative order-1 min-w-0 border-x-0 lg:order-none lg:border-x lg:px-10"
+            style={{ borderColor: "var(--v2-border-subtle)" }}
+          >
+            {/* `pulse` — "a currently-active focus" is exactly this prop's
+                documented use (`PeakV2ArenaLight`'s own docstring): the one
+                lot up for bid right now, not a static backdrop. */}
+            {candidate ? <PeakV2ArenaLight y="-8%" intensity="focus" pulse /> : null}
             {candidate ? (
               <div className="relative flex flex-col items-center py-4 text-center">
-                <PeakV2PlayerIdentity name={candidate.player_name} meta={`${candidate.anchor_season}${candidate.team ? ` · ${candidate.team}` : ""} · ${candidate.positions.join("/")}`} size="lg" align="center" />
+                {/* The lot's identity is the reason this whole screen
+                    exists — it was rendering at the SAME "UI/PLAYER
+                    IDENTITY" size a roster row uses. A bespoke, larger
+                    treatment here (still the UI typeface/weight — no
+                    display-serif per CLAUDE.md's typography roles, since
+                    this is identity, not a cinematic moment) rather than
+                    stretching the shared `PeakV2PlayerIdentity` primitive,
+                    which every other roster row on this exact screen still
+                    uses unchanged. */}
+                <span
+                  style={{
+                    fontFamily: "var(--v2-font-ui)",
+                    fontWeight: 700,
+                    fontSize: "1.75rem",
+                    letterSpacing: "-0.012em",
+                    color: "var(--v2-text-primary)",
+                  }}
+                >
+                  {candidate.player_name}
+                </span>
+                <span
+                  className="mt-1"
+                  style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}
+                >
+                  {`${candidate.anchor_season}${candidate.team ? ` · ${candidate.team}` : ""} · ${candidate.positions.join("/")}`}
+                </span>
 
                 {uncontestedForcedFill ? (
                   <p className="mt-3 text-xs font-semibold" style={{ fontFamily: "var(--v2-font-ui)", color: "var(--v2-color-accent)" }}>
@@ -317,8 +356,16 @@ export default function PeakV2ShowdownLive({
           ) : null}
         </div>
 
-        <PeakV2Rule spacing="lg" />
-        <SettledLotTray history={revealedHistory} seatNames={seatNames} yourSeat={yourSeat} />
+        {/* `SettledLotTray` renders nothing before the first lot has sold
+            (shared with legacy — unchanged here). A rule drawn above empty
+            space reads as a cut-off section, so it only appears once there
+            is real settled history for it to introduce. */}
+        {revealedHistory.length > 0 ? (
+          <>
+            <PeakV2Rule spacing="lg" />
+            <SettledLotTray history={revealedHistory} seatNames={seatNames} yourSeat={yourSeat} />
+          </>
+        ) : null}
       </div>
     </PeakV2Shell>
   );

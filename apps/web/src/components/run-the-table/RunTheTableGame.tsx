@@ -83,6 +83,7 @@ import PeakV2RTTSystemSelect from "@/components/v2/rtt/PeakV2RTTSystemSelect";
 import PeakV2RTTNodeChoice from "@/components/v2/rtt/PeakV2RTTNodeChoice";
 import PeakV2RTTBossPreview from "@/components/v2/rtt/PeakV2RTTBossPreview";
 import PeakV2RTTCreditSinks from "@/components/v2/rtt/PeakV2RTTCreditSinks";
+import PeakV2RTTResult from "@/components/v2/rtt/PeakV2RTTResult";
 
 /**
  * RUN THE TABLE, top to bottom.
@@ -1258,16 +1259,18 @@ export default function RunTheTableGame({
 
   /**
    * V2's presentation of the SAME screen this function just resolved into
-   * `surface` (Pass 3, product-direction). Three moments get a real V2
+   * `surface` (Pass 3, product-direction). Four moments get a real V2
    * rebuild — Draft Room (the flagship decision), the boss-reveal cinematic
-   * (`showBossIntro`/`showBossReveal`) and the boss battle result — because
-   * those are the surfaces the brief calls out by name. Every other node
-   * type (Trade Desk, Scout & Prepare, Choice/Rest Bank, System Select, Node
-   * Select, Boss Preview, the opening roster reveal, the run receipt) reuses
-   * the EXACT already-built `surface` node above rather than a second,
-   * divergent implementation of mechanics this pass does not need to
-   * redesign — `PeakV2RTTShell` still gives it the V2 status strip, run map
-   * and roster/lane rails around it.
+   * (`showBossIntro`/`showBossReveal`), the boss battle result, and the final
+   * run receipt (`PeakV2RTTResult` — added on the final-polish pass that
+   * closed the confirmed hard-stop where this branch fell through to
+   * legacy's `RunResult` with no V2 pixel at all) — because those are the
+   * surfaces the brief calls out by name. Every other node type (Trade Desk,
+   * Scout & Prepare, Choice/Rest Bank, System Select, Node Select, Boss
+   * Preview, the opening roster reveal) reuses the EXACT already-built
+   * `surface` node above rather than a second, divergent implementation of
+   * mechanics this pass does not need to redesign — `PeakV2RTTShell` still
+   * gives it the V2 status strip, run map and roster/lane rails around it.
    */
   let v2Content: React.ReactNode = surface;
   let v2Layout: "live" | "cinematic" | "bare" = "live";
@@ -1489,6 +1492,26 @@ export default function RunTheTableGame({
           act(runActions.advance(), `advance:${battle.act}`, "Moving on.");
         }}
         advanceLabel={battle.act >= state.acts_total ? "See the receipt" : "Next act"}
+      />
+    );
+  } else if (screen === "result" && state.receipt) {
+    // P3 polish gap fix (mission §15, confirmed hard-stop item): this branch
+    // was previously MISSING its own content, so `v2Content` fell through to
+    // `surface` above — legacy's `RunResult` directly, no V2 rebuild at all —
+    // meaning every completed run under `?ui=v2` ended on a fully
+    // legacy-styled receipt. `PeakV2RTTResult` is the real V2 rebuild, same
+    // real `receipt`/`versions`/`map` data `RunResult` itself renders.
+    v2Layout = "bare";
+    v2Content = (
+      <PeakV2RTTResult
+        receipt={state.receipt}
+        versions={state.versions}
+        actsTotal={state.acts_total}
+        map={state.map}
+        busy={busy}
+        onRunItBack={handleRunItBack}
+        onReplaySeed={handleReplaySeed}
+        onChallenge={handleChallenge}
       />
     );
   } else if (screen === "result") {

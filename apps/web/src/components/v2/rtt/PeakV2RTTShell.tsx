@@ -211,8 +211,8 @@ export interface PeakV2RTTShellProps {
 
 export default function PeakV2RTTShell({ state, objective, layout, content }: PeakV2RTTShellProps) {
   if (layout === "bare") {
-    // The result/receipt screen already owns its own full composition
-    // (`RunResult` reused as-is) — no shell chrome, no double framing.
+    // The result/receipt screen (`PeakV2RTTResult`) already owns its own
+    // full composition — no shell chrome, no double framing.
     return <PeakV2Shell width="live">{content}</PeakV2Shell>;
   }
 
