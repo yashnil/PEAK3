@@ -41,7 +41,7 @@ import PeakV2ArenaLight from "../PeakV2ArenaLight";
 import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
 import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
 import PeakV2SecondaryAction from "../PeakV2SecondaryAction";
-import type { RevealSlot, RevealTrack, Role } from "@/types/run-the-table";
+import type { RevealSlot, RevealTrack, Role, RunCardPublic } from "@/types/run-the-table";
 import type { RevealSequenceState } from "@/components/run-the-table/useRevealSequence";
 import { slotLabel } from "@/lib/run-the-table-state";
 
@@ -73,6 +73,11 @@ export interface PeakV2RTTBossLineupProps {
   busy: boolean;
   onStartReveal: (count: number) => void;
   onContinue: () => void;
+  /** `kind="boss"` only — the player's own already-known card in this same
+   *  seat, same `pairedCardLookup` legacy `RevealSequenceSurface` reads, so
+   *  the comparison reads the instant the boss card lands rather than
+   *  screens later (see `RevealCard.tsx`'s own comment). */
+  pairedCardLookup?: (slotId: string) => RunCardPublic | null;
 }
 
 export default function PeakV2RTTBossLineup({
@@ -86,6 +91,7 @@ export default function PeakV2RTTBossLineup({
   busy,
   onStartReveal,
   onContinue,
+  pairedCardLookup,
 }: PeakV2RTTBossLineupProps) {
   const autoStartedRef = useRef(false);
   useEffect(() => {
@@ -210,6 +216,28 @@ export default function PeakV2RTTBossLineup({
                         <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.8125rem", fontWeight: 700, color: "var(--v2-color-accent)" }}>
                           {slot!.prime_score.toFixed(1)}
                         </span>
+                        {/* The paired half — your already-known card in this
+                            same seat, placed beside the boss card so the
+                            comparison reads the instant it lands rather than
+                            screens later. Static, same as legacy's. */}
+                        {(() => {
+                          const paired = pairedCardLookup?.(orderSlot.slot_id) ?? null;
+                          if (!paired) return null;
+                          return (
+                            <span
+                              data-testid="rtt-reveal-paired-card"
+                              className="mt-1 flex flex-col items-center gap-0.5"
+                              style={{ borderTop: "1px solid var(--v2-border-subtle)", paddingTop: "0.375rem" }}
+                            >
+                              <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.6875rem", fontWeight: 600, color: "var(--v2-text-secondary)" }}>
+                                {paired.player_name}
+                              </span>
+                              <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", color: "var(--v2-text-muted)" }}>
+                                {paired.prime_score.toFixed(1)}
+                              </span>
+                            </span>
+                          );
+                        })()}
                       </>
                     ) : (
                       // Subtle mechanical resolution placeholder — the "not yet

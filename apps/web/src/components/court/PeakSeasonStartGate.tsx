@@ -4,7 +4,6 @@ import { createCourtGame, getCourtGame, PerfectSeasonAPIError } from "@/lib/perf
 import { useAuth } from "@/lib/auth-context";
 import { CourtDifficulty, CourtLineupPublicState, CourtMode } from "@/types/perfect-season";
 import CourtBuilder from "./CourtBuilder";
-import { useUiVersion } from "@/lib/ui-version";
 import PeakV2Shell from "@/components/v2/PeakV2Shell";
 import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
 
@@ -83,7 +82,6 @@ export default function PeakSeasonStartGate({
   const { loading: authLoading } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const isDaily = challengeKind === "daily";
-  const uiVersion = useUiVersion();
 
   const resume = useCallback(async (gameId: string) => {
     setBusy(true);
@@ -147,8 +145,7 @@ export default function PeakSeasonStartGate({
     );
   }
 
-  if (uiVersion === "v2") {
-    return (
+  return (
       <PeakV2Shell width="cinematic">
         <div className="v2-rtt-gate" data-testid="peak-season-start-gate">
           <p className="v2-page-kicker" data-testid={isDaily ? "daily-challenge-header" : undefined}>
@@ -232,192 +229,5 @@ export default function PeakSeasonStartGate({
           </p>
         </div>
       </PeakV2Shell>
-    );
-  }
-
-  return (
-    <div className="mx-auto max-w-2xl px-4 py-10" data-testid="peak-season-start-gate">
-      <div
-        className="rounded-2xl border p-6 flex flex-col gap-4"
-        style={{ background: "var(--bg-elevated)", borderColor: "var(--peak-accent, #f5c842)" }}
-      >
-        <div
-          className="flex items-center gap-2 flex-wrap"
-          data-testid={isDaily ? "daily-challenge-header" : undefined}
-        >
-          <span
-            className="text-[10px] font-black uppercase tracking-widest rounded-full px-2.5 py-1"
-            style={
-              isDaily
-                ? { background: "color-mix(in srgb, var(--accent-blue) 15%, transparent)", color: "var(--accent-blue)" }
-                : { background: "var(--peak-accent-bg)", color: "var(--peak-accent-text, #f5c842)" }
-            }
-          >
-            {isDaily ? "Daily PEAK Season" : "82-0 PEAK Season"}
-          </span>
-          {/* Phase 10C: no board-variant chip here on purpose.
-              This gate used to print COURT_MODE_LABELS[mode] beside the badge,
-              which rendered "1Y Apex" -- retired game-mode branding, on the
-              screen that is now the destination of both the navbar "Play" link
-              and the homepage CTA. It read as a mode selection the user had
-              somehow already made.
-              It also had nothing to say: `mode` reaches this gate from the
-              route segment and only ever affects the board's recorded
-              `duration_years` and the daily seed, never which cards can be
-              drafted (see the COURT_MODE_LABELS docstring). The variant is
-              still surfaced where it genuinely distinguishes one saved run
-              from another -- run history and the leaderboard filter. */}
-        </div>
-
-        <h1 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
-          {isDaily ? "Today's shared challenge" : "82-0 PEAK Season"}
-        </h1>
-
-        {/* Phase 10C: this gate is now the destination of BOTH the navbar
-            "Play" link and the homepage CTA, so it has to introduce the
-            PRODUCT, not just this particular run. The numbered steps below
-            still carry the detail. */}
-        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-          Spin a real NBA team-season, draft exact player-season cards, place them on the court, and
-          chase 82-0 with receipts.
-        </p>
-
-        <ol className="flex flex-col gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
-          <li className="flex gap-2.5">
-            <Step n={1} />
-            <span>
-              The wheel rolls a <strong>real NBA team and an exact season</strong> — eight times, once per
-              roster spot.
-            </span>
-          </li>
-          <li className="flex gap-2.5">
-            <Step n={2} />
-            <span>
-              Pick one player from that exact team-season and <strong>place them on the court</strong> — five
-              starters by position, three on the bench.
-            </span>
-          </li>
-          <li className="flex gap-2.5">
-            <Step n={3} />
-            <span>
-              Ratings stay hidden until the end. Then PEAK3 simulates your lineup and you{" "}
-              <strong>chase 82-0</strong>.
-            </span>
-          </li>
-          <li className="flex gap-2.5">
-            <Step n={4} />
-            <span>
-              Get a full receipt — including what PEAK3 itself would have picked — then{" "}
-              <strong>save, share, or beat your personal best</strong>.
-            </span>
-          </li>
-        </ol>
-
-        {isDaily && (
-          <p
-            className="text-xs rounded-lg p-3"
-            style={{ background: "var(--bg-surface)", color: "var(--text-muted)" }}
-            data-testid="start-gate-daily-note"
-          >
-            Everyone gets this exact spin sequence today
-            {challengeDate ? ` (${challengeDate}, UTC)` : ""} — same teams, same seasons, same candidates.
-          </p>
-        )}
-
-        {/* Gameplay-polish: difficulty is a per-run choice made HERE, before
-            anything is created — the server freezes it onto the run
-            (CourtLineupState.difficulty), so a reload/resume can never see
-            it change mid-run. */}
-        <div
-          className="flex flex-col gap-2 rounded-xl border p-3"
-          data-testid="difficulty-selector"
-          style={{ borderColor: "var(--border-default)", background: "var(--bg-surface)" }}
-        >
-          <span className="text-xs font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
-            Difficulty
-          </span>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <button
-              type="button"
-              data-testid="difficulty-easy-btn"
-              onClick={() => setDifficulty("easy")}
-              aria-pressed={difficulty === "easy"}
-              className="text-left rounded-lg p-3 text-xs pk-lift pk-press transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-              style={{
-                background: difficulty === "easy" ? "var(--peak-accent-bg)" : "var(--bg-elevated)",
-                border: `1px solid ${difficulty === "easy" ? "var(--peak-accent)" : "var(--border-default)"}`,
-                color: "var(--text-primary)",
-              }}
-            >
-              <span className="block font-bold uppercase tracking-wide" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
-                Easy
-              </span>
-              <span className="block mt-1" style={{ color: "var(--text-secondary)" }}>
-                3 team respins + 3 season respins for the whole run, plus a one-time
-                &ldquo;Give me a suggestion&rdquo; hint.
-              </span>
-            </button>
-            <button
-              type="button"
-              data-testid="difficulty-hard-btn"
-              onClick={() => setDifficulty("hard")}
-              aria-pressed={difficulty === "hard"}
-              className="text-left rounded-lg p-3 text-xs pk-lift pk-press transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-              style={{
-                background: difficulty === "hard" ? "var(--peak-accent-bg)" : "var(--bg-elevated)",
-                border: `1px solid ${difficulty === "hard" ? "var(--peak-accent)" : "var(--border-default)"}`,
-                color: "var(--text-primary)",
-              }}
-            >
-              <span className="block font-bold uppercase tracking-wide" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
-                Hard
-              </span>
-              <span className="block mt-1" style={{ color: "var(--text-secondary)" }}>
-                Only 1 team respin and 1 season respin for the whole run, no hint.
-              </span>
-            </button>
-          </div>
-        </div>
-
-        {error && (
-          <p role="alert" className="text-sm" style={{ color: "var(--incorrect)" }} data-testid="start-gate-error">
-            {error}
-          </p>
-        )}
-
-        <button
-          data-testid="begin-run-btn"
-          onClick={handleBegin}
-          disabled={busy || authLoading}
-          className="self-start px-6 py-3 rounded-lg text-sm font-bold uppercase tracking-wide disabled:opacity-60"
-          style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
-        >
-          {authLoading
-            ? "Checking your session…"
-            : busy
-              ? "Starting…"
-              : isDaily
-                ? "Begin Daily Run"
-                : "Begin 82-0 Run"}
-        </button>
-
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-          Nothing starts until you press begin. No account needed to play — signing in only adds saved
-          runs and personal bests.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function Step({ n }: { n: number }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="shrink-0 w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center mt-0.5"
-      style={{ background: "var(--bg-surface)", color: "var(--peak-accent-text, #f5c842)" }}
-    >
-      {n}
-    </span>
   );
 }

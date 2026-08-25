@@ -974,17 +974,32 @@ describe("RunTheTableGame — v3 flow", () => {
   // briefing afterward is already covered by the "second boss" reset test
   // above (`await userEvent.click(... "rtt-reveal-continue-boss")`).
   it("resumes on the reveal, not the briefing, when a fully-revealed boss track has never been locally dismissed", async () => {
+    const bossOnWall = {
+      boss_id: "the-wall", name: "The Wall", tagline: "Nothing gets through.",
+      act: 1, rule: null, source: "curated", revealed: true, deterministic: true,
+      starters: [], bench: [], lane_profile: [], roster_total: 60,
+    };
+    // The boss reveal auto-fires (fires `reveal`) the instant its surface
+    // mounts, even when the track arrives already fully resolved — this
+    // mocks that response explicitly rather than relying on the resolved
+    // value a PRECEDING test happened to leave behind (`vi.clearAllMocks()`
+    // resets call history, not `mockResolvedValue`).
+    mockPostAction.mockResolvedValue(
+      runState({
+        status: "boss_ready",
+        act: 1,
+        lane_profile: [],
+        reveal: { roster: rosterTrack(7), boss: bossTrack(7) },
+        next_boss: bossOnWall,
+      }),
+    );
     await startAt(
       runState({
         status: "boss_ready",
         act: 1,
         lane_profile: [],
         reveal: { roster: rosterTrack(7), boss: bossTrack(7) },
-        next_boss: {
-          boss_id: "the-wall", name: "The Wall", tagline: "Nothing gets through.",
-          act: 1, rule: null, source: "curated", revealed: true, deterministic: true,
-          starters: [], bench: [], lane_profile: [], roster_total: 60,
-        },
+        next_boss: bossOnWall,
       }),
     );
     expect(screen.queryByTestId("rtt-boss-intro")).not.toBeInTheDocument();

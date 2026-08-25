@@ -149,6 +149,7 @@ export default function PeakV2TMWReveal({
       className="absolute inset-0 z-40 flex items-center justify-center overflow-y-auto"
       style={{ background: "color-mix(in srgb, var(--v2-bg-page) 88%, transparent)" }}
       data-ui-version="v2"
+      data-testid="tmw-ceremony-scrim"
       data-stage={stage}
     >
       {/* RESERVED GEOMETRY (Pass 7, human acceptance testing, task §10; widened
@@ -212,6 +213,12 @@ export default function PeakV2TMWReveal({
             </div>
 
             <div
+              data-testid="tmw-roll"
+              data-roll-id={roll?.roll_id}
+              data-phase={resolved ? "revealed" : stage}
+              data-stage={stage}
+              data-revealed={resolved ? "true" : "false"}
+              data-reduced-motion={reduced ? "true" : "false"}
               style={{
                 gridArea: "stack",
                 opacity: showIntro && stage === "intro" ? 0 : 1,

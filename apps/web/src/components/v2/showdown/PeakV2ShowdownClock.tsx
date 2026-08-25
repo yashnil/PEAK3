@@ -66,19 +66,24 @@ export default function PeakV2ShowdownClock({
             : "held";
 
   return (
-    <div className="flex flex-col items-center gap-1">
+    <div
+      className="flex flex-col items-center gap-1"
+      data-testid="td-clock"
+      data-mode={mode}
+      data-yours={mode === "countdown" ? "true" : undefined}
+    >
       {/* Real expiry authority — visually hidden, screen-reader announcements preserved. */}
       <div className="sr-only">
-        <ArenaTimer deadlineAt={deadlineAt} totalSeconds={TURN_SECONDS} label="Time remaining" consequence={consequence} yours onExpire={onExpire} />
+        <ArenaTimer deadlineAt={deadlineAt} totalSeconds={TURN_SECONDS} label="Time remaining" consequence={consequence} yours onExpire={onExpire} testId="td-timer" />
       </div>
 
       {mode === "pending" ? (
-        <>
+        <div data-testid="td-pending" className="flex flex-col items-center gap-1">
           <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--v2-color-accent)" }} />
           <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}>
             {pendingCommand === "bid" ? `Sending your ${formatDollars(pendingAmount)} bid…` : "Sending your decision…"}
           </p>
-        </>
+        </div>
       ) : mode === "countdown" ? (
         <>
           <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--v2-text-muted)" }}>
@@ -103,16 +108,26 @@ export default function PeakV2ShowdownClock({
           <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--v2-text-muted)" }}>
             {opponentRemaining !== null ? "Their time" : "Time elapsed"}
           </span>
-          <span style={{ fontFamily: "var(--v2-font-mono)", fontVariantNumeric: "tabular-nums", fontSize: "2rem", fontWeight: 700, lineHeight: 1, color: "var(--v2-text-secondary)" }}>
-            {opponentRemaining ?? opponentElapsed}
+          <span
+            data-testid="td-elapsed-value"
+            style={{ fontFamily: "var(--v2-font-mono)", fontVariantNumeric: "tabular-nums", fontSize: "2rem", fontWeight: 700, lineHeight: 1, color: "var(--v2-text-secondary)" }}
+          >
+            {opponentRemaining ?? opponentElapsed}s
           </span>
         </>
       ) : (
         <>
           <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--v2-text-muted)" }}>
-            {phase === "intro" || activeSeat === null ? "Next clock" : "Opens shortly"}
+            {activeSeat === null || phase === "intro" ? "Next clock" : "Your clock"}
           </span>
           <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "2rem", fontWeight: 700, color: "var(--v2-text-muted)" }}>{TURN_SECONDS}s</span>
+          <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.6875rem", color: "var(--v2-text-muted)" }}>
+            {phase === "intro"
+              ? "Starts when the first lot opens — the intro costs you none of it."
+              : activeSeat === null
+                ? "Starts when the next lot opens."
+                : "Opens in a moment — you get the full window."}
+          </span>
         </>
       )}
     </div>

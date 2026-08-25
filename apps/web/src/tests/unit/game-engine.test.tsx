@@ -19,10 +19,16 @@ import type { Duel, AnswerResponse } from "@/types";
 
 const submitAnswer = vi.fn();
 const postDailyResult = vi.fn();
+// V2's completion screen (`PeakDuelV2History`) fetches the server's Peak
+// Duel Daily history to merge with the local snapshot; empty by default so
+// mounting it in these state-machine/timing tests never needs a real
+// network call.
+const getDailyHistory = vi.fn(() => Promise.resolve({ entries: [] }));
 
 vi.mock("@/lib/api", () => ({
   submitAnswer: (...args: unknown[]) => submitAnswer(...args),
   postDailyResult: (...args: unknown[]) => postDailyResult(...args),
+  getDailyHistory: () => getDailyHistory(),
 }));
 
 vi.mock("@/lib/progress", () => ({
@@ -31,6 +37,10 @@ vi.mock("@/lib/progress", () => ({
     recordAnswer: vi.fn(),
     updateEndlessScore: vi.fn(),
     getDailyCompletion: vi.fn(() => null),
+    // V2's completion screen (`PeakDuelV2History`) reads the local snapshot
+    // of daily completions to merge with the server's own history — same
+    // repo the legacy screen already read via other methods above.
+    getAll: vi.fn(() => ({ daily_completions: {} })),
   }),
 }));
 
@@ -260,7 +270,7 @@ describe("no auto-advance — every round waits for a manual press", () => {
     });
 
     expect(screen.getByText("Correct!")).toBeInTheDocument();
-    expect(screen.queryByText("2 / 3")).toBeNull();
+    expect(screen.queryByText("2 of 3")).toBeNull();
   });
 
   it("a manual press advances exactly one round", async () => {
@@ -289,8 +299,8 @@ describe("no auto-advance — every round waits for a manual press", () => {
       await Promise.resolve();
     });
 
-    fireEvent.click(screen.getByText("Next duel"));
-    expect(screen.getByText("2 / 3")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Next Matchup"));
+    expect(screen.getByText("2 of 3")).toBeInTheDocument();
   });
 
   it("double-clicking the advance control cannot skip a round", async () => {
@@ -324,11 +334,11 @@ describe("no auto-advance — every round waits for a manual press", () => {
     // covered directly in game-state.test.ts) is what actually makes the
     // second press inert; this asserts the observable outcome end-to-end:
     // exactly one duel skipped, never two.
-    const nextButton = screen.getByText("Next duel");
+    const nextButton = screen.getByText("Next Matchup");
     fireEvent.click(nextButton);
     fireEvent.click(nextButton);
-    expect(screen.getByText("2 / 3")).toBeInTheDocument();
-    expect(screen.queryByText("3 / 3")).toBeNull();
+    expect(screen.getByText("2 of 3")).toBeInTheDocument();
+    expect(screen.queryByText("3 of 3")).toBeNull();
   });
 
   it("does not advance out of the final round — it waits for a manual press", async () => {

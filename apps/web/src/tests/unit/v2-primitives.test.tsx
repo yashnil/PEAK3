@@ -16,7 +16,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import UiVersionSwitch from "@/components/v2/UiVersionSwitch";
 import PeakV2ArenaLight from "@/components/v2/PeakV2ArenaLight";
 import PeakV2Timer from "@/components/v2/PeakV2Timer";
 import PeakV2CourtSlot from "@/components/v2/PeakV2CourtSlot";
@@ -50,41 +49,6 @@ beforeEach(() => {
 
 afterEach(() => {
   document.documentElement.removeAttribute(UI_VERSION_ATTR);
-});
-
-describe("UiVersionSwitch", () => {
-  it("renders ONLY the legacy tree by default — never both at once", () => {
-    render(<UiVersionSwitch legacy={<div data-testid="legacy-tree" />} v2={<div data-testid="v2-tree" />} />);
-    expect(screen.getByTestId("legacy-tree")).toBeInTheDocument();
-    expect(screen.queryByTestId("v2-tree")).not.toBeInTheDocument();
-  });
-
-  it("renders ONLY the v2 tree once the version is set to v2, and drops the legacy tree entirely", () => {
-    document.documentElement.setAttribute(UI_VERSION_ATTR, "v2");
-    render(<UiVersionSwitch legacy={<div data-testid="legacy-tree" />} v2={<div data-testid="v2-tree" />} />);
-    expect(screen.getByTestId("v2-tree")).toBeInTheDocument();
-    expect(screen.queryByTestId("legacy-tree")).not.toBeInTheDocument();
-  });
-
-  it("switching versions does not call any handler on the tree that is not shown", () => {
-    const legacyEffect = vi.fn();
-    const v2Effect = vi.fn();
-    function Legacy() {
-      legacyEffect();
-      return <div data-testid="legacy-tree" />;
-    }
-    function V2() {
-      v2Effect();
-      return <div data-testid="v2-tree" />;
-    }
-    render(<UiVersionSwitch legacy={<Legacy />} v2={<V2 />} />);
-    // Both are constructed as React elements (cheap descriptors) by the
-    // caller, but only the branch actually returned by `UiVersionSwitch`
-    // mounts and runs its own render — the un-taken branch's component
-    // function body never executes.
-    expect(legacyEffect).toHaveBeenCalledTimes(1);
-    expect(v2Effect).not.toHaveBeenCalled();
-  });
 });
 
 describe("PeakV2ArenaLight", () => {

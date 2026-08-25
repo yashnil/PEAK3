@@ -29,7 +29,6 @@
 
 import { useEffect, useRef } from "react";
 import { Clock, HelpCircle, Play } from "lucide-react";
-import { useUiVersion } from "@/lib/ui-version";
 import PeakV2Shell from "@/components/v2/PeakV2Shell";
 import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
 import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
@@ -66,7 +65,6 @@ export default function StartGate({
   reducedMotion = false,
 }: Props) {
   const startRef = useRef<HTMLButtonElement>(null);
-  const uiVersion = useUiVersion();
 
   // The primary action takes focus, so a keyboard player can press Enter
   // immediately and a screen-reader user lands on the thing the screen is for.
@@ -74,8 +72,7 @@ export default function StartGate({
     startRef.current?.focus();
   }, []);
 
-  if (uiVersion === "v2") {
-    return (
+  return (
       <PeakV2Shell width="cinematic">
         <div className="v2-rtt-gate" data-testid="daily-grid-start-gate" data-motion={reducedMotion ? "none" : "auto"}>
           <p className="v2-page-kicker">Daily Grid</p>
@@ -132,102 +129,5 @@ export default function StartGate({
           </p>
         </div>
       </PeakV2Shell>
-    );
-  }
-
-  return (
-    <section
-      data-testid="daily-grid-start-gate"
-      data-motion={reducedMotion ? "none" : "auto"}
-      aria-labelledby="daily-grid-start-gate-heading"
-      className="card-elevated mx-auto w-full max-w-2xl p-6 sm:p-8"
-      style={{
-        transition: reducedMotion ? "none" : "opacity 200ms ease",
-      }}
-    >
-      <p
-        className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-        style={{ color: "var(--peak-accent-text)" }}
-      >
-        Daily Grid
-      </p>
-
-      {/* The four briefed lines, verbatim and in order. */}
-      <h1
-        id="daily-grid-start-gate-heading"
-        className="font-display mt-1 text-2xl font-bold sm:text-3xl"
-      >
-        Today&rsquo;s Daily Grid
-      </h1>
-
-      <p
-        data-testid="daily-grid-gate-shape"
-        className="mt-3 text-sm font-semibold"
-        style={{ color: "var(--text-primary)" }}
-      >
-        9 squares &middot; 9 different exact player-seasons
-      </p>
-      <p
-        data-testid="daily-grid-gate-objective"
-        className="mt-1 text-sm leading-relaxed"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        Build the highest-scoring valid grid you can.
-      </p>
-      <p
-        data-testid="daily-grid-gate-timer-note"
-        className="mt-1 flex items-center gap-1.5 text-sm leading-relaxed"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        <Clock size={13} aria-hidden="true" style={{ color: "var(--peak-accent-text)" }} />
-        The timer starts only when you press Start.
-      </p>
-
-      <div className="mt-6 flex flex-col gap-2.5 sm:flex-row sm:items-center">
-        <button
-          ref={startRef}
-          type="button"
-          data-testid="start-daily-grid"
-          onClick={onStart}
-          disabled={starting}
-          className="inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:opacity-60"
-          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
-        >
-          <Play size={14} aria-hidden="true" />
-          Start Timed Grid
-        </button>
-
-        <button
-          type="button"
-          data-testid="daily-grid-gate-how-to-play"
-          onClick={onHowToPlay}
-          className="inline-flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-          style={{ borderColor: "var(--border-emphasis)", color: "var(--text-primary)" }}
-        >
-          <HelpCircle size={14} aria-hidden="true" />
-          How to Play
-        </button>
-
-        <button
-          type="button"
-          data-testid="daily-grid-gate-skip-tour"
-          onClick={onSkipTourAndStart}
-          disabled={starting}
-          className="rounded-lg px-3 py-2.5 text-sm font-medium underline underline-offset-4 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:opacity-60"
-          style={{ color: "var(--text-muted)" }}
-        >
-          Skip Tour and Start
-        </button>
-      </div>
-
-      <p
-        data-testid="daily-grid-gate-board-line"
-        className="mt-5 text-xs"
-        style={{ color: "var(--text-muted)" }}
-      >
-        Today&rsquo;s board &middot; {date}
-        {theme ? ` · ${theme}` : ""} &middot; {difficulty} difficulty
-      </p>
-    </section>
   );
 }

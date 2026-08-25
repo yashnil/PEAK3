@@ -154,7 +154,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      data-ui-version="legacy"
+      data-ui-version="v2"
       className={`${inter.variable} ${spaceGrotesk.variable} ${instrumentSerif.variable}`}
     >
       <head>
@@ -166,14 +166,19 @@ export default function RootLayout({
             `content` matches Arena Night (`--bg-page`); the script
             overwrites it synchronously once it knows the real theme. */}
         <script dangerouslySetInnerHTML={{ __html: themeInitScript() }} />
-        {/* Same contract, for PEAK3 V2's UI-version switch (Pass 2,
-            product-direction): sets `data-ui-version` before first paint so
-            an already-testing visitor's stored `?ui=v2` choice never flashes
-            legacy first. The static `data-ui-version="legacy"` attribute
-            above is the true no-JS/pre-hydration default — this script only
-            ever upgrades it to "v2", never the reverse silently, matching
-            the brief's "default must remain legacy unless explicitly
-            opting in." */}
+        {/* Same contract, for PEAK3 V2's UI-version switch (Pass 3,
+            product-direction: V2-only cutover). V2 reached full parity with
+            legacy and is now the ONLY shipped presentation — every legacy
+            JSX branch has been deleted at its call site, and
+            `data-ui-version="v2"` is load-bearing for several V2-only
+            stylesheets (see `ui-version-script.ts`'s module docstring), so
+            the static `data-ui-version="v2"` attribute above (the true
+            no-JS/pre-hydration default) and this script (which now always
+            resolves "v2" too, unconditionally — see that same docstring)
+            can never disagree. Kept as a real blocking script rather than
+            deleted outright only because the local dev switch
+            (`UiVersionDevSwitch`) still needs the DOM attribute mechanism
+            to flip client-side for local inspection. */}
         <script dangerouslySetInnerHTML={{ __html: uiVersionInitScript() }} />
         <meta name="theme-color" content="#0a0b0d" />
       </head>
