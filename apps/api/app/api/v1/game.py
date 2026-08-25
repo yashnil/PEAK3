@@ -403,6 +403,79 @@ async def get_daily_distribution(
     return DailyDistributionResponse(total=total, counts=counts)
 
 
+class DailyHistoryEntry(BaseModel):
+    """One OFFICIAL Peak Duel Daily attempt, as a dated row rather than a
+    bucketed count -- what a per-day result-history grid needs."""
+
+    daily_key: str
+    duration_years: int
+    duels_total: int
+    correct_count: int
+    arena_points: int
+    best_streak: int
+    played_on_daily_key: bool
+
+
+class DailyHistoryResponse(BaseModel):
+    """Every OFFICIAL Peak Duel Daily attempt on record for this identity,
+    most recent daily key first.
+
+    Deliberately separate from `/game/daily/distribution`: that route
+    aggregates the identical rows into a 0/10..10/10 histogram and discards
+    the date in the process, which is exactly right for "where does today
+    sit historically" and exactly wrong for "show me the calendar" -- a
+    result-history grid needs the dated rows themselves.
+    """
+
+    entries: list[DailyHistoryEntry] = Field(default_factory=list)
+
+
+@router.get("/game/daily/history", response_model=DailyHistoryResponse)
+async def get_daily_history(
+    request: Request,
+    response: Response,
+    repo: PeakDuelDailyResultRepoDep,
+    auth: OptionalAuth = None,
+) -> DailyHistoryResponse:
+    """This identity's own OFFICIAL Peak Duel Daily attempts, one row per
+    completed day.
+
+    Same identity resolution as `/game/daily/distribution` and
+    `POST /game/daily/result`: the authenticated sub when signed in,
+    otherwise the signed `peak3_anon` cookie (minted here if this is this
+    browser's first request of any kind) -- so a guest's own history reads
+    back consistently before they ever create an account, and the exact
+    same rows a later sign-in's `transfer_owner` would move are what this
+    route already shows them.
+
+    Read-only over `list_results_for_owner` -- no new mutation path, and
+    nothing here can duplicate or alter a recorded attempt. Attempts are
+    already idempotent per `(owner_sub, mode, daily_key)` at the write path,
+    so this can only ever list a given daily board once per identity.
+    """
+    owner_sub = resolve_owner_sub(
+        auth, request.cookies.get(ANON_COOKIE_NAME), response, settings.SIGNING_SECRET
+    )
+    # Same bound as the distribution route, for the same reason: well past any
+    # real lifetime of daily play, so one identity's row count can never turn
+    # this into an unbounded query.
+    results = await repo.list_results_for_owner(owner_sub, limit=3650)
+    return DailyHistoryResponse(
+        entries=[
+            DailyHistoryEntry(
+                daily_key=record.daily_key,
+                duration_years=record.duration_years,
+                duels_total=record.duels_total,
+                correct_count=record.correct_count,
+                arena_points=record.arena_points,
+                best_streak=record.best_streak,
+                played_on_daily_key=record.played_on_daily_key,
+            )
+            for record in results
+        ]
+    )
+
+
 @router.get("/game/endless", response_model=EndlessGameResponse)
 async def get_endless_game(
     years: int = Query(default=3),

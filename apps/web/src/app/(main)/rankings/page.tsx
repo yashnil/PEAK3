@@ -303,6 +303,23 @@ export default function RankingsPage() {
             Every score below is the official PEAK3 formula. Select any row to see exactly how it
             was built.
           </p>
+          {/* Editorial/instrument note, not a warning box — the model's real
+              coverage boundary (docs/model/SCORING_METHODOLOGY.md), stated
+              once here rather than left implicit in a board that otherwise
+              looks like it ranks NBA history in full. */}
+          <p
+            data-testid="rankings-era-note"
+            style={{
+              fontFamily: "var(--v2-font-display)",
+              fontStyle: "italic",
+              fontSize: "0.8125rem",
+              color: "var(--v2-text-muted)",
+              maxWidth: "42rem",
+            }}
+          >
+            Rankings quantify peaks beginning with the 1979–80 season. Earlier player peaks are not
+            included.
+          </p>
         </header>
 
         <div className="flex flex-col gap-2">
@@ -486,6 +503,12 @@ export default function RankingsPage() {
           <p className="text-sm max-w-2xl" style={{ color: "var(--text-secondary)" }}>
             Every score below is the official PEAK3 formula. Select any row to see exactly how it
             was built.
+          </p>
+          {/* Editorial/instrument note, not a warning box — see the v2 branch
+              of this header for the full rationale. */}
+          <p className="rankings-era-note" data-testid="rankings-era-note">
+            Rankings quantify peaks beginning with the 1979–80 season. Earlier player peaks are not
+            included.
           </p>
         </header>
 

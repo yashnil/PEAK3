@@ -116,6 +116,61 @@ describe("Correction 1: PeakV2DataLane dot-on-a-line", () => {
     expect(container.querySelector(".flex.flex-col.gap-1\\.5.sm\\:hidden")).toBeInTheDocument();
     expect(container.querySelector(".hidden.sm\\:grid")).toBeInTheDocument();
   });
+
+  // Peak Duel mission fix: the filled dot must follow `pickedSide` (the
+  // side the PLAYER actually clicked), never a fixed side and never the
+  // winner. These three cover both directions plus the pre-choice neutral
+  // state, independent of which side holds the higher value.
+  describe("pickedSide — the filled dot follows the caller's designated side, not a fixed one", () => {
+    it('pickedSide="right" fills the right dot and leaves left hollow, even though left has the higher value', () => {
+      const { container } = render(
+        <PeakV2DataLane
+          label="Statistical Impact"
+          tone="si"
+          leftLabel="Left"
+          leftValue={90}
+          rightLabel="Right"
+          rightValue={10}
+          pickedSide="right"
+        />,
+      );
+      const desktop = container.querySelector(".hidden.sm\\:grid") as HTMLElement;
+      const filled = desktop.querySelector('span[style*="background: var(--v2-color-comp-si)"]') as HTMLElement;
+      expect(filled).toBeInTheDocument();
+      // The filled dot sits at the RIGHT value's position (10%), not left's.
+      expect(filled.style.left).toBe("10%");
+      // Exactly one hollow dot remains, at the left value's position.
+      const hollow = desktop.querySelector('span[style*="border: 1.5px"]') as HTMLElement;
+      expect(hollow).toBeInTheDocument();
+      expect(hollow.style.left).toBe("90%");
+    });
+
+    it('pickedSide="none" renders both dots hollow — the neutral pre-choice/no-pick treatment', () => {
+      const { container } = render(
+        <PeakV2DataLane
+          label="Statistical Impact"
+          tone="si"
+          leftLabel="Left"
+          leftValue={90}
+          rightLabel="Right"
+          rightValue={10}
+          pickedSide="none"
+        />,
+      );
+      const desktop = container.querySelector(".hidden.sm\\:grid") as HTMLElement;
+      expect(desktop.querySelector('span[style*="background: var(--v2-color-comp-si)"]')).not.toBeInTheDocument();
+      expect(desktop.querySelectorAll('span[style*="border: 1.5px"]')).toHaveLength(2);
+    });
+
+    it("omitting pickedSide keeps every pre-existing caller (RTT, Showdown, homepage) filling left, unaffected", () => {
+      const { container } = render(
+        <PeakV2DataLane label="Statistical Impact" tone="si" leftLabel="You" leftValue={40} rightLabel="Boss" rightValue={20} />,
+      );
+      const desktop = container.querySelector(".hidden.sm\\:grid") as HTMLElement;
+      const filled = desktop.querySelector('span[style*="background: var(--v2-color-comp-si)"]') as HTMLElement;
+      expect(filled.style.left).toBe("40%");
+    });
+  });
 });
 
 describe("Correction 2: PeakV2DisplayEmphasis — inline, composable", () => {

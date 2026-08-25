@@ -30,6 +30,21 @@
   color: var(--text-secondary);
 }
 
+/* --- Era coverage note ----------------------------------------------- */
+/* An editorial/instrument line, not a warning banner: the model's real
+   season floor (1979-80), stated once beside the page's own description
+   rather than left implicit. Small and monospace like the provenance
+   formula string below it -- an instrumentation reading, not an alert. */
+.rankings-era-note {
+  max-width: 62ch;
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6875rem;
+  letter-spacing: 0.01em;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
 /* --- Board heading -------------------------------------------------- */
 /* Names the board in the same words as the explainer. Deliberately not a
    restatement of the tab label: the tab is the control, this is the

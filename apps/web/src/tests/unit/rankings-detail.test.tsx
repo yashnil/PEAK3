@@ -49,23 +49,29 @@ function row(overrides: Partial<RankingRow> = {}): RankingRow {
 }
 
 describe("compositeAxes", () => {
-  it("returns five components plus data completeness, in a fixed order", () => {
-    const axes = compositeAxes(row().percentiles, row().components, true);
+  it("returns five components plus the overall PEAK3 percentile, in a fixed order", () => {
+    const axes = compositeAxes(row().percentiles, row().components, row().prime_score);
     expect(axes).not.toBeNull();
     expect(axes).toHaveLength(6);
-    expect(axes![5].key).toBe("data_completeness");
+    expect(axes![5].key).toBe("total");
+    expect(axes![5].label).toBe("Overall PEAK3 percentile");
     expect(axes![5].value).toBe(100);
+    expect(axes![5].raw).toBe(row().prime_score);
   });
 
   it("refuses to draw anything when the board publishes no percentiles", () => {
     // A six-spoke shape collapsed to the origin looks like a verdict on the
     // player rather than an absence in the data.
-    expect(compositeAxes(null, row().components, true)).toBeNull();
+    expect(compositeAxes(null, row().components, row().prime_score)).toBeNull();
   });
 
-  it("marks an incomplete row down on the completeness axis rather than hiding it", () => {
-    const axes = compositeAxes(row().percentiles, row().components, false);
-    expect(axes![5].value).toBeLessThan(100);
+  it("draws the sixth axis from percentiles.total, not a hardcoded near-100 value", () => {
+    const axes = compositeAxes(
+      { ...row().percentiles!, total: 42 },
+      row().components,
+      row().prime_score,
+    );
+    expect(axes![5].value).toBe(42);
   });
 });
 
@@ -99,7 +105,7 @@ describe("RankingsDetail", () => {
       "individual_recognition",
       "postseason_individual_value",
       "team_achievement",
-      "data_completeness",
+      "total",
     ]) {
       expect(screen.getByTestId(`rk-chart-label-${key}`)).toBeInTheDocument();
       expect(screen.getByTestId(`rk-chart-point-${key}`)).toBeInTheDocument();
@@ -114,7 +120,7 @@ describe("RankingsDetail", () => {
     expect(within(table).getByRole("row", { name: /Statistical Impact/i })).toHaveTextContent(
       "99",
     );
-    expect(screen.getByTestId("rk-detail-row-data_completeness")).toHaveTextContent("100");
+    expect(screen.getByTestId("rk-detail-row-total")).toHaveTextContent("100");
     expect(table.querySelector("caption")).toHaveTextContent(/percentile against every peak window/);
   });
 

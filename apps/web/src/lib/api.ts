@@ -2,6 +2,7 @@ import { z } from "zod";
 import type {
   DailyChallenge,
   DailyDistributionResponse,
+  DailyHistoryResponse,
   DailyResultRequest,
   DailyResultResponse,
   EndlessSession,
@@ -433,6 +434,24 @@ export async function getDailyDistribution(): Promise<DailyDistributionResponse>
     throw new APIError(res.status, message);
   }
   return res.json() as Promise<DailyDistributionResponse>;
+}
+
+// Same identity resolution and same cross-origin cookie requirement as
+// `getDailyDistribution` — this is the dated-rows sibling of that aggregate,
+// for a result-history grid (`GET /game/daily/history` in game.py).
+export async function getDailyHistory(): Promise<DailyHistoryResponse> {
+  const res = await fetch(`${API_BASE}/api/v1/game/daily/history`, {
+    credentials: "include",
+  });
+  if (!res.ok) {
+    let message = `API error ${res.status}`;
+    try {
+      const errBody = await res.json();
+      message = errBody.detail ?? message;
+    } catch {}
+    throw new APIError(res.status, message);
+  }
+  return res.json() as Promise<DailyHistoryResponse>;
 }
 
 export async function submitAnswer(body: {
