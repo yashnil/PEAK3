@@ -93,6 +93,15 @@ export default function PeakV2RTTBossLineup({
   onContinue,
   pairedCardLookup,
 }: PeakV2RTTBossLineupProps) {
+  // A cinematic reveal is often much shorter than the decision screen that
+  // preceded it — see `PeakV2RTTBossIntro`'s own comment, confirmed live for
+  // exactly this component's `kind="boss"` case. Reset scroll on mount so
+  // this surface, and its own action buttons, never render above a
+  // still-scrolled-down viewport.
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, []);
+
   const autoStartedRef = useRef(false);
   useEffect(() => {
     if (kind !== "boss") return;

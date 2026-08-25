@@ -20,9 +20,16 @@ export default function HomeV2ResumeRow({ mode }: { mode: HomePageV2Mode }) {
   const bossName = run?.next_boss?.name;
 
   return (
-    <Link href={resuming ? "/arena/run-the-table" : mode.href} className="v2-slate-cell v2-slate-cell-flagship group">
+    <Link
+      href={resuming ? "/arena/run-the-table" : mode.href}
+      className="v2-slate-cell v2-slate-cell-flagship group"
+      data-testid="home-flagship-card"
+      data-featured="true"
+    >
       <span className="v2-slate-cell-head">
-        <span className="v2-slate-cell-tag">{mode.tag ?? "Flagship"}</span>
+        <span className="v2-slate-cell-tag" data-testid="flagship-badge">
+          {mode.tag ?? "Flagship"}
+        </span>
         {resuming ? <span className="v2-slate-cell-badge">In progress</span> : null}
       </span>
       <span className="v2-slate-cell-title">{mode.title}</span>

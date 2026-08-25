@@ -76,6 +76,8 @@ import PeakV2RTTNodeChoice from "@/components/v2/rtt/PeakV2RTTNodeChoice";
 import PeakV2RTTBossPreview from "@/components/v2/rtt/PeakV2RTTBossPreview";
 import PeakV2RTTCreditSinks from "@/components/v2/rtt/PeakV2RTTCreditSinks";
 import PeakV2RTTResult from "@/components/v2/rtt/PeakV2RTTResult";
+import { GuidedTour, useGuidedTour } from "@/components/ui/GuidedTour";
+import { RUN_THE_TABLE_TOUR, RUN_THE_TABLE_TOUR_ID, RUN_THE_TABLE_TOUR_VERSION } from "@/components/ui/tour-steps";
 
 /**
  * RUN THE TABLE, top to bottom.
@@ -355,6 +357,31 @@ export default function RunTheTableGame({
   const showBossIntro = bossActive && !bossIntroDone;
   /** The paired lineup reveal, after the intro is dismissed. */
   const showBossReveal = bossActive && bossIntroDone && !bossRevealDismissedNow;
+
+  /**
+   * The in-run guided tour (W4), auto-starting for a genuine first-time
+   * player once a run actually exists.
+   *
+   * NOT on the start gate — `RunStartGate`'s own `TourLauncher` is
+   * `autoStart={false}` on purpose (same policy Daily Grid's start gate
+   * later copied, see `DailyGridGame.tsx`'s own comment): a walkthrough that
+   * opens by itself on top of a "press a button to begin" screen is a modal
+   * in front of a call to action. This hook call has to sit here,
+   * unconditionally, before the `if (!state) return <RunStartGate ... />`
+   * below — the Rules of Hooks forbid a conditional call — but the
+   * `<GuidedTour>` element itself only renders further down, in the
+   * post-gate JSX, so it is never mounted while the gate owns the screen.
+   *
+   * `blocked` while a reveal sequence is animating or an action is in
+   * flight, mirroring Daily Grid's `tourBlocked`: a spotlight over a
+   * split-flap reveal or a busy control is worse than no onboarding at all.
+   */
+  const tourBlocked = showRosterReveal || showBossIntro || showBossReveal || busy;
+  const tour = useGuidedTour({
+    tourId: RUN_THE_TABLE_TOUR_ID,
+    version: RUN_THE_TABLE_TOUR_VERSION,
+    blocked: tourBlocked,
+  });
 
   /**
    * Capture the scout report the moment it's on the wire (see the
@@ -1519,6 +1546,22 @@ export default function RunTheTableGame({
       <div aria-live="polite" className="sr-only" data-testid="rtt-live">
         {liveMessage}
       </div>
+      {/* The in-run guided tour — see the `tour`/`tourBlocked` hook call
+          above for why this mounts only here, past the start gate. Opening
+          it changes no run state: the server-authoritative `state` this
+          component holds is untouched either way. */}
+      <GuidedTour
+        steps={RUN_THE_TABLE_TOUR}
+        tourId={RUN_THE_TABLE_TOUR_ID}
+        version={RUN_THE_TABLE_TOUR_VERSION}
+        eyebrow="How Run the Table works"
+        open={tour.open}
+        onOpenChange={(next) => {
+          if (!next) tour.stop();
+        }}
+        autoStart={false}
+        data-testid="guided-tour"
+      />
       <PeakV2RTTShell
       state={state}
       objective={objective}

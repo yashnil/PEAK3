@@ -75,6 +75,7 @@ function StatusStrip({
               never zero context for where the run stands. */}
           <span
             className="lg:hidden"
+            data-tour-id="rtt-progress-strip"
             style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", color: "var(--v2-text-muted)" }}
           >
             {progress.done} of {progress.total} stages complete
@@ -97,8 +98,16 @@ function StatusStrip({
         </div>
       </div>
       <div className="flex items-center gap-6">
-        <PeakV2Score data-testid="rtt-credits" value={state.credits} label="Credits" tone="accent" />
-        <PeakV2Score data-testid="rtt-lives" value={`${state.lives}/${state.max_lives}`} label="Lives" tone={state.lives <= 1 ? "negative" : "positive"} />
+        {/* `data-tour-id` wrappers — the guided tour's "Credits"/"Lives"
+            steps spotlight these two tiles (`tour-steps.ts`'s
+            `RUN_THE_TABLE_TOUR`); `PeakV2Score` itself has no generic
+            passthrough for an attribute the tour, and only the tour, needs. */}
+        <span data-tour-id="rtt-credits">
+          <PeakV2Score data-testid="rtt-credits" value={state.credits} label="Credits" tone="accent" />
+        </span>
+        <span data-tour-id="rtt-lives">
+          <PeakV2Score data-testid="rtt-lives" value={`${state.lives}/${state.max_lives}`} label="Lives" tone={state.lives <= 1 ? "negative" : "positive"} />
+        </span>
         <PeakV2Score data-testid="rtt-act" value={`${Math.min(state.act, state.acts_total)}/${state.acts_total}`} label="Act" />
         {restartControl}
       </div>
@@ -109,7 +118,7 @@ function StatusStrip({
 function RunMapRail({ state }: { state: RunPublicState }) {
   const rows = ladderRows(state.map);
   return (
-    <nav aria-label="Run map" className="flex flex-col gap-1">
+    <nav aria-label="Run map" className="flex flex-col gap-1" data-tour-id="rtt-run-map">
       <span
         style={{
           fontFamily: "var(--v2-font-mono)",
@@ -231,7 +240,7 @@ function RosterLanesRail({ state }: { state: RunPublicState }) {
   return (
     <div className="flex flex-col gap-6">
       <ArmedEffects state={state} />
-      <div>
+      <div data-tour-id="rtt-roster">
         <span
           style={{
             fontFamily: "var(--v2-font-mono)",
@@ -269,7 +278,7 @@ function RosterLanesRail({ state }: { state: RunPublicState }) {
         </ul>
       </div>
 
-      <div>
+      <div data-tour-id="rtt-lane-profile">
         <span
           style={{
             fontFamily: "var(--v2-font-mono)",
@@ -301,7 +310,7 @@ function RosterLanesRail({ state }: { state: RunPublicState }) {
           legacy `RunTray`/`SystemSelect` (plan §6): plain effect, one
           strategy hint, then the engine's own summary verbatim behind "See
           exact rule". */}
-      <div data-testid="rtt-active-systems">
+      <div data-testid="rtt-active-systems" data-tour-id="rtt-systems">
         <span
           style={{
             fontFamily: "var(--v2-font-mono)",
@@ -436,8 +445,9 @@ export default function PeakV2RTTShell({ state, objective, layout, content, rest
           </div>
           {/* The current decision dominates — no border, no card fill, just
               more width and the page's own contrast, per the brief's "the
-              current decision should clearly dominate." */}
-          <div className="min-w-0 flex flex-col gap-4">
+              current decision should clearly dominate." Also the guided
+              tour's "current decision" spotlight target. */}
+          <div className="min-w-0 flex flex-col gap-4" data-tour-id="rtt-decision">
             {errorBanner}
             {content}
           </div>

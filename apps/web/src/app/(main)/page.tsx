@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
-import { loadHomeModelData } from "@/components/home/home-data";
+import { loadHomeModelData, loadNbaFactOfTheDay } from "@/components/home/home-data";
 import { MODE_COPY } from "@/lib/modes";
 import { getArenaCatalogue } from "@/lib/arena-readiness-server";
+import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
 import HomePageV2 from "@/components/v2/HomePageV2";
 import type { V2Tone } from "@/components/v2/v2-tone";
 import type { RankingComponentKey } from "@/types";
@@ -33,16 +34,26 @@ const COMPONENT_WEIGHTS: { key: RankingComponentKey; label: string; pct: string;
  * do not duplicate reducers, API clients, game logic" rule.
  */
 export default async function HomePage() {
-  const [modelData, arenaCatalogue] = await Promise.all([
+  const [modelData, arenaCatalogue, courtBuilderEnabled, nbaFact] = await Promise.all([
     loadHomeModelData(),
     // Fail-closed inside the helper, so this cannot reject and cannot take the
     // homepage down when the Arena is unreachable.
     getArenaCatalogue(),
+    // Same fail-closed readiness check `/arena` itself gates 82-0 on (ADR-005
+    // Decision 7): a fetch failure means "not enabled," never a link that
+    // might 403.
+    getCourtBuilderReadiness()
+      .then((r) => r.courtbuilder_enabled)
+      .catch(() => false),
+    // NBA Fact of the Day — fail-closed inside the helper (`null` renders no
+    // panel, never a fabricated fact or a broken homepage).
+    loadNbaFactOfTheDay(),
   ]);
 
   const flagship = MODE_COPY["run-the-table"];
   const dailyGrid = MODE_COPY["daily-grid"];
   const peakDuel = MODE_COPY["peak-duel"];
+  const peakSeason = MODE_COPY["peak-season"];
 
   return (
     <HomePageV2
@@ -51,6 +62,8 @@ export default async function HomePage() {
       proof={modelData.proof}
       runTheTable={flagship}
       dailyModes={[dailyGrid, peakDuel]}
+      peakSeason={courtBuilderEnabled ? peakSeason : null}
+      nbaFact={nbaFact}
       multiplayerModes={
         arenaCatalogue.available
           ? arenaCatalogue.modes.map((mode) => ({

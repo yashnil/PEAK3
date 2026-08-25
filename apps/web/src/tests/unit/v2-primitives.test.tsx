@@ -196,7 +196,9 @@ describe("HomePageV2 — real data only, no fabricated stats", () => {
     },
     runTheTable: { href: "/arena/run-the-table", title: "RUN THE TABLE", description: "Flagship mode" },
     dailyModes: [],
+    peakSeason: null,
     multiplayerModes: [],
+    nbaFact: null,
   };
 
   it("omits the data-object slot entirely when no real top window is available — never a placeholder", () => {

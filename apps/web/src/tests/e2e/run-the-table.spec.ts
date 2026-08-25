@@ -279,10 +279,17 @@ async function stepOnce(page: Page, surface: SurfaceId): Promise<void> {
       await page.locator('[data-testid="rtt-resolve-boss"]').click();
       break;
     case "rtt-battle-reveal":
-      // Skip the lane-by-lane reveal, then advance. Asserting the END state
-      // instead of watching the animation is the whole point of the skip
-      // affordance existing.
-      await page.locator('[data-testid="rtt-battle-skip"]').click();
+      // V2 REBUILD (PeakV2RTTBattleResult.tsx, Pass 3 — "the boss battle
+      // result" is one of the four surfaces explicitly rebuilt for V2,
+      // verified against the design reference E2 page 17). Legacy's
+      // `BattleReveal` played the lane-by-lane resolution as an animated
+      // sequence with its own "Skip" affordance (`rtt-battle-skip`); V2's
+      // replacement renders the finished five-lane receipt statically and
+      // completely the instant this surface mounts — there is no animation
+      // left to skip, so there is no `rtt-battle-skip` button any more (only
+      // `rtt-battle-advance`, unchanged). Asserting the end state instead of
+      // watching an animation — the property `rtt-battle-skip` used to
+      // exist for — is now true of this surface unconditionally.
       await page.locator('[data-testid="rtt-battle-advance"]').click();
       break;
     case "rtt-result":
@@ -556,44 +563,56 @@ test.describe("RUN THE TABLE opening reveal", () => {
     expect(revealPosts).toBe(1);
   });
 
-  test("the roster dock conceals every unrevealed slot during the sequence — no name, score, or window leaks", async ({
+  test("the reveal sequence conceals every unrevealed slot — no name, score, or window leaks", async ({
     page,
   }) => {
+    // V2 CONSOLIDATION (PeakV2RTTBossLineup.tsx, Pass 3 polish). The
+    // opening-roster reveal and the boss reveal used to be two divergent
+    // implementations: legacy's `RevealSequenceSurface` paired with a
+    // separate always-mounted `RunTray` "roster dock" (`data-reveal-active`,
+    // compact `rtt-slot-compact-*` chips) tracking concealment state beside
+    // the big reveal cards. `PeakV2RTTBossLineup` is the real V2 rebuild of
+    // BOTH surfaces as one shared card-grid/arena-light presentation
+    // (`kind="roster"` vs `kind="boss"`) — `RunTray` is dead code now
+    // (confirmed: no `<RunTray` render site anywhere in the tree), and there
+    // is no second, parallel "dock" duplicating the reveal cards' own state.
+    // Concealment lives entirely on `[data-testid="rtt-reveal-card"]`'s own
+    // `data-reveal-status` ("concealed" | "active" | "settled") — the exact
+    // attribute this same file's boss-reveal tests already assert against
+    // (see `revealedSlotCount()` above, and the mobile boss-reveal test
+    // below). This test now protects the identical player-facing property
+    // ("nothing is turned over until asked, and only what has been asked
+    // for") through that real, current mechanism instead of the retired one.
     await freshGate(page);
     await startRun(page, "rtt-start-standard");
-    await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toBeVisible();
+    const reveal = page.locator('[data-testid="rtt-opening-reveal"]');
+    await expect(reveal).toBeVisible();
 
-    const dock = page.locator('[data-testid="rtt-roster-dock"]');
-    await expect(dock).toHaveAttribute("data-reveal-active", "true");
-    // Every compact roster chip reads concealed before the reveal starts.
-    await expect(page.locator('[data-testid^="rtt-slot-compact-"][data-concealed="false"]')).toHaveCount(0);
+    // Before the player presses "Reveal your roster", the card grid has not
+    // even mounted yet — nothing is rendered for a name or score to leak
+    // from at all, the strongest form of "concealed" there is.
+    await expect(page.locator('[data-testid="rtt-reveal-card"]')).toHaveCount(0);
 
     await page.locator('[data-testid="rtt-reveal-start-roster"]').click();
     await page.locator('[data-testid="rtt-reveal-skip-roster"]').click();
 
-    // TWO DIFFERENT FLAGS, checked separately, because they answer two
-    // different questions (RunTray.tsx / RunTheTableGame.tsx's
-    // `rosterConcealment`): `data-reveal-active` is "has the player
-    // dismissed this reveal yet" — stays true here, because skip alone does
-    // not dismiss (the lead's ruling this pass). Per-slot `data-concealed`
-    // tracks the PRESENTATION CURSOR, which skip-all legitimately fast-
-    // forwards to every slot — the full roster is already sitting in the
-    // main reveal card list on screen at this exact moment, so the compact
-    // dock matching that is correct, not a leak. (An earlier version of
-    // this test asserted every slot was STILL concealed here, which read as
-    // a stronger check but was actually asserting the wrong thing — verified
-    // live against the running app before writing this comment, not assumed.)
-    await expect(dock).toHaveAttribute("data-reveal-active", "true");
-    await expect(page.locator('[data-testid^="rtt-slot-compact-"][data-concealed="false"]')).toHaveCount(7);
+    // "Skip all" is a real server round trip that returns every authoritative
+    // `revealed_slots` entry at once (SYNTHESIS_CONTRACT.md §2.2); the client
+    // then settles every card's presentation in lockstep — all seven read
+    // "settled" together, never a partial disclosure.
+    await expect(
+      page.locator('[data-testid="rtt-reveal-card"][data-reveal-status="settled"]'),
+    ).toHaveCount(7);
+    await expect(revealedSlotCount(page)).resolves.toBe(7);
 
     const continueRoster = page.locator('[data-testid="rtt-reveal-continue-roster"]');
     await continueRoster.waitFor({ state: "visible", timeout: 20_000 });
     await continueRoster.click();
     await expect(page.locator('[data-testid="rtt-system-select"]')).toBeVisible({ timeout: 20_000 });
 
-    // Only once the player has explicitly moved on does the dock stop
-    // concealing.
-    await expect(dock).toHaveAttribute("data-reveal-active", "false");
+    // Only once the player has explicitly moved on does the reveal surface
+    // itself unmount.
+    await expect(reveal).toHaveCount(0);
   });
 });
 
