@@ -145,6 +145,14 @@ export function getProgressRepository(): LocalProgressRepository {
   return _repo;
 }
 
+/** Test-only: drop the cached singleton so the next `getProgressRepository()`
+ *  re-reads `localStorage` from scratch — matching `__resetUiVersionStoreForTests`
+ *  / `__resetThemeStoreForTests`'s existing pattern for a module-level
+ *  singleton that otherwise outlives a test's own `localStorage.clear()`. */
+export function __resetProgressRepositoryForTests(): void {
+  _repo = null;
+}
+
 export function buildShareText(
   date: string,
   results: DuelResult[]

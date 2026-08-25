@@ -21,6 +21,7 @@ DAILY_URL = "/api/v1/game/daily"
 RESULT_URL = "/api/v1/game/daily/result"
 ANSWER_URL = "/api/v1/game/answer"
 DISTRIBUTION_URL = "/api/v1/game/daily/distribution"
+HISTORY_URL = "/api/v1/game/daily/history"
 
 
 @pytest.fixture
@@ -357,6 +358,100 @@ class TestLifetimeDistribution:
             assert body["total"] == 0
 
         assert player.get(DISTRIBUTION_URL).json()["total"] == 1
+
+
+class TestDailyHistory:
+    """GET /game/daily/history — the dated rows a result-history grid needs.
+
+    Same underlying `PeakDuelDailyResultRepository` rows `TestLifetimeDistribution`
+    already proves are server-scored and idempotent; these tests check that the
+    per-day list is honest about which days it names and never double-lists a
+    resubmitted day.
+    """
+
+    def test_a_fresh_identity_has_no_history(self, player: TestClient):
+        body = player.get(HISTORY_URL).json()
+        assert body["entries"] == []
+
+    def test_one_attempt_appears_as_one_dated_row(self, player: TestClient):
+        board = _start_daily(player)
+        perfect = _winning_selections(player, board)
+        result = player.post(
+            RESULT_URL,
+            json={"session_token": board["session_token"], "selections": perfect},
+        ).json()
+
+        body = player.get(HISTORY_URL).json()
+        assert len(body["entries"]) == 1
+        entry = body["entries"][0]
+        assert entry["daily_key"] == result["daily_key"]
+        assert entry["correct_count"] == 10
+        assert entry["duels_total"] == 10
+        assert entry["played_on_daily_key"] is True
+
+    def test_resubmitting_the_same_day_does_not_duplicate_the_row(self, player: TestClient):
+        board = _start_daily(player)
+        payload = {"session_token": board["session_token"], "selections": {}}
+        player.post(RESULT_URL, json=payload)
+        player.post(RESULT_URL, json=payload)
+
+        body = player.get(HISTORY_URL).json()
+        assert len(body["entries"]) == 1
+
+    def test_an_archive_replay_is_listed_but_flagged_as_not_on_its_daily_key(
+        self, player: TestClient
+    ):
+        from datetime import timedelta
+
+        from nba_peak.daily_key import daily_key, parse_daily_key
+
+        yesterday = (parse_daily_key(daily_key()) - timedelta(days=1)).strftime("%Y-%m-%d")
+        archive_board = player.get(DAILY_URL, params={"years": 3, "date": yesterday}).json()
+        player.post(
+            RESULT_URL,
+            json={"session_token": archive_board["session_token"], "selections": {}},
+        )
+
+        body = player.get(HISTORY_URL).json()
+        assert len(body["entries"]) == 1
+        assert body["entries"][0]["daily_key"] == yesterday
+        assert body["entries"][0]["played_on_daily_key"] is False
+
+    def test_multiple_days_come_back_most_recent_first(self, player: TestClient):
+        from datetime import timedelta
+
+        from nba_peak.daily_key import daily_key, parse_daily_key
+
+        yesterday = (parse_daily_key(daily_key()) - timedelta(days=1)).strftime("%Y-%m-%d")
+        archive_board = player.get(DAILY_URL, params={"years": 3, "date": yesterday}).json()
+        player.post(
+            RESULT_URL,
+            json={"session_token": archive_board["session_token"], "selections": {}},
+        )
+
+        today_board = _start_daily(player)
+        player.post(
+            RESULT_URL,
+            json={"session_token": today_board["session_token"], "selections": {}},
+        )
+
+        body = player.get(HISTORY_URL).json()
+        assert len(body["entries"]) == 2
+        keys = [e["daily_key"] for e in body["entries"]]
+        assert keys == sorted(keys, reverse=True)
+
+    def test_two_identities_have_independent_histories(self, player: TestClient):
+        board = _start_daily(player)
+        player.post(
+            RESULT_URL,
+            json={"session_token": board["session_token"], "selections": {}},
+        )
+
+        with TestClient(app) as other:
+            body = other.get(HISTORY_URL).json()
+            assert body["entries"] == []
+
+        assert len(player.get(HISTORY_URL).json()["entries"]) == 1
 
 
 class TestRateLimiting:

@@ -25,6 +25,7 @@ import PeakV2CinematicStage from "../PeakV2CinematicStage";
 import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
 import PeakV2Score from "../PeakV2Score";
 import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
+import PeakDuelV2History from "./PeakDuelV2History";
 import type { DailyCompletion } from "@/types";
 
 export interface PeakDuelV2AlreadyCompletedProps {
@@ -85,6 +86,13 @@ export default function PeakDuelV2AlreadyCompleted({ completion, countdownLabel 
         <PeakV2Score value={(completion?.arena_points ?? 0).toLocaleString()} label="Arena points" size="lg" />
         <PeakV2Score value={completion?.best_streak ?? 0} label="Best streak" size="lg" />
       </div>
+
+      {/* Re-derived purely from storage/API on this cold load — no
+          `GameState` exists here at all (this screen is reached by a
+          reload, not a fresh finish), which is exactly the case that
+          proves the grid survives a browser restart rather than only
+          looking that way right after finishing. */}
+      <PeakDuelV2History />
 
       <p
         className="mt-8"

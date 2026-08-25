@@ -5,13 +5,17 @@
  *
  * Verified against the reference (E2 page 23): a large serif "X / 10"
  * headline, the ten-duel session strip as compact colored dashes, real
- * session instrumentation (arena points, best streak), then — ONLY when the
- * real endpoint actually returns one — the lifetime 0/10..10/10 distribution
- * this pass added (`GET /game/daily/distribution`, `getDailyDistribution()`
- * in `lib/api.ts`; server-side aggregation, tested for idempotency and
- * Pacific daily identity in `test_peak_duel_daily_result.py`). A fetch
- * failure or a `total` of zero attempts on record renders NOTHING for that
- * section — never a placeholder or fabricated histogram, per brief.
+ * session instrumentation (arena points, best streak), then — ONLY when
+ * there is one to show — the per-day result-history grid
+ * (`PeakDuelV2History`, mission §4: merges the local archive with
+ * `GET /game/daily/history`, keyed by Pacific daily key) and the lifetime
+ * 0/10..10/10 distribution this pass added (`GET /game/daily/distribution`,
+ * `getDailyDistribution()` in `lib/api.ts`; server-side aggregation, tested
+ * for idempotency and Pacific daily identity in
+ * `test_peak_duel_daily_result.py`). A fetch failure or a `total` of zero
+ * attempts on record renders NOTHING for the distribution section — never a
+ * placeholder or fabricated histogram, per brief; the history grid applies
+ * the identical rule on its own merged data.
  *
  * Real actions only: Share (the exact `buildShareText` legacy already
  * uses — no second copy-generation path), Play Endless Mode, See all
@@ -28,6 +32,7 @@ import PeakV2Score from "../PeakV2Score";
 import PeakV2Rule from "../PeakV2Rule";
 import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
 import PeakV2SecondaryAction from "../PeakV2SecondaryAction";
+import PeakDuelV2History from "./PeakDuelV2History";
 import { getDailyDistribution } from "@/lib/api";
 import { buildShareText } from "@/lib/progress";
 import type { GameState } from "@/types";
@@ -171,6 +176,8 @@ export default function PeakDuelV2Final({ state, date }: PeakDuelV2FinalProps) {
         <PeakV2Score value={state.total_arena_points.toLocaleString()} label="Arena points" size="lg" />
         <PeakV2Score value={state.best_streak} label="Best streak" size="lg" />
       </div>
+
+      <PeakDuelV2History />
 
       {distribution && distribution.total > 0 ? (
         <div className="mt-12 w-full max-w-md text-left">

@@ -593,6 +593,23 @@ export interface DailyDistributionResponse {
   counts: number[];
 }
 
+// Mirrors `DailyHistoryEntry`/`DailyHistoryResponse` in
+// apps/api/app/api/v1/game.py — the dated rows a per-day result-history grid
+// needs, as opposed to `DailyDistributionResponse`'s bucketed counts.
+export interface DailyHistoryEntry {
+  daily_key: string;
+  duration_years: number;
+  duels_total: number;
+  correct_count: number;
+  arena_points: number;
+  best_streak: number;
+  played_on_daily_key: boolean;
+}
+
+export interface DailyHistoryResponse {
+  entries: DailyHistoryEntry[];
+}
+
 export interface LocalProgress {
   schema_version: number;
   daily_completions: Record<string, DailyCompletion>;
