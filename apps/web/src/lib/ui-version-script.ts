@@ -10,27 +10,36 @@
  * constants so the two halves can never disagree about the storage key or
  * the attribute name.
  *
- * PASS 2 (product-direction): PEAK3 V2 is a parallel presentation system,
- * not a replacement — see `styles/v2/tokens.css`'s module docstring for the
- * full architecture. This is the switch between the two. THE DEFAULT MUST
- * STAY "legacy": a visitor who has never touched `?ui=` or the local dev
- * switch sees production exactly as it already renders. Only an explicit
- * `?ui=v2` or a previously-set local preference activates V2.
+ * PASS 3 (product-direction): V2 reached full parity with legacy across
+ * every real user-facing route and game mode, and every legacy JSX branch
+ * has now been deleted at its call site — V2 is the only presentation this
+ * app ships. `data-ui-version="v2"` is also load-bearing for CSS (several
+ * stylesheets scope V2-only rules under `[data-ui-version="v2"]`, e.g.
+ * `styles/v2/rtt-result.css`, `styles/three-man-weave.css`), so this script
+ * unconditionally sets the attribute to `"v2"` — it no longer reads `?ui=`
+ * or any stored preference at all. That also means a stray
+ * `peak3-ui-version: "legacy"` value left in a visitor's localStorage from
+ * pre-cutover testing can never cause a real visit to lose V2 styling
+ * again. The local dev switch (`UiVersionDevSwitch`, still gated behind
+ * `NEXT_PUBLIC_PEAK3_UI_VERSION_SWITCH`, unset in every real deployment)
+ * can still flip the DOM attribute client-side for local inspection, but
+ * that choice never survives a fresh navigation: this script always
+ * re-resolves to `"v2"`.
  */
 
 export type UiVersion = "legacy" | "v2";
 
 /** `peak3-` prefix matches the app's other persisted keys (`peak3-theme`,
- *  `peak3-anon`) — see `theme-script.ts`. */
+ *  `peak3-anon`) — see `theme-script.ts`. Retained only for the local dev
+ *  switch (`setUiVersion` in `lib/ui-version.ts`); the blocking script no
+ *  longer reads or writes it. */
 export const UI_VERSION_STORAGE_KEY = "peak3-ui-version";
 
 export const UI_VERSION_ATTR = "data-ui-version";
 
-/** The query param a link can carry to force a version for this load —
- *  `?ui=v2` / `?ui=legacy`. Read once on load and, if present and valid,
- *  persisted as the new local preference (so a tester does not have to
- *  repeat it on every navigation — "may persist locally for convenient
- *  testing" per the brief). */
+/** Formerly the query param a link could carry to force a version for one
+ *  load (`?ui=v2` / `?ui=legacy`). No longer read by the blocking script —
+ *  there is no production path to `"legacy"` any more. */
 export const UI_VERSION_QUERY_PARAM = "ui";
 
 export function isUiVersion(value: unknown): value is UiVersion {
@@ -44,40 +53,15 @@ export function isUiVersion(value: unknown): value is UiVersion {
  * same as `themeInitScript`): this runs before React, before any error
  * boundary exists, and before anything has painted.
  *
- * Precedence, and why: an explicit `?ui=` on THIS load always wins over
- * whatever was stored before (a tester following a `?ui=v2` link expects to
- * see v2 even if they last set `legacy`), and immediately overwrites the
- * stored preference so it persists past this one navigation. No query param
- * at all falls back to the stored preference, and no stored preference
- * falls back to `"legacy"` — never `"v2"` by default, per the brief's
- * explicit safety requirement.
+ * Always resolves to `"v2"` — see module docstring.
  *
  * `dangerouslySetInnerHTML` receives exactly this string; no template
- * interpolation of anything dynamic (only these fixed constants,
+ * interpolation of anything dynamic (only this fixed constant,
  * JSON-stringified), so it is safe to inline unescaped.
  */
 export function uiVersionInitScript(): string {
   return `(function(){try{
-var KEY=${JSON.stringify(UI_VERSION_STORAGE_KEY)};
 var ATTR=${JSON.stringify(UI_VERSION_ATTR)};
-var PARAM=${JSON.stringify(UI_VERSION_QUERY_PARAM)};
-var fromQuery=null;
-try{
-  var params=new URLSearchParams(window.location.search);
-  var raw=params.get(PARAM);
-  if(raw==="v2"||raw==="legacy")fromQuery=raw;
-}catch(e){}
-var resolved=fromQuery;
-if(!resolved){
-  try{
-    var stored=window.localStorage.getItem(KEY);
-    if(stored==="v2"||stored==="legacy")resolved=stored;
-  }catch(e){}
-}
-if(!resolved)resolved="legacy";
-if(fromQuery){
-  try{window.localStorage.setItem(KEY,fromQuery);}catch(e){}
-}
-document.documentElement.setAttribute(ATTR,resolved);
+document.documentElement.setAttribute(ATTR,"v2");
 }catch(e){}})();`;
 }

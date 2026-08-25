@@ -17,6 +17,7 @@
  * than dressing it as a normal sale, so it is never mistaken for one.
  */
 
+import type { ReactNode } from "react";
 import PeakV2Shell from "../PeakV2Shell";
 import PeakV2ArenaLight from "../PeakV2ArenaLight";
 import PeakV2GameStatus from "../PeakV2GameStatus";
@@ -24,7 +25,8 @@ import PeakV2Score from "../PeakV2Score";
 import PeakV2Rule from "../PeakV2Rule";
 import PeakV2ShowdownClock from "./PeakV2ShowdownClock";
 import PeakV2ShowdownBidControls from "./PeakV2ShowdownBidControls";
-import { SettledLotTray } from "@/components/twenty-dollar/LotLedger";
+import { SettledLotTray, ResumeRecap } from "@/components/twenty-dollar/LotLedger";
+import { TurnBanner, LotReveal } from "@/components/twenty-dollar/AuctionBoard";
 import { formatDollars, type TwentyDollarPublicState, type TwentyDollarPrivateState, type ResolvedLot } from "@/lib/twenty-dollar-api";
 import type { ShowdownPhase } from "@/components/twenty-dollar/useShowdownPhase";
 
@@ -92,11 +94,22 @@ function RosterColumn({
   return (
     <div className="flex flex-col gap-3" style={{ textAlign: align === "end" ? "right" : "left" }}>
       <div className="flex items-baseline justify-between gap-2" style={{ flexDirection: align === "end" ? "row-reverse" : "row" }}>
-        <PeakV2GameStatus label={isActive ? `${label} · on the clock` : label} state={isActive ? "active" : "idle"} />
+        {isActive ? (
+          <span data-testid={`td-seat-live-${seatIndex}`}>
+            <PeakV2GameStatus label={`${label} · on the clock`} state="active" />
+          </span>
+        ) : (
+          <PeakV2GameStatus label={label} state="idle" />
+        )}
       </div>
       <div className="flex gap-4" style={{ flexDirection: align === "end" ? "row-reverse" : "row" }}>
-        <span data-testid={`td-seat-budget-${seatIndex}`}>
-          <PeakV2Score value={formatDollars(budget)} label="Budget left" tone="accent" />
+        <span
+          data-testid={`td-budget-${seatIndex}`}
+          data-active={isActive ? "true" : "false"}
+        >
+          <span data-testid={`td-seat-budget-${seatIndex}`}>
+            <PeakV2Score value={formatDollars(budget)} label="Budget left" tone="accent" />
+          </span>
         </span>
         <PeakV2Score value={`${filledSlots}/${totalSlots}`} label="Roster" />
         <PeakV2Score value={marketSkips} label="Skips" />
@@ -134,6 +147,18 @@ export interface PeakV2ShowdownLiveProps {
   locallyExpired: boolean;
   consequence: string | null;
   revealedHistory: ResolvedLot[];
+  /** Lots that settled while THIS client was live — a REVEAL QUEUE played
+   *  one at a time (`LotReveal`, reused as-is), distinct from `recap`
+   *  below. `null` when nothing is currently revealing. See
+   *  `LotLedger.tsx`'s own docstring for why the two are never conflated. */
+  reveal: ResolvedLot | null;
+  /** How many more lots are queued behind the one currently revealing. */
+  queued: number;
+  /** Lots that settled across a genuine resume boundary (`ResumeRecap`,
+   *  reused as-is) — the "while you were away" catch-up, never confused
+   *  with the live reveal queue above. */
+  recap: ResolvedLot[];
+  onAcknowledgeRecap: () => void;
   /** A rejected command or transport failure, already translated into
    *  player-facing words by `explainRejection`/`explainTransportError` —
    *  this component never sees raw server prose. `null` when there is
@@ -142,6 +167,15 @@ export interface PeakV2ShowdownLiveProps {
   onExpire: () => void;
   onDismissError?: () => void;
   onSubmit: (command: "bid" | "pass", amount: number) => void;
+  /** "How to play" (`HowToPlay`, `data-testid="td-rules"`) — reused as-is
+   *  rather than rebuilt: a native `<details>` disclosure that needs no
+   *  visual re-skin to keep working, and the room loses no functionality
+   *  just because the shell around it changed. */
+  helpControl?: ReactNode;
+  /** "Forfeit match" (`ForfeitControl`) — same reuse reasoning as
+   *  `helpControl`: without it the only way out of a live match under V2 is
+   *  closing the tab, which strands the opponent on a ticking clock. */
+  forfeitControl?: ReactNode;
 }
 
 export default function PeakV2ShowdownLive({
@@ -158,10 +192,16 @@ export default function PeakV2ShowdownLive({
   locallyExpired,
   consequence,
   revealedHistory,
+  reveal,
+  queued,
+  recap,
+  onAcknowledgeRecap,
   error = null,
   onExpire,
   onDismissError,
   onSubmit,
+  helpControl,
+  forfeitControl,
 }: PeakV2ShowdownLiveProps) {
   const yourSeatPublic = publicState.seats[yourSeat ?? 0];
   const opponentSeats = publicState.seats.filter((s) => s.seat_index !== yourSeat);
@@ -175,11 +215,30 @@ export default function PeakV2ShowdownLive({
     <PeakV2Shell width="live-wide">
       <div className="py-6" data-testid="td-game">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <PeakV2GameStatus label={`Lot ${Math.min(publicState.lot_index + 1, publicState.max_lots)} of ${publicState.market_phase === "closeout" ? publicState.max_lots : publicState.standard_market_lots}`} state="active" />
-          <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
-            {publicState.market_phase === "closeout" ? "Closeout market" : "Standard market"}
-          </span>
+          <div className="flex flex-wrap items-center gap-3">
+            <PeakV2GameStatus label={`Lot ${Math.min(publicState.lot_index + 1, publicState.max_lots)} of ${publicState.market_phase === "closeout" ? publicState.max_lots : publicState.standard_market_lots}`} state="active" />
+            <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
+              {publicState.market_phase === "closeout" ? "Closeout market" : "Standard market"}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            {helpControl}
+            {forfeitControl}
+          </div>
         </div>
+
+        {/* THE SINGLE aria-live turn surface in the room (see legacy
+            `TurnBanner`'s own comment for why it lives here and nowhere
+            else) — reused as-is rather than rebuilt: it is the accessible
+            "whose turn is it" contract every player, sighted or not, needs,
+            and it was previously silently dropped for V2 players. */}
+        <TurnBanner
+          activeSeat={publicState.active_seat}
+          yourSeat={yourSeat}
+          seatNames={seatNames}
+          phase={phase}
+        />
+
         <PeakV2Rule spacing="sm" />
 
         {/* THE ERROR IS DISMISSIBLE AND SELF-CLEARING, same contract as
@@ -220,6 +279,26 @@ export default function PeakV2ShowdownLive({
             ) : null}
           </div>
         ) : null}
+
+        {/* "While you were away" — lots that settled across a genuine
+            resume boundary, reused verbatim (see `LotLedger.tsx`'s own
+            docstring on why this is distinct from the live reveal queue
+            below and never confused with it). Previously silently dropped
+            for V2 players. */}
+        {recap.length > 0 && (
+          <div className="mt-3">
+            <ResumeRecap lots={recap} seatNames={seatNames} yourSeat={yourSeat} onDismiss={onAcknowledgeRecap} />
+          </div>
+        )}
+
+        {/* Lots that settle WHILE this client is live — played one at a
+            time, each holding centre stage, reused verbatim from legacy's
+            `LotReveal`. */}
+        {reveal && (
+          <div className="mt-3">
+            <LotReveal lot={reveal} seatNames={seatNames} yourSeat={yourSeat} queued={queued} />
+          </div>
+        )}
 
         {/* Mobile: the lot owns the viewport first (`order-1`); each roster
             is a compact disclosure below it. Desktop drops the ordering for
@@ -297,10 +376,16 @@ export default function PeakV2ShowdownLive({
                     <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--v2-text-muted)" }}>
                       Current bid
                     </span>
-                    <div style={{ fontFamily: "var(--v2-font-mono)", fontVariantNumeric: "tabular-nums", fontSize: "3rem", fontWeight: 700, color: "var(--v2-color-accent)", lineHeight: 1 }}>
+                    <div
+                      data-testid="td-standing-amount"
+                      style={{ fontFamily: "var(--v2-font-mono)", fontVariantNumeric: "tabular-nums", fontSize: "3rem", fontWeight: 700, color: "var(--v2-color-accent)", lineHeight: 1 }}
+                    >
                       {formatDollars(opened ? publicState.current_bid : 0)}
                     </div>
-                    <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-secondary)" }}>
+                    <p
+                      data-testid="td-standing-holder"
+                      style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-secondary)" }}
+                    >
                       {opened ? (holder === yourSeat ? "You lead" : `${seatNames[holder ?? -1] ?? "Opponent"} leads`) : "Floor is open"}
                     </p>
                   </div>

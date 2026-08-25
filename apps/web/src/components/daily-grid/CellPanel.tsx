@@ -18,7 +18,6 @@ import {
   rowConstraint,
 } from "@/lib/daily-grid-state";
 import { CATEGORY_LABEL, categoryColor } from "./constraint-style";
-import { useUiVersion } from "@/lib/ui-version";
 
 interface Props {
   board: DailyGridBoard;
@@ -40,35 +39,33 @@ const MIN_QUERY = 2;
 function ConstraintBlock({
   constraint,
   axis,
-  v2,
 }: {
   constraint: GridConstraint | null;
   axis: "Row" | "Column";
-  v2: boolean;
 }) {
   if (!constraint) return null;
   const color = categoryColor(constraint.category);
   return (
     <div
       data-testid={`cell-panel-${axis.toLowerCase()}-constraint`}
-      className={v2 ? "p-3" : "rounded-lg p-3"}
+      className="p-3"
       style={{
-        background: v2 ? "var(--v2-bg-surface)" : "var(--bg-surface)",
+        background: "var(--v2-bg-surface)",
         borderLeft: `3px solid ${color}`,
-        borderRadius: v2 ? "var(--v2-radius-control)" : undefined,
-        fontFamily: v2 ? "var(--v2-font-ui)" : undefined,
+        borderRadius: "var(--v2-radius-control)",
+        fontFamily: "var(--v2-font-ui)",
       }}
     >
       <p
         className="text-[10px] font-bold uppercase tracking-[0.16em]"
-        style={{ fontFamily: v2 ? "var(--v2-font-mono)" : undefined, color: v2 ? "var(--v2-text-muted)" : "var(--text-muted)" }}
+        style={{ fontFamily: "var(--v2-font-mono)", color: "var(--v2-text-muted)" }}
       >
         {axis} · {CATEGORY_LABEL[constraint.category]}
       </p>
-      <p className="mt-1 text-sm font-bold" style={{ color: v2 ? "var(--v2-text-primary)" : "var(--text-primary)" }}>
+      <p className="mt-1 text-sm font-bold" style={{ color: "var(--v2-text-primary)" }}>
         {constraint.label}
       </p>
-      <p className="mt-1 text-xs leading-relaxed" style={{ color: v2 ? "var(--v2-text-secondary)" : "var(--text-secondary)" }}>
+      <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--v2-text-secondary)" }}>
         {constraint.description}
       </p>
     </div>
@@ -147,7 +144,6 @@ export default function CellPanel({
   onSubmit,
   onClose,
 }: Props) {
-  const v2 = useUiVersion() === "v2";
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PlayerSeasonSearchHit[]>([]);
   const [searching, setSearching] = useState(false);
@@ -219,30 +215,26 @@ export default function CellPanel({
     <section
       data-testid="cell-panel"
       aria-label="Selected square"
-      className={v2 ? "p-4 sm:p-5" : "card-elevated p-4 sm:p-5"}
-      style={
-        v2
-          ? {
-              fontFamily: "var(--v2-font-ui)",
-              background: "var(--v2-bg-plane)",
-              border: "1px solid var(--v2-color-accent-dim, var(--v2-color-accent))",
-              borderRadius: "var(--v2-radius-modal)",
-            }
-          : { borderColor: "color-mix(in srgb, var(--peak-accent) 30%, var(--border-subtle))" }
-      }
+      className="p-4 sm:p-5"
+      style={{
+        fontFamily: "var(--v2-font-ui)",
+        background: "var(--v2-bg-plane)",
+        border: "1px solid var(--v2-color-accent-dim, var(--v2-color-accent))",
+        borderRadius: "var(--v2-radius-modal)",
+      }}
     >
       <div className="flex items-start justify-between gap-3">
         <div>
           <p
             className="text-[10px] font-bold uppercase tracking-[0.18em]"
-            style={v2 ? { fontFamily: "var(--v2-font-mono)", color: "var(--v2-text-muted)" } : { color: "var(--text-muted)" }}
+            style={{ fontFamily: "var(--v2-font-mono)", color: "var(--v2-text-muted)" }}
           >
             Selected square · Row {row + 1}, Column {col + 1}
           </p>
           <h2
             data-testid="cell-panel-title"
-            className={v2 ? "mt-1 text-lg font-bold" : "font-display mt-1 text-lg font-bold"}
-            style={v2 ? { fontFamily: "var(--v2-font-ui)", color: "var(--v2-text-primary)" } : undefined}
+            className="mt-1 text-lg font-bold"
+            style={{ fontFamily: "var(--v2-font-ui)", color: "var(--v2-text-primary)" }}
           >
             {(rowC?.label ?? `Row ${row + 1}`) + " × " + (colC?.label ?? `Column ${col + 1}`)}
           </h2>
@@ -250,7 +242,7 @@ export default function CellPanel({
             <p
               data-testid="cell-panel-pool"
               className="mt-1 text-xs"
-              style={v2 ? { color: "var(--v2-text-muted)" } : { color: "var(--text-muted)" }}
+              style={{ color: "var(--v2-text-muted)" }}
             >
               Answer pool: {RARITY_SHORT_LABEL[spec.rarity_bucket]} — {RARITY_POOL_HINT[spec.rarity_bucket]}{" "}
               {spec.rarity_bucket === "very_common" || spec.rarity_bucket === "common"
@@ -265,19 +257,15 @@ export default function CellPanel({
           onClick={onClose}
           aria-label="Close selected square"
           className="rounded-md px-2 py-1 text-sm"
-          style={
-            v2
-              ? { fontFamily: "var(--v2-font-ui)", border: "1px solid var(--v2-border)", color: "var(--v2-text-secondary)" }
-              : { border: "1px solid var(--border-default)", color: "var(--text-secondary)" }
-          }
+          style={{ fontFamily: "var(--v2-font-ui)", border: "1px solid var(--v2-border)", color: "var(--v2-text-secondary)" }}
         >
           Close
         </button>
       </div>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
-        <ConstraintBlock constraint={rowC} axis="Row" v2={v2} />
-        <ConstraintBlock constraint={colC} axis="Column" v2={v2} />
+        <ConstraintBlock constraint={rowC} axis="Row" />
+        <ConstraintBlock constraint={colC} axis="Column" />
       </div>
 
       {filled ? (
@@ -325,7 +313,7 @@ export default function CellPanel({
           <label
             htmlFor="daily-grid-search"
             className="text-[10px] font-bold uppercase tracking-[0.16em]"
-            style={{ fontFamily: v2 ? "var(--v2-font-mono)" : undefined, color: v2 ? "var(--v2-text-muted)" : "var(--text-muted)" }}
+            style={{ fontFamily: "var(--v2-font-mono)", color: "var(--v2-text-muted)" }}
           >
             Find a player-season
           </label>
@@ -340,11 +328,11 @@ export default function CellPanel({
             placeholder="Search a player, e.g. Olajuwon"
             className="mt-1 w-full rounded-lg px-3 py-2 text-sm"
             style={{
-              fontFamily: v2 ? "var(--v2-font-ui)" : undefined,
-              borderRadius: v2 ? "var(--v2-radius-control)" : undefined,
-              background: v2 ? "var(--v2-bg-surface)" : "var(--bg-surface)",
-              border: `1px solid ${v2 ? "var(--v2-border)" : "var(--border-default)"}`,
-              color: v2 ? "var(--v2-text-primary)" : "var(--text-primary)",
+              fontFamily: "var(--v2-font-ui)",
+              borderRadius: "var(--v2-radius-control)",
+              background: "var(--v2-bg-surface)",
+              border: "1px solid var(--v2-border)",
+              color: "var(--v2-text-primary)",
             }}
           />
 

@@ -33,6 +33,9 @@ export interface PeakV2ScoreProps {
   size?: "sm" | "md" | "lg";
   role?: PeakV2ScoreRole;
   className?: string;
+  /** Optional passthrough for a caller that needs to address this specific
+   *  instance (e.g. a game's own HUD test contract) — never set internally. */
+  "data-testid"?: string;
 }
 
 const SIZE_REM: Record<NonNullable<PeakV2ScoreProps["size"]>, string> = {
@@ -48,11 +51,12 @@ export default function PeakV2Score({
   size = "md",
   role = "instrument",
   className,
+  "data-testid": dataTestId,
 }: PeakV2ScoreProps) {
   const color = v2ToneVar(tone) ?? "var(--v2-text-primary)";
   const moment = role === "moment";
   return (
-    <div className={`inline-flex flex-col items-start ${className ?? ""}`}>
+    <div className={`inline-flex flex-col items-start ${className ?? ""}`} data-testid={dataTestId}>
       {label ? (
         <span
           style={{

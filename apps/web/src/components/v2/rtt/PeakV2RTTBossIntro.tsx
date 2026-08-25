@@ -96,6 +96,7 @@ export default function PeakV2RTTBossIntro({ boss, lanesToWin, reducedMotion, on
       </p>
       {lanesToWin != null ? (
         <p
+          data-testid="rtt-boss-intro-win-condition"
           className="mt-1"
           style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 700, color: "var(--v2-text-primary)" }}
         >

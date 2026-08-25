@@ -1,10 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { motion } from "motion/react";
 import { usePrefersReducedMotion } from "@/lib/a11y";
 import { useDailyReset } from "@/lib/use-daily-reset";
-import { TourLauncher } from "@/components/ui/GuidedTour";
-import { motionTransition } from "@/lib/motion";
 import {
   CreditSink,
   LaneField,
@@ -55,22 +52,17 @@ import { useRevealSequence } from "./useRevealSequence";
 import ScoutPrepare from "./ScoutPrepare";
 import RunStartGate from "./RunStartGate";
 import RunSkeleton from "./RunSkeleton";
-import RunMap from "./RunMap";
-import RunTray from "./RunTray";
-import MobileTray from "./MobileTray";
-import RunProgressStrip from "./RunProgressStrip";
 import SystemSelect from "./SystemSelect";
 import NodeChoice from "./NodeChoice";
 import DraftRoom from "./DraftRoom";
 import TradeDesk from "./TradeDesk";
 import ChoiceNode from "./ChoiceNode";
-import RunHUD from "./RunHUD";
 import RestartRunControl from "./RestartRunControl";
 import BossIntro from "./BossIntro";
 import BossPreview from "./BossPreview";
 import BattleReveal from "./BattleReveal";
 import RunResult from "./RunResult";
-import UiVersionSwitch from "@/components/v2/UiVersionSwitch";
+import MobileTray from "./MobileTray";
 import PeakV2RTTShell from "@/components/v2/rtt/PeakV2RTTShell";
 import PeakV2RTTBossIntro from "@/components/v2/rtt/PeakV2RTTBossIntro";
 import PeakV2RTTBossLineup from "@/components/v2/rtt/PeakV2RTTBossLineup";
@@ -363,19 +355,6 @@ export default function RunTheTableGame({
   const showBossIntro = bossActive && !bossIntroDone;
   /** The paired lineup reveal, after the intro is dismissed. */
   const showBossReveal = bossActive && bossIntroDone && !bossRevealDismissedNow;
-
-  /**
-   * Handed to `RunTray`'s roster dock — see that component's
-   * `concealedRosterUnless` docstring. `null` when there is nothing to
-   * conceal (no reveal track on this payload, or the reveal already fully
-   * resolved either this session or a prior one); a `Set` — built from the
-   * SAME `rosterSequence.visible` the reveal stage is animating — while an
-   * opening reveal genuinely owns this roster right now.
-   */
-  const rosterConcealment: Set<string> | null =
-    state && rosterTrack && (needsOpeningReveal(state) || rosterSequence.started) && !rosterRevealDismissed
-      ? new Set(rosterSequence.visible.map((s) => s.slot_id))
-      : null;
 
   /**
    * Capture the scout report the moment it's on the wire (see the
@@ -1323,33 +1302,42 @@ export default function RunTheTableGame({
         busy={busy}
         onStartReveal={(count) => reveal("boss", count)}
         onContinue={() => setDismissedBossRevealId(bossTrack.boss_id)}
+        pairedCardLookup={(slotId) =>
+          [...state.starters, ...state.bench].find((s) => s.slot_id === slotId)?.card ?? null
+        }
       />
     );
   } else if (screen === "node_active" && node && node.node_type === "draft_room") {
     v2Content = (
-      <PeakV2RTTDraftRoom
-        node={node}
-        slots={[...state.starters, ...state.bench]}
-        credits={state.credits}
-        busy={busy}
-        onBuy={(offer, slotId, useVetMin) => {
-          trackRunTheTable({
-            type: "rtt_acquisition",
-            cost: useVetMin ? 0 : offer.cost,
-            veteran_minimum: useVetMin,
-            act: state.act,
-          });
-          act(
-            runActions.draftBuy(offer.card_id, slotId, useVetMin),
-            `buy:${offer.card_id}:${slotId}`,
-            `${offer.player_name} signed.`,
-          );
-        }}
-        onPass={() => {
-          trackRunTheTable({ type: "rtt_offer_passed", node_type: "draft_room", act: state.act });
-          act(runActions.draftPass(), "draft_pass", "Passed on the draft room.");
-        }}
-      />
+      <>
+        <PeakV2RTTDraftRoom
+          node={node}
+          slots={[...state.starters, ...state.bench]}
+          credits={state.credits}
+          busy={busy}
+          onBuy={(offer, slotId, useVetMin) => {
+            trackRunTheTable({
+              type: "rtt_acquisition",
+              cost: useVetMin ? 0 : offer.cost,
+              veteran_minimum: useVetMin,
+              act: state.act,
+            });
+            act(
+              runActions.draftBuy(offer.card_id, slotId, useVetMin),
+              `buy:${offer.card_id}:${slotId}`,
+              `${offer.player_name} signed.`,
+            );
+          }}
+          onPass={() => {
+            trackRunTheTable({ type: "rtt_offer_passed", node_type: "draft_room", act: state.act });
+            act(runActions.draftPass(), "draft_pass", "Passed on the draft room.");
+          }}
+        />
+        {/* Every node's priced controls render below its own decision, same
+            as Trade Desk and the generic choice node below — this branch was
+            missing them entirely. */}
+        <PeakV2RTTCreditSinks sinks={node.credit_sinks ?? []} busy={busy} onSpend={spendSink} />
+      </>
     );
   } else if (screen === "node_active" && node && node.node_type === "trade_desk") {
     v2Content = (
@@ -1514,160 +1502,78 @@ export default function RunTheTableGame({
         onChallenge={handleChallenge}
       />
     );
-  } else if (screen === "result") {
-    v2Layout = "bare";
   }
-
-  /**
-   * Is a guided tour allowed to run right now?
-   *
-   * True while a server round-trip is in flight (`busy` — the surface is about
-   * to be replaced under the spotlight) and for the whole battle screen, which
-   * is a timed lane-by-lane reveal. W3's `GuidedTour` takes this as `blocked`.
-   */
-  const tourBlocked = busy || screen === "battle";
+  // No `else if (screen === "result")` fallback to `"bare"` here: that layout
+  // is earned only by a REAL receipt-bearing result (`PeakV2RTTResult`,
+  // above), which supplies its own full composition. A "result" status with
+  // no receipt yet is the same inconsistent-payload edge case the generic
+  // `surface` fallback (bottom of the big if/else chain above) already
+  // handles — it still deserves the ordinary shell (HUD, restart control)
+  // around it, not a bare, chrome-less page.
 
   return (
-    <UiVersionSwitch
-      legacy={
-    <div className="rtt-shell" data-testid="rtt-shell" data-tour-blocked={tourBlocked ? "true" : "false"}>
-      {/* Top HUD (PRODUCT_EXPERIENCE_CONTRACT.md §4) — credits, lives, act
-          progress and the current objective, always visible above the
-          three-zone grid. Spans the full shell width via `.rtt-hud`'s
-          `grid-column: 1 / -1` (rtt-polish.css). */}
-      <RunHUD
-        state={state}
-        objective={objective}
-        scoutIntel={activeScoutIntel}
-        restartControl={
-          /* Only while the run is still live. A concluded run already offers
-             "Run it back" on the result screen, which creates a new run WITHOUT
-             abandoning anything -- a finished run is a result the player earned
-             and must never be relabelled. */
-          !isTerminal(state.status) ? (
-            <RestartRunControl
-              canRestart={state.can_restart !== false}
-              busy={busy}
-              onConfirm={handleRestart}
-            />
-          ) : null
-        }
-      />
-
-      {/* Zone 1 — the ladder. Desktop only; a phone gets the progress strip
-          inside the decision column instead (DOM order: strip, surface,
-          roster). It RECEDES: `.rtt-map-rail` quiets the whole rail so the
-          decision column is unambiguously the dominant surface, and only the
-          current row keeps full contrast. */}
-      <div className="rtt-zone-left" data-tour-id="run-map">
-        <RunMap map={state.map} />
+    <>
+      {/* Screen-reader announcer for every committed action — same
+          `liveMessage` legacy's shell carried, just no longer nested inside
+          a `.rtt-shell` div of its own. `sr-only`: never a visible element. */}
+      <div aria-live="polite" className="sr-only" data-testid="rtt-live">
+        {liveMessage}
       </div>
-
-      {/* Zone 2 — the decision surface */}
-      <div className="flex flex-col gap-4 min-w-0">
-        <div className="rtt-mobile-only">
-          <RunProgressStrip map={state.map} />
-        </div>
-
-        <div aria-live="polite" className="sr-only" data-testid="rtt-live">
-          {liveMessage}
-        </div>
-
-        {error && (
+      <PeakV2RTTShell
+      state={state}
+      objective={objective}
+      layout={v2Layout}
+      content={v2Content}
+      scoutIntel={activeScoutIntel}
+      restartControl={
+        // Only while the run is still live — a concluded run already offers
+        // "Run it back" on the result screen, which creates a new run
+        // WITHOUT abandoning anything, so a finished run must never be
+        // relabelled. Same gate and the same `RestartRunControl` legacy's
+        // `RunHUD` rendered.
+        !isTerminal(state.status) ? (
+          <RestartRunControl
+            canRestart={state.can_restart !== false}
+            busy={busy}
+            onConfirm={handleRestart}
+          />
+        ) : null
+      }
+      mobileTray={
+        <MobileTray
+          state={state}
+          primaryLabel={mobilePrimaryLabel}
+          onPrimary={mobilePrimary}
+          primaryDisabled={busy}
+        />
+      }
+      errorBanner={
+        error && (
           <div
             role="alert"
             data-testid="rtt-error"
-            className="rounded-lg px-3 py-2 flex flex-wrap items-center gap-2 text-sm"
-            style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}
+            className="flex flex-wrap items-center gap-2 p-3"
+            style={{ background: "var(--v2-bg-plane)", border: "1px solid var(--v2-color-negative)", borderRadius: "var(--v2-radius-control)" }}
           >
-            <span>{error}</span>
+            <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-color-negative)" }}>
+              {error}
+            </span>
             {retry && (
               <button
                 type="button"
                 data-testid="rtt-error-retry"
                 onClick={() => void run(retry.fn, retry.announce)}
-                className="rtt-tap rounded px-3 text-xs font-semibold uppercase tracking-wide"
-                style={{
-                  background: "var(--bg-surface)",
-                  color: "var(--text-primary)",
-                  border: "1px solid var(--border-default)",
-                }}
+                className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", color: "var(--v2-text-secondary)", border: "1px solid var(--v2-border)", borderRadius: "var(--v2-radius-control)", padding: "0.375rem 0.75rem" }}
               >
                 Try again
               </button>
             )}
           </div>
-        )}
-
-        {/* The focus target's container. A plain wrapper, so it simply takes
-            the surface's place as the flex item and the column's gaps are
-            unchanged.
-
-            `motion.div` keyed on the surface identity gives each decision a
-            short directional enter — the new surface arrives from below rather
-            than replacing the old one in a single frame, which is the only
-            cue that the board moved. `layout={false}` and transform/opacity
-            only; under reduced motion the transition is zero-length and the
-            initial state is skipped entirely, so the surface is finished on
-            first paint. */}
-        <div
-          ref={surfaceRef}
-          /* `.rtt-decision-zone` is the "dominant surface" treatment, applied
-             to a wrapper this file owns rather than to the shared
-             `.rtt-decision-surface` class — three of the six components using
-             that class belong to W3, and restyling it would reach into their
-             work. Skipped on the receipt, which already has its own
-             `.share-card-shell` frame and must not be double-boxed. */
-          className={`min-w-0${screen === "result" ? "" : " rtt-decision-zone"}`}
-          data-tour-id="rtt-decision"
-        >
-          <motion.div
-            key={surfaceKey ?? "surface"}
-            initial={reducedMotion ? false : { opacity: 0, transform: "translateY(8px)" }}
-            animate={{ opacity: 1, transform: "translateY(0px)" }}
-            transition={motionTransition("base", "out", reducedMotion)}
-          >
-            {surface}
-          </motion.div>
-        </div>
-
-        {/* W3's guided tour: the visible Help / Tour control AND the
-            auto-starting instance, in one mount. `blocked` defers the
-            auto-start and disables the button while the board is mid-action —
-            see `tourBlocked` above — and re-evaluates when the block clears.
-            Placed AFTER the decision surface in DOM order deliberately: the
-            e2e driver clicks the first enabled button inside a surface testid,
-            and this button is outside every surface. */}
-        <div className="flex flex-wrap items-center gap-2">
-          <TourLauncher blocked={tourBlocked} data-testid="rtt-tour-launcher" />
-        </div>
-      </div>
-
-      {/* Zone 3 — the persistent front-office rail.
-          Rendered ONCE. It used to be two `<RunTray>` instances (a desktop rail
-          plus an `.rtt-mobile-only` copy inside the decision column), which
-          duplicated every `data-testid` and made a `data-tour-id` ambiguous.
-          `.rtt-zone-right-fluid` (rtt-polish.css) drops the same element back
-          into normal flow below 1024px, so the phone gets exactly one roster,
-          after the decision and never above it. */}
-      <div className="rtt-zone-right rtt-zone-right-fluid">
-        <RunTray
-          state={state}
-          laneProfileRelevant={screen === "boss_preview" || screen === "battle"}
-          concealedRosterUnless={rosterConcealment}
-        />
-      </div>
-
-      <MobileTray
-        state={state}
-        primaryLabel={mobilePrimaryLabel}
-        onPrimary={mobilePrimary}
-        primaryDisabled={busy}
-      />
-    </div>
+        )
       }
-      v2={<PeakV2RTTShell state={state} objective={objective} layout={v2Layout} content={v2Content} />}
-    />
+      />
+    </>
   );
 }
 
@@ -1702,31 +1608,6 @@ export function surfaceKeyFor(
   if (activeReveal ? activeReveal.boss : needsBossReveal(state)) return `reveal_boss:${state.act}`;
   return `${screenForStatus(state.status)}:${state.active_node?.node_id ?? state.act}`;
 }
-
-/* ---------------------------------------------------------------------------
- * Guided tour contract (W3's `components/ui/tour-steps.ts::TOUR_TARGET_IDS`)
- * ---------------------------------------------------------------------------
- * Placed by this workstream, one attribute per element:
- *
- *   rtt-run-map        RunMap's <nav>
- *   rtt-progress-strip RunProgressStrip's root (mobile)
- *   rtt-decision       the surfaceRef wrapper above
- *   rtt-credits        RunHUD's Credits tile (moved out of RunTray — §4)
- *   rtt-lives          RunHUD's Lives tile (moved out of RunTray — §4)
- *   rtt-roster         RunTray's roster <section>
- *   rtt-systems        RunTray's rtt-active-systems <section>
- *   rtt-lane-profile   RunTray's lane-profile <details>
- *   rtt-mobile-tray    MobileTray's root
- *
- * `rtt-system-select` is W3's own, on SystemSelect, and is not duplicated here.
- *
- * `<TourLauncher blocked={tourBlocked} />` is mounted once, after the decision
- * surface — it is the visible Help / Tour control AND the auto-starting
- * instance. Coachmarks are mounted in DraftRoom, TradeDesk and BossPreview,
- * always AFTER that surface's action controls: `e2e/run-the-table.spec.ts`
- * drives the game by clicking the first enabled <button> inside a surface's
- * testid, and a coachmark's "Got it" would otherwise capture that click.
- * ------------------------------------------------------------------------- */
 
 /** Exported for tests: how many offers a node is showing, used to fire the
  *  "offer viewed" event exactly once per node rather than per render. */

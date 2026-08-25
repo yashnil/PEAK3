@@ -191,7 +191,7 @@ export default function PeakV2TMWCourts({
           already shorter than the cap (1440x900's existing presentation),
           so nothing changes there. */}
       <div className="py-6 flex flex-col" style={{ maxHeight: "var(--tmw-viewport-cap, 100dvh)" }}>
-        <div ref={headerRef} className="shrink-0">
+        <div ref={headerRef} className="shrink-0" data-testid="tmw-turnbar">
         <PeakV2LiveHeader
           as="h1"
           title="Three-Man Weave"

@@ -115,8 +115,23 @@ export default function PeakDuelV2Reveal({
         }
       />
 
+      {/* The verdict, stated once — same "Correct!" / "Not quite." wording
+          legacy's `RevealPanel` uses, so a player scanning quickly gets an
+          immediate answer before reading which side won which lane. */}
+      <p
+        className="mt-6"
+        style={{
+          fontFamily: "var(--v2-font-ui)",
+          fontWeight: 700,
+          fontSize: "1rem",
+          color: answer.correct ? "var(--v2-color-positive)" : "var(--v2-text-secondary)",
+        }}
+      >
+        {answer.correct ? "Correct!" : "Not quite."}
+      </p>
+
       <div className="mt-8 grid grid-cols-1 items-start gap-6 sm:grid-cols-[1fr_auto_1fr] sm:gap-4">
-        <div className="flex flex-col items-start gap-1.5 text-left">
+        <div data-testid="duel-card-left" className="flex flex-col items-start gap-1.5 text-left">
           <span
             style={{
               fontFamily: "var(--v2-font-mono)",
@@ -146,7 +161,7 @@ export default function PeakDuelV2Reveal({
           </span>
         </div>
 
-        <div className="flex flex-col items-start gap-1.5 text-left sm:items-end sm:text-right">
+        <div data-testid="duel-card-right" className="flex flex-col items-start gap-1.5 text-left sm:items-end sm:text-right">
           <span
             style={{
               fontFamily: "var(--v2-font-mono)",

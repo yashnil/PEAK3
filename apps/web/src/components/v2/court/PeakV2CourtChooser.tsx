@@ -63,6 +63,10 @@ export interface PeakV2CourtChooserProps {
   difficulty: "easy" | "hard";
   hintUsed: boolean;
   hintMessage: string | null;
+  /** The recommended candidate's slug, for `EligiblePlayerSearch`'s own
+   *  `highlightSlug` marker — same identity legacy's search list marks,
+   *  never a score (ADR-005 Decision 6 has none to leak). */
+  hintSlug?: string | null;
   onHint: () => void;
 }
 
@@ -96,6 +100,7 @@ export default function PeakV2CourtChooser({
   difficulty,
   hintUsed,
   hintMessage,
+  hintSlug = null,
   onHint,
 }: PeakV2CourtChooserProps) {
   return (
@@ -182,7 +187,7 @@ export default function PeakV2CourtChooser({
           rather than overflowing its flex parent. */}
       <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto" }} className="mt-4">
         {displaySpin && ceremonyRevealed && candidates ? (
-          <div>
+          <div data-testid="candidate-panel">
             {/* `flex-wrap`, matching the header row's own pattern above: at
                 narrow widths the label plus the hint button cannot always
                 share one line, so the label wrapping internally (splitting
@@ -210,18 +215,18 @@ export default function PeakV2CourtChooser({
                   action" scarcity (brief §Color/§Button). The hint is a
                   helper for the actual decision, not the decision itself. */}
               {difficulty === "easy" ? (
-                <PeakV2SecondaryAction size="sm" onClick={onHint} disabled={busy || respinPending || hintUsed}>
-                  {hintUsed ? "Hint used" : "Suggest one"}
+                <PeakV2SecondaryAction data-testid="hint-btn" size="sm" onClick={onHint} disabled={busy || respinPending || hintUsed}>
+                  {hintUsed ? "Hint used" : "Give me a suggestion"}
                 </PeakV2SecondaryAction>
               ) : null}
             </div>
             {hintMessage ? (
-              <p className="mt-1" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 700, color: "var(--v2-color-accent)" }}>
+              <p data-testid="hint-message" className="mt-1" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 700, color: "var(--v2-color-accent)" }}>
                 {hintMessage}
               </p>
             ) : null}
             <div className="mt-3">
-              <EligiblePlayerSearch candidates={candidates} onSelect={onSelectCandidate} disabled={busy || respinPending} />
+              <EligiblePlayerSearch candidates={candidates} onSelect={onSelectCandidate} disabled={busy || respinPending} highlightSlug={hintSlug} />
             </div>
           </div>
         ) : null}

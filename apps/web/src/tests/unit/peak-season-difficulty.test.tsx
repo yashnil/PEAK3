@@ -76,7 +76,7 @@ describe("PeakSeasonStartGate difficulty selector", () => {
     // The exact tradeoff the product spec requires to be stated up front:
     // 1 team respin + 1 season respin for the whole run, no hint.
     expect(screen.getByTestId("difficulty-hard-btn")).toHaveTextContent(
-      /only 1 team respin and 1 season respin for the whole run, no hint/i,
+      /only 1 team \+ 1 season respin for the run, no hint/i,
     );
   });
 

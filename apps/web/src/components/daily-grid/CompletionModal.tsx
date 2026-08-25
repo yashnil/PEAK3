@@ -1,9 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { Dialog } from "@/components/ui/Dialog";
 import PeakV2Modal from "@/components/v2/PeakV2Modal";
-import { useUiVersion } from "@/lib/ui-version";
 import {
   DailyGridArchive,
   DailyGridBoard,
@@ -68,14 +66,9 @@ export default function CompletionModal({
   onExitRetry,
 }: Props) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const uiVersion = useUiVersion();
-  // Pass 7: the first real production consumer of `PeakV2Modal` (a genuine
-  // centered dialog, not a bottom-docked one) -- same shared `Dialog`
-  // machinery either way, only the V2 chrome differs.
-  const DialogComponent = uiVersion === "v2" ? PeakV2Modal : Dialog;
 
   return (
-    <DialogComponent
+    <PeakV2Modal
       open={open}
       onClose={onClose}
       size="lg"
@@ -101,6 +94,6 @@ export default function CompletionModal({
         onClose={onClose}
         closeButtonRef={closeButtonRef}
       />
-    </DialogComponent>
+    </PeakV2Modal>
   );
 }
