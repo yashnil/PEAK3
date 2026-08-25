@@ -41,8 +41,9 @@ import PeakV2ArenaLight from "../PeakV2ArenaLight";
 import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
 import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
 import PeakV2SecondaryAction from "../PeakV2SecondaryAction";
-import type { RevealSlot, RevealTrack } from "@/types/run-the-table";
+import type { RevealSlot, RevealTrack, Role } from "@/types/run-the-table";
 import type { RevealSequenceState } from "@/components/run-the-table/useRevealSequence";
+import { slotLabel } from "@/lib/run-the-table-state";
 
 const SLOT_X = ["12%", "31%", "50%", "69%", "88%"];
 
@@ -181,7 +182,17 @@ export default function PeakV2RTTBossLineup({
                     }}
                   >
                     <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.625rem", color: "var(--v2-text-muted)" }}>
-                      {orderSlot.label ?? orderSlot.slot_id.replace(/_/g, " ")}
+                      {/* The boss reveal never sends `label` (only the opening-
+                          roster reveal does — see RevealSlot's own docstring),
+                          so this always hit the raw-lowercase fallback for a
+                          boss's cards ("lead creator") while the identical
+                          slot rendered "Lead Creator" on the user's own
+                          roster. `slot_id` doubles as the role id for starter
+                          slots (confirmed against ROLE_LABELS' own keys) and
+                          as "bench_N" for bench slots — both are exactly what
+                          `slotLabel` already formats correctly. */}
+                      {orderSlot.label ??
+                        slotLabel({ slot_id: orderSlot.slot_id, role: orderSlot.slot_id as Role, is_starter: !orderSlot.slot_id.startsWith("bench_") })}
                     </span>
                     {identityKnown ? (
                       <>
