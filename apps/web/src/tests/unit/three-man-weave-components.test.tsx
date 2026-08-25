@@ -19,6 +19,7 @@ import userEvent from "@testing-library/user-event";
 import SeatCourt from "@/components/three-man-weave/SeatCourt";
 import RosterBoard from "@/components/three-man-weave/RosterBoard";
 import PodiumReceipt from "@/components/three-man-weave/PodiumReceipt";
+import PeakV2TMWResult from "@/components/v2/tmw/PeakV2TMWResult";
 import PickOverlay from "@/components/three-man-weave/PickOverlay";
 import IdentityLockPanel from "@/components/three-man-weave/IdentityLockPanel";
 import TurnStatus from "@/components/three-man-weave/TurnStatus";
@@ -1557,6 +1558,69 @@ describe("PodiumReceipt", () => {
       rosters: [roster(0)],
     });
     expect(screen.getByTestId("tmw-result-0")).toHaveTextContent("Not ranked");
+  });
+});
+
+describe("PeakV2TMWResult — score ownership (mission bug 4)", () => {
+  function renderV2Result(
+    overrides: Partial<React.ComponentProps<typeof PeakV2TMWResult>> = {},
+  ) {
+    render(
+      <PeakV2TMWResult
+        results={[result()]}
+        rosters={[roster(0, { SF: pick() })]}
+        yourSeatIndex={0}
+        seed="m-1"
+        onPlayAgain={vi.fn()}
+        {...overrides}
+      />,
+    );
+  }
+
+  it("labels the hero score 'Your' when the viewer won", () => {
+    renderV2Result();
+    const heroScore = screen.getByTestId("tmw-winner-score");
+    expect(heroScore).toHaveAttribute("data-winner-is-you", "true");
+    expect(heroScore).toHaveTextContent(/Your PEAK3 lineup score/i);
+    expect(heroScore).toHaveTextContent("72.4");
+  });
+
+  it("names the actual winner on the hero score when the viewer did NOT win, never silently attributing it to the viewer", () => {
+    // Seat 1 ("Floor General") wins with a real, distinct score; the
+    // viewer (seat 0) places 2nd with a different score. Before the fix,
+    // the hero number was captioned with the bare, unattributed
+    // "PEAK3 lineup score" -- reading, right beneath the viewer's OWN
+    // placement badge, as if it might be the viewer's own result.
+    const results = [
+      result({ seat_index: 0, display_name: "You", placement: 2, score: 70.5, outcome: "loss" }),
+      result({
+        seat_index: 1,
+        display_name: "Floor General",
+        placement: 1,
+        score: 91.0,
+        outcome: "win",
+        detail: { ...result().detail, lineup_score: 91.0 },
+      }),
+    ];
+    renderV2Result({
+      results,
+      rosters: [roster(0, { SF: pick() }), roster(1)],
+    });
+
+    const heroScore = screen.getByTestId("tmw-winner-score");
+    expect(heroScore).toHaveAttribute("data-winner-is-you", "false");
+    // The winner's real name is on the hero score, and the winner's real
+    // score value -- NOT the viewer's -- is what's displayed there.
+    expect(heroScore).toHaveTextContent(/Floor General's PEAK3 lineup score/i);
+    expect(heroScore).toHaveTextContent("91.0");
+    expect(heroScore).not.toHaveTextContent("70.5");
+
+    // The viewer's OWN placement and their OWN score are still both
+    // present and correct elsewhere on the screen (not lost, just not the
+    // hero number).
+    expect(screen.getByTestId("tmw-your-placement")).toHaveTextContent("2");
+    expect(screen.getByTestId("tmw-result-0")).toHaveTextContent("70.5");
+    expect(screen.getByTestId("tmw-result-1")).toHaveTextContent("91.0");
   });
 });
 
