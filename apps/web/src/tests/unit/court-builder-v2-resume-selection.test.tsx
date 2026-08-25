@@ -10,7 +10,7 @@
  */
 import React, { act } from "react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { setUiVersion, __resetUiVersionStoreForTests } from "@/lib/ui-version";
@@ -191,7 +191,17 @@ describe("82-0 V2 — placement state banner (task §7)", () => {
     await user.click(chooseButtons[0]);
 
     await waitFor(() => expect(selectPlayer).toHaveBeenCalledWith("game-1", expect.any(String)));
-    await waitFor(() => expect(screen.getByText(/Player A — choose any open spot/i)).toBeInTheDocument());
+    // Human acceptance testing, task §8: the banner is now a single
+    // structured "PLACE / player / team · season · position" instrumentation
+    // (`PeakV2PlayerIdentity`) rather than one prose sentence with the name
+    // embedded in it -- the player's name and the instruction text are
+    // separate nodes. Scoped to the banner itself (`placement-active-banner`)
+    // since "Player A" can also appear in the (still-mounted, now-hidden)
+    // chooser's own candidate list.
+    const banner = await screen.findByTestId("placement-active-banner");
+    expect(within(banner).getByText("Place")).toBeInTheDocument();
+    expect(within(banner).getByText("Player A")).toBeInTheDocument();
+    expect(within(banner).getByText(/any open spot/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /switch selection/i }));
     await waitFor(() => expect(cancelSelection).toHaveBeenCalledWith("game-1"));

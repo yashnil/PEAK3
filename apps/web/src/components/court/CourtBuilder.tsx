@@ -513,6 +513,13 @@ export default function CourtBuilder({
         showResumeSelection={phase === "spinning" && overlayMinimized}
         onResumeSelection={() => setOverlayMinimized(false)}
         pendingSelectionName={state.pending_selection?.player_name ?? null}
+        // Human acceptance testing, task §8: the "PLACE [player]" banner
+        // gains real TEAM · SEASON · POSITION instrumentation instead of a
+        // bare name -- all three are already on `pending_selection` (no
+        // new fetch), just not previously threaded through.
+        pendingSelectionTeam={state.pending_selection?.team_name ?? null}
+        pendingSelectionSeason={state.pending_selection?.season ?? null}
+        pendingSelectionPosition={state.pending_selection?.primary_position ?? null}
         onSwitchSelection={handleCancel}
       />
       {(phase === "spinning" || phase === "placing") && roundSpin && (

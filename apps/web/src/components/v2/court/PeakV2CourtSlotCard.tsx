@@ -35,6 +35,37 @@ function fitColor(roleFit: RoleFit | null | undefined, severity?: FitSeverity | 
   return "var(--v2-text-muted)";
 }
 
+/**
+ * Human acceptance testing, task §8/Issue 2: placement is "soft" — every
+ * OPEN slot is a genuinely legal destination regardless of position
+ * (`action_place_card` in `state.py`: "any open slot_type is legal
+ * regardless of the player's real position"). The only REAL illegal
+ * destination during placement is an already-filled slot, which
+ * `blockedDuringPlacement` already renders distinctly (below).
+ *
+ * What was still generic: every OPEN slot rendered with the exact same
+ * loud gold-outlined "Place here" box, whether the pending pick was a
+ * natural fit for that slot or a genuine structural mismatch — a real
+ * -14.0 point cost visually indistinguishable from a free one, told apart
+ * only by a small caption underneath. This tiers the BOX ITSELF (border/
+ * background/opacity, via `court-slot-pending-*` classes in `court.css`)
+ * to the same three-tier cost model `fitColor` already uses, so a strong
+ * fit reads as an inviting, elegant target and a structural mismatch reads
+ * as available-but-discouraged at a glance — never disabled, since it is
+ * never actually illegal.
+ */
+export type PendingFitTier = "strong" | "stretch" | "weak" | "neutral";
+
+export function pendingFitTier(roleFit: RoleFit | null | undefined, severity?: FitSeverity | null): PendingFitTier {
+  if (!roleFit) return "neutral"; // fit not yet known for this slot -- never render as discouraged
+  if (roleFit === "off_position") {
+    if (severity === "severe") return "weak";
+    if (severity === "moderate") return "stretch";
+    return "strong"; // mild costs nothing -- a real, fully-fine fit
+  }
+  return "strong"; // primary / natural / secondary / flexible / bench
+}
+
 export interface PeakV2CourtSlotCardProps {
   slot: CourtSlotPublic;
   isPendingTarget?: boolean;
@@ -117,6 +148,8 @@ export default function PeakV2CourtSlotCard({
   }
 
   const clickable = !!onClick;
+  const tier = isPendingTarget ? pendingFitTier(pendingFit, pendingFitSeverity) : "neutral";
+  const pendingHint = tier === "weak" ? "Off-position" : tier === "stretch" ? "Playable stretch" : "Place here";
   const body = (
     <PeakV2CourtSlot
       position={slot.slot_type}
@@ -124,10 +157,14 @@ export default function PeakV2CourtSlotCard({
       value={value}
       valueLabel={slot.filled ? "PEAK3" : undefined}
       state={isPendingTarget ? "staged" : slot.filled ? "filled" : "empty"}
-      emptyHint={isPendingTarget ? "Place here" : blockedDuringPlacement ? "Occupied" : "Open"}
+      emptyHint={isPendingTarget ? pendingHint : blockedDuringPlacement ? "Occupied" : "Open"}
       onMove={onMove}
       moveLabel="Move"
-      className={blockedDuringPlacement ? "opacity-50" : undefined}
+      className={
+        [blockedDuringPlacement ? "opacity-50" : "", isPendingTarget ? `court-slot-pending-${tier}` : ""]
+          .filter(Boolean)
+          .join(" ") || undefined
+      }
     />
   );
 
