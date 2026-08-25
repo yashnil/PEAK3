@@ -13,6 +13,21 @@
  * not replaced) — the caller renders `PeakV2TMWCourts` underneath and this
  * component only adds the cinematic scrim + card on top, exactly like
  * legacy `WeaveSpinner`'s own `.tmw-ceremony-scrim` positioning.
+ *
+ * `absolute inset-0`, NOT `fixed inset-0` (final closure pass, task §1). The
+ * caller wraps this and `PeakV2TMWCourts` in one shared `position: relative`
+ * box (`ThreeManWeaveGame.tsx`'s `tmw-v2-arena-shell`). A viewport-fixed
+ * scrim and the courts' own in-flow box are two different elements with two
+ * different sizes -- measuring "the outer shell" against a `fixed inset-0`
+ * overlay was trivially stable (it's always the viewport) but meaningless,
+ * because the instant the overlay closed to reveal the picker, THAT box (the
+ * courts' own PeakV2Shell) was a materially different size. Anchoring this
+ * overlay to the SAME relative ancestor the courts render into makes both
+ * states literally the same element's box: the courts stay mounted
+ * throughout and are the only size contributor (this overlay is absolutely
+ * positioned, so it contributes none), so there is nothing to "reserve" --
+ * the shell never changes size across intro/spinning/locked/resolved/picker
+ * because it was never derived from reveal content in the first place.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -131,30 +146,35 @@ export default function PeakV2TMWReveal({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto"
+      className="absolute inset-0 z-40 flex items-center justify-center overflow-y-auto"
       style={{ background: "color-mix(in srgb, var(--v2-bg-page) 88%, transparent)" }}
       data-ui-version="v2"
       data-stage={stage}
     >
-      {/* RESERVED GEOMETRY (Pass 7, human acceptance testing, task §10): the
-          outer shell above is already a fixed full-viewport overlay, but the
-          centered text block used to change height across intro/spinning/
-          locked/resolved -- read as "recentering" once a reel settled. Both
-          the intro block and the ceremony block are stacked in the SAME
-          grid cell (same technique already used for Peak Duel's cards/
-          reveal, see `game-engine.tsx`'s own comment on it) so this
-          container's height is always the TALLER of the two, never a
-          per-stage size; only the active one is opaque/interactive. Inside
-          the ceremony block, the handoff-label line is likewise always
-          reserved (kept mounted, `visibility: hidden` until resolved)
-          rather than popping into existence and pushing/recentering the
-          block beneath it. */}
+      {/* RESERVED GEOMETRY (Pass 7, human acceptance testing, task §10; widened
+          in the final closure pass to also cover the ONE-TIME match-open
+          transition, task §2). The outer shell above is already a fixed
+          full-viewport overlay, but the centered text block used to change
+          height across intro/spinning/locked/resolved -- read as
+          "recentering" once a reel settled. The intro block and the ceremony
+          block are ALWAYS both mounted, stacked in the SAME grid cell (same
+          technique already used for Peak Duel's cards/reveal, see
+          `game-engine.tsx`'s own comment on it), so this container's height
+          is always the TALLER of the two, never a per-stage size; only the
+          active one is opaque/interactive. The intro block depends only on
+          `seats`/`totalRounds`, never on `roll`, so it mounts unconditionally.
+          The ceremony block mounts unconditionally too: before the first roll
+          has arrived from the server (`roll === null`, the true first frame
+          of a match), it renders the identical markup shape with an em-dash
+          placeholder standing in for each `SpinReel` instead of the whole
+          block being swapped for a smaller, differently-shaped one -- that
+          swap was the exact cause of the one-time match-open shell jump this
+          pass fixed. The handoff-label line is likewise always reserved
+          (kept mounted, `visibility: hidden` until resolved) rather than
+          popping into existence and pushing/recentering the block beneath
+          it. */}
       <div className="mx-auto max-w-xl px-6 py-16 text-center flex flex-col items-center">
       <div className="grid w-full" style={{ gridTemplateAreas: '"stack"' }}>
-        {!roll ? (
-          <p style={{ gridArea: "stack", fontFamily: "var(--v2-font-ui)", color: "var(--v2-text-secondary)" }}>Rolling the next franchise and decade…</p>
-        ) : (
-          <>
             <div
               style={{
                 gridArea: "stack",
@@ -201,7 +221,7 @@ export default function PeakV2TMWReveal({
               aria-hidden={showIntro && stage === "intro"}
             >
               <p style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--v2-text-muted)" }}>
-                Round {roundNumber ?? "—"} of {totalRounds} · everyone drafts from this
+                {roll ? <>Round {roundNumber ?? "—"} of {totalRounds} · everyone drafts from this</> : "Rolling the next franchise and decade…"}
               </p>
               {/* `tmw-ceremony` is a CSS hook only (three-man-weave.css's real,
                   already-tuned `.tmw-ceremony .spin-reel-strip` aperture/mask/
@@ -209,17 +229,25 @@ export default function PeakV2TMWReveal({
                   rather than approximating it a second time. */}
               <div className="tmw-ceremony mt-4 flex items-center justify-center gap-6">
                 <span style={{ fontFamily: "var(--v2-font-display)", fontSize: "var(--v2-display-size-line)", color: "var(--v2-text-primary)" }} data-seat-accent={seatAccent(0)}>
-                  <SpinReel pool={franchisePool} target={roll.franchise_display_name} spinMs={plan.primaryMs} runKey={`${roll.roll_id}-franchise`} reduced={still} testId="tmw-roll-franchise" onSettled={noteSettled} />
+                  {roll ? (
+                    <SpinReel pool={franchisePool} target={roll.franchise_display_name} spinMs={plan.primaryMs} runKey={`${roll.roll_id}-franchise`} reduced={still} testId="tmw-roll-franchise" onSettled={noteSettled} />
+                  ) : (
+                    <span aria-hidden="true">—</span>
+                  )}
                 </span>
                 <span aria-hidden="true" style={{ fontFamily: "var(--v2-font-display)", fontStyle: "italic", fontSize: "1.5rem", color: "var(--v2-color-accent)" }}>
                   ×
                 </span>
                 <span style={{ fontFamily: "var(--v2-font-display)", fontSize: "var(--v2-display-size-line)", color: "var(--v2-color-accent)" }}>
-                  <SpinReel pool={DECADES} target={roll.decade} spinMs={plan.secondaryMs} runKey={`${roll.roll_id}-decade`} reduced={still} testId="tmw-roll-decade" onSettled={noteSettled} />
+                  {roll ? (
+                    <SpinReel pool={DECADES} target={roll.decade} spinMs={plan.secondaryMs} runKey={`${roll.roll_id}-decade`} reduced={still} testId="tmw-roll-decade" onSettled={noteSettled} />
+                  ) : (
+                    <span aria-hidden="true">—</span>
+                  )}
                 </span>
               </div>
               <p className="mt-4" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}>
-                {resolved ? `${roll.candidates.length} eligible ${roll.candidates.length === 1 ? "player" : "players"} still undrafted` : "Rolling…"}
+                {roll && resolved ? `${roll.candidates.length} eligible ${roll.candidates.length === 1 ? "player" : "players"} still undrafted` : "Rolling…"}
               </p>
               {/* Always mounted and reserved, never popping in -- only its
                   visibility toggles once resolved (task §10: no resizing on
@@ -231,14 +259,12 @@ export default function PeakV2TMWReveal({
                   fontWeight: 700,
                   fontSize: "0.875rem",
                   color: "var(--v2-color-accent)",
-                  visibility: resolved && handoffLabel ? "visible" : "hidden",
+                  visibility: roll && resolved && handoffLabel ? "visible" : "hidden",
                 }}
               >
                 {handoffLabel || " "}
               </p>
             </div>
-          </>
-        )}
       </div>
 
       {onSkip ? (

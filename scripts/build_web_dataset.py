@@ -431,7 +431,7 @@ METHODOLOGY = {
                 "All-NBA selections (First/Second/Third with diminishing credit), DPOY votes, "
                 "Finals MVP awards, and statistical titles (scoring, assists, rebounds). "
                 "Overlap discounts prevent triple-counting when a player wins multiple major awards in the same season. "
-                "Championships are explicitly excluded — they belong to Team Achievement."
+                "Championships are explicitly excluded — they belong to Team Result."
             ),
             "key_inputs": ["MVP vote share", "All-NBA selections", "DPOY votes", "Finals MVP", "Statistical titles"],
             "common_misconceptions": [
@@ -442,12 +442,12 @@ METHODOLOGY = {
         },
         {
             "id": "postseason_individual_value",
-            "label": "Postseason Individual Value",
+            "label": "Playoff Rate Impact",
             "weight": 0.18,
             "weight_pct": 18,
             "short_description": "Personal playoff performance: efficiency, dominance, and deep-run volume.",
             "long_description": (
-                "Postseason Individual Value (18%) measures how a player performed in the playoffs on a personal level — "
+                "Playoff Rate Impact (18%) measures how a player performed in the playoffs on a personal level — "
                 "independently of whether their team won. Inputs include playoff BPM/WS, individual efficiency relative to "
                 "regular-season baseline, dominance bonuses for historically elite playoff performances, and deep-run volume "
                 "(minutes in later rounds weighted by opponent quality and series success). An elevation term captures performing "
@@ -456,19 +456,19 @@ METHODOLOGY = {
             ),
             "key_inputs": ["Playoff BPM", "Playoff WS", "Playoff efficiency", "Deep-run minutes", "Opponent quality", "Series success"],
             "common_misconceptions": [
-                "Team wins are captured in Team Achievement, not here.",
+                "Team wins are captured in Team Result, not here.",
                 "Missing playoffs = 0, not a penalty.",
                 "A dominant first-round exit can outscore a passive Finals appearance.",
             ],
         },
         {
             "id": "team_achievement",
-            "label": "Team Achievement",
+            "label": "Team Result",
             "weight": 0.03,
             "weight_pct": 3,
             "short_description": "Championships and Finals appearances, role-adjusted.",
             "long_description": (
-                "Team Achievement (3%) is deliberately small. It rewards championships and Finals appearances but adjusts "
+                "Team Result (3%) is deliberately small. It rewards championships and Finals appearances but adjusts "
                 "for the player's role on the team so that a dominant contributor receives more credit than a peripheral one. "
                 "A role-adjustment factor prevents a bench player from receiving the same team credit as the best player on a title team. "
                 "The weight is intentionally kept at 3% to avoid allowing team success to override individual greatness — "

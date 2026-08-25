@@ -104,6 +104,23 @@ const instrumentSerif = localFont({
   ],
   variable: "--font-instrument-serif",
   display: "swap",
+  // Final closure pass: `next/font/local` cannot infer a category for a
+  // custom local font, so with no `adjustFontFallback` it silently matched
+  // this SERIF display face against `local("Arial")` -- a sans-serif system
+  // font (confirmed by inspecting the generated `@font-face` for
+  // 'instrumentSerif Fallback': `src: local("Arial")`). Ascent/descent/
+  // size-adjust metric matching corrects vertical CLS but cannot correct
+  // the character-WIDTH mismatch between a geometric sans and a
+  // high-contrast serif, which measured as a real ~30% width reflow on cold
+  // load wherever `--v2-font-display` renders a headline (confirmed via
+  // live Playwright measurement: 687px -> 460px at 1440px on the TMW
+  // reveal's "Three-Man Weave" headline). Naming the correct SERIF system
+  // fallback here is the documented, supported `next/font/local` option for
+  // exactly this mismatch -- it changes only which metrics Next.js computes
+  // the fallback's `ascent-override`/`descent-override`/`size-adjust`
+  // against, not the approved font, not any typography, not the swap
+  // behaviour itself.
+  adjustFontFallback: "Times New Roman",
 });
 
 export const metadata: Metadata = {

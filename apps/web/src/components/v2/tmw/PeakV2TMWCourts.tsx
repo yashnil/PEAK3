@@ -6,7 +6,7 @@
  * siblings dimmed but legible, real round/pick/pool/clock instrumentation.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import PeakV2Shell from "../PeakV2Shell";
 import PeakV2LiveHeader from "../PeakV2LiveHeader";
 import PeakV2GameStatus from "../PeakV2GameStatus";
@@ -59,6 +59,30 @@ export default function PeakV2TMWCourts({
 }: PeakV2TMWCourtsProps) {
   const remaining = useRemainingSeconds(deadlineAt);
   const qualifier = edgeQualifier(state);
+  // TMW viewport containment: the header block (title/status/instrument,
+  // the roll+on-clock line, the move notice, the mobile roster tabs) stays
+  // pinned and never scrolls out of reach; only the court content below it
+  // scrolls, capped to whatever's left of `--tmw-viewport-cap` (set by the
+  // ancestor `tmw-v2-arena-shell` in `ThreeManWeaveGame.tsx`) once the
+  // header's own real height is subtracted. `ResizeObserver`, not a one-time
+  // measurement, because the header's height can legitimately change (a
+  // move notice appearing/disappearing) and the scroll cap must track it.
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    // Measured synchronously here (not left to wait for the observer's
+    // first, inherently-async callback) so the scroll cap below is correct
+    // from the very first paint, rather than briefly using the full,
+    // uncapped-by-header value for one frame.
+    setHeaderHeight(el.getBoundingClientRect().height);
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setHeaderHeight(entry.contentRect.height);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   // Mobile-only: "deliberate access between YOUR COURT / OTHER COURTS"
   // (brief) rather than three courts crushed into one column. Desktop
   // ignores this entirely and shows the real three-column grid.
@@ -133,10 +157,41 @@ export default function PeakV2TMWCourts({
   const rollLine = state.current_roll
     ? `${state.current_roll.franchise_display_name} · ${state.current_roll.decade}`
     : null;
+  // Final closure pass, task §1: reserved so the "On the clock" span's own
+  // presence/absence can never change whether this row wraps to a second
+  // line at narrow widths -- a real, measured outer-shell height change at
+  // 390px between the seatless reveal window (`onClockName === null`) and
+  // the instant a real turn starts. `state.current_seat` is the server's own
+  // "who gets the pick turn next" field, valid during the seatless reveal
+  // too (see `ThreeManWeaveGame.tsx`'s `upNextSeat`, which reads the exact
+  // same field for its handoff line) -- so the reserved text is the SAME
+  // real name that will display once the turn actually starts, not a
+  // guessed placeholder of a different length, which is what makes the
+  // reservation exact rather than approximate.
+  const upcomingSeatIndex = currentTurnSeatIndex ?? state.current_seat;
+  const reservedOnClockName =
+    upcomingSeatIndex === null
+      ? ""
+      : upcomingSeatIndex === yourSeatIndex
+        ? "You"
+        : (seats.find((s) => s.seat_index === upcomingSeatIndex)?.display_name ?? `Seat ${upcomingSeatIndex + 1}`);
 
   return (
     <PeakV2Shell width="live-wide">
-      <div className="py-6">
+      {/* TMW viewport containment (final closure pass): this outer block is
+          a flex column capped to whatever the ancestor published as
+          `--tmw-viewport-cap` -- the real remaining space below the nav (and
+          anything else already above this component), reserved up front
+          rather than left to natural content flow, which was what pushed the
+          bottom of the active task surface below the viewport at 1280x800
+          and 390x844. `100dvh` in that ancestor calc already accounts for a
+          mobile browser's address bar; the `100dvh` fallback here is only
+          for the first paint before the ancestor's effect has run. Falls
+          back to natural (uncapped) height wherever the real content is
+          already shorter than the cap (1440x900's existing presentation),
+          so nothing changes there. */}
+      <div className="py-6 flex flex-col" style={{ maxHeight: "var(--tmw-viewport-cap, 100dvh)" }}>
+        <div ref={headerRef} className="shrink-0">
         <PeakV2LiveHeader
           as="h1"
           title="Three-Man Weave"
@@ -147,24 +202,74 @@ export default function PeakV2TMWCourts({
               <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
                 {poolSize} undrafted
               </span>
-              {remaining !== null ? <PeakV2Timer secondsRemaining={remaining} urgentAtSeconds={5} /> : null}
+              {/* Final closure pass, task §5: gated on a seat actually being
+                  on the clock, not merely on `deadlineAt` existing. During
+                  `PHASE_INTRO`/`PHASE_REVEAL` (seatless turns) the server
+                  publishes the viewer's own `seconds_remaining` as the
+                  ~30-minute intro backstop, and `PeakV2Timer` renders raw
+                  seconds with no MM:SS formatting -- without this gate that
+                  is a real, literal 4-digit number (confirmed by a
+                  deterministic test: `deadlineAt` ~1798s out with no seat on
+                  the clock rendered "1798"). Legacy `TurnStatus` has always
+                  had the equivalent gate (`yourTurn`/`activeSeat`); this
+                  mirrors it rather than inventing a new rule. Changes
+                  nothing about timer values or authority -- only whether
+                  this header chooses to display a countdown outside an
+                  actual pick turn.
+
+                  RESERVED WHEN HIDDEN (final closure pass, task §1): the
+                  gate above is correct, but it means this row's own
+                  available width -- and therefore whether it wraps at
+                  narrow (390px) viewports -- differs between the seatless
+                  reveal window and the instant a real turn starts, which
+                  measured as a real outer-shell height change at that exact
+                  transition. Reserving the timer's own worst-case width
+                  (two digits, its real range during a turn is 0-45) with an
+                  invisible, `aria-hidden` placeholder keeps this row's wrap
+                  point constant regardless of whose turn it is -- no
+                  fabricated number is ever shown to a user. */}
+              {remaining !== null && currentTurnSeatIndex !== null ? (
+                <PeakV2Timer secondsRemaining={remaining} urgentAtSeconds={5} />
+              ) : (
+                <span
+                  aria-hidden="true"
+                  style={{
+                    visibility: "hidden",
+                    fontFamily: "var(--v2-font-mono)",
+                    fontVariantNumeric: "tabular-nums",
+                    fontWeight: 600,
+                    fontSize: "1.125rem",
+                  }}
+                >
+                  88
+                </span>
+              )}
             </div>
           }
         />
 
         {/* ONE truthful line: what was rolled, and who is picking right now.
-            Stays in this exact spot across every phase -- never jumps. */}
+            Stays in this exact spot across every phase -- never jumps. The
+            "On the clock" span is always mounted (task §1): reserved with
+            `reservedOnClockName` (the SAME real name it will show once
+            visible, not a guessed placeholder) and only `visibility`-
+            toggled, so this row's own wrap point never depends on whether a
+            seat is actually on the clock yet. */}
         {rollLine || onClockName ? (
           <p
             className="mt-2 flex flex-wrap items-center gap-x-2"
             style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem" }}
           >
             {rollLine ? <span style={{ color: "var(--v2-text-secondary)" }}>{rollLine}</span> : null}
-            {onClockName ? (
-              <span style={{ fontWeight: 700, color: "var(--v2-color-accent)" }}>
-                On the clock — {onClockName}
-              </span>
-            ) : null}
+            <span
+              style={{
+                fontWeight: 700,
+                color: "var(--v2-color-accent)",
+                visibility: onClockName ? "visible" : "hidden",
+              }}
+            >
+              On the clock — {onClockName || reservedOnClockName}
+            </span>
           </p>
         ) : null}
 
@@ -216,6 +321,16 @@ export default function PeakV2TMWCourts({
             );
           })}
         </div>
+        </div>
+        {/* Scrollable body: capped to whatever's left of the viewport once
+            the pinned header above is accounted for. Content that fits does
+            not scroll at all (`overflow-y: auto`, not `scroll`); content that
+            doesn't fit scrolls INSIDE this region only -- the header, and
+            the outer shell's own dimensions, never move. */}
+        <div
+          className="min-h-0 overflow-y-auto"
+          style={{ maxHeight: `calc(var(--tmw-viewport-cap, 100dvh) - ${headerHeight}px)` }}
+        >
         <div className="mt-2 lg:hidden">
           {state.rosters
             .filter((roster) => roster.seat_index === mobileSeat)
@@ -258,6 +373,7 @@ export default function PeakV2TMWCourts({
         </div>
 
         {children}
+        </div>
       </div>
     </PeakV2Shell>
   );

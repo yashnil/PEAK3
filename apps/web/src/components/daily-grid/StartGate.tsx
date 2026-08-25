@@ -29,6 +29,10 @@
 
 import { useEffect, useRef } from "react";
 import { Clock, HelpCircle, Play } from "lucide-react";
+import { useUiVersion } from "@/lib/ui-version";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
 
 interface Props {
   date: string;
@@ -62,12 +66,74 @@ export default function StartGate({
   reducedMotion = false,
 }: Props) {
   const startRef = useRef<HTMLButtonElement>(null);
+  const uiVersion = useUiVersion();
 
   // The primary action takes focus, so a keyboard player can press Enter
   // immediately and a screen-reader user lands on the thing the screen is for.
   useEffect(() => {
     startRef.current?.focus();
   }, []);
+
+  if (uiVersion === "v2") {
+    return (
+      <PeakV2Shell width="cinematic">
+        <div className="v2-rtt-gate" data-testid="daily-grid-start-gate" data-motion={reducedMotion ? "none" : "auto"}>
+          <p className="v2-page-kicker">Daily Grid</p>
+          <h1 className="v2-page-title" style={{ fontSize: "var(--v2-display-size-line)" }}>
+            Today&rsquo;s Daily Grid
+          </h1>
+          <p className="v2-page-lede" data-testid="daily-grid-gate-objective">
+            <span data-testid="daily-grid-gate-shape">9 squares · 9 different exact player-seasons.</span>{" "}
+            Build the highest-scoring valid grid you can.
+          </p>
+
+          <p className="v2-rtt-gate-notice" data-testid="daily-grid-gate-timer-note">
+            <Clock size={13} aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: "0.35em" }} />
+            The timer starts only when you press Start. Picks are final — no resets, no swapping.
+          </p>
+
+          <div className="flex flex-wrap gap-3 mt-1">
+            <PeakV2PrimaryAction
+              ref={startRef}
+              type="button"
+              data-testid="start-daily-grid"
+              onClick={onStart}
+              disabled={starting}
+              busy={starting}
+            >
+              <Play size={14} aria-hidden="true" />
+              Start Timed Grid
+            </PeakV2PrimaryAction>
+
+            <PeakV2SecondaryAction
+              type="button"
+              data-testid="daily-grid-gate-how-to-play"
+              onClick={onHowToPlay}
+            >
+              <HelpCircle size={14} aria-hidden="true" />
+              How to Play
+            </PeakV2SecondaryAction>
+
+            <button
+              type="button"
+              data-testid="daily-grid-gate-skip-tour"
+              onClick={onSkipTourAndStart}
+              disabled={starting}
+              className="rounded-lg px-3 py-2.5 text-sm font-medium underline underline-offset-4 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:opacity-60"
+              style={{ fontFamily: "var(--v2-font-ui)", color: "var(--v2-text-muted)" }}
+            >
+              Skip Tour and Start
+            </button>
+          </div>
+
+          <p className="v2-rtt-gate-footnote" data-testid="daily-grid-gate-board-line">
+            Today&rsquo;s board · {date}
+            {theme ? ` · ${theme}` : ""} · {difficulty} difficulty
+          </p>
+        </div>
+      </PeakV2Shell>
+    );
+  }
 
   return (
     <section

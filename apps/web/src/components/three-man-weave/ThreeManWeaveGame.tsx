@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
   ArenaResultView,
@@ -638,6 +638,41 @@ export default function ThreeManWeaveGame({
         ? "You're up"
         : `${seatLabel(match.seats, upNextSeat)} is up`;
 
+  // Final closure pass, task "TMW viewport containment": the V2 arena shell
+  // (`tmw-v2-arena-shell` below) used to take whatever height its content
+  // naturally wanted, which at 1280x800 and 390x844 pushed the bottom of the
+  // active task surface below the viewport -- confirmed by measurement
+  // (1280x800: 55px below; 390x844: ~177px below). The fix reserves the
+  // REAL available height up front rather than guessing a breakpoint-keyed
+  // constant: measure this wrapper's own distance from the top of the
+  // viewport (whatever sits above it -- nav, this room's own legacy header,
+  // etc. -- without needing to touch or know about any of those files) and
+  // publish it as a CSS custom property the wrapper's descendants can read
+  // via `var()` (custom properties inherit). `100dvh` (not `100vh`) so a
+  // mobile browser's collapsing/expanding address bar is accounted for
+  // exactly as the requirement calls for. This runs identically regardless
+  // of reveal stage, so it cannot itself introduce any geometry diff across
+  // intro/spinning/resolved/picker -- only the viewport and whatever sits
+  // above this wrapper can change it.
+  const arenaShellRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = arenaShellRef.current;
+    if (!el) return;
+    const BOTTOM_SAFE_MARGIN_PX = 16;
+    function updateCap() {
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      el.style.setProperty("--tmw-viewport-cap", `calc(100dvh - ${top}px - ${BOTTOM_SAFE_MARGIN_PX}px)`);
+    }
+    updateCap();
+    window.addEventListener("resize", updateCap);
+    window.addEventListener("orientationchange", updateCap);
+    return () => {
+      window.removeEventListener("resize", updateCap);
+      window.removeEventListener("orientationchange", updateCap);
+    };
+  }, []);
+
   return (
     <div
       // `.pk-atmosphere` is the arena's lighting rig as a class: two
@@ -814,7 +849,14 @@ export default function ThreeManWeaveGame({
         </>
           }
           v2={
-            <>
+            // `relative` so `PeakV2TMWReveal`'s overlay is `absolute inset-0`
+            // to THIS box (final closure pass, task §1) -- courts stay
+            // mounted and drive this wrapper's only size contribution (the
+            // overlay is absolutely positioned, so it contributes none),
+            // making this one persistent element the same "outer shell" from
+            // match-open intro through the picker: nothing to reserve, since
+            // nothing here ever changes size across reveal stages.
+            <div ref={arenaShellRef} className="relative" data-testid="tmw-v2-arena-shell">
               <PeakV2TMWCourts
                 state={state}
                 seats={match.seats}
@@ -862,7 +904,7 @@ export default function ThreeManWeaveGame({
                 onSkip={skipReveal}
                 skipping={busy}
               />
-            </>
+            </div>
           }
         />
       )}
