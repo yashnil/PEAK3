@@ -21,6 +21,8 @@ import PeakV2LiveHeader from "../PeakV2LiveHeader";
 import PeakV2GameStatus from "../PeakV2GameStatus";
 import PeakV2Score from "../PeakV2Score";
 import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "../PeakV2SecondaryAction";
+import PeakV2PlayerIdentity from "../PeakV2PlayerIdentity";
 import PeakV2CourtSlotCard from "./PeakV2CourtSlotCard";
 import CourtLayout from "@/components/court/CourtLayout";
 import LiveBuildPanel from "@/components/court/LiveBuildPanel";
@@ -47,6 +49,12 @@ export interface PeakV2CourtLiveProps {
   /** The name of the player already chosen and awaiting placement, or null
    *  when nothing is pending. Drives the "PLACE [PLAYER]" banner (§7). */
   pendingSelectionName: string | null;
+  /** Team/season/position instrumentation for that same pending selection
+   *  (human acceptance testing, task §8) -- all optional/nullable since a
+   *  legacy-shaped peak-window pending selection may not carry team/season. */
+  pendingSelectionTeam?: string | null;
+  pendingSelectionSeason?: string | null;
+  pendingSelectionPosition?: string | null;
   /** Returns to the same round's already-revealed roll/candidate list --
    *  never a respin, never a lost roll (mirrors legacy's "Switch selection"). */
   onSwitchSelection: () => void;
@@ -69,6 +77,9 @@ export default function PeakV2CourtLive({
   showResumeSelection,
   onResumeSelection,
   pendingSelectionName,
+  pendingSelectionTeam,
+  pendingSelectionSeason,
+  pendingSelectionPosition,
   onSwitchSelection,
 }: PeakV2CourtLiveProps) {
   function renderSlot(slot: CourtSlotPublic) {
@@ -92,6 +103,12 @@ export default function PeakV2CourtLive({
       />
     );
   }
+
+  // The card currently in hand for a MOVE, looked up from the same
+  // slot data already passed down for the court itself -- no new prop from
+  // the caller. Gives the "Moving" banner the same real identity
+  // instrumentation as the "Place" banner instead of a bare position label.
+  const movingSlotData = movingSlot ? [...starterSlots, ...benchSlots].find((s) => s.slot_type === movingSlot) : undefined;
 
   const record = state.live_build?.provisional_record_range;
   // The caller keeps this component mounted even after the run is complete
@@ -128,11 +145,51 @@ export default function PeakV2CourtLive({
           }
         />
 
-        {/* ONE stable contextual state banner (Pass 7, task §5/§7) -- exactly
-            one of these four states is ever true at once, so the player
-            always has a single, unambiguous read of "what is happening right
-            now" instead of competing hint/instruction lines. */}
-        {showResumeSelection ? (
+        {/* ONE stable contextual state banner (Pass 7, task §5/§7). Human
+            acceptance testing (task §8) found these are NOT actually
+            mutually exclusive as the old comment here assumed: rearranging
+            has no phase gate (`onStartMove` only requires a filled slot and
+            `movingSlot == null`), so a player can minimize a still-unresolved
+            round's chooser ("View court") and then start a MOVE while
+            `showResumeSelection` is also true -- reachable live, not just in
+            theory. `movingSlot` now wins that race: a card actively picked up
+            is the more urgent, more specific thing happening, and "waiting
+            on a player" reappears the instant the move is cancelled or
+            confirmed (its own condition never stopped being true). */}
+        {movingSlot != null ? (
+          // Same unified banner grammar as the "Place" state below (task
+          // §8: MOVE needs "the same deliberate target-state interaction"),
+          // with the same real identity instrumentation -- looked up from
+          // the slot data already on the court, see `movingSlotData` above
+          // -- and an obvious button (not an inline text link) to cancel.
+          <div
+            data-testid="moving-active-banner"
+            className="mt-3 rounded-xl p-3 flex items-center justify-between gap-3 flex-wrap"
+            style={{ background: "var(--v2-bg-plane)", border: "1px solid var(--v2-color-accent-dim, var(--v2-color-accent))" }}
+          >
+            <div className="flex items-center gap-3 flex-wrap">
+              <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--v2-color-accent)" }}>
+                Moving
+              </span>
+              <PeakV2PlayerIdentity
+                name={movingSlotData?.player_name ?? slotLabel(movingSlot)}
+                meta={[movingSlotData?.team_id ?? undefined, movingSlotData?.season ?? movingSlotData?.anchor_season ?? undefined]
+                  .filter(Boolean)
+                  .join(" · ") || slotLabel(movingSlot)}
+                state="current"
+                size="sm"
+              />
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
+                Pick a destination — no re-spin, no cards lost.
+              </span>
+              <PeakV2SecondaryAction size="sm" onClick={onCancelMove}>
+                Cancel move
+              </PeakV2SecondaryAction>
+            </div>
+          </div>
+        ) : showResumeSelection ? (
           <div
             className="mt-3 rounded-xl p-3 flex items-center justify-between gap-3 flex-wrap"
             style={{ background: "var(--v2-bg-plane)", border: "1px solid var(--v2-color-accent-dim, var(--v2-color-accent))" }}
@@ -145,36 +202,39 @@ export default function PeakV2CourtLive({
             </PeakV2PrimaryAction>
           </div>
         ) : phase === "placing" && pendingSelectionName ? (
+          // The ONE active-player treatment (human acceptance testing, task
+          // §8): a single instrumented "PLACE / player / team · season ·
+          // position" banner, not a prose sentence with the name buried
+          // inside it. Reuses `PeakV2PlayerIdentity` (the same identity row
+          // every other court/roster surface uses) rather than a bespoke
+          // layout, so this reads as the SAME "thing the screen is about
+          // right now" grammar as everywhere else in V2.
           <div
+            data-testid="placement-active-banner"
             className="mt-3 rounded-xl p-3 flex items-center justify-between gap-3 flex-wrap"
             style={{ background: "var(--v2-bg-plane)", border: "1px solid var(--v2-color-accent-dim, var(--v2-color-accent))" }}
           >
-            <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-primary)" }}>
+            <div className="flex items-center gap-3 flex-wrap">
               <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--v2-color-accent)" }}>
                 Place
-              </span>{" "}
-              {pendingSelectionName} — choose any open spot; the fit badge shows how well they match it.
-            </p>
-            <button
-              type="button"
-              onClick={onSwitchSelection}
-              disabled={busy}
-              className="underline"
-              style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-secondary)" }}
-            >
-              Switch selection
-            </button>
+              </span>
+              <PeakV2PlayerIdentity
+                name={pendingSelectionName}
+                meta={[pendingSelectionTeam, pendingSelectionSeason].filter(Boolean).join(" · ") || undefined}
+                position={pendingSelectionPosition ?? undefined}
+                state="current"
+                size="sm"
+              />
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
+                Any open spot — the fit badge shows how well they match it.
+              </span>
+              <PeakV2SecondaryAction size="sm" onClick={onSwitchSelection} disabled={busy}>
+                Switch selection
+              </PeakV2SecondaryAction>
+            </div>
           </div>
-        ) : movingSlot != null ? (
-          <p className="mt-3" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-color-accent)" }}>
-            <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-              Moving
-            </span>{" "}
-            {slotLabel(movingSlot)} — pick a destination. No re-spin, no cards lost.{" "}
-            <button type="button" onClick={onCancelMove} className="underline">
-              Cancel move
-            </button>
-          </p>
         ) : rearrangeAvailable ? (
           <p className="mt-3" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
             Move players to improve position fit — this never re-spins.

@@ -104,6 +104,21 @@ export default function PeakV2CourtChooser({
       onClose={onClose}
       label={`Round ${roundNumber} of ${totalRounds}`}
       maxHeightVh={82}
+      // Mobile stays PeakV2DockedPanel's own default: a near-full-height
+      // bottom sheet (82vh, bottom-anchored) -- intentional at 390px, see
+      // the human-acceptance-testing note below. Desktop widths get a
+      // shorter, VERTICALLY CENTERED panel instead of a sheet crowding the
+      // viewport bottom (human acceptance testing, task §7/§Issue-1): a
+      // bottom-anchored sheet at 82vh left only Dialog's own fixed 16px
+      // inset between the panel and the true viewport bottom at both
+      // 1440x900 and 1280x800 -- "crowding," not "breathing room," and not
+      // remotely "centered." `.peak-v2-court-chooser-panel` (court.css)
+      // overrides `align-self`/`height` above a 768px breakpoint only,
+      // scoped to this one caller's own class -- `PeakV2DockedPanel` itself
+      // (its bottom-sheet default, its own contract, its own unit tests)
+      // is untouched, so every OTHER docked-panel caller keeps the exact
+      // bottom-sheet behavior it already has.
+      className="peak-v2-court-chooser-panel"
       // `SpinStage` below restarts its own reveal ceremony on every mount
       // (see its docstring, and legacy's identical `hidden`-not-unmounted
       // overlay) -- minimizing/reopening must never look like a fresh spin.

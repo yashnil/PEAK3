@@ -43,3 +43,81 @@
   font-family: var(--v2-font-ui);
   color: var(--v2-text-muted);
 }
+
+/* ----------------------------------------------------------------
+   PeakV2CourtChooser's docked panel (human acceptance testing, task
+   §7/Issue 1): `PeakV2DockedPanel`'s own default is a bottom-anchored,
+   near-full-height sheet -- correct at 390px (mobile keeps this,
+   unstyled here), but at 1280x800/1440x900 it read as a sheet crowding
+   the viewport bottom, not a centered, premium player-selection panel.
+   Scoped to this ONE caller's own class (`className` on
+   `PeakV2CourtChooser`'s `<PeakV2DockedPanel>`) rather than changing
+   `PeakV2DockedPanel` itself -- every other docked-panel caller (there
+   are none in production today, but the component's own contract/tests
+   assume align=bottom by default) keeps its exact existing behavior.
+
+   `align-self` overrides the shared Dialog's `items-end` for just this
+   flex item, centering the panel vertically instead of pinning it to the
+   viewport's bottom edge. `height`/`max-height` need `!important`
+   because `PeakV2DockedPanel` sets an inline `height` (a deliberate fixed
+   footprint, not a cap -- see its own docstring on why content changes
+   must never resize the sheet) that would otherwise always win over a
+   stylesheet rule regardless of selector specificity.
+
+   680px hard cap plus the vh/dvh terms: the pinned header zone (round
+   title + respin controls + the SpinStage reveal) alone measures ~346px
+   tall plus 40px of panel padding at 1440x900 -- an unbounded vh value on
+   a very tall desktop display would grow the sheet far past a "premium
+   panel" scale for comparatively little benefit, while 680px still
+   leaves the scrollable candidate body real room underneath that header
+   at every viewport this was verified against. */
+@media (min-width: 768px) {
+  [data-ui-version="v2"] .peak-v2-court-chooser-panel {
+    align-self: center;
+    height: min(72vh, calc(100dvh - 150px), 680px) !important;
+    max-height: min(72vh, calc(100dvh - 150px), 680px) !important;
+  }
+}
+
+/* ----------------------------------------------------------------
+   Placement targets, tiered by real fit cost (human acceptance testing,
+   task §8/Issue 2 — see `PeakV2CourtSlotCard`'s own `pendingFitTier` for
+   the full rationale). Placement is soft: every open slot stays a real,
+   clickable target at all three tiers -- only the BOX's visual weight
+   changes, never its legality. `!important` is required because
+   `PeakV2CourtSlot`'s own `state="staged"` sets border/background inline
+   as its shared default -- these classes override that default for THIS
+   caller only (legacy `PeakCardCourt` and any other `PeakV2CourtSlot`
+   caller, e.g. Three-Man Weave's rearrange, is untouched).
+
+   - strong: primary/natural/secondary/flexible/bench fit, or an
+     off-position shift so mild it costs nothing -- the genuinely
+     inviting, "put them here" target. A little brighter and a subtle
+     glow beyond the shared default, so it reads as the best available
+     spot next to its two duller siblings, not just "the default."
+   - stretch: a real but playable positional stretch (-5.0) -- visible,
+     still a solid gold-family target, but a dashed border and a slightly
+     recessed background say "this costs something" without looking
+     broken or unavailable.
+   - weak: a genuine structural mismatch (-14.0) -- stays fully visible
+     and clickable (soft placement allows it, and blocking it here would
+     be a real rules change, not a visual one) but reads as clearly
+     available-rather-than-recommended: a muted, desaturated border, no
+     glow, lower opacity.
+   ---------------------------------------------------------------- */
+[data-ui-version="v2"] .court-slot-pending-strong {
+  border-color: var(--v2-color-accent) !important;
+  background: color-mix(in srgb, var(--v2-color-accent) 10%, var(--v2-bg-plane)) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--v2-color-accent) 35%, transparent);
+}
+
+[data-ui-version="v2"] .court-slot-pending-stretch {
+  border: 1px dashed var(--accent-orange) !important;
+  background: color-mix(in srgb, var(--accent-orange) 6%, var(--v2-bg-plane)) !important;
+}
+
+[data-ui-version="v2"] .court-slot-pending-weak {
+  border: 1px dashed var(--v2-border) !important;
+  background: var(--v2-bg-plane) !important;
+  opacity: 0.68;
+}
