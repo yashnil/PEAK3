@@ -107,7 +107,9 @@ export default function PeakV2CourtChooser({
     <PeakV2DockedPanel
       open={open}
       onClose={onClose}
-      label={`Round ${roundNumber} of ${totalRounds}`}
+      label={`Round ${roundNumber} of ${totalRounds} — choose a player`}
+      data-testid="selection-overlay"
+      data-backdrop-testid="selection-overlay-scrim"
       maxHeightVh={82}
       // Mobile stays PeakV2DockedPanel's own default: a near-full-height
       // bottom sheet (82vh, bottom-anchored) -- intentional at 390px, see
@@ -135,27 +137,50 @@ export default function PeakV2CourtChooser({
           the "choose a player" section below scrolls. `flexShrink: 0`
           keeps this zone's own height stable regardless of the scrollable
           body's content. */}
-      <div style={{ flexShrink: 0 }}>
+      <div data-testid="selection-overlay-head" style={{ flexShrink: 0 }}>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <PeakV2ResultHeadline as="h2" scale="line">
-            Round {roundNumber} <PeakV2DisplayEmphasis tone="inherit">of {totalRounds}</PeakV2DisplayEmphasis>
-          </PeakV2ResultHeadline>
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <PeakV2ResultHeadline as="h2" scale="line">
+              Round {roundNumber} <PeakV2DisplayEmphasis tone="inherit">of {totalRounds}</PeakV2DisplayEmphasis>
+            </PeakV2ResultHeadline>
+            {/* The rolled team/season + eligible count, reveal-safe: reads
+                from `displaySpin` (the same "previous roll while a respin
+                is still visually landing" guard the candidate list below
+                already uses), never the raw, possibly-not-yet-visible
+                `spin`. */}
+            {displaySpin && displaySpin.spin_type !== "open_pool" && ceremonyRevealed ? (
+              <span
+                data-testid="overlay-roll-summary"
+                className="truncate"
+                style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 600, color: "var(--v2-text-secondary)" }}
+              >
+                {displaySpin.franchise_display_name} · {displaySpin.era_label}
+                <span style={{ color: "var(--v2-text-muted)" }}> · {displaySpin.candidates.length} eligible</span>
+              </span>
+            ) : null}
+          </div>
           {/* `whitespace-nowrap` on each pill, `flex-wrap` on the row: at
               390px three pills plus the headline cannot share one line, so
               the GROUP wraps to its own row — a label like "Respin team (3)"
               must never wrap inside its own pill. */}
           <div className="flex flex-wrap items-center gap-2">
-            {ceremonyRevealed && spin.spin_type === "team_year" ? (
-              <>
-                <PeakV2SecondaryAction size="sm" className="whitespace-nowrap" disabled={busy || !canRespinTeam} onClick={onRespinTeam}>
-                  Respin team ({teamRespinsLeft})
+            {/* Gated on `!collapsed` (== `phase === "spinning"`), matching
+                legacy's own `phase === "spinning" && ...` gate exactly: the
+                panel stays mounted (`keepMounted`) through "placing" too, so
+                without this the respin controls would stay in the DOM
+                (merely hidden behind the collapsed panel) instead of
+                genuinely disappearing the instant a player is selected. */}
+            {!collapsed && ceremonyRevealed && spin.spin_type === "team_year" ? (
+              <div data-testid="respin-controls" className="flex flex-wrap items-center gap-2">
+                <PeakV2SecondaryAction data-testid="respin-team-btn" size="sm" className="whitespace-nowrap" disabled={busy || !canRespinTeam} onClick={onRespinTeam}>
+                  Respin team ({teamRespinsLeft} left)
                 </PeakV2SecondaryAction>
-                <PeakV2SecondaryAction size="sm" className="whitespace-nowrap" disabled={busy || !canRespinSeason} onClick={onRespinSeason}>
-                  Respin season ({seasonRespinsLeft})
+                <PeakV2SecondaryAction data-testid="respin-season-btn" size="sm" className="whitespace-nowrap" disabled={busy || !canRespinSeason} onClick={onRespinSeason}>
+                  Respin season ({seasonRespinsLeft} left)
                 </PeakV2SecondaryAction>
-              </>
+              </div>
             ) : null}
-            <PeakV2SecondaryAction size="sm" className="whitespace-nowrap" onClick={onClose}>
+            <PeakV2SecondaryAction data-testid="minimize-overlay-btn" size="sm" className="whitespace-nowrap" onClick={onClose}>
               View court
             </PeakV2SecondaryAction>
           </div>
@@ -186,7 +211,13 @@ export default function PeakV2CourtChooser({
           actually shrink below its content size and become scrollable
           rather than overflowing its flex parent. */}
       <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto" }} className="mt-4">
-        {displaySpin && ceremonyRevealed && candidates ? (
+        {/* Gated on `!collapsed` (== `phase === "spinning"`), matching
+            legacy's own `phase === "spinning" && ...` gate exactly: once a
+            player is selected (`phase === "placing"`), the candidate panel
+            must actually disappear (not just visually collapse behind the
+            docked panel, which stays `keepMounted`) -- selection and
+            placement never overlap, on the court or in the DOM. */}
+        {!collapsed && displaySpin && ceremonyRevealed && candidates ? (
           <div data-testid="candidate-panel">
             {/* `flex-wrap`, matching the header row's own pattern above: at
                 narrow widths the label plus the hint button cannot always
@@ -205,7 +236,7 @@ export default function PeakV2CourtChooser({
                   color: "var(--v2-text-muted)",
                 }}
               >
-                Choose a player · {candidates.length} eligible
+                Step 1 · Choose a player · {candidates.length} eligible
               </span>
               {/* Secondary, not primary: the candidate list below already
                   carries its own gold "Choose" affordance on every single

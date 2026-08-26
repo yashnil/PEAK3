@@ -48,11 +48,13 @@ function ModeGroupRow({
           {description}
         </div>
       </div>
-      <span
-        aria-hidden="true"
-        style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 700, color: "var(--v2-color-accent)", whiteSpace: "nowrap" }}
-      >
-        {cta} →
+      {/* Only the decorative arrow glyph is `aria-hidden` -- the CTA text
+          itself ("Build a Perfect Season", "Play", …) is real, meaningful
+          link content (it's what names the destination for a screen-reader
+          user, and what courtbuilder.spec.ts's "Build a Perfect Season"
+          link-name assertions read), not decoration. */}
+      <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 700, color: "var(--v2-color-accent)", whiteSpace: "nowrap" }}>
+        {cta} <span aria-hidden="true">→</span>
       </span>
     </a>
   );
@@ -96,9 +98,23 @@ export default function ArenaPageV2({
           <section aria-labelledby="v2-arena-season">
             <PeakV2LiveHeader as="h2" title="Full season" subtitle="Spin a real franchise and era, then draft a position-aware roster." rule={false} />
             <div className="mt-1 flex flex-col">
-              <ModeGroupRow title={peakSeason.title} description={peakSeason.description} href={peakSeason.href} cta="Build a roster" />
-              <ModeGroupRow title="82-0 · Today's Daily" description="Everyone gets the same spin sequence each day." href="/arena/court/daily/apex_1y" cta="Play" />
+              <ModeGroupRow title={peakSeason.title} description={peakSeason.description} href={peakSeason.href} cta="Build a Perfect Season" />
+              <ModeGroupRow
+                testId="daily-peak-season-cta"
+                title="82-0 · Today's Daily"
+                description="Everyone gets the same spin sequence each day."
+                href="/arena/court/daily/apex_1y"
+                cta="Play"
+              />
             </div>
+            <a
+              href="/arena/court/history"
+              data-testid="court-history-link"
+              className="mt-2 inline-block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+              style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", fontWeight: 700, color: "var(--v2-color-accent)" }}
+            >
+              Your runs →
+            </a>
           </section>
         </>
       ) : null}

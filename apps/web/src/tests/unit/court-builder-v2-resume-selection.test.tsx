@@ -126,7 +126,7 @@ describe("82-0 V2 — chooser reopen (task §5)", () => {
   it("closing the chooser ('View court') leaves an obvious way back in, and reopening shows the same unresolved roll", async () => {
     renderV2Builder(baseState());
     await revealCeremony();
-    await waitFor(() => expect(screen.getByText("Choose a player · 2 eligible")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText((_, el) => el?.textContent === "Step 1 · Choose a player · 2 eligible")).toBeInTheDocument());
 
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     await user.click(screen.getByRole("button", { name: /view court/i }));
@@ -134,7 +134,7 @@ describe("82-0 V2 — chooser reopen (task §5)", () => {
     // Same round/roll never disappear from the page -- only the chooser's
     // OWN candidate list (inside the now-hidden panel) is gone from what a
     // query for visible text would find; the resume affordance must exist.
-    const resumeBtn = await screen.findByRole("button", { name: /open player pool/i });
+    const resumeBtn = await screen.findByRole("button", { name: /resume selection/i });
     expect(resumeBtn).toBeInTheDocument();
 
     // No API call happened just by closing -- no respin, no new selection.
@@ -145,11 +145,11 @@ describe("82-0 V2 — chooser reopen (task §5)", () => {
     await user.click(resumeBtn);
 
     // The SAME roll and candidate pool reappear -- never re-rolled.
-    await waitFor(() => expect(screen.getByText("Choose a player · 2 eligible")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText((_, el) => el?.textContent === "Step 1 · Choose a player · 2 eligible")).toBeInTheDocument());
     expect(screen.getByText("Player A")).toBeInTheDocument();
     expect(screen.getByText("Player B")).toBeInTheDocument();
-    expect(screen.getByText(/Respin team \(3\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Respin season \(3\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Respin team \(3 left\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Respin season \(3 left\)/)).toBeInTheDocument();
 
     // Still no respin/selection API calls anywhere in this flow.
     expect(respinTeam).not.toHaveBeenCalled();
@@ -160,8 +160,8 @@ describe("82-0 V2 — chooser reopen (task §5)", () => {
   it("does not show the resume affordance while the chooser is open", async () => {
     renderV2Builder(baseState());
     await revealCeremony();
-    await waitFor(() => expect(screen.getByText("Choose a player · 2 eligible")).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: /open player pool/i })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText((_, el) => el?.textContent === "Step 1 · Choose a player · 2 eligible")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /resume selection/i })).not.toBeInTheDocument();
   });
 });
 
@@ -184,7 +184,7 @@ describe("82-0 V2 — placement state banner (task §7)", () => {
 
     renderV2Builder(baseState());
     await revealCeremony();
-    await waitFor(() => expect(screen.getByText("Choose a player · 2 eligible")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText((_, el) => el?.textContent === "Step 1 · Choose a player · 2 eligible")).toBeInTheDocument());
 
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const chooseButtons = screen.getAllByText(/^Choose$/i);
@@ -195,10 +195,10 @@ describe("82-0 V2 — placement state banner (task §7)", () => {
     // structured "PLACE / player / team · season · position" instrumentation
     // (`PeakV2PlayerIdentity`) rather than one prose sentence with the name
     // embedded in it -- the player's name and the instruction text are
-    // separate nodes. Scoped to the banner itself (`placement-active-banner`)
+    // separate nodes. Scoped to the banner itself (`placing-banner`)
     // since "Player A" can also appear in the (still-mounted, now-hidden)
     // chooser's own candidate list.
-    const banner = await screen.findByTestId("placement-active-banner");
+    const banner = await screen.findByTestId("placing-banner");
     expect(within(banner).getByText("Place")).toBeInTheDocument();
     expect(within(banner).getByText("Player A")).toBeInTheDocument();
     expect(within(banner).getByText(/any open spot/i)).toBeInTheDocument();

@@ -450,78 +450,94 @@ export default function CourtBuilder({
           {error}
         </div>
       )}
-      <PeakV2CourtLive
-        state={state}
-        phase={phase}
-        busy={busy}
-        starterSlots={starterSlots}
-        benchSlots={benchSlots}
-        movingSlot={movingSlot}
-        rearrangeAvailable={rearrangeAvailable}
-        onPlace={handlePlace}
-        onStartMove={(slotType) => setMovingSlot(slotType)}
-        onSwapTarget={requestSwap}
-        onCancelMove={cancelRearrange}
-        slotLabel={(slot) => SLOT_LABELS[slot]}
-        onComplete={handleComplete}
-        // Pass 7 (human acceptance testing, §5): the SAME `overlayMinimized`
-        // state that already preserves round/roll/respins/candidates
-        // untouched on close (see the state's own docstring above) -- V2
-        // just never rendered a way back in. `setOverlayMinimized(false)` is
-        // the exact same reopen legacy's "Resume selection" banner already
-        // calls; no new state, no new endpoint.
-        showResumeSelection={phase === "spinning" && overlayMinimized}
-        onResumeSelection={() => setOverlayMinimized(false)}
-        pendingSelectionName={state.pending_selection?.player_name ?? null}
-        // Human acceptance testing, task §8: the "PLACE [player]" banner
-        // gains real TEAM · SEASON · POSITION instrumentation instead of a
-        // bare name -- all three are already on `pending_selection` (no
-        // new fetch), just not previously threaded through.
-        pendingSelectionTeam={state.pending_selection?.team_name ?? null}
-        pendingSelectionSeason={state.pending_selection?.season ?? null}
-        pendingSelectionPosition={state.pending_selection?.primary_position ?? null}
-        onSwitchSelection={handleCancel}
-      />
-      {(phase === "spinning" || phase === "placing") && roundSpin && (
-        <PeakV2CourtChooser
-          // Mirrors legacy's own `hidden={phase !== "spinning" || overlayMinimized}`
-          // exactly, inverted for an `open` prop: the panel auto-steps aside
-          // the instant a selection is pending (`phase === "placing"`) so the
-          // now-clickable court slots underneath are reachable, not just
-          // visible — the same real state `renderSlot`'s `onClick` already
-          // gates on. Never a second, drifted copy of that condition.
-          open={phase === "spinning" && !overlayMinimized}
-          onClose={() => setOverlayMinimized(true)}
-          roundNumber={state.current_round}
-          totalRounds={state.total_rounds}
-          spin={roundSpin}
-          franchiseNames={franchiseNames}
-          seasonLabels={seasonLabels}
-          teamLogoUrls={teamLogoUrls}
-          onRevealComplete={() => setRevealedRound(state.current_round)}
-          onRespinSettled={() => setRespinPending(false)}
-          respinFlashKey={respinFlashKey}
-          respinKind={respinKind}
-          respinFrom={lastRespin}
-          collapsed={phase === "placing"}
-          ceremonyRevealed={ceremonyRevealed}
-          displaySpin={displaySpin}
-          candidates={displaySpin?.candidates ?? null}
-          onSelectCandidate={handleSelect}
-          busy={busy}
-          respinPending={respinPending}
-          canRespinTeam={state.team_respins_remaining_total > 0}
-          canRespinSeason={state.season_respins_remaining_total > 0}
-          teamRespinsLeft={state.team_respins_remaining_total}
-          seasonRespinsLeft={state.season_respins_remaining_total}
-          onRespinTeam={handleRespinTeam}
-          onRespinSeason={handleRespinSeason}
-          difficulty={state.difficulty ?? "easy"}
-          hintUsed={!!state.hint_used}
-          hintMessage={hint ? `PEAK3 suggests: ${hint.playerName}` : null}
-          hintSlug={hint?.playerSlug ?? null}
-          onHint={handleHint}
-        />
+      {/* Mirrors legacy's own `!state.simulation_result` gate exactly: the
+          live, still-editable court is the build surface, and
+          `PeakV2CourtResult` below is the separate, read-only broadcast
+          reveal -- never both mounted at once. Without this gate, once a
+          run completes `state.slots` carries the same now-revealed scores
+          both components read, and the live court's own slot cards (now
+          also revealed) render a SECOND, redundant copy of every
+          `revealed-score-line`/`peak-locked-note` right alongside the
+          result screen's -- exactly the kind of doubled, inconsistent
+          surface CLAUDE.md's "no server-side answer storage" / single
+          source of truth principle warns against, not a deliberate second
+          reveal. */}
+      {!state.simulation_result && (
+        <>
+          <PeakV2CourtLive
+            state={state}
+            phase={phase}
+            busy={busy}
+            starterSlots={starterSlots}
+            benchSlots={benchSlots}
+            movingSlot={movingSlot}
+            rearrangeAvailable={rearrangeAvailable}
+            onPlace={handlePlace}
+            onStartMove={(slotType) => setMovingSlot(slotType)}
+            onSwapTarget={requestSwap}
+            onCancelMove={cancelRearrange}
+            slotLabel={(slot) => SLOT_LABELS[slot]}
+            onComplete={handleComplete}
+            // Pass 7 (human acceptance testing, §5): the SAME `overlayMinimized`
+            // state that already preserves round/roll/respins/candidates
+            // untouched on close (see the state's own docstring above) -- V2
+            // just never rendered a way back in. `setOverlayMinimized(false)` is
+            // the exact same reopen legacy's "Resume selection" banner already
+            // calls; no new state, no new endpoint.
+            showResumeSelection={phase === "spinning" && overlayMinimized}
+            onResumeSelection={() => setOverlayMinimized(false)}
+            pendingSelectionName={state.pending_selection?.player_name ?? null}
+            // Human acceptance testing, task §8: the "PLACE [player]" banner
+            // gains real TEAM · SEASON · POSITION instrumentation instead of a
+            // bare name -- all three are already on `pending_selection` (no
+            // new fetch), just not previously threaded through.
+            pendingSelectionTeam={state.pending_selection?.team_name ?? null}
+            pendingSelectionSeason={state.pending_selection?.season ?? null}
+            pendingSelectionPosition={state.pending_selection?.primary_position ?? null}
+            onSwitchSelection={handleCancel}
+          />
+          {(phase === "spinning" || phase === "placing") && roundSpin && (
+            <PeakV2CourtChooser
+              // Mirrors legacy's own `hidden={phase !== "spinning" || overlayMinimized}`
+              // exactly, inverted for an `open` prop: the panel auto-steps aside
+              // the instant a selection is pending (`phase === "placing"`) so the
+              // now-clickable court slots underneath are reachable, not just
+              // visible — the same real state `renderSlot`'s `onClick` already
+              // gates on. Never a second, drifted copy of that condition.
+              open={phase === "spinning" && !overlayMinimized}
+              onClose={() => setOverlayMinimized(true)}
+              roundNumber={state.current_round}
+              totalRounds={state.total_rounds}
+              spin={roundSpin}
+              franchiseNames={franchiseNames}
+              seasonLabels={seasonLabels}
+              teamLogoUrls={teamLogoUrls}
+              onRevealComplete={() => setRevealedRound(state.current_round)}
+              onRespinSettled={() => setRespinPending(false)}
+              respinFlashKey={respinFlashKey}
+              respinKind={respinKind}
+              respinFrom={lastRespin}
+              collapsed={phase === "placing"}
+              ceremonyRevealed={ceremonyRevealed}
+              displaySpin={displaySpin}
+              candidates={displaySpin?.candidates ?? null}
+              onSelectCandidate={handleSelect}
+              busy={busy}
+              respinPending={respinPending}
+              canRespinTeam={state.team_respins_remaining_total > 0}
+              canRespinSeason={state.season_respins_remaining_total > 0}
+              teamRespinsLeft={state.team_respins_remaining_total}
+              seasonRespinsLeft={state.season_respins_remaining_total}
+              onRespinTeam={handleRespinTeam}
+              onRespinSeason={handleRespinSeason}
+              difficulty={state.difficulty ?? "easy"}
+              hintUsed={!!state.hint_used}
+              hintMessage={hint ? `PEAK3 suggests: ${hint.playerName}` : null}
+              hintSlug={hint?.playerSlug ?? null}
+              onHint={handleHint}
+            />
+          )}
+        </>
       )}
     </div>
   );

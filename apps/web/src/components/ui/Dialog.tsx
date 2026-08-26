@@ -122,6 +122,11 @@ interface DialogBaseProps {
   keepMounted?: boolean;
   describedBy?: string;
   "data-testid"?: string;
+  /** Optional `data-testid` for the backdrop element, set only by callers
+   *  that need a stable hook for "click outside closes it" (e.g. 82-0's
+   *  chooser, `selection-overlay-scrim`) — every other caller omits this
+   *  and its backdrop is completely unaffected. */
+  "data-backdrop-testid"?: string;
 }
 
 /** Exactly one of `label` / `labelledBy` — an unnamed dialog is a defect. */
@@ -146,6 +151,7 @@ export function Dialog({
   rootDataUiVersion,
   keepMounted = false,
   "data-testid": testId,
+  "data-backdrop-testid": backdropTestId,
 }: DialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   // Focus is placed from the panel's own ref callback -- see the long note on
@@ -267,6 +273,7 @@ export function Dialog({
         <div
           aria-hidden="true"
           data-pk-dialog-backdrop=""
+          data-testid={backdropTestId}
           onClick={handleClose}
           className={cn("absolute inset-0", backdropClassName)}
           style={{

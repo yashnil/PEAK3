@@ -10,10 +10,16 @@
  * bordered chip.
  */
 
+import type { ReactNode } from "react";
+
 export interface PeakV2PlayerIdentityProps {
   name: string;
-  /** e.g. "Utah Jazz · 2010s" — a real window label, never invented. */
-  meta?: string;
+  /** e.g. "Utah Jazz · 2010s" — a real window label, never invented.
+   *  Accepts a `ReactNode` (not just a string) so a caller can embed a
+   *  real, stably-testid'd reveal/lock note inline (e.g. 82-0's
+   *  `exact-season-line`/`peak-locked-note`/`revealed-score-line`) rather
+   *  than flattening it to unstructured text. */
+  meta?: ReactNode;
   position?: string;
   /** `"current"` — this identity is the thing the screen is about right
    *  now (gets the gold accent). `"selected"` — staged/chosen but not yet

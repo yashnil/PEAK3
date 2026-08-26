@@ -159,6 +159,43 @@ export default function PeakSeasonStartGate({
             court, and chase 82-0 with receipts.
           </p>
 
+          {/* The four things a first-time player needs to know before
+              committing to a run -- ported from the pre-V2 gate's own
+              numbered steps (the V2-only rewrite condensed this to just the
+              lede above and dropped it entirely, not a deliberate product
+              simplification: nothing documents removing it, and it's the
+              same real detail the lede's own sentence already promises). */}
+          <ol className="flex flex-col gap-2" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}>
+            <li className="flex gap-2.5">
+              <StepMarker n={1} />
+              <span>
+                The wheel rolls a <strong>real NBA team and an exact season</strong> — eight times, once per
+                roster spot.
+              </span>
+            </li>
+            <li className="flex gap-2.5">
+              <StepMarker n={2} />
+              <span>
+                Pick one player from that exact team-season and <strong>place them on the court</strong> — five
+                starters by position, three on the bench.
+              </span>
+            </li>
+            <li className="flex gap-2.5">
+              <StepMarker n={3} />
+              <span>
+                Ratings stay hidden until the end. Then PEAK3 simulates your lineup and you{" "}
+                <strong>chase 82-0</strong>.
+              </span>
+            </li>
+            <li className="flex gap-2.5">
+              <StepMarker n={4} />
+              <span>
+                Get a full receipt — including what PEAK3 itself would have picked — then{" "}
+                <strong>save, share, or beat your personal best</strong>.
+              </span>
+            </li>
+          </ol>
+
           {isDaily && (
             <p className="v2-rtt-gate-notice" data-testid="start-gate-daily-note">
               Everyone gets this exact spin sequence today
@@ -225,9 +262,31 @@ export default function PeakSeasonStartGate({
           </PeakV2PrimaryAction>
 
           <p className="v2-rtt-gate-footnote">
-            No account needed to play — signing in only adds saved runs and personal bests.
+            Nothing starts until you press begin. No account needed to play — signing in only adds
+            saved runs and personal bests.
           </p>
         </div>
       </PeakV2Shell>
+  );
+}
+
+function StepMarker({ n }: { n: number }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="shrink-0 flex items-center justify-center mt-0.5"
+      style={{
+        width: 20,
+        height: 20,
+        borderRadius: "50%",
+        fontFamily: "var(--v2-font-mono)",
+        fontSize: "0.625rem",
+        fontWeight: 700,
+        background: "var(--v2-bg-plane)",
+        color: "var(--v2-color-accent)",
+      }}
+    >
+      {n}
+    </span>
   );
 }

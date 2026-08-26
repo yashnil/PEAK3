@@ -145,6 +145,37 @@ export default function PeakV2CourtLive({
           }
         />
 
+        <p
+          data-testid="position-logic-note"
+          className="mt-2"
+          style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}
+        >
+          Build eight exact player-season cards from real rosters. PEAK3 rewards talent first, then fit.
+        </p>
+
+        <details
+          data-testid="board-receipt"
+          className="mt-1"
+          style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.625rem", color: "var(--v2-text-muted)" }}
+        >
+          <summary className="cursor-pointer select-none" style={{ color: "var(--v2-text-secondary)" }}>
+            Data receipt
+          </summary>
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 pt-1">
+            <span>Seed {state.board_seed}</span>
+            <span>{state.card_pool_version}</span>
+            <span>{state.board_generator_version}</span>
+            {state.experimental_team_year_data_version ? <span>{state.experimental_team_year_data_version}</span> : null}
+            {state.coverage_mode ? <span data-testid="coverage-mode">{state.coverage_mode}</span> : null}
+            {state.respin_history.length > 0 ? (
+              <span data-testid="respin-receipt-count">
+                {state.respin_history.length} respin{state.respin_history.length === 1 ? "" : "s"} used this run
+                {" "}({state.team_respins_used_total} team, {state.season_respins_used_total} season)
+              </span>
+            ) : null}
+          </div>
+        </details>
+
         {/* ONE stable contextual state banner (Pass 7, task §5/§7). Human
             acceptance testing (task §8) found these are NOT actually
             mutually exclusive as the old comment here assumed: rearranging
@@ -184,21 +215,23 @@ export default function PeakV2CourtLive({
               <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
                 Pick a destination — no re-spin, no cards lost.
               </span>
-              <PeakV2SecondaryAction size="sm" onClick={onCancelMove}>
+              <PeakV2SecondaryAction data-testid="rearrange-cancel-btn" size="sm" onClick={onCancelMove}>
                 Cancel move
               </PeakV2SecondaryAction>
             </div>
           </div>
         ) : showResumeSelection ? (
+          // 2.5 (gameplay-polish, ported from legacy's own identical
+          // decision): the banner is JUST a strong CTA back into the
+          // chooser -- no "Round X of Y is waiting" prose sentence, which
+          // said nothing the button itself doesn't already say.
           <div
-            className="mt-3 rounded-xl p-3 flex items-center justify-between gap-3 flex-wrap"
+            data-testid="resume-selection-banner"
+            className="mt-3 rounded-xl p-3 flex items-center justify-center"
             style={{ background: "var(--v2-bg-plane)", border: "1px solid var(--v2-color-accent-dim, var(--v2-color-accent))" }}
           >
-            <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}>
-              Round {state.current_round} is waiting on a player.
-            </p>
-            <PeakV2PrimaryAction size="sm" onClick={onResumeSelection}>
-              Open player pool
+            <PeakV2PrimaryAction data-testid="resume-selection-btn" size="sm" onClick={onResumeSelection} className="w-full">
+              Resume selection
             </PeakV2PrimaryAction>
           </div>
         ) : phase === "placing" && pendingSelectionName ? (
@@ -210,7 +243,7 @@ export default function PeakV2CourtLive({
           // layout, so this reads as the SAME "thing the screen is about
           // right now" grammar as everywhere else in V2.
           <div
-            data-testid="placement-active-banner"
+            data-testid="placing-banner"
             className="mt-3 rounded-xl p-3 flex items-center justify-between gap-3 flex-wrap"
             style={{ background: "var(--v2-bg-plane)", border: "1px solid var(--v2-color-accent-dim, var(--v2-color-accent))" }}
           >
@@ -230,7 +263,7 @@ export default function PeakV2CourtLive({
               <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
                 Any open spot — the fit badge shows how well they match it.
               </span>
-              <PeakV2SecondaryAction size="sm" onClick={onSwitchSelection} disabled={busy}>
+              <PeakV2SecondaryAction data-testid="cancel-selection-btn" size="sm" onClick={onSwitchSelection} disabled={busy}>
                 Switch selection
               </PeakV2SecondaryAction>
             </div>
@@ -247,17 +280,17 @@ export default function PeakV2CourtLive({
           </div>
         ) : null}
 
-        <div className="mt-4">
+        <div data-testid="court-grid" className="mt-4 flex flex-col gap-2.5">
           <CourtLayout starterSlots={starterSlots} benchSlots={benchSlots} renderSlot={renderSlot} />
-        </div>
 
-        {phase === "complete" && state.status === "rounds_complete" ? (
-          <div className="mt-6">
-            <PeakV2PrimaryAction onClick={onComplete} disabled={busy}>
-              {busy ? "Simulating…" : "Lock roster & simulate"}
-            </PeakV2PrimaryAction>
-          </div>
-        ) : null}
+          {phase === "complete" && state.status === "rounds_complete" ? (
+            <div className="mt-2">
+              <PeakV2PrimaryAction data-testid="complete-season-btn" onClick={onComplete} disabled={busy} className="w-full">
+                {busy ? "Simulating…" : "Lock roster & simulate"}
+              </PeakV2PrimaryAction>
+            </div>
+          ) : null}
+        </div>
       </div>
     </PeakV2Shell>
   );
