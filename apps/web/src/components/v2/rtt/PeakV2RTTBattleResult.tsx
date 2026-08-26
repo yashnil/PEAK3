@@ -15,6 +15,7 @@
  * `decided_by` describes how the OVERALL battle resolved, not a lane).
  */
 
+import { useEffect } from "react";
 import PeakV2CinematicStage from "../PeakV2CinematicStage";
 import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
 import PeakV2DisplayEmphasis from "../PeakV2DisplayEmphasis";
@@ -42,6 +43,14 @@ export interface PeakV2RTTBattleResultProps {
 
 export default function PeakV2RTTBattleResult({ battle, boss, onAdvance, advanceLabel }: PeakV2RTTBattleResultProps) {
   const verdict = battleVerdict(battle);
+
+  // See `PeakV2RTTBossIntro`'s comment: a cinematic surface can be much
+  // shorter than the boss-preview screen it follows, so reset scroll on
+  // mount rather than leaving this surface's own "Advance" action rendered
+  // above a still-scrolled-down viewport.
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, []);
 
   return (
     <div data-testid="rtt-battle-reveal">

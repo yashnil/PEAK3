@@ -17,8 +17,24 @@ import PeakV2Rule from "./PeakV2Rule";
 import PeakV2LiveHeader from "./PeakV2LiveHeader";
 import PeakV2GameStatus from "./PeakV2GameStatus";
 import ArenaV2ResumeHero from "./ArenaV2ResumeHero";
+import type { ReactNode } from "react";
 import type { ArenaCatalogue } from "@/lib/arena-readiness-server";
-import { MODE_COPY } from "@/lib/modes";
+import { MODE_COPY, RUN_THE_TABLE_RUNS_HREF } from "@/lib/modes";
+
+/** A small secondary text link, styled like the legacy hub's `arena-link-row`
+ *  entries — a lighter-weight action beside a `ModeGroupRow`'s primary CTA. */
+function InlineLink({ href, testId, children }: { href: string; testId?: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      data-testid={testId}
+      className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+      style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", fontWeight: 600, color: "var(--v2-text-secondary)" }}
+    >
+      {children} <span aria-hidden="true">→</span>
+    </a>
+  );
+}
 
 function ModeGroupRow({
   title,
@@ -26,22 +42,45 @@ function ModeGroupRow({
   href,
   cta,
   testId,
+  featured,
 }: {
   title: string;
   description: string;
   href: string;
   cta: string;
   testId?: string;
+  /** Marks this row as the hub's one gold flagship treatment
+   *  (`data-featured="true"` + an explicit "Flagship" badge) — the same
+   *  signal `assertSoleFeaturedCard` requires: styling alone is never
+   *  enough, there must be a player-facing badge too. */
+  featured?: boolean;
 }) {
   return (
     <a
       href={href}
       data-testid={testId}
+      data-featured={featured ? "true" : undefined}
       className="flex items-center justify-between gap-4 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
       style={{ borderBottom: "1px solid var(--v2-border-subtle)" }}
     >
       <div className="min-w-0">
         <div style={{ fontFamily: "var(--v2-font-ui)", fontWeight: 700, fontSize: "0.9375rem", color: "var(--v2-text-primary)" }}>
+          {featured ? (
+            <span
+              data-testid="flagship-badge"
+              style={{
+                display: "inline-block",
+                marginRight: "0.5rem",
+                fontSize: "0.6875rem",
+                fontWeight: 800,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                color: "var(--v2-color-accent)",
+              }}
+            >
+              Flagship
+            </span>
+          ) : null}
           {title}
         </div>
         <div style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-secondary)" }}>
@@ -88,7 +127,22 @@ export default function ArenaPageV2({
           status={<PeakV2GameStatus label="Live" state="active" />}
         />
         <div className="mt-1 flex flex-col">
-          <ModeGroupRow testId="arena-flagship-card" title={rtt.title} description={rtt.description} href={rtt.href} cta="Start a run" />
+          <ModeGroupRow
+            testId="arena-flagship-card"
+            featured
+            title={rtt.title}
+            description={rtt.description}
+            href={rtt.href}
+            cta="Start a run"
+          />
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-4">
+          <InlineLink href="/arena/run-the-table?start=standard" testId="arena-rtt-start-link">
+            Start a standard run
+          </InlineLink>
+          <InlineLink href={RUN_THE_TABLE_RUNS_HREF} testId="arena-rtt-runs-link">
+            Resume a saved run
+          </InlineLink>
         </div>
       </section>
 
@@ -97,8 +151,8 @@ export default function ArenaPageV2({
           <PeakV2Rule spacing="md" />
           <section aria-labelledby="v2-arena-season">
             <PeakV2LiveHeader as="h2" title="Full season" subtitle="Spin a real franchise and era, then draft a position-aware roster." rule={false} />
-            <div className="mt-1 flex flex-col">
-              <ModeGroupRow testId="courtbuilder-hero" title={peakSeason.title} description={peakSeason.description} href={peakSeason.href} cta="Build a Perfect Season" />
+            <div className="mt-1 flex flex-col" data-testid="courtbuilder-hero">
+              <ModeGroupRow title={peakSeason.title} description={peakSeason.description} href={peakSeason.href} cta="Build a Perfect Season" />
               <ModeGroupRow
                 testId="daily-peak-season-cta"
                 title="82-0 · Today's Daily"
@@ -106,15 +160,15 @@ export default function ArenaPageV2({
                 href="/arena/court/daily/apex_1y"
                 cta="Play"
               />
+              <div className="mt-2 flex flex-wrap items-center gap-4">
+                <InlineLink href="/arena/court/history" testId="court-history-link">
+                  Your saved seasons
+                </InlineLink>
+                <InlineLink href="/arena/court/leaderboard" testId="arena-leaderboard-link">
+                  82-0 Leaderboard
+                </InlineLink>
+              </div>
             </div>
-            <a
-              href="/arena/court/history"
-              data-testid="court-history-link"
-              className="mt-2 inline-block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-              style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", fontWeight: 700, color: "var(--v2-color-accent)" }}
-            >
-              Your runs →
-            </a>
           </section>
         </>
       ) : null}
@@ -125,7 +179,7 @@ export default function ArenaPageV2({
         <PeakV2LiveHeader as="h2" title="Daily · quick play" subtitle="One board a day, identical for everyone, a few minutes each." rule={false} />
         <div className="mt-1 flex flex-col">
           <ModeGroupRow testId="arena-daily-grid-card" title={dailyGrid.title} description={dailyGrid.description} href={dailyGrid.href} cta="Play" />
-          <ModeGroupRow title={peakDuel.title} description={peakDuel.description} href={peakDuel.href} cta="Play" />
+          <ModeGroupRow testId="arena-daily-duel-card" title={peakDuel.title} description={peakDuel.description} href={peakDuel.href} cta="Play" />
         </div>
       </section>
 

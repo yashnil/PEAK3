@@ -60,8 +60,15 @@ test.describe("Arena landing", () => {
     //
     // The bare `h1` locator is strict-mode-sensitive on purpose: a second h1
     // anywhere on this page is itself a bug, so this fails if one appears.
-    await expect(page.locator("h1")).toContainText("Build a roster of peaks.");
-    await expect(page.locator("h1")).toContainText("Run the table.");
+    //
+    // V2 HOMEPAGE PASS 6: the hero headline moved from "Build a roster of
+    // peaks. / Run the table." to "Five lanes. / One point each." — leading
+    // with the five open PEAK3 components rather than with one game mode's
+    // name, per `HomePageV2.tsx`'s own hero copy (unchanged since Pass 5).
+    // The flagship's continued presence is what this test still protects,
+    // now via the primary CTA and rankings link below.
+    await expect(page.locator("h1")).toContainText("Five lanes.");
+    await expect(page.locator("h1")).toContainText("One point each.");
     await expect(page.locator('[data-testid="home-primary-cta"]')).toBeVisible();
     await expect(page.locator('a[href="/rankings"]').first()).toBeVisible();
   });
@@ -103,7 +110,10 @@ test.describe("Arena landing", () => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     const cta = page.locator('[data-testid="home-primary-cta"]');
     await expect(cta).toBeVisible();
-    await expect(cta).toContainText(/Visit Arena/i);
+    // Pass 6 fixed the CTA's own label to "GO TO ARENA" — see
+    // `HomePageV2.tsx`'s docstring point 1 — matching legacy's already-shipped
+    // arena-first destination (`/arena`) it always led to.
+    await expect(cta).toContainText(/GO TO ARENA/i);
     await expect(cta).toHaveAttribute("href", "/arena");
     // No intermediate menu exists to open.
     await expect(page.locator('[data-testid="home-launcher-menu"]')).toHaveCount(0);
@@ -156,12 +166,13 @@ test.describe("Arena landing", () => {
     // No menu to open any more (launch-polish §I) -- the resume affordance is
     // either rendered inline or it is not. The property is unchanged: nothing
     // offers to resume a run that does not exist. Also asserted here: with no
-    // saved run the primary CTA still reads "Visit Arena", unconditionally —
-    // ARENA-FIRST PASS: it no longer swaps to a run-specific label at all.
+    // saved run the primary CTA still reads "GO TO ARENA" (Pass 6 fixed
+    // label), unconditionally — ARENA-FIRST PASS: it no longer swaps to a
+    // run-specific label at all.
     await expect(page.locator('[data-testid="home-launcher-resume"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="home-resume-notice"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="home-primary-cta"]')).toContainText(
-      /Visit Arena/i,
+      /GO TO ARENA/i,
     );
   });
 

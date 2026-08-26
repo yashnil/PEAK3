@@ -33,6 +33,18 @@ export default function PeakV2RTTBossIntro({ boss, lanesToWin, reducedMotion, on
   const [count, setCount] = useState<number>(reducedMotion ? 0 : NUMERALS.length);
   const doneRef = useRef(false);
 
+  // This cinematic moment is often much shorter than the decision screen
+  // that preceded it (a long Draft Room or Trade Desk board, scrolled well
+  // down). Without resetting scroll on mount, this surface — and its own
+  // "Skip" control — can render entirely above the still-scrolled-down
+  // viewport, where the sticky mobile tray (whose own position recalculates
+  // as the browser auto-scrolls to reveal a target) can transiently cover
+  // it. Confirmed live: `rtt-boss-intro-skip` measured off-screen
+  // (negative viewport `y`) immediately after a long node sequence.
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, []);
+
   const finish = () => {
     if (doneRef.current) return;
     doneRef.current = true;

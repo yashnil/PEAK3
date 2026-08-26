@@ -38,12 +38,13 @@ import PeakV2DisplayEmphasis from "./PeakV2DisplayEmphasis";
 import PeakV2Rule from "./PeakV2Rule";
 import PeakV2DataLane from "./PeakV2DataLane";
 import PeakV2PlayerIdentity from "./PeakV2PlayerIdentity";
-import PeakV2PrimaryAction from "./PeakV2PrimaryAction";
 import PeakV2SecondaryAction from "./PeakV2SecondaryAction";
+import HomeV2PrimaryCta from "./HomeV2PrimaryCta";
 import HomeV2ResumeRow from "./HomeV2ResumeRow";
 import HomeV2YourArena from "./HomeV2YourArena";
 import HomeV2LaneExplainer, { type HomeV2Lane } from "./HomeV2LaneExplainer";
 import HomeV2Faq from "./HomeV2Faq";
+import NbaFactOfTheDay, { type NbaFactView } from "@/components/home/NbaFactOfTheDay";
 import type { VignetteWindow, HomeModelProof } from "@/components/home/home-data";
 import type { Methodology, RankingComponentKey } from "@/types";
 import type { V2Tone } from "./v2-tone";
@@ -73,6 +74,9 @@ export interface HomePageV2Props {
   /** RTT — gets the real client-side resume treatment via `HomeV2ResumeRow`. */
   runTheTable: HomePageV2Mode;
   dailyModes: HomePageV2Mode[];
+  /** `null` when the Arena's own fail-closed CourtBuilder readiness check
+   *  says 82-0 is not enabled — never shown as a link that might 403. */
+  peakSeason: HomePageV2Mode | null;
   /** Rendered only when the Arena's own readiness check says these exist —
    *  never guessed, never shown 403-prone. */
   multiplayerModes: HomePageV2Mode[];
@@ -83,6 +87,10 @@ export interface HomePageV2Props {
    *  explainer still renders (weights are always known locally), just
    *  without per-lane description copy. */
   methodology: Methodology | null;
+  /** Today's NBA Fact of the Day, chosen server-side by calendar date.
+   *  `null` when the fact bank is unreachable — `NbaFactOfTheDay` itself
+   *  renders nothing rather than a fabricated fact. */
+  nbaFact: NbaFactView | null;
 }
 
 const COMPONENT_KEY_TO_TONE: Record<RankingComponentKey, V2Tone> = {
@@ -112,12 +120,23 @@ const COMPONENT_ORDER: RankingComponentKey[] = [
 /** One cell of the horizontal game slate. Shared shape for every mode,
  *  including the RTT resume cell (`HomeV2ResumeRow` renders this same
  *  markup so the strip never has one visually different cell). */
-export function ModeSlateCell({ mode, badge }: { mode: HomePageV2Mode; badge?: string }) {
+export function ModeSlateCell({
+  mode,
+  badge,
+  testId,
+}: {
+  mode: HomePageV2Mode;
+  badge?: string;
+  /** Overrides the auto-derived `home-${mode.id}-card` testid — for a mode
+   *  whose e2e-observable id predates `MODE_COPY`'s id (e.g. Peak Duel
+   *  Daily's card kept its long-standing `home-daily-duel-card` name). */
+  testId?: string;
+}) {
   return (
     <Link
       href={mode.href}
       className="v2-slate-cell group"
-      data-testid={mode.id ? `home-${mode.id}-card` : undefined}
+      data-testid={testId ?? (mode.id ? `home-${mode.id}-card` : undefined)}
     >
       <span className="v2-slate-cell-head">
         {mode.tag ? <span className="v2-slate-cell-tag">{mode.tag}</span> : null}
@@ -138,9 +157,11 @@ export default function HomePageV2({
   proof,
   runTheTable,
   dailyModes,
+  peakSeason,
   multiplayerModes,
   rankingsPreview,
   methodology,
+  nbaFact,
 }: HomePageV2Props) {
   const laneEntries = topWindow?.components
     ? COMPONENT_ORDER.map((key) => ({ key, value: topWindow.components?.[key] ?? null })).filter(
@@ -150,6 +171,16 @@ export default function HomePageV2({
 
   const [daily1, daily2] = dailyModes;
   const [mp1, mp2] = multiplayerModes;
+
+  // Static, non-fabricated nav entry — a plain route this repository always
+  // serves, not a data-dependent card. Kept alongside the other Competitive
+  // entry points on `/arena`, unconditional there too.
+  const leaderboardMode: HomePageV2Mode = {
+    id: "leaderboard",
+    href: "/arena/court/leaderboard",
+    title: "82-0 Leaderboard",
+    description: "The best submitted 82-0 PEAK Season runs — measure your roster against them.",
+  };
 
   const laneDescriptions: Record<string, string> = {};
   for (const c of methodology?.components ?? []) {
@@ -183,9 +214,10 @@ export default function HomePageV2({
               same five lanes — Team Result decides one as often as
               Statistical Impact does.
             </p>
-            <div className="mt-8 flex flex-wrap items-center gap-3">
-              <PeakV2PrimaryAction href="/arena">GO TO ARENA</PeakV2PrimaryAction>
-              <PeakV2SecondaryAction href="/play/daily">Play today&apos;s duel</PeakV2SecondaryAction>
+            <div className="mt-8">
+              <HomeV2PrimaryCta>
+                <PeakV2SecondaryAction href="/play/daily">Play today&apos;s duel</PeakV2SecondaryAction>
+              </HomeV2PrimaryCta>
             </div>
           </div>
 
@@ -230,18 +262,28 @@ export default function HomePageV2({
         </div>
       </PeakV2CinematicStage>
 
+      {/* ---- NBA FACT OF THE DAY — between the hero and the catalogue.
+          General basketball trivia, never a PEAK3 claim; renders nothing
+          when the fact bank is unreachable (see `NbaFactOfTheDay`'s own
+          docstring). Server-rendered, zero client JavaScript. ---- */}
+      <NbaFactOfTheDay fact={nbaFact} />
+
       {/* ---- 2. GAME SLATE — one instrument strip, full content width ---- */}
-      <section aria-labelledby="v2-modes-heading" className="v2-slate-section">
+      <section aria-labelledby="modes-heading" className="v2-slate-section">
         <div className="v2-slate-heading-row">
           <span className="v2-live-dot" aria-hidden="true" />
-          <h2 id="v2-modes-heading" className="v2-slate-heading">
+          <h2 id="modes-heading" className="v2-slate-heading">
             Choose a game
           </h2>
         </div>
         <div className="v2-slate-grid">
           <HomeV2ResumeRow mode={runTheTable} />
           {daily1 ? <ModeSlateCell mode={daily1} /> : null}
-          {daily2 ? <ModeSlateCell mode={daily2} /> : null}
+          {/* `home-daily-duel-card` predates `MODE_COPY["peak-duel"].id` and
+              stays literal — an e2e-observable identity, not presentation. */}
+          {daily2 ? <ModeSlateCell mode={daily2} testId="home-daily-duel-card" /> : null}
+          {peakSeason ? <ModeSlateCell mode={peakSeason} /> : null}
+          <ModeSlateCell mode={leaderboardMode} />
           {mp1 ? <ModeSlateCell mode={mp1} badge="Live" /> : null}
           {mp2 ? <ModeSlateCell mode={mp2} badge="Live" /> : null}
         </div>
