@@ -95,7 +95,7 @@ export default function PeakV2ShowdownBidControls({
           : `Raise to ${formatDollars(clamped)}`;
 
   return (
-    <div data-lot-kind={publicState.lot_kind ?? "standard"}>
+    <div data-testid="td-bid-controls" data-live={live ? "true" : "false"} data-lot-kind={publicState.lot_kind ?? "standard"}>
       <div className="flex items-baseline justify-between">
         <p style={{ fontFamily: "var(--v2-font-ui)", fontWeight: 700, fontSize: "0.875rem", color: "var(--v2-text-primary)" }}>
           {uncontested ? "No one else can compete for this player" : opening ? "Open the bidding" : "Raise or step aside"}
@@ -194,7 +194,11 @@ export default function PeakV2ShowdownBidControls({
         </PeakV2SecondaryAction>
       </div>
 
-      <p className="mt-2" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: blocked || expired ? "var(--v2-color-negative)" : "var(--v2-text-muted)" }}>
+      <p
+        data-testid={blocked ? "td-bid-blocked" : "td-bid-hint"}
+        className="mt-2"
+        style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: blocked || expired ? "var(--v2-color-negative)" : "var(--v2-text-muted)" }}
+      >
         {blocked
           ? blocked
           : expired

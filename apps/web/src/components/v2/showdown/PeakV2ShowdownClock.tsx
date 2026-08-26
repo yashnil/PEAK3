@@ -70,6 +70,12 @@ export default function PeakV2ShowdownClock({
       className="flex flex-col items-center gap-1"
       data-testid="td-clock"
       data-mode={mode}
+      // C3: every mode that shows a real number counts DOWN toward zero
+      // (your own countdown, or the opponent's published remaining time) —
+      // never up. `elapsed`'s own label still says "Their time" when the
+      // server publishes a real remaining figure, and "Time elapsed" only
+      // in the no-figure fallback, but the direction is down either way.
+      data-direction="down"
       data-yours={mode === "countdown" ? "true" : undefined}
     >
       {/* Real expiry authority — visually hidden, screen-reader announcements preserved. */}

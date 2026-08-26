@@ -46,6 +46,7 @@ export default function PeakV2ShowdownIntro({
       className="fixed inset-0 z-50 overflow-y-auto"
       style={{ background: "var(--v2-bg-page)" }}
       data-ui-version="v2"
+      data-testid="td-intro"
     >
       <PeakV2CinematicStage light={{ y: "-6%" }}>
         <span

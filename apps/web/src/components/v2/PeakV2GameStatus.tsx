@@ -19,9 +19,14 @@ export interface PeakV2GameStatusProps {
    *  reduced motion, per every other pulsing primitive in this system. */
   state?: "active" | "idle";
   className?: string;
+  /** Optional `data-testid` on the label span itself, for a caller whose
+   *  status line carries the one piece of state a test needs to read (e.g.
+   *  TMW's "Round X of Y"). Omitted entirely when not supplied, so every
+   *  other caller's markup is unaffected. */
+  labelTestId?: string;
 }
 
-export default function PeakV2GameStatus({ label, state = "idle", className }: PeakV2GameStatusProps) {
+export default function PeakV2GameStatus({ label, state = "idle", className, labelTestId }: PeakV2GameStatusProps) {
   const reducedMotion = usePrefersReducedMotion();
   return (
     <div className={`inline-flex items-center gap-1.5 ${className ?? ""}`}>
@@ -39,6 +44,7 @@ export default function PeakV2GameStatus({ label, state = "idle", className }: P
         }}
       />
       <span
+        data-testid={labelTestId}
         style={{
           fontFamily: "var(--v2-font-mono)",
           fontSize: "0.6875rem",

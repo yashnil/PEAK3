@@ -196,7 +196,7 @@ export default function PeakV2TMWCourts({
           as="h1"
           title="Three-Man Weave"
           subtitle={qualifier ?? undefined}
-          status={<PeakV2GameStatus label={`Round ${state.current_round ?? "—"} of ${state.total_rounds} · pick ${picksMade + 1} of ${totalPicks}`} state="active" />}
+          status={<PeakV2GameStatus label={`Round ${state.current_round ?? "—"} of ${state.total_rounds} · pick ${picksMade + 1} of ${totalPicks}`} state="active" labelTestId="tmw-turnbar-round" />}
           instrument={
             <div className="flex items-center gap-4">
               <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
@@ -326,33 +326,35 @@ export default function PeakV2TMWCourts({
             the pinned header above is accounted for. Content that fits does
             not scroll at all (`overflow-y: auto`, not `scroll`); content that
             doesn't fit scrolls INSIDE this region only -- the header, and
-            the outer shell's own dimensions, never move. */}
+            the outer shell's own dimensions, never move.
+
+            `tabIndex={0}` + `role="region"` + `aria-label`: axe's
+            `scrollable-region-focusable` (serious) — a scrollable container
+            with no way for a keyboard user to focus it has no way to scroll
+            it either, since arrow keys only scroll whatever currently has
+            focus. The interactive content inside (candidate buttons, roster
+            tabs) remains independently focusable and tabbing through it is
+            unaffected; this only adds the container itself as one more real
+            stop so `PageDown`/arrow keys can act on it directly. */}
         <div
           className="min-h-0 overflow-y-auto"
           style={{ maxHeight: `calc(var(--tmw-viewport-cap, 100dvh) - ${headerHeight}px)` }}
+          tabIndex={0}
+          role="region"
+          aria-label="Three-Man Weave courts"
         >
-        <div className="mt-2 lg:hidden">
-          {state.rosters
-            .filter((roster) => roster.seat_index === mobileSeat)
-            .map((roster) => (
-              <PeakV2TMWCourt
-                key={roster.seat_index}
-                roster={roster}
-                seat={seats.find((s) => s.seat_index === roster.seat_index)}
-                isYou={roster.seat_index === yourSeatIndex}
-                isOnTurn={!state.is_complete && currentTurnSeatIndex === roster.seat_index}
-                edge={edgeBandFor(state, roster.seat_index)}
-                lit
-                interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
-                rearrangeEligible={canRearrange && roster.seat_index === yourSeatIndex}
-                pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
-                legalTargets={roster.seat_index === yourSeatIndex ? legalTargets : []}
-                onPickUp={roster.seat_index === yourSeatIndex ? pickUp : undefined}
-                onDropOn={roster.seat_index === yourSeatIndex ? dropOn : undefined}
-              />
-            ))}
-        </div>
-
+        {/* `tmw-courts`: one container for both responsive renderings below.
+            DESKTOP FIRST, MOBILE SECOND in source order — CSS (`lg:hidden` /
+            `hidden lg:grid`) decides which is actually painted at a given
+            viewport, so this ordering has no visual effect either way (only
+            one of the two is ever non-`display:none`). It does, however,
+            decide which element a `data-testid="tmw-seat-court-N"` query
+            resolves to when both are mounted for the seat currently shown on
+            mobile: `.first()` (desktop tests, e.g. "all three seats visible")
+            always lands on the always-present desktop instance, and `.last()`
+            (the phone test, after switching tabs) always lands on the
+            mobile-only instance that is actually visible there. */}
+        <div data-testid="tmw-courts" aria-label="All three rosters">
         {/* Desktop: the real three-column grid, always. */}
         <div className="mt-4 hidden gap-4 lg:grid lg:grid-cols-3">
           {state.rosters.map((roster) => {
@@ -385,6 +387,29 @@ export default function PeakV2TMWCourts({
               />
             );
           })}
+        </div>
+
+        <div className="mt-2 lg:hidden">
+          {state.rosters
+            .filter((roster) => roster.seat_index === mobileSeat)
+            .map((roster) => (
+              <PeakV2TMWCourt
+                key={roster.seat_index}
+                roster={roster}
+                seat={seats.find((s) => s.seat_index === roster.seat_index)}
+                isYou={roster.seat_index === yourSeatIndex}
+                isOnTurn={!state.is_complete && currentTurnSeatIndex === roster.seat_index}
+                edge={edgeBandFor(state, roster.seat_index)}
+                lit
+                interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
+                rearrangeEligible={canRearrange && roster.seat_index === yourSeatIndex}
+                pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
+                legalTargets={roster.seat_index === yourSeatIndex ? legalTargets : []}
+                onPickUp={roster.seat_index === yourSeatIndex ? pickUp : undefined}
+                onDropOn={roster.seat_index === yourSeatIndex ? dropOn : undefined}
+              />
+            ))}
+        </div>
         </div>
 
         {children}
