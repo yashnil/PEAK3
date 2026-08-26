@@ -40,6 +40,7 @@ import HowToPlay from "@/components/arena/HowToPlay";
 import { deadlineFromSeconds } from "@/components/shared/ArenaTimer";
 import GameIntro from "@/components/shared/GameIntro";
 import PickOverlay from "./PickOverlay";
+import IdentityLockPanel from "./IdentityLockPanel";
 import PeakV2TMWCourts from "@/components/v2/tmw/PeakV2TMWCourts";
 import PeakV2TMWReveal from "@/components/v2/tmw/PeakV2TMWReveal";
 import PeakV2TMWResult from "@/components/v2/tmw/PeakV2TMWResult";
@@ -753,6 +754,14 @@ export default function ThreeManWeaveGame({
             onMove={rearrange}
             busy={busy}
           >
+            {/* THE RECENT-PICKS RAIL (restored — the V2 cutover deleted the
+                legacy JSX branch that rendered this without carrying it into
+                the V2 layout, even though the data (`lockedEntries`) was
+                still being computed and fed to `PickOverlay`'s own empty-state
+                copy). Presentation only: still the same component, the same
+                real server-derived entries, just mounted here between the
+                courts and the pick surface, exactly where it always was. */}
+            <IdentityLockPanel entries={lockedEntries} seats={match.seats} />
             <PickOverlay
               open={overlayOpen}
               roll={state.current_roll}

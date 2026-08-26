@@ -22,6 +22,10 @@ export interface PeakV2PlayerIdentityProps {
   size?: "sm" | "md" | "lg";
   align?: "start" | "center" | "end";
   className?: string;
+  /** Optional `data-testid` on the meta line itself, for a caller whose
+   *  meta text carries the one piece of state a test needs to read (e.g.
+   *  a court slot's scoring season). Omitted entirely when not supplied. */
+  metaTestId?: string;
 }
 
 const ALIGN_CLASS: Record<NonNullable<PeakV2PlayerIdentityProps["align"]>, string> = {
@@ -44,6 +48,7 @@ export default function PeakV2PlayerIdentity({
   size = "md",
   align = "start",
   className,
+  metaTestId,
 }: PeakV2PlayerIdentityProps) {
   return (
     <div className={`flex flex-col ${ALIGN_CLASS[align]} ${className ?? ""}`}>
@@ -87,6 +92,7 @@ export default function PeakV2PlayerIdentity({
       </div>
       {meta ? (
         <span
+          data-testid={metaTestId}
           style={{
             fontFamily: "var(--v2-font-ui)",
             fontSize: "0.75rem",

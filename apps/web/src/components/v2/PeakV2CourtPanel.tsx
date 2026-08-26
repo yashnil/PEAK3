@@ -43,6 +43,10 @@ export interface PeakV2CourtPanelProps {
   lightTone?: V2Tone;
   children: ReactNode;
   className?: string;
+  /** Overrides the default `data-testid` — for a caller whose test needs
+   *  to address a specific court instance (e.g. one seat of three). Every
+   *  other caller keeps the generic default. */
+  testId?: string;
 }
 
 export default function PeakV2CourtPanel({
@@ -53,11 +57,12 @@ export default function PeakV2CourtPanel({
   lightTone = "accent",
   children,
   className,
+  testId = "peak-v2-court-panel",
 }: PeakV2CourtPanelProps) {
   const dimmed = presentation === "dimmed";
   return (
     <div
-      data-testid="peak-v2-court-panel"
+      data-testid={testId}
       data-v2-court-presentation={presentation}
       className={`relative flex flex-col gap-2 rounded-r-md ${className ?? ""}`}
       style={{

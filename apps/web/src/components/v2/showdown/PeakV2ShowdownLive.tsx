@@ -26,7 +26,7 @@ import PeakV2Rule from "../PeakV2Rule";
 import PeakV2ShowdownClock from "./PeakV2ShowdownClock";
 import PeakV2ShowdownBidControls from "./PeakV2ShowdownBidControls";
 import { SettledLotTray, ResumeRecap } from "@/components/twenty-dollar/LotLedger";
-import { TurnBanner, LotReveal } from "@/components/twenty-dollar/AuctionBoard";
+import { TurnBanner, LotReveal, AuctionLog } from "@/components/twenty-dollar/AuctionBoard";
 import { formatDollars, type TwentyDollarPublicState, type TwentyDollarPrivateState, type ResolvedLot } from "@/lib/twenty-dollar-api";
 import type { ShowdownPhase } from "@/components/twenty-dollar/useShowdownPhase";
 
@@ -92,7 +92,11 @@ function RosterColumn({
 }) {
   const bySlot = new Map(roster.filter((r) => r.slot).map((r) => [r.slot as string, r]));
   return (
-    <div className="flex flex-col gap-3" style={{ textAlign: align === "end" ? "right" : "left" }}>
+    <div
+      className="flex flex-col gap-3"
+      data-testid={`td-roster-${seatIndex}`}
+      style={{ textAlign: align === "end" ? "right" : "left" }}
+    >
       <div className="flex items-baseline justify-between gap-2" style={{ flexDirection: align === "end" ? "row-reverse" : "row" }}>
         {isActive ? (
           <span data-testid={`td-seat-live-${seatIndex}`}>
@@ -112,7 +116,11 @@ function RosterColumn({
           </span>
         </span>
         <PeakV2Score value={`${filledSlots}/${totalSlots}`} label="Roster" />
-        <PeakV2Score value={marketSkips} label="Skips" />
+        <PeakV2Score
+          data-testid={`td-skips-${seatIndex}`}
+          value={`${marketSkips} ${marketSkips === 1 ? "skip left" : "skips left"}`}
+          label="Skips"
+        />
       </div>
       {/* Mobile: the current lot owns the viewport (see the parent's DOM
           order); each roster collapses to this one disclosure so it is
@@ -213,11 +221,19 @@ export default function PeakV2ShowdownLive({
 
   return (
     <PeakV2Shell width="live-wide">
-      <div className="py-6" data-testid="td-game">
+      <div className="py-6" data-testid="td-game" data-phase={phase}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
-            <PeakV2GameStatus label={`Lot ${Math.min(publicState.lot_index + 1, publicState.max_lots)} of ${publicState.market_phase === "closeout" ? publicState.max_lots : publicState.standard_market_lots}`} state="active" />
-            <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
+            <PeakV2GameStatus
+              label={`Lot ${Math.min(publicState.lot_index + 1, publicState.max_lots)} of ${publicState.market_phase === "closeout" ? publicState.max_lots : publicState.standard_market_lots}`}
+              state="active"
+              labelTestId="td-lot-number"
+            />
+            <span
+              data-testid="td-market-phase"
+              data-phase={publicState.market_phase === "closeout" ? "closeout" : "standard"}
+              style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}
+            >
               {publicState.market_phase === "closeout" ? "Closeout market" : "Standard market"}
             </span>
           </div>
@@ -337,7 +353,7 @@ export default function PeakV2ShowdownLive({
                 lot up for bid right now, not a static backdrop. */}
             {candidate ? <PeakV2ArenaLight y="-8%" intensity="focus" pulse /> : null}
             {candidate ? (
-              <div className="relative flex flex-col items-center py-4 text-center">
+              <div className="relative flex flex-col items-center py-4 text-center" data-testid="td-candidate">
                 {/* The lot's identity is the reason this whole screen
                     exists — it was rendering at the SAME "UI/PLAYER
                     IDENTITY" size a roster row uses. A bespoke, larger
@@ -372,7 +388,7 @@ export default function PeakV2ShowdownLive({
                 ) : null}
 
                 <div className="mt-6 flex items-start justify-center gap-10">
-                  <div className="text-center">
+                  <div className="text-center" data-testid="td-standing-bid">
                     <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--v2-text-muted)" }}>
                       Current bid
                     </span>
@@ -418,6 +434,17 @@ export default function PeakV2ShowdownLive({
                     expired={locallyExpired && !busy}
                     onSubmit={onSubmit}
                   />
+                </div>
+
+                {/* THE AUCTION LOG (restored — see `AuctionLog`'s own
+                    docstring). The V2 cutover deleted the legacy JSX branch
+                    that rendered this without carrying it into the V2 live
+                    board, even though `publicState.lot_actions` was still
+                    being computed. Presentation only: reused verbatim,
+                    behind its own closed-by-default disclosure so it never
+                    competes with the standing bid above it. */}
+                <div className="mt-4 w-full max-w-sm">
+                  <AuctionLog actions={publicState.lot_actions} seatNames={seatNames} yourSeat={yourSeat} />
                 </div>
               </div>
             ) : null}

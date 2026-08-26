@@ -1373,7 +1373,7 @@ test.describe("The $20 Showdown", () => {
     const page = await context.newPage();
     try {
       const token = await signInAs(context, page, uniqueSub("td-done"));
-      const api = "http://localhost:8000/api/v1/arena";
+      const api = "http://localhost:8012/api/v1/arena";
       const auth = { Authorization: `Bearer ${token}` };
 
       // DRIVEN THROUGH THE API, NOT THE UI, on purpose. A full auction is ten
@@ -1449,9 +1449,17 @@ test.describe("The $20 Showdown", () => {
       // and left one side with six players and the other with four.
       await expect(result).not.toContainText(/one bid away/i);
 
-      // The itemised receipt is still there, one disclosure below.
+      // The itemised receipt is still there, one disclosure below. Settlement
+      // is a real single-level ladder today (SETTLEMENT_ORDER carries exactly
+      // one entry, "roster_total" — see receipt.py's own comment: "ONE LEVEL,
+      // AND ONLY ONE"), and PeakV2ShowdownResult deliberately hides that
+      // section whenever levels.length <= 1 — a one-level ladder repeats the
+      // hero bar's own head-to-head numbers rather than saying anything new.
+      // So "td-level-roster_total" never renders under real settlement rules;
+      // the itemised disclosure this toggle actually reveals is the
+      // slot-by-slot comparison (`td-positional-{slot}`).
       await page.getByTestId("td-result-detail-toggle").click();
-      await expect(page.getByTestId("td-level-roster_total")).toBeVisible({ timeout: 20_000 });
+      await expect(page.locator('[data-testid^="td-positional-"]').first()).toBeVisible({ timeout: 20_000 });
       await expect(page.getByTestId("td-component-disclosure")).toBeVisible();
 
       await axeClean(page, "the finished $20 Showdown result");

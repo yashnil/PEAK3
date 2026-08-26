@@ -515,15 +515,17 @@ function AuctionRoom({
         .then(() => onCopy(true));
     };
     return (
-      <PeakV2ShowdownResult
-        receipt={receipt}
-        publicState={publicState}
-        seatNames={seatNames}
-        yourSeat={yourSeat}
-        onPlayAgain={onPlayAgain}
-        onCopy={onCopyResult}
-        copied={copied}
-      />
+      <div data-testid="td-game" data-phase="complete">
+        <PeakV2ShowdownResult
+          receipt={receipt}
+          publicState={publicState}
+          seatNames={seatNames}
+          yourSeat={yourSeat}
+          onPlayAgain={onPlayAgain}
+          onCopy={onCopyResult}
+          copied={copied}
+        />
+      </div>
     );
   }
 

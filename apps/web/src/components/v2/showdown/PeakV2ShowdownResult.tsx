@@ -502,7 +502,13 @@ export default function PeakV2ShowdownResult({
               </span>
             ))}
             {receipt.component_disclosure.absent.map((field) => (
-              <span key={field} className="inline-flex items-center gap-1.5" style={{ opacity: 0.6 }}>
+              // No extra opacity here: `--v2-text-muted` plus the strikethrough
+              // already carries the "absent" meaning. Stacking a further 0.6
+              // opacity on TOP of an already-muted color over the near-black
+              // page background dropped contrast to 2.91:1 (axe: serious
+              // color-contrast violation) — confirmed live against the real
+              // finished $20 Showdown result.
+              <span key={field} className="inline-flex items-center gap-1.5">
                 <span
                   aria-hidden="true"
                   style={{ width: 7, height: 7, borderRadius: "50%", border: "1px solid var(--v2-text-muted)" }}

@@ -99,6 +99,7 @@ export default function PeakV2TMWCourt({
 
   return (
     <PeakV2CourtPanel
+      testId={`tmw-seat-court-${roster.seat_index}`}
       label={name}
       status={
         <span
@@ -135,6 +136,7 @@ export default function PeakV2TMWCourt({
               <PeakV2CourtSlot
                 position={slot}
                 player={pick ? { name: pick.player_name, meta: `${pick.scoring_card ? `${pick.scoring_card.season} ${pick.scoring_card.team_id}` : "—"} · ${positionsLine(pick)}` } : undefined}
+                metaTestId={pick ? `tmw-slot-season-${slot}` : undefined}
                 value={pick?.scoring_card ? pick.scoring_card.prime_score.toFixed(1) : undefined}
                 emptyHint={TMW_SLOT_LABELS[slot]}
                 state={slotState(slot)}

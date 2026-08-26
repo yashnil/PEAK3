@@ -36,6 +36,9 @@ export interface PeakV2CourtSlotProps {
   moveLabel?: string;
   emptyHint?: ReactNode;
   className?: string;
+  /** Optional `data-testid` on the occupant's meta line (season/team) —
+   *  see `PeakV2PlayerIdentity`'s `metaTestId`. */
+  metaTestId?: string;
   /**
    * Between-turn pick-up/drop rearrangement (Pass 4), mirroring legacy
    * `SeatCourt`'s own `SlotCard` exactly: the whole slot becomes a real
@@ -89,6 +92,7 @@ export default function PeakV2CourtSlot({
   onPickUp,
   onDropOn,
   activateLabel,
+  metaTestId,
 }: PeakV2CourtSlotProps) {
   // Same gate as legacy `SlotCard`: an empty, non-moving slot has nothing to
   // pick up and stays inert. Everything else — a filled slot, or ANY slot
@@ -136,6 +140,7 @@ export default function PeakV2CourtSlot({
           <PeakV2PlayerIdentity
             name={player.name}
             meta={bench ? undefined : player.meta}
+            metaTestId={bench ? undefined : metaTestId}
             size={bench ? "sm" : "md"}
             state={state === "current" ? "current" : state === "staged" ? "selected" : "default"}
           />
