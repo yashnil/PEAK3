@@ -25,6 +25,8 @@ import AxeBuilder from "@axe-core/playwright";
 
 import { mintTestAccessToken } from "./helpers/test-jwt";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 const SERIOUS = ["serious", "critical"];
 
 async function signInAs(context: BrowserContext, page: Page, sub: string): Promise<string> {
@@ -1373,7 +1375,7 @@ test.describe("The $20 Showdown", () => {
     const page = await context.newPage();
     try {
       const token = await signInAs(context, page, uniqueSub("td-done"));
-      const api = "http://localhost:8012/api/v1/arena";
+      const api = `${API_BASE}/api/v1/arena`;
       const auth = { Authorization: `Bearer ${token}` };
 
       // DRIVEN THROUGH THE API, NOT THE UI, on purpose. A full auction is ten
