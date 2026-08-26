@@ -344,17 +344,16 @@ export default function CompletionPanel({
             {grade ? grade.blurb : `All ${TOTAL_CELLS} squares filled with ${TOTAL_CELLS} different players.`}
           </p>
           <div className="mt-4 flex flex-wrap items-baseline gap-6">
-            <div data-testid="complete-total-score">
-              <PeakV2Score role="moment" size="lg" tone="accent" value={String(result ? result.user_total : total)} label="Your score" />
-            </div>
+            {/* `valueTestId`, not `data-testid`, on each `PeakV2Score`: the
+                latter lands on the wrapper that ALSO contains `label`
+                ("Your score"), which would make e.g. `complete-total-score`
+                read "Your score590" instead of the bare number these ids
+                promise. */}
+            <PeakV2Score role="moment" size="lg" tone="accent" value={String(result ? result.user_total : total)} label="Your score" valueTestId="complete-total-score" />
             {result && (
               <>
-                <div data-testid="complete-optimal-total">
-                  <PeakV2Score role="instrument" size="md" tone="neutral" value={String(result.optimal_total)} label={maxLabel} />
-                </div>
-                <div data-testid="complete-percent-of-best">
-                  <PeakV2Score role="instrument" size="md" tone="team" value={`${result.percent_of_best}%`} label="Of that max" />
-                </div>
+                <PeakV2Score role="instrument" size="md" tone="neutral" value={String(result.optimal_total)} label={maxLabel} valueTestId="complete-optimal-total" />
+                <PeakV2Score role="instrument" size="md" tone="team" value={`${result.percent_of_best}%`} label="Of that max" valueTestId="complete-percent-of-best" />
               </>
             )}
           </div>

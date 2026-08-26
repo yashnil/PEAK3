@@ -88,7 +88,7 @@ export default function ArenaPageV2({
           status={<PeakV2GameStatus label="Live" state="active" />}
         />
         <div className="mt-1 flex flex-col">
-          <ModeGroupRow title={rtt.title} description={rtt.description} href={rtt.href} cta="Start a run" />
+          <ModeGroupRow testId="arena-flagship-card" title={rtt.title} description={rtt.description} href={rtt.href} cta="Start a run" />
         </div>
       </section>
 
@@ -98,7 +98,7 @@ export default function ArenaPageV2({
           <section aria-labelledby="v2-arena-season">
             <PeakV2LiveHeader as="h2" title="Full season" subtitle="Spin a real franchise and era, then draft a position-aware roster." rule={false} />
             <div className="mt-1 flex flex-col">
-              <ModeGroupRow title={peakSeason.title} description={peakSeason.description} href={peakSeason.href} cta="Build a Perfect Season" />
+              <ModeGroupRow testId="courtbuilder-hero" title={peakSeason.title} description={peakSeason.description} href={peakSeason.href} cta="Build a Perfect Season" />
               <ModeGroupRow
                 testId="daily-peak-season-cta"
                 title="82-0 · Today's Daily"
@@ -124,7 +124,7 @@ export default function ArenaPageV2({
       <section aria-labelledby="v2-arena-daily">
         <PeakV2LiveHeader as="h2" title="Daily · quick play" subtitle="One board a day, identical for everyone, a few minutes each." rule={false} />
         <div className="mt-1 flex flex-col">
-          <ModeGroupRow title={dailyGrid.title} description={dailyGrid.description} href={dailyGrid.href} cta="Play" />
+          <ModeGroupRow testId="arena-daily-grid-card" title={dailyGrid.title} description={dailyGrid.description} href={dailyGrid.href} cta="Play" />
           <ModeGroupRow title={peakDuel.title} description={peakDuel.description} href={peakDuel.href} cta="Play" />
         </div>
       </section>

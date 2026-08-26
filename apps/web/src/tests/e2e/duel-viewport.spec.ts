@@ -234,7 +234,11 @@ test.describe("Peak Duel — the page never moves", () => {
         await expect(region).toContainText(/session total/i);
         await expect(region).toContainText(/component/i);
 
-        const next = page.getByRole("button", { name: /next duel/i }).first();
+        // V2 (product-direction): the primary action reads "Next Matchup" /
+        // "See results" rather than legacy's "Next duel" — same `onNext`
+        // action, matching the file's own broader pattern at `openDuel`'s
+        // sibling assertions (`/next duel|next|continue/i`).
+        const next = page.getByRole("button", { name: /next duel|next matchup|continue/i }).first();
         const box = (await next.boundingBox())!;
         expect(
           box.y + box.height,

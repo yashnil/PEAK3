@@ -43,7 +43,17 @@ export default function PeakDuelV2Stage({ state, date, deadlineAt, onSelect, onT
 
   return (
     <PeakV2Shell width="live">
-      <div className="flex min-h-[calc(100vh-8rem)] flex-col justify-center py-8">
+      {/* `justify-start`, not `justify-center` (Pass 3's original choice):
+          centering re-derives the block's position from its TOTAL height
+          every render, so a taller reveal (component lanes, explanation,
+          the button — none of which the question has) recentres and moves
+          the cards on screen even though nothing scrolled. Top-anchoring
+          means the cards' position depends only on the header above them,
+          which is the same height in both phases, so it never moves;
+          `pt-12` keeps a question landing with some real air above it
+          instead of jamming against the nav, matching the amount of breathing
+          room `justify-center` gave a typical (short) question at rest. */}
+      <div data-testid="duel-stage-slot" className="flex min-h-[calc(100vh-8rem)] flex-col justify-start pt-12 pb-8">
         {revealed && state.current_answer ? (
           <PeakDuelV2Reveal
             mode={state.mode}
