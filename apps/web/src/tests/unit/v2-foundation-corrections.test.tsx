@@ -287,7 +287,7 @@ describe("Correction 3B: PeakV2CourtPanel — dimmed sibling", () => {
     // property (a known jsdom/cssstyle limitation — real browsers apply it
     // correctly), so the dimmed signal asserted here is the data attribute,
     // not the computed opacity value; `tokens.css`'s own
-    // `--v2-court-dim-opacity: 0.62` is the source of truth for the number.
+    // `--v2-court-dim-opacity: 0.88` is the source of truth for the number.
     expect(panel).toHaveAttribute("data-v2-court-presentation", "dimmed");
     expect(panel.style.filter).toBe("");
     expect(screen.getByRole("button", { name: "Sample Player F" })).toBeInTheDocument();

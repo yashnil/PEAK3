@@ -186,10 +186,21 @@
   --v2-court-bench-min-height: 76px;
   /* Pass 2.5: the dimmed-sibling-court treatment (verified against the
      reference: "the two dim courts are still fully legible, just not
-     lit"). `--v2-text-primary` on `--v2-bg-page` measures ~18:1 — at this
-     opacity it still lands comfortably inside AA for normal text, so
-     "dimmed" never crosses into "degraded." */
-  --v2-court-dim-opacity: 0.62;
+     lit"). `--v2-text-primary` on `--v2-bg-page` measures ~18:1, so it
+     was never at risk — but `opacity` dims the WHOLE subtree uniformly,
+     including `--v2-text-muted`/`--v2-text-secondary` children (seat
+     status, edge label, empty-slot position/hint, BENCH), which start at
+     a much lower 6.2:1 / 10.0:1 and dropped to 3.0:1 / 4.4:1 at 0.62 —
+     a real axe "serious" color-contrast failure (CI, chromium-multiplayer)
+     the original 0.62 choice never actually measured against those two
+     tokens, only against `--text-primary`. 0.88 is the value where the
+     WEAKER of the two (`--v2-text-muted`) clears WCAG AA's 4.5:1 floor
+     with a safety margin (measured: muted 4.76:1 at 0.85, 5.04:1 at 0.88;
+     secondary 7.86:1 at 0.88) — dimming still reads (border color,
+     no arena light, no accent wash, non-italic label all still differ
+     from the lit court), it just no longer pushes secondary/muted text
+     below AA. */
+  --v2-court-dim-opacity: 0.88;
 
   /* ---- Elevation: two steps only ----
      LIVE instrumentation and player-identity rows stay flat (typography +

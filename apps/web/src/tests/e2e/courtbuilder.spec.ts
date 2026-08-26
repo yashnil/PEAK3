@@ -52,10 +52,25 @@ async function playOneRound(page: Page): Promise<void> {
   await anyCandidate.waitFor({ state: "visible", timeout: 10_000 });
   const scoredCount = await scoredCandidates.count();
   const candidate = scoredCount > 0 ? scoredCandidates.first() : anyCandidate;
-  await Promise.all([
-    page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
-    candidate.click(),
-  ]);
+
+  // Same class of race as the `place` step below, one step earlier: a
+  // `waitForResponse((r) => r.url().includes("/select") ...)` raced against
+  // `candidate.click()` is exactly the "arbitrary race-prone network
+  // response" pattern the `place` fix's own comment (below) already
+  // documents replacing -- the request can resolve before the listener
+  // attaches, or (under CI's slower/more contended runners) simply take
+  // long enough that the fixed 120s test budget is spent waiting on the
+  // network call itself. `openSlot` becoming the interactive `<button>`
+  // (waited for immediately below) is already the deterministic,
+  // UI-observable proof that select succeeded -- CourtBuilder.tsx only
+  // ever reaches `phase === "placing"` via a successful `/select` response
+  // (see PeakCardCourt.tsx: `onClick` present -> <button>, absent -> a
+  // plain <div> Playwright would happily click without complaint). A
+  // genuine select failure still fails loudly here, just via that
+  // `openSlot.waitFor` timing out instead of a specific response never
+  // arriving -- a clearer signal of the real symptom (no slot ever became
+  // placeable), not a weaker one.
+  await candidate.click();
 
   // Root cause of the CI flake this replaces (verified from the actual
   // failing run's server log: a real "select" 200 response arrives, then

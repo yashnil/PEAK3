@@ -593,11 +593,28 @@ test.describe("Three-Man Weave", () => {
       await expect(page.getByTestId("tmw-identity-lock")).toContainText(/\S/, {
         timeout: 20_000,
       });
+      // 60s, NOT 40s -- 40s under-budgets this wait's own worst case and this
+      // was reproduced failing on an otherwise-idle machine, not just under
+      // CI load. This wait only covers what happens AFTER the human's own
+      // pick: up to two more seats (bot or human) must each get a turn, and
+      // per this test's own sibling comment above (`test.setTimeout(90_000)`),
+      // every one of those seats can legitimately take BOT_THINK_SECONDS_MAX
+      // (10s, `nba_peak/three_man_weave/config.py`) plus ACTION_GRACE_SECONDS
+      // (2s, `clock.py`) to resolve -- 2 x 12 = 24s on its own. On TOP of
+      // that, Three-Man Weave opens a real reveal-ceremony turn (`REVEAL_
+      // SECONDS` + its own grace, `three_man_weave/mode.py`) at the START OF
+      // EVERY ROUND, not just the match's opening one -- so if the seats this
+      // wait is watching span a round boundary, at least one more full reveal
+      // cycle lands inside this same window, uncounted by the 24s figure.
+      // 40s left no margin for that; 60s does, without changing any of the
+      // timing constants it is measuring. DO NOT lower this back toward 40s
+      // without re-deriving that math -- the failure this replaces was a
+      // budget gap, not test flakiness.
       await expect
         .poll(
           async () =>
             (await page.getByTestId("tmw-identity-lock").locator("li").count()) >= 2,
-          { timeout: 40_000, message: "the bots never took their turns" },
+          { timeout: 60_000, message: "the bots never took their turns" },
         )
         .toBe(true);
 
