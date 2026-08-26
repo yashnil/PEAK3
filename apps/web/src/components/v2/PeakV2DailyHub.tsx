@@ -46,7 +46,7 @@ export default function PeakV2DailyHub({
       </header>
 
       <div className="v2-daily-grid">
-        <div className="v2-daily-cell">
+        <Link href={dailyGrid.href} data-testid="daily-hub-grid-card" className="v2-daily-cell">
           <span className="v2-daily-cell-kicker">{gridPlayed ? "Played today" : "New board today"}</span>
           <h2 className="v2-daily-cell-title">{dailyGrid.title}</h2>
           <p className="v2-daily-cell-desc">{dailyGrid.description}</p>
@@ -58,28 +58,28 @@ export default function PeakV2DailyHub({
             ) : (
               <span />
             )}
-            <Link href={dailyGrid.href} className="v2-slate-cell-action">
+            <span className="v2-slate-cell-action">
               {gridPlayed ? "See your result" : "Play today's grid"} <span className="v2-slate-cell-arrow">→</span>
-            </Link>
+            </span>
           </div>
-        </div>
-        <div className="v2-daily-cell">
+        </Link>
+        <Link href={peakDuel.href} data-testid="daily-hub-duel-card" className="v2-daily-cell">
           <span className="v2-daily-cell-kicker">New questions today</span>
           <h2 className="v2-daily-cell-title">{peakDuel.title}</h2>
           <p className="v2-daily-cell-desc">{peakDuel.description}</p>
           <div className="flex items-center justify-end">
-            <Link href={peakDuel.href} className="v2-slate-cell-action">
+            <span className="v2-slate-cell-action">
               Play today&apos;s duel <span className="v2-slate-cell-arrow">→</span>
-            </Link>
+            </span>
           </div>
-        </div>
+        </Link>
         <div className="v2-daily-row" style={{ gridColumn: "1 / -1" }}>
           <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-secondary)" }}>
             {totalCompleted > 0
               ? `You have finished ${totalCompleted} ${totalCompleted === 1 ? "grid" : "grids"}. Kept in this browser.`
               : "Your finished grids are kept in this browser."}
           </p>
-          <Link href="/daily/history" className="v2-hero-object-link">
+          <Link href="/daily/history" data-testid="daily-hub-history-link" className="v2-hero-object-link">
             Daily Grid history →
           </Link>
         </div>
@@ -95,7 +95,7 @@ export default function PeakV2DailyHub({
             <h2 className="v2-daily-cell-title">{flagship.title}</h2>
             <p className="v2-daily-cell-desc">{flagship.description}</p>
             <div className="flex items-center justify-end">
-              <Link href={flagship.href} className="v2-slate-cell-action">
+              <Link href={flagship.href} data-testid="daily-hub-flagship-card" className="v2-slate-cell-action">
                 Start a run <span className="v2-slate-cell-arrow">→</span>
               </Link>
             </div>
@@ -105,7 +105,7 @@ export default function PeakV2DailyHub({
             <h2 className="v2-daily-cell-title">{peakSeason.title}</h2>
             <p className="v2-daily-cell-desc">{peakSeason.description}</p>
             <div className="flex items-center justify-end">
-              <Link href={peakSeason.href} className="v2-slate-cell-action">
+              <Link href={peakSeason.href} data-testid="daily-hub-peak-season-card" className="v2-slate-cell-action">
                 Build a roster <span className="v2-slate-cell-arrow">→</span>
               </Link>
             </div>

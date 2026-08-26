@@ -38,6 +38,13 @@
   --v2-color-accent: var(--peak-accent);
   --v2-color-accent-dim: var(--peak-accent-dim);
   --v2-color-accent-text: var(--peak-accent-text);
+  /* A translucent accent WASH for a selected-state fill — never a border or a
+     foreground. `--peak-accent-dim` is a solid, border-strength gold (used
+     correctly for borders/outlines elsewhere in this file); it is NOT a
+     background. `--peak-accent-bg` already exists per-theme for exactly this
+     (0.08 alpha dark / 0.14 alpha light) and keeps `--v2-color-accent-text`
+     gold-on-dark-wash readable at AA contrast. */
+  --v2-color-accent-bg: var(--peak-accent-bg);
   --v2-color-positive: var(--correct, #34d399);
   --v2-color-negative: var(--incorrect, #f87171);
 

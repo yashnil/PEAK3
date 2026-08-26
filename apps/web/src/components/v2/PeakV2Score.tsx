@@ -34,8 +34,15 @@ export interface PeakV2ScoreProps {
   role?: PeakV2ScoreRole;
   className?: string;
   /** Optional passthrough for a caller that needs to address this specific
-   *  instance (e.g. a game's own HUD test contract) — never set internally. */
+   *  instance (e.g. a game's own HUD test contract) — never set internally.
+   *  Lands on the OUTER wrapper, so its text content is `label` + `value`
+   *  together; a caller that needs the bare number (e.g. `toHaveText(/^\d+$/)`)
+   *  wants `valueTestId` instead. */
   "data-testid"?: string;
+  /** Testid for the number itself, excluding `label` — the outer wrapper's
+   *  `data-testid` (above) includes both, which breaks an exact-text
+   *  assertion against just the value when a `label` is also passed. */
+  valueTestId?: string;
 }
 
 const SIZE_REM: Record<NonNullable<PeakV2ScoreProps["size"]>, string> = {
@@ -52,6 +59,7 @@ export default function PeakV2Score({
   role = "instrument",
   className,
   "data-testid": dataTestId,
+  valueTestId,
 }: PeakV2ScoreProps) {
   const color = v2ToneVar(tone) ?? "var(--v2-text-primary)";
   const moment = role === "moment";
@@ -72,6 +80,7 @@ export default function PeakV2Score({
         </span>
       ) : null}
       <span
+        data-testid={valueTestId}
         style={{
           fontFamily: moment ? "var(--v2-font-display)" : "var(--v2-font-mono)",
           fontVariantNumeric: moment ? undefined : "tabular-nums",

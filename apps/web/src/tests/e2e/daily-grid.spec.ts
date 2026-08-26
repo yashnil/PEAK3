@@ -582,8 +582,17 @@ test.describe("Daily Grid — discoverability", () => {
       { timeout: 15_000 },
     );
     // ...and the previous flagship kept its full entry block on the hub.
-    await expect(page.getByTestId("courtbuilder-hero")).toBeVisible();
-    await expect(page.getByRole("link", { name: /Build a Perfect Season/i })).toBeVisible();
+    // V2 (product-direction): the hairline-row redesign renamed this row's
+    // CTA from "Build a Perfect Season" to "Build a roster" (see
+    // ArenaPageV2.tsx / lib/modes.ts's `peak-season` entry) — the row itself,
+    // its href and its full description are unchanged. The CTA text itself
+    // is `aria-hidden` on this row (ModeGroupRow's decorative "→" affordance
+    // — the row's real accessible name is its title+description, same
+    // pattern as every other ModeGroupRow on this page), so it is asserted
+    // as visible text within the row rather than as a link's accessible name.
+    const courtbuilderHero = page.getByTestId("courtbuilder-hero");
+    await expect(courtbuilderHero).toBeVisible();
+    await expect(courtbuilderHero.getByText(/Build a roster/i)).toBeVisible();
   });
 });
 

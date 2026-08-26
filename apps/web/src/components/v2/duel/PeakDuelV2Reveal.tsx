@@ -26,6 +26,7 @@
  * was ever the player's" rather than defaulting to either.
  */
 
+import { useEffect, useRef } from "react";
 import PeakV2LiveHeader from "../PeakV2LiveHeader";
 import PeakV2GameStatus from "../PeakV2GameStatus";
 import PeakV2PlayerIdentity from "../PeakV2PlayerIdentity";
@@ -64,6 +65,18 @@ export default function PeakDuelV2Reveal({
   isLast,
   onNext,
 }: PeakDuelV2RevealProps) {
+  // Focus "Next Matchup" WITHOUT scrolling. The plain `autoFocus` prop this
+  // replaced is `focus()` with no options, and the browser scrolls a freshly
+  // focused element into view — this file's own duel-viewport.spec.ts exists
+  // because that scroll is exactly the "page jumps when I pick" bug (measured
+  // upstream, legacy's `RevealPanel`, at 603-626px). `preventScroll: true`
+  // keeps the keyboard contract (focus lands here, Enter still advances)
+  // while dropping the viewport-following side effect.
+  const nextRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    nextRef.current?.focus({ preventScroll: true });
+  }, []);
+
   // FIXED left/right identity — never resorted by winner/loser. `winner`/
   // `loser` on `AnswerResponse` are PeakWindow objects; map each back onto
   // whichever real side (left/right) it actually is via `winning_peak_id`,
@@ -96,7 +109,7 @@ export default function PeakDuelV2Reveal({
   const rightTag = sideTag(rightPicked, rightIsWinner);
 
   return (
-    <div>
+    <div role="region" aria-label="Answer result">
       <PeakV2LiveHeader
         as="h1"
         title={mode === "daily" ? "Peak Duel · Daily" : "Peak Duel · Endless"}
@@ -108,6 +121,13 @@ export default function PeakDuelV2Reveal({
                 🔥 {currentStreak}
               </span>
             ) : null}
+            {/* Text and width kept IDENTICAL to `PeakDuelV2Question`'s own
+                instrument span on purpose: this header row must render at
+                the same height in both phases (see the note above the grid
+                below) — a longer string here (e.g. a "Session total" prefix)
+                is exactly what widens this `shrink-0` slot enough to squeeze
+                the title onto two lines on a narrow viewport, which is a
+                real, measured mobile regression this component used to have. */}
             <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.8125rem", fontWeight: 700, color: "var(--v2-text-primary)" }}>
               {totalArenaPoints.toLocaleString()} pts
             </span>
@@ -115,22 +135,18 @@ export default function PeakDuelV2Reveal({
         }
       />
 
-      {/* The verdict, stated once — same "Correct!" / "Not quite." wording
-          legacy's `RevealPanel` uses, so a player scanning quickly gets an
-          immediate answer before reading which side won which lane. */}
-      <p
-        className="mt-6"
-        style={{
-          fontFamily: "var(--v2-font-ui)",
-          fontWeight: 700,
-          fontSize: "1rem",
-          color: answer.correct ? "var(--v2-color-positive)" : "var(--v2-text-secondary)",
-        }}
-      >
-        {answer.correct ? "Correct!" : "Not quite."}
-      </p>
-
-      <div className="mt-8 grid grid-cols-1 items-start gap-6 sm:grid-cols-[1fr_auto_1fr] sm:gap-4">
+      {/* The verdict lives INSIDE the grid's center column (below), not as a
+          block above it. `PeakDuelV2Stage`'s wrapper vertically CENTERS its
+          single child (`justify-center`, so a short question is never
+          stranded near the top of a tall viewport) — any element inserted
+          between the header and the grid changes this component's total
+          height relative to `PeakDuelV2Question`'s, which re-centers the
+          whole block and moves the cards on screen even though the window
+          never scrolls (duel-viewport.spec.ts's "the cards moved on screen"
+          failure mode). The header-to-grid gap is `mt-10` in both
+          components for the same reason — verified by that file's own
+          pixel-level assertions, not a coincidence. */}
+      <div className="mt-10 grid grid-cols-1 items-start gap-6 sm:grid-cols-[1fr_auto_1fr] sm:gap-4">
         <div data-testid="duel-card-left" className="flex flex-col items-start gap-1.5 text-left">
           <span
             style={{
@@ -149,6 +165,20 @@ export default function PeakDuelV2Reveal({
         </div>
 
         <div className="flex flex-col items-center gap-1 py-2 text-center">
+          {/* Same "Correct!" / "Not quite." wording legacy's `RevealPanel`
+              used, relocated into this column so it costs no extra height
+              above the row the cards themselves start on. */}
+          <p
+            style={{
+              fontFamily: "var(--v2-font-ui)",
+              fontWeight: 700,
+              fontSize: "1rem",
+              margin: 0,
+              color: answer.correct ? "var(--v2-color-positive)" : "var(--v2-text-secondary)",
+            }}
+          >
+            {answer.correct ? "Correct!" : "Not quite."}
+          </p>
           {answer.correct ? (
             <PeakV2Score value={`+${Math.round(answer.arena_points_awarded)}`} tone="accent" size="md" />
           ) : (
@@ -158,6 +188,9 @@ export default function PeakDuelV2Reveal({
           )}
           <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.6875rem", color: "var(--v2-text-muted)" }}>
             {answer.difficulty} · gap {answer.score_gap.toFixed(1)}
+          </span>
+          <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, color: "var(--v2-text-muted)" }}>
+            Session total {totalArenaPoints.toLocaleString()} pts
           </span>
         </div>
 
@@ -191,7 +224,20 @@ export default function PeakDuelV2Reveal({
         </div>
       </div>
 
-      <div className="mt-8 flex flex-col gap-3">
+      <p
+        className="mt-8"
+        style={{
+          fontFamily: "var(--v2-font-ui)",
+          fontSize: "0.6875rem",
+          fontWeight: 600,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          color: "var(--v2-text-muted)",
+        }}
+      >
+        Component comparison
+      </p>
+      <div className="mt-2 flex flex-col gap-3">
         {RANKING_COMPONENT_ORDER.map((key) => {
           const comp = answer.component_comparison[key];
           if (!comp) return null;
@@ -226,7 +272,7 @@ export default function PeakDuelV2Reveal({
         <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
           Ready when you are.
         </p>
-        <PeakV2PrimaryAction onClick={onNext} autoFocus>
+        <PeakV2PrimaryAction ref={nextRef} onClick={onNext}>
           {isLast ? "See results" : "Next Matchup"}
         </PeakV2PrimaryAction>
       </div>

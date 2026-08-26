@@ -369,7 +369,7 @@ export default function RankingsPage() {
                   className="v2-peak-window-tab text-xs font-semibold px-3 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
                   style={
                     active
-                      ? { background: "var(--v2-color-accent-dim, rgba(245,200,66,0.12))", color: "var(--v2-color-accent-text, var(--v2-color-accent))", border: "1px solid var(--v2-color-accent-dim)" }
+                      ? { background: "var(--v2-color-accent-bg)", color: "var(--v2-color-accent-text, var(--v2-color-accent))", border: "1px solid var(--v2-color-accent-dim)" }
                       : { background: "var(--v2-bg-surface)", color: "var(--v2-text-secondary)", border: "1px solid var(--v2-border-subtle)" }
                   }
                 >
