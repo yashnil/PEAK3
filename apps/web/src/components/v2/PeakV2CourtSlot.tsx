@@ -24,8 +24,9 @@ export type PeakV2CourtSlotState = "empty" | "filled" | "staged" | "current";
 
 export interface PeakV2CourtSlotProps {
   position: string;
-  /** Present only when `state !== "empty"`. */
-  player?: { name: string; meta?: string };
+  /** Present only when `state !== "empty"`. `meta` accepts a `ReactNode` so
+   *  a caller can embed a real, stably-testid'd reveal/lock note. */
+  player?: { name: string; meta?: ReactNode };
   value?: string | number;
   valueLabel?: string;
   state?: PeakV2CourtSlotState;
@@ -34,6 +35,11 @@ export interface PeakV2CourtSlotProps {
   bench?: boolean;
   onMove?: () => void;
   moveLabel?: string;
+  /** Optional `data-testid` for the Move button, set only by callers that
+   *  need a stable hook for it (e.g. 82-0's court, `slot-move-btn`) —
+   *  omitted by every other caller of this shared primitive, so their
+   *  Move button is completely unaffected. */
+  moveTestId?: string;
   emptyHint?: ReactNode;
   className?: string;
   /**
@@ -82,6 +88,7 @@ export default function PeakV2CourtSlot({
   bench = false,
   onMove,
   moveLabel = "Move",
+  moveTestId,
   emptyHint,
   className,
   interactive = false,
@@ -157,7 +164,7 @@ export default function PeakV2CourtSlot({
 
       {onMove ? (
         <div className="flex justify-end pt-1">
-          <PeakV2SecondaryAction size="sm" onClick={onMove}>
+          <PeakV2SecondaryAction size="sm" onClick={onMove} data-testid={moveTestId}>
             {moveLabel}
           </PeakV2SecondaryAction>
         </div>

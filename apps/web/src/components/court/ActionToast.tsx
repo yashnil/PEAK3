@@ -28,12 +28,16 @@ export default function ActionToast({ message, actionLabel, onAction, onDismiss 
     <div
       data-testid="court-action-toast"
       role="status"
-      /* z-70: ABOVE the selection overlay (z-60). The toast's Undo applies to
-         the card just placed, and the next round's sheet opens immediately —
-         on a phone it is full-screen, so a toast underneath it would make
-         Undo unreachable for exactly as long as it is valid (E1 regression
-         found by the mobile tap test). */
-      className="fixed bottom-4 left-1/2 z-[70] flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2.5 text-xs font-semibold shadow-lg"
+      /* ABOVE both the legacy selection overlay (z-60) AND V2's docked
+         chooser panel, which reuses the shared `Dialog` primitive's
+         `--pk-z-dialog` (110). The toast's Undo applies to the card just
+         placed, and the next round's sheet opens immediately — on a phone
+         it is full-screen, so a toast underneath it would make Undo
+         unreachable for exactly as long as it is valid (the original E1
+         regression the mobile tap test caught; V2's cutover reused a
+         higher-z-index dialog primitive for the chooser without re-checking
+         this, reproducing the same defect). */
+      className="fixed bottom-4 left-1/2 z-[120] flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2.5 text-xs font-semibold shadow-lg"
       style={{
         background: "var(--bg-elevated)",
         border: "1px solid var(--border-emphasis)",

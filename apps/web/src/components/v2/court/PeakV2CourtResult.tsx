@@ -32,7 +32,7 @@
  * changes; this file does not import from it beyond `resultTier`.
  */
 
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import PeakV2Shell from "../PeakV2Shell";
 import PeakV2CinematicStage from "../PeakV2CinematicStage";
 import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
@@ -218,34 +218,49 @@ function ResultSlotCard({ slot }: { slot: CourtSlotPublic }) {
   const revealed = revealedScore != null;
   const value = revealed ? Math.round(revealedScore ?? 0) : undefined;
 
-  const meta = isExactSeason
-    ? [slot.team_name, slot.season].filter(Boolean).join(" · ")
-    : [slot.anchor_season, revealed && slot.individual_peak_rank != null ? `#${slot.individual_peak_rank}` : null]
-        .filter(Boolean)
-        .join(" · ");
+  // Same reveal-discipline testid contract as `PeakV2CourtSlotCard` (the
+  // LIVE court) and legacy `PeakCardCourt.tsx`: a real score line only once
+  // the server has actually revealed it, a locked/unavailable note
+  // otherwise -- courtbuilder.spec.ts's result-credibility tests count
+  // these directly (`revealed-score-line` === 8, `peak-locked-note` === 0
+  // once every card is scored).
+  const scoreLine: ReactNode = isExactSeason ? (
+    <span data-testid="exact-season-line">
+      {slot.team_name} · {slot.season}
+      {revealed ? (
+        <span data-testid="revealed-score-line"> · {Math.round(slot.season_score ?? 0)} pts</span>
+      ) : null}
+      {!revealed && slot.score_status === "exact_season_unscored" ? (
+        <span data-testid="score-unavailable-note"> · No official score</span>
+      ) : null}
+      {slot.score_source === "exact_season_aggregate" ? (
+        <span data-testid="season-aggregate-note" title="Traded mid-season -- score is the whole-season total, not specific to this exact team stint.">
+          {" "}· Season Aggregate
+        </span>
+      ) : null}
+    </span>
+  ) : revealed ? (
+    <span data-testid="revealed-score-line">
+      {slot.anchor_season} · {Math.round(slot.individual_peak_score ?? 0)} pts · #{slot.individual_peak_rank}
+    </span>
+  ) : (
+    <span data-testid="peak-locked-note">{slot.anchor_season} · Peak locked</span>
+  );
 
   const fit = fitLabel(slot.role_fit, slot.role_fit_severity);
-  let lockNote: string | undefined;
-  if (isExactSeason && !revealed && slot.score_status === "exact_season_unscored") {
-    lockNote = "No official score";
-  } else if (!isExactSeason && !revealed) {
-    lockNote = "Peak locked";
-  }
-  const aggregateNote = slot.score_source === "exact_season_aggregate" ? "Season aggregate" : undefined;
-  const caption = [fit, lockNote, aggregateNote].filter(Boolean).join(" · ");
 
   return (
     <div className="flex flex-col gap-1">
       <PeakV2CourtSlot
         position={slot.slot_type}
-        player={{ name: slot.player_name ?? "", meta }}
+        player={{ name: slot.player_name ?? "", meta: scoreLine }}
         value={value}
         valueLabel={value !== undefined ? "PEAK3" : undefined}
         state="filled"
       />
-      {caption ? (
-        <span style={{ ...mutedTextStyle, fontSize: "0.625rem", color: fitColor(slot.role_fit, slot.role_fit_severity) }}>
-          {caption}
+      {fit ? (
+        <span data-testid="role-fit-badge" style={{ ...mutedTextStyle, fontSize: "0.625rem", color: fitColor(slot.role_fit, slot.role_fit_severity) }}>
+          {fit}
         </span>
       ) : null}
     </div>
