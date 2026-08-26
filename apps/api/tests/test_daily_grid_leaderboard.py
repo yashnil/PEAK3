@@ -342,8 +342,13 @@ class TestQualification:
         attempt = asyncio.run(
             repo.get_attempt("user-d", today)
         )
+        # The board's own version, not a hardcoded one -- "today" resolves to
+        # whichever taxonomy version is current for real UTC dates as they
+        # pass (see generator.py's NOVELTY_CUTOVER_DATE), so hardcoding
+        # "daily_grid.v2" here broke the instant real time crossed that
+        # cutover with no code change at all.
         result = asyncio.run(
-            repo.get_result("user-d", today, "daily_grid.v2")
+            repo.get_result("user-d", today, get_board(today).version)
         )
         expected = max(0, int((result.created_at - attempt.started_at).total_seconds() * 1000))
         assert entry.completion_time_ms == expected
