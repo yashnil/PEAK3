@@ -577,6 +577,12 @@ export default function PeakV2CourtResult({ state, result, onPlayAgain, playAgai
               lineupPeakScore={result.lineup_score_status === "complete" ? result.lineup_peak_score : null}
               onPlayAgain={onPlayAgain}
               busy={playAgainBusy}
+              // `SaveRunPanel` directly above already asks a signed-out
+              // player to sign in to save and track this run; the
+              // leaderboard panel below asks separately about the global
+              // board. Without this the receipt ended in three near-identical
+              // sign-in rows.
+              signInPromptShownAbove
             />
           </div>
         )}

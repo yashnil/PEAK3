@@ -292,6 +292,7 @@ export default function PeakV2TMWResult({
                 tone="accent"
                 role="moment"
                 size="lg"
+                align="center"
               />
             </div>
           ) : winner && winner.score.kind === "scored" ? (
@@ -302,6 +303,7 @@ export default function PeakV2TMWResult({
                 tone="accent"
                 role="moment"
                 size="lg"
+                align="center"
               />
             </div>
           ) : null}

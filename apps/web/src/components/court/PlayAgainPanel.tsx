@@ -13,6 +13,18 @@ interface Props {
   lineupPeakScore: number | null;
   onPlayAgain: () => void;
   busy: boolean;
+  /**
+   * The caller already shows a "sign in to save this run" ask immediately
+   * above this panel, so this one would be the same offer twice in a row.
+   *
+   * Defaults to `false`, which keeps this panel correct on its own: standing
+   * alone it must still tell a signed-out player that signing in is what
+   * makes "your best run" mean anything. Only the 82-0 result opts out,
+   * because the product-UX-recovery pass moved `SaveRunPanel` down to sit
+   * directly on top of this one — and stacked, the two prompts plus the
+   * leaderboard panel's own made three near-identical sign-in asks in a row.
+   */
+  signInPromptShownAbove?: boolean;
 }
 
 /** Highest wins, tie-broken by lineup_score -- same ordering the global
@@ -38,7 +50,7 @@ function bestOf(runs: PerfectSeasonRunPublic[]): PerfectSeasonRunPublic | null {
  * Signed-out users (or leaderboard-off deployments) still get the Play
  * Again button -- only the comparison line is gated.
  */
-export default function PlayAgainPanel({ mode, wins, losses, lineupPeakScore, onPlayAgain, busy }: Props) {
+export default function PlayAgainPanel({ mode, wins, losses, lineupPeakScore, onPlayAgain, busy, signInPromptShownAbove = false }: Props) {
   const { user } = useAuth();
   // Carry the current page as ?returnTo= so signing in from a result screen
   // comes back here instead of dropping the player on the homepage. The
@@ -111,7 +123,7 @@ export default function PlayAgainPanel({ mode, wins, losses, lineupPeakScore, on
           read as one consistent product, not two different auth patterns.
           Hidden entirely when the leaderboard feature itself is off --
           signing in wouldn't unlock anything in that case. */}
-      {!user && leaderboardEnabled && (
+      {!user && leaderboardEnabled && !signInPromptShownAbove && (
         <div data-testid="play-again-signin-prompt" className="flex items-center justify-between gap-3">
           <span style={{ color: "var(--text-secondary)" }}>Sign in to save your best run and track it here.</span>
           <a
