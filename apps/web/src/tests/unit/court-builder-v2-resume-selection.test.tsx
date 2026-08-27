@@ -126,7 +126,13 @@ describe("82-0 V2 — chooser reopen (task §5)", () => {
   it("closing the chooser ('View court') leaves an obvious way back in, and reopening shows the same unresolved roll", async () => {
     renderV2Builder(baseState());
     await revealCeremony();
-    await waitFor(() => expect(screen.getByText((_, el) => el?.textContent === "Step 1 · Choose a player · 2 eligible")).toBeInTheDocument());
+    // "the chooser is open and showing candidates" -- asserted on the panel
+    // itself, not on a copy string. These waits used to key on the
+    // "Step 1 · Choose a player · N eligible" label, which was never what
+    // they were testing; it was just the most convenient text in the open
+    // panel. Removing that redundant label therefore failed four tests that
+    // have nothing to do with it.
+    await waitFor(() => expect(screen.getByTestId("candidate-panel")).toBeInTheDocument());
 
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     await user.click(screen.getByRole("button", { name: /view court/i }));
@@ -145,7 +151,8 @@ describe("82-0 V2 — chooser reopen (task §5)", () => {
     await user.click(resumeBtn);
 
     // The SAME roll and candidate pool reappear -- never re-rolled.
-    await waitFor(() => expect(screen.getByText((_, el) => el?.textContent === "Step 1 · Choose a player · 2 eligible")).toBeInTheDocument());
+    // chooser open, showing candidates (see the note in the first test)
+    await waitFor(() => expect(screen.getByTestId("candidate-panel")).toBeInTheDocument());
     expect(screen.getByText("Player A")).toBeInTheDocument();
     expect(screen.getByText("Player B")).toBeInTheDocument();
     expect(screen.getByText(/Respin team \(3 left\)/)).toBeInTheDocument();
@@ -160,7 +167,8 @@ describe("82-0 V2 — chooser reopen (task §5)", () => {
   it("does not show the resume affordance while the chooser is open", async () => {
     renderV2Builder(baseState());
     await revealCeremony();
-    await waitFor(() => expect(screen.getByText((_, el) => el?.textContent === "Step 1 · Choose a player · 2 eligible")).toBeInTheDocument());
+    // chooser open, showing candidates (see the note in the first test)
+    await waitFor(() => expect(screen.getByTestId("candidate-panel")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: /resume selection/i })).not.toBeInTheDocument();
   });
 });
@@ -184,7 +192,8 @@ describe("82-0 V2 — placement state banner (task §7)", () => {
 
     renderV2Builder(baseState());
     await revealCeremony();
-    await waitFor(() => expect(screen.getByText((_, el) => el?.textContent === "Step 1 · Choose a player · 2 eligible")).toBeInTheDocument());
+    // chooser open, showing candidates (see the note in the first test)
+    await waitFor(() => expect(screen.getByTestId("candidate-panel")).toBeInTheDocument());
 
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const chooseButtons = screen.getAllByText(/^Choose$/i);
@@ -201,7 +210,15 @@ describe("82-0 V2 — placement state banner (task §7)", () => {
     const banner = await screen.findByTestId("placing-banner");
     expect(within(banner).getByText("Place")).toBeInTheDocument();
     expect(within(banner).getByText("Player A")).toBeInTheDocument();
-    expect(within(banner).getByText(/any open spot/i)).toBeInTheDocument();
+    // The banner used to end with "Any open spot — the fit badge shows how
+    // well they match it." That sentence was removed in the product-UX
+    // recovery pass: the court now states legality itself (open slots light
+    // up, with a stronger treatment on a natural fit, a dashed one on a
+    // stretch, and a dotted, dimmed one on a mismatch), so a line of grey
+    // helper text was explaining a thing already on screen. What this test
+    // is actually for — ONE banner, naming the player being placed, with a
+    // working way out — is asserted above and below.
+    expect(within(banner).getByText("PG")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /switch selection/i }));
     await waitFor(() => expect(cancelSelection).toHaveBeenCalledWith("game-1"));

@@ -88,13 +88,18 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled, h
           // "off-slot" out of nowhere. Now it reads "SF / SG / PF" up front,
           // so the fit the game will report is visible BEFORE the pick.
           const positions = [c.primary_position, ...c.secondary_positions].filter(Boolean).join(" / ");
-          const isRosterOnly = c.identity_pool_status === "team_year_roster_only";
-          const isUnscored = c.score_status === "exact_season_unscored";
-          // Phase 7A Part A: traded player whose score is the whole
-          // season's aggregate, not team-specific (see exact_season.py's
-          // score_source taxonomy) -- shown so it's clear the number isn't
-          // this exact team stint's own performance.
-          const isSeasonAggregate = c.score_source === "exact_season_aggregate";
+          // NO DATA-PROVENANCE BADGES ON A CANDIDATE ROW (product UX
+          // recovery pass). "Roster Only", "Score Pending" and "Season
+          // Aggregate" were internal taxonomy terms (`identity_pool_status`,
+          // `score_status`, `score_source`) rendered as 9px chips on every
+          // row of the list a player scans to make ONE decision: who to
+          // draft. They are real distinctions, but they are answered where
+          // they matter -- the result screen reports unscored roster spots
+          // as an explicit weakness and gates `lineup_score_status` on them
+          // (`PeakV2CourtResult`), and a card with no exact-season score is
+          // marked on the court itself. Here they were noise competing with
+          // the name, the team-season and the positions, which are what the
+          // decision actually turns on.
           const teamAccent = getTeamColors(c.team_name).primary;
           const isHinted = !!highlightSlug && c.player_slug === highlightSlug;
           return (
@@ -102,6 +107,19 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled, h
               key={c.player_slug}
               data-testid="candidate-card"
               data-player-slug={c.player_slug}
+              // THE STATUS IS STILL HERE, IT IS JUST NOT A CHIP. Removing
+              // the "Roster Only" / "Score Pending" / "Season Aggregate"
+              // badges took three internal taxonomy terms off a row a
+              // player scans to make one decision — but the distinctions
+              // are real, and tooling legitimately needs them (the e2e
+              // suite's `playOneRound` helper picks a SCORED candidate so
+              // the full-draft test can assert eight revealed scores, and
+              // it used to do that by looking for the absence of the
+              // "Score Pending" chip). Exposed as data attributes so the
+              // information survives the badge.
+              data-score-status={c.score_status ?? undefined}
+              data-score-source={c.score_source ?? undefined}
+              data-identity-pool-status={c.identity_pool_status ?? undefined}
               data-hinted={isHinted || undefined}
               disabled={disabled}
               onClick={() => onSelect(c.player_slug)}
@@ -149,36 +167,6 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled, h
                       style={{ color: "var(--text-muted)", background: "var(--pk-surface-inset, var(--bg-elevated))" }}
                     >
                       {positions}
-                    </span>
-                  )}
-                  {isRosterOnly && (
-                    <span
-                      data-testid="candidate-roster-only-badge"
-                      className="text-[9px] font-semibold uppercase tracking-wide rounded px-1 py-px"
-                      style={{ color: "var(--text-muted)", background: "var(--pk-surface-inset, var(--bg-elevated))" }}
-                      title="Roster Only: a real team-season roster member, not currently part of PEAK3's scored universe."
-                    >
-                      Roster Only
-                    </span>
-                  )}
-                  {isUnscored && (
-                    <span
-                      data-testid="candidate-unscored-badge"
-                      className="text-[9px] font-semibold uppercase tracking-wide rounded px-1 py-px"
-                      style={{ color: "var(--accent-orange)", background: "color-mix(in srgb, var(--accent-orange) 10%, transparent)" }}
-                      title="Score Pending: exact season score unavailable; the official lineup score may be incomplete."
-                    >
-                      Score Pending
-                    </span>
-                  )}
-                  {isSeasonAggregate && (
-                    <span
-                      data-testid="candidate-season-aggregate-badge"
-                      className="text-[9px] font-semibold uppercase tracking-wide rounded px-1 py-px"
-                      style={{ color: "var(--text-muted)", background: "var(--pk-surface-inset, var(--bg-elevated))" }}
-                      title="Season Aggregate: this player was traded mid-season -- the score shown is their whole-season total, not specific to this exact team stint."
-                    >
-                      Season Aggregate
                     </span>
                   )}
                 </div>

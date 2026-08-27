@@ -50,9 +50,13 @@ class MemoryPeakDuelDailyResultRepository:
         return self._results.get(result_id) if result_id else None
 
     async def list_results_for_owner(
-        self, owner_sub: str, limit: int = 30
+        self, owner_sub: str, limit: int = 30, mode: Optional[str] = None
     ) -> list[PeakDuelDailyResult]:
-        rows = [r for r in self._results.values() if r.owner_sub == owner_sub]
+        rows = [
+            r
+            for r in self._results.values()
+            if r.owner_sub == owner_sub and (mode is None or r.mode == mode)
+        ]
         rows.sort(key=lambda r: (r.daily_key, r.created_at), reverse=True)
         return rows[:limit]
 

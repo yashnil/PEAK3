@@ -111,11 +111,49 @@ const WINDOW_OPTIONS: { id: "1y" | "2y" | "3y" | "5y"; label: string }[] = [
 ];
 
 
+/**
+ * THE POSITION FILTER.
+ *
+ * "All" plus the five canonical positions, in the order a basketball
+ * reader expects them (backcourt out to the paint), not alphabetical.
+ *
+ * MULTI-POSITION PLAYERS MATCH EVERY POSITION THEY ARE ELIGIBLE AT. The
+ * source is each row's `positions` array — the API's own structured
+ * `career_positions()` set, the same minutes-gated career positions 82-0
+ * and Three-Man Weave enforce placements with. So Michael Jordan (PG/SG/SF)
+ * appears under PG, SG and SF; Jokic (C/PF) under both C and PF. Nothing
+ * here parses a display string: substring-matching prose is how "PG" ends
+ * up matching "PG-SG" but missing "G", and how a filter silently disagrees
+ * with the game's own legality rules.
+ */
+const POSITION_OPTIONS: { id: RankingPositionFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "PG", label: "PG" },
+  { id: "SG", label: "SG" },
+  { id: "SF", label: "SF" },
+  { id: "PF", label: "PF" },
+  { id: "C", label: "C" },
+];
+
+type RankingPositionFilter = "all" | "PG" | "SG" | "SF" | "PF" | "C";
+
+function isPositionFilter(value: string | null): value is RankingPositionFilter {
+  return POSITION_OPTIONS.some((o) => o.id === value);
+}
+
+/** `?position=PG`, read on mount exactly like `?sort=` above. */
+function readPositionFromLocation(): RankingPositionFilter | null {
+  if (typeof window === "undefined") return null;
+  const raw = new URLSearchParams(window.location.search).get("position");
+  return isPositionFilter(raw) ? raw : null;
+}
+
 const PAGE_SIZE = 50;
 
 export default function RankingsPage() {
   const [board, setBoard] = useState<RankingBoardId>("peakWindows");
   const [peakWindow, setPeakWindow] = useState<"1y" | "2y" | "3y" | "5y">("1y");
+  const [position, setPosition] = useState<RankingPositionFilter>("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [data, setData] = useState<RankingBoardData | null>(null);
@@ -156,6 +194,26 @@ export default function RankingsPage() {
     setSortKey(requested);
     setSortDirection(RANKING_COLUMNS.find((c) => c.key === requested)?.initialDirection ?? "desc");
   }, []);
+
+  // `?position=PG` deep link, same read-once-on-mount rule as `?sort=`: an
+  // arriving visitor keeps the filter they were linked to and can still
+  // change it freely afterwards.
+  useEffect(() => {
+    const requested = readPositionFromLocation();
+    if (requested) setPosition(requested);
+  }, []);
+
+  // Reflected back into the URL so a filtered board is shareable, matching
+  // the page's existing `?sort=` convention. `replaceState`, not `push`: a
+  // filter toggle is not a navigation and must not fill the back button.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (position === "all") params.delete("position");
+    else params.set("position", position);
+    const qs = params.toString();
+    window.history.replaceState(null, "", qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+  }, [position]);
 
   // Component weights and long-form copy for the modal come from the real
   // methodology endpoint -- never hardcoded in TS (project rule).
@@ -219,13 +277,32 @@ export default function RankingsPage() {
 
   // Memoised so the `?? []` fallback doesn't mint a fresh array identity on
   // every render and invalidate the sort memo below.
-  const rows = useMemo(() => data?.rows ?? [], [data]);
+  const allRows = useMemo(() => data?.rows ?? [], [data]);
+  // Filtered BEFORE sorting so the existing sort/search behaviour is
+  // unchanged — the position filter narrows the set, it never reorders it.
+  //
+  // Filtering client-side rather than adding an API parameter: this page
+  // already loads the whole board (up to 1000 rows) in one request and does
+  // all of its sorting, ranking and pagination in memory, so a round trip
+  // per position toggle would be slower AND would have to re-agree with the
+  // sort state the client owns. The row already carries its canonical
+  // `positions`, which is more useful to the UI than a filter-only param.
+  const rows = useMemo(
+    () => (position === "all" ? allRows : allRows.filter((r) => r.positions.includes(position))),
+    [allRows, position],
+  );
   const showComponents = hasComponents(rows);
   const sortedRows = useMemo(
     () => sortRankingRows(rows, sortKey, sortDirection),
     [rows, sortKey, sortDirection]
   );
   const shownRows = useMemo(() => sortedRows.slice(0, visible), [sortedRows, visible]);
+
+  // A narrower board starts at the top again rather than keeping a "show
+  // more" depth that may now exceed it.
+  useEffect(() => {
+    setVisible(PAGE_SIZE);
+  }, [position]);
 
   // NO FALLBACK. An unresolvable id -- a board switch while the drawer is
   // open, a search that excludes the open row -- closes the analysis rather
@@ -379,6 +456,35 @@ export default function RankingsPage() {
             })}
           </div>
         )}
+
+        {/* POSITION FILTER — deliberately the SAME control family as the
+            peak-window tabs directly above (same class, same active/inactive
+            treatment, same tablist semantics), not a second filter design
+            invented beside them. Rendered for both boards, since a player's
+            canonical positions are a property of the player, not of the
+            board they are listed on. */}
+        <div role="tablist" aria-label="Filter by position" className="flex flex-wrap gap-1.5">
+          {POSITION_OPTIONS.map((p) => {
+            const active = p.id === position;
+            return (
+              <button
+                key={p.id}
+                role="tab"
+                aria-selected={active}
+                data-testid={`rankings-position-filter-${p.id}`}
+                onClick={() => setPosition(p.id)}
+                className="v2-peak-window-tab text-xs font-semibold px-3 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                style={
+                  active
+                    ? { background: "var(--v2-color-accent-bg)", color: "var(--v2-color-accent-text, var(--v2-color-accent))", border: "1px solid var(--v2-color-accent-dim)" }
+                    : { background: "var(--v2-bg-surface)", color: "var(--v2-text-secondary)", border: "1px solid var(--v2-border-subtle)" }
+                }
+              >
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
           <input

@@ -161,19 +161,12 @@ function SeatResultBlock({
       data-is-you={isYou}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-3">
+        {/* ONE ORDINAL PER ROW, same rule as the hero. This printed the
+            numeral "1" immediately before "1st · The Closer"
+            (design-review/17). The ordinal word carries placement on its
+            own — it does not need colour, and it does not need a numeral
+            beside it repeating it. */}
         <div className="flex items-baseline gap-2">
-          <span
-            aria-hidden="true"
-            style={{
-              fontFamily: "var(--v2-font-mono)",
-              fontVariantNumeric: "tabular-nums",
-              fontSize: "1.25rem",
-              fontWeight: 700,
-              color: isFirst ? "var(--v2-color-accent)" : "var(--v2-text-muted)",
-            }}
-          >
-            {row.result.placement}
-          </span>
           <span
             style={{
               fontFamily: "var(--v2-font-ui)",
@@ -183,7 +176,6 @@ function SeatResultBlock({
             }}
           >
             {ordinal(row.result.placement)} · {row.result.display_name}
-            <span className="sr-only">{`, ${ordinal(row.result.placement)}`}</span>
             {isYou ? <span style={{ color: "var(--v2-text-secondary)" }}> · you</span> : null}
             {row.tied ? <span style={{ color: "var(--v2-text-secondary)" }}> · drawn</span> : null}
           </span>
@@ -285,19 +277,15 @@ export default function PeakV2TMWResult({
         <PeakV2CinematicStage light={{ tone: lightTone }}>
           <span style={LABEL_STYLE}>Three-Man Weave · Draft complete</span>
 
-          <div className="mt-2 flex items-baseline justify-center gap-3" data-testid="tmw-your-placement">
-            <span
-              aria-hidden="true"
-              style={{
-                fontFamily: "var(--v2-font-mono)",
-                fontVariantNumeric: "tabular-nums",
-                fontSize: "1.75rem",
-                fontWeight: 700,
-                color: won ? "var(--v2-color-accent)" : "var(--v2-text-muted)",
-              }}
-            >
-              {placement ?? "—"}
-            </span>
+          {/* ONE ORDINAL. This used to render a mono numeral "3" immediately
+              beside the display "3rd" — the same fact twice, a hand's width
+              apart, which read as a rendering bug rather than as emphasis
+              (design-review/16). It also pushed the headline off the stage's
+              centre axis, because the pair was centred, not the ordinal.
+              The numeral was there to keep placement from being carried by
+              colour alone; the ORDINAL WORD itself already does that, in
+              every case, for every reader. */}
+          <div className="mt-2" data-testid="tmw-your-placement">
             <PeakV2ResultHeadline as="h1" scale="hero" tone={won ? "accent" : "primary"}>
               {placement === null ? "Complete" : ordinal(placement)}
             </PeakV2ResultHeadline>
@@ -313,7 +301,28 @@ export default function PeakV2TMWResult({
             {outcomeHeadline(rows)}
           </p>
 
-          {winner && winner.score.kind === "scored" ? (
+          {/* THE VIEWER'S OWN SCORE, not the winner's.
+              The hero used to print the WINNER's number under the viewer's
+              own placement badge — so a player who came third read "3rd"
+              and then, directly beneath it, 64.3, a number belonging to
+              somebody else. Naming the seat (which a previous pass did) made
+              it unambiguous but not useful: the one number a player wants
+              from their own result is their own. The winner's score is still
+              on screen, in the standings immediately below, where it is
+              comparable rather than confusable. Falls back to the winner's —
+              still explicitly labelled — for a viewer with no scored seat
+              (a spectator, or an unscoreable roster). */}
+          {yours && yours.score.kind === "scored" ? (
+            <div className="mt-5" data-testid="tmw-your-score">
+              <PeakV2Score
+                value={yours.score.value.toFixed(1)}
+                label={`Your ${RANKING_BASIS_LABEL}`}
+                tone="accent"
+                role="moment"
+                size="lg"
+              />
+            </div>
+          ) : winner && winner.score.kind === "scored" ? (
             <div className="mt-5" data-testid="tmw-winner-score" data-winner-is-you={winnerIsYou}>
               <PeakV2Score
                 value={winner.score.value.toFixed(1)}

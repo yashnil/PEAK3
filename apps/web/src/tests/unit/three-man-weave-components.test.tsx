@@ -1561,7 +1561,7 @@ describe("PodiumReceipt", () => {
   });
 });
 
-describe("PeakV2TMWResult — score ownership (mission bug 4)", () => {
+describe("PeakV2TMWResult — score ownership and a single ordinal", () => {
   function renderV2Result(
     overrides: Partial<React.ComponentProps<typeof PeakV2TMWResult>> = {},
   ) {
@@ -1577,20 +1577,22 @@ describe("PeakV2TMWResult — score ownership (mission bug 4)", () => {
     );
   }
 
-  it("labels the hero score 'Your' when the viewer won", () => {
+  it("the hero score is the VIEWER'S own, labelled as theirs, when they won", () => {
     renderV2Result();
-    const heroScore = screen.getByTestId("tmw-winner-score");
-    expect(heroScore).toHaveAttribute("data-winner-is-you", "true");
+    const heroScore = screen.getByTestId("tmw-your-score");
     expect(heroScore).toHaveTextContent(/Your PEAK3 lineup score/i);
     expect(heroScore).toHaveTextContent("72.4");
   });
 
-  it("names the actual winner on the hero score when the viewer did NOT win, never silently attributing it to the viewer", () => {
-    // Seat 1 ("Floor General") wins with a real, distinct score; the
-    // viewer (seat 0) places 2nd with a different score. Before the fix,
-    // the hero number was captioned with the bare, unattributed
-    // "PEAK3 lineup score" -- reading, right beneath the viewer's OWN
-    // placement badge, as if it might be the viewer's own result.
+  it("the hero score is STILL the viewer's own when they did not win — never the winner's", () => {
+    // The rule this replaces: the hero used to print the WINNER's number
+    // directly beneath the viewer's own placement, so a player who came
+    // second read "2nd" and then 91.0 — a number belonging to somebody
+    // else. An earlier fix disambiguated it by naming the seat; the
+    // product-UX-recovery pass changed WHICH number the hero shows, because
+    // the one a player wants from their own result is their own. The
+    // winner's score is still on screen, in the standings, where it is
+    // comparable instead of confusable.
     const results = [
       result({ seat_index: 0, display_name: "You", placement: 2, score: 70.5, outcome: "loss" }),
       result({
@@ -1607,20 +1609,34 @@ describe("PeakV2TMWResult — score ownership (mission bug 4)", () => {
       rosters: [roster(0, { SF: pick() }), roster(1)],
     });
 
-    const heroScore = screen.getByTestId("tmw-winner-score");
-    expect(heroScore).toHaveAttribute("data-winner-is-you", "false");
-    // The winner's real name is on the hero score, and the winner's real
-    // score value -- NOT the viewer's -- is what's displayed there.
-    expect(heroScore).toHaveTextContent(/Floor General's PEAK3 lineup score/i);
-    expect(heroScore).toHaveTextContent("91.0");
-    expect(heroScore).not.toHaveTextContent("70.5");
-
-    // The viewer's OWN placement and their OWN score are still both
-    // present and correct elsewhere on the screen (not lost, just not the
-    // hero number).
-    expect(screen.getByTestId("tmw-your-placement")).toHaveTextContent("2");
+    const heroScore = screen.getByTestId("tmw-your-score");
+    expect(heroScore).toHaveTextContent(/Your PEAK3 lineup score/i);
+    expect(heroScore).toHaveTextContent("70.5");
+    // The winner's number must NOT be the hero number.
+    expect(heroScore).not.toHaveTextContent("91.0");
+    // Nothing is lost: both seats' real scores are still on the page.
     expect(screen.getByTestId("tmw-result-0")).toHaveTextContent("70.5");
     expect(screen.getByTestId("tmw-result-1")).toHaveTextContent("91.0");
+  });
+
+  it("renders the placement ordinal exactly ONCE, never a numeral beside its own ordinal", () => {
+    // design-review/16 rendered a mono "3" immediately left of the display
+    // "3rd", and design-review/17 rendered "1  1st · The Closer".
+    const results = [
+      result({ seat_index: 0, display_name: "You", placement: 3, score: 55.3, outcome: "loss" }),
+      result({ seat_index: 1, display_name: "The Closer", placement: 1, score: 64.3, outcome: "win" }),
+    ];
+    renderV2Result({ results, rosters: [roster(0, { SF: pick() }), roster(1)] });
+
+    const hero = screen.getByTestId("tmw-your-placement");
+    expect(hero).toHaveTextContent("3rd");
+    // The bare numeral is gone: the hero's whole text is the ordinal.
+    expect(hero.textContent?.trim()).toBe("3rd");
+
+    // Same rule in the per-seat roster header.
+    const winnerBlock = screen.getByTestId("tmw-result-1");
+    expect(winnerBlock).toHaveTextContent("1st · The Closer");
+    expect(winnerBlock.textContent).not.toMatch(/(^|[^\d])1\s+1st/);
   });
 });
 

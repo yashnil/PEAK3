@@ -104,3 +104,7 @@ docs/implementation/arena-rescue-review/
 # `npx playwright test --config=playwright.polish-shots.config.ts` from
 # apps/web; regenerable evidence, not a product artifact.
 docs/implementation/gameplay-polish-review/
+
+# Manual design-review evidence for the product UX recovery pass.
+# Inspection screenshots + scratch notes; regenerable, never committed.
+design-review/

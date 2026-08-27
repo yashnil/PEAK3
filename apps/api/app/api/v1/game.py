@@ -57,6 +57,13 @@ from app.services.explanation import generate_explanation
 
 router = APIRouter()
 
+# The `mode` column on `peak_duel_daily_results`. The write has always keyed
+# on it (the table's UNIQUE constraint is `(owner_sub, mode, daily_key)`);
+# naming it here lets the two READ routes below key on it too, so a second
+# daily-shaped mode can never fold its attempts into Peak Duel's history or
+# its score distribution.
+PEAK_DUEL_DAILY_MODE = "peak_duel"
+
 
 class DailyGameWithWindow(DailyGameResponse):
     """`DailyGameResponse` plus the frozen daily-window block (plan §2.1).
@@ -316,7 +323,7 @@ async def post_daily_result(
         PeakDuelDailyResult(
             id=str(uuid.uuid4()),
             owner_sub=owner_sub,
-            mode="peak_duel",
+            mode=PEAK_DUEL_DAILY_MODE,
             daily_key=resolved_key,
             duration_years=years,
             duels_total=len(session_duels),
@@ -388,7 +395,9 @@ async def get_daily_distribution(
     # Bounded well past any real lifetime of daily play (~10 years) rather
     # than unbounded, so one identity's row count can never turn this into an
     # unbounded query.
-    results = await repo.list_results_for_owner(owner_sub, limit=3650)
+    results = await repo.list_results_for_owner(
+        owner_sub, limit=3650, mode=PEAK_DUEL_DAILY_MODE
+    )
 
     counts = [0] * 11
     total = 0
@@ -459,7 +468,9 @@ async def get_daily_history(
     # Same bound as the distribution route, for the same reason: well past any
     # real lifetime of daily play, so one identity's row count can never turn
     # this into an unbounded query.
-    results = await repo.list_results_for_owner(owner_sub, limit=3650)
+    results = await repo.list_results_for_owner(
+        owner_sub, limit=3650, mode=PEAK_DUEL_DAILY_MODE
+    )
     return DailyHistoryResponse(
         entries=[
             DailyHistoryEntry(

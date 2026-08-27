@@ -156,12 +156,32 @@ export default function PeakV2TMWCourt({
           BENCH
         </span>
         <div className="mt-1 grid grid-cols-1 gap-2">
+          {/* THE BENCH CARRIES THE SAME INFORMATION AS A STARTER, because it
+              carries the same weight in the score. Three-Man Weave's
+              `lineup_score` is a FLAT, equally-weighted mean over all six
+              cards (`nba_peak/three_man_weave/evaluation.py::_tmw_talent_core`)
+              — unlike 82-0, there is no 0.8/0.2 starters-to-bench split. A
+              bench pick therefore moves the final number exactly as much as
+              the point guard does, and this slot used to render a bare name
+              with no season, no team, no positions and no PEAK3 value
+              (design-review/14), which made the single most under-rated
+              decision in the draft look like an afterthought. */}
           {bench.map(({ slotType, pick }) => (
             <PeakV2CourtSlot
               key={slotType}
               position={TMW_SLOT_LABELS[slotType]}
               bench
-              player={pick ? { name: pick.player_name } : undefined}
+              benchDetail
+              player={
+                pick
+                  ? {
+                      name: pick.player_name,
+                      meta: `${pick.scoring_card ? `${pick.scoring_card.season} ${pick.scoring_card.team_id}` : "—"} · ${positionsLine(pick)}`,
+                    }
+                  : undefined
+              }
+              metaTestId={pick ? `tmw-slot-season-${slotType}` : undefined}
+              value={pick?.scoring_card ? pick.scoring_card.prime_score.toFixed(1) : undefined}
               emptyHint="Open"
               state={slotState(slotType)}
               interactive={interactive}

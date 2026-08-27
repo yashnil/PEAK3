@@ -27,8 +27,27 @@ export interface PeakV2TMWCourtsProps {
   seats: ArenaSeatPublic[];
   yourSeatIndex: number | null;
   currentTurnSeatIndex: number | null;
-  poolSize: number;
   deadlineAt: number | null;
+  /** The OPEN TURN's clock, published by the server to every seat (see
+   *  `ThreeManWeaveGame`'s own note). This is what the header counts down,
+   *  so all three competitors watch the same number — `deadlineAt` above is
+   *  only "your" clock and is null on somebody else's turn. */
+  turnDeadlineAt?: number | null;
+  /**
+   * Whether the round's roll has actually been REVEALED yet.
+   *
+   * The server knows the franchise and decade before the ceremony starts —
+   * it has to, the reel spins to them — but knowing is not showing. This
+   * board used to print "Detroit Pistons · 2000s" the moment
+   * `state.current_roll` existed, which meant the round-one roll was
+   * legible on the page BEHIND the intro overlay before anything had spun
+   * (design-review/13). The spinner was then animating toward a conclusion
+   * already printed underneath it.
+   *
+   * Defaults to `true` so a caller that has no ceremony (a finished match,
+   * a spectator view) still shows the roll.
+   */
+  rollRevealed?: boolean;
   picksMade: number;
   totalPicks: number;
   children?: React.ReactNode;
@@ -49,15 +68,18 @@ export default function PeakV2TMWCourts({
   seats,
   yourSeatIndex,
   currentTurnSeatIndex,
-  poolSize,
   deadlineAt,
+  turnDeadlineAt = null,
+  rollRevealed = true,
   picksMade,
   totalPicks,
   children,
   onMove,
   busy = false,
 }: PeakV2TMWCourtsProps) {
-  const remaining = useRemainingSeconds(deadlineAt);
+  // The match clock when the server publishes one, falling back to the
+  // viewer's own only if an older API build does not send it.
+  const remaining = useRemainingSeconds(turnDeadlineAt ?? deadlineAt);
   const qualifier = edgeQualifier(state);
   // TMW viewport containment: the header block (title/status/instrument,
   // the roll+on-clock line, the move notice, the mobile roster tabs) stays
@@ -154,9 +176,10 @@ export default function PeakV2TMWCourts({
       ? "You"
       : (seats.find((s) => s.seat_index === currentTurnSeatIndex)?.display_name ??
         (onClockSeat ? `Seat ${currentTurnSeatIndex! + 1}` : null));
-  const rollLine = state.current_roll
-    ? `${state.current_roll.franchise_display_name} · ${state.current_roll.decade}`
-    : null;
+  const rollLine =
+    state.current_roll && rollRevealed
+      ? `${state.current_roll.franchise_display_name} · ${state.current_roll.decade}`
+      : null;
   // Final closure pass, task §1: reserved so the "On the clock" span's own
   // presence/absence can never change whether this row wraps to a second
   // line at narrow widths -- a real, measured outer-shell height change at
@@ -199,9 +222,28 @@ export default function PeakV2TMWCourts({
           status={<PeakV2GameStatus label={`Round ${state.current_round ?? "—"} of ${state.total_rounds} · pick ${picksMade + 1} of ${totalPicks}`} state="active" labelTestId="tmw-turnbar-round" />}
           instrument={
             <div className="flex items-center gap-4">
-              <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
-                {poolSize} undrafted
-              </span>
+              {/* WHO IS ON THE CLOCK, not how many players are left.
+                  "N undrafted" was the most prominent instrument in this
+                  strip and it is a number nobody plays on — the pool is
+                  hundreds deep and shrinking it by one per pick changes no
+                  decision. It is replaced by the one fact this row was
+                  missing: whose pick it is, beside the countdown for it.
+                  Not replaced by another metric. */}
+              {onClockName ? (
+                <span
+                  data-testid="tmw-on-the-clock"
+                  style={{
+                    fontFamily: "var(--v2-font-mono)",
+                    fontSize: "0.6875rem",
+                    fontWeight: 700,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    color: "var(--v2-color-accent)",
+                  }}
+                >
+                  {onClockName === "You" ? "Your pick" : `On the clock · ${onClockName}`}
+                </span>
+              ) : null}
               {/* Final closure pass, task §5: gated on a seat actually being
                   on the clock, not merely on `deadlineAt` existing. During
                   `PHASE_INTRO`/`PHASE_REVEAL` (seatless turns) the server

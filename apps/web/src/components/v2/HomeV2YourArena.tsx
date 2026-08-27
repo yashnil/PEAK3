@@ -1,29 +1,37 @@
 "use client";
 
 /**
- * HomeV2YourArena — "make PEAK3 feel alive and replayable" (Pass 6,
- * product-direction consistency pass). A small, real-state strip between
- * the game slate and the methodology explainer: not a second catalogue,
- * an answer to "what's mine right now?"
+ * HomeV2YourArena — the STATUS rank of the unified "Your Arena" section
+ * (product-UX-recovery pass).
  *
- * REAL DATA ONLY, PER PRODUCT AUTHORITY (same rule `HomeV2ResumeRow` and
- * `ArenaV2ResumeHero` already follow). Every tile is built from a source
- * this app already has and already trusts elsewhere:
+ * WAS: its own titled section of up to four equal dashboard cards, sitting
+ * directly beneath a seven-cell game slate in the identical grammar. The two
+ * sections asked the same question, and "In progress / Run the Table /
+ * Continue" appeared here while the slate's flagship cell offered the same
+ * run immediately above it.
+ *
+ * NOW: rows, not cards, inside the one Arena section — and no run row at
+ * all, because `HomeV2ResumeRow`'s featured panel resumes Run the Table
+ * itself. What is left is genuinely status: today's Daily Grid, live
+ * multiplayer, your progression. "Today's board is done · 1-day streak" is
+ * a sentence a reader scans, so it is set as a line with a verb on the
+ * right, not as an object in a bordered box.
+ *
+ * REAL DATA ONLY, PER PRODUCT AUTHORITY (unchanged). Every row is built from
+ * a source this app already has and already trusts elsewhere:
  *
  *   - `useResumeState()` (`lib/resume-state.ts`) — the exact same
- *     localStorage-only run/Daily-Grid summary the nav's mobile drawer
- *     already surfaces. Read-only, SSR-safe, never invents a run.
- *   - `progressionApi.getSummary()` (`lib/progression-api.ts`, Phase 3.1) —
- *     the same authenticated endpoint `/profile` renders from. Fetched only
- *     when a session exists; a fetch failure degrades to omitting the tile,
- *     never a placeholder streak.
- *   - `multiplayerModes`, a prop this page already computed server-side
- *     from the Arena's own fail-closed readiness check (`getArenaCatalogue`)
- *     — never guessed here.
+ *     localStorage-only Daily-Grid summary the nav's mobile drawer already
+ *     surfaces. Read-only, SSR-safe, never invents progress.
+ *   - `progressionApi.getSummary()` (`lib/progression-api.ts`) — the same
+ *     authenticated endpoint `/profile` renders from. Fetched only when a
+ *     session exists; a failure omits the row, never a placeholder level.
+ *   - `multiplayerModes`, computed server-side from the Arena's own
+ *     fail-closed readiness check — never guessed here.
  *
- * Anonymous, no-signal visitors are not shown fabricated activity; the
- * section renders nothing rather than a hollow "Welcome!" banner (the same
- * fail-closed instinct `NbaFactOfTheDay` and `HeroVignette` already use).
+ * Anonymous, no-signal visitors are not shown fabricated activity: with no
+ * rows this renders nothing, and the section's featured panel and mode grid
+ * still stand on their own.
  */
 
 import { useEffect, useState } from "react";
@@ -45,24 +53,22 @@ export interface HomeV2YourArenaProps {
 interface ArenaTile {
   key: string;
   eyebrow: string;
-  badge?: string;
   title: string;
   desc: string;
   href: string;
   cta: string;
 }
 
-function ArenaTileCell({ tile }: { tile: ArenaTile }) {
+function ArenaStatusRow({ tile }: { tile: ArenaTile }) {
   return (
-    <Link href={tile.href} className="v2-slate-cell group">
-      <span className="v2-slate-cell-head">
-        <span className="v2-slate-cell-tag">{tile.eyebrow}</span>
-        {tile.badge ? <span className="v2-slate-cell-badge">{tile.badge}</span> : null}
+    <Link href={tile.href} className="v2-arena-status-row">
+      <span className="v2-arena-status-eyebrow">{tile.eyebrow}</span>
+      <span className="v2-arena-status-body">
+        <span className="v2-arena-status-title">{tile.title}</span>
+        <span className="v2-arena-status-detail">{tile.desc}</span>
       </span>
-      <span className="v2-slate-cell-title">{tile.title}</span>
-      <span className="v2-slate-cell-desc">{tile.desc}</span>
-      <span className="v2-slate-cell-action" aria-hidden="true">
-        {tile.cta} <span className="v2-slate-cell-arrow">→</span>
+      <span className="v2-arena-status-cta">
+        {tile.cta} <span className="v2-arena-status-arrow" aria-hidden="true">→</span>
       </span>
     </Link>
   );
@@ -96,23 +102,15 @@ export default function HomeV2YourArena({ multiplayerModes }: HomeV2YourArenaPro
 
   const tiles: ArenaTile[] = [];
 
-  if (resume.run) {
-    tiles.push({
-      key: "run",
-      eyebrow: "In progress",
-      title: "Run the Table",
-      desc: resume.run.label,
-      href: resume.run.href,
-      cta: "Continue",
-    });
-  }
+  // NO RUN-THE-TABLE ROW. The featured panel directly below this strip
+  // (`HomeV2ResumeRow`) already resumes the active run and says so. A row
+  // here as well was the same offer twice, a few hundred pixels apart.
 
   if (resume.dailyGrid) {
     const { completedToday, currentStreak } = resume.dailyGrid;
     tiles.push({
       key: "grid",
       eyebrow: "Daily Grid",
-      badge: completedToday ? undefined : "Open",
       title: completedToday ? "Today's board is done" : "Today's board is open",
       desc: currentStreak > 0 ? `${currentStreak}-day streak` : "Nine squares, one shot at each",
       href: "/daily/grid",
@@ -124,7 +122,6 @@ export default function HomeV2YourArena({ multiplayerModes }: HomeV2YourArenaPro
     tiles.push({
       key: "multiplayer",
       eyebrow: "Multiplayer",
-      badge: "Live",
       title: `${multiplayerModes.length} live mode${multiplayerModes.length === 1 ? "" : "s"} open`,
       desc: multiplayerModes.map((m) => m.title).join(" · "),
       href: multiplayerModes[0].href,
@@ -157,21 +154,15 @@ export default function HomeV2YourArena({ multiplayerModes }: HomeV2YourArenaPro
 
   if (tiles.length === 0) return null;
 
-  const shown = tiles.slice(0, 4);
+  // Rows are cheap now that they are lines rather than 168px cells, but the
+  // strip is still status, not a catalogue — three keeps it scannable.
+  const shown = tiles.slice(0, 3);
 
   return (
-    <section aria-labelledby="v2-your-arena-heading" className="v2-slate-section">
-      <div className="v2-slate-heading-row">
-        <span className="v2-live-dot" aria-hidden="true" />
-        <h2 id="v2-your-arena-heading" className="v2-slate-heading">
-          Your Arena
-        </h2>
-      </div>
-      <div className="v2-slate-grid v2-arena-grid" style={{ "--v2-arena-cols": shown.length } as React.CSSProperties}>
-        {shown.map((tile) => (
-          <ArenaTileCell key={tile.key} tile={tile} />
-        ))}
-      </div>
-    </section>
+    <div className="v2-arena-status" data-testid="home-arena-status">
+      {shown.map((tile) => (
+        <ArenaStatusRow key={tile.key} tile={tile} />
+      ))}
+    </div>
   );
 }

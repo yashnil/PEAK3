@@ -59,17 +59,44 @@ export function GameEngine({
   // Daily only: a fresh monotonic deadline per duel, converted once at the
   // moment the duel becomes interactable — never held as a duration that
   // gets ticked down in this component's own state (see the module note).
-  const [deadlineAt, setDeadlineAt] = useState<number | null>(null);
+  //
+  // A CLOCK IS BOUND TO THE QUESTION IT WAS ARMED FOR. This used to be a bare
+  // `deadlineAt` that an effect re-armed on `[phase, current_index]`, which
+  // left the PREVIOUS duel's (by then long-expired) deadline sitting in state
+  // for the duration of the reveal. React runs a child's MOUNT effect before
+  // its parent's UPDATE effect, so pressing "Next Matchup" mounted the next
+  // question's `ArenaTimer` with that stale deadline still in place;
+  // `ArenaTimer` ticks once synchronously on mount, read `remaining <= 0`, and
+  // fired `onExpire` -> `handleTimeout` -> a null-pick submission. The player
+  // lost the matchup before seeing it, and the longer they read the previous
+  // result the more certain that was. Storing the index the deadline belongs
+  // to, and refusing to hand down a clock that does not match the question
+  // currently on screen, makes that entire class of bug unrepresentable.
+  const [clock, setClock] = useState<{ index: number; deadlineAt: number | null } | null>(null);
 
-  // Start timer when a duel becomes active
+  // Arm the clock ONLY for an active question, and disarm it for every other
+  // phase — the reveal must not have a countdown running behind it.
   useEffect(() => {
-    if (state.phase === "picking") {
-      startTimeRef.current = Date.now();
-      setDeadlineAt(
-        mode === "daily" ? deadlineFromSeconds(DECISION_CLOCK_SECONDS) : null
-      );
+    if (state.phase !== "picking") {
+      setClock(null);
+      return;
     }
+    startTimeRef.current = Date.now();
+    setClock({
+      index: state.current_index,
+      deadlineAt: mode === "daily" ? deadlineFromSeconds(DECISION_CLOCK_SECONDS) : null,
+    });
   }, [state.phase, state.current_index, mode]);
+
+  // The render-time guard. On the commit that opens the next question the
+  // effect above has not run yet, so `clock` is still null (or still the
+  // previous index): both resolve to "no clock", which `ArenaTimer` treats as
+  // idle rather than expired. The real deadline arrives one commit later, at
+  // its full duration.
+  const deadlineAt =
+    state.phase === "picking" && clock !== null && clock.index === state.current_index
+      ? clock.deadlineAt
+      : null;
 
   // Keyboard support
   useEffect(() => {

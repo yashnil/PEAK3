@@ -185,6 +185,9 @@ export function normalizeRankingRow(raw: RankingRowPayload): RankingRow {
     data_completeness: strOrNull(raw.data_completeness) ?? strOrNull(raw.data_status),
     headshot_url: strOrNull(raw.headshot_url),
     season_in_progress: raw.season_in_progress === true,
+    // Defended against an API that predates the field: absent becomes an
+    // empty array, which the position filter reads as "no information".
+    positions: Array.isArray(raw.positions) ? raw.positions.filter((p) => typeof p === "string") : [],
   };
 }
 

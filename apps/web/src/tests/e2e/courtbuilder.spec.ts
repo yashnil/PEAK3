@@ -47,7 +47,13 @@ async function playOneRound(page: Page): Promise<void> {
   // -- for the full-attempt test -- that all 8 slots end up revealed)
   // stays deterministic; falls back to the first candidate if every one on
   // this exact roster happens to be unscored.
-  const scoredCandidates = page.locator('[data-testid="candidate-card"]:not(:has([data-testid="candidate-unscored-badge"]))');
+  // `data-score-status`, not the absence of a "Score Pending" chip: those
+  // chips were removed from the candidate row in the product-UX-recovery
+  // pass (three internal taxonomy terms on every row of a list the player
+  // scans to make one decision), and the same information is now carried as
+  // a data attribute on the row instead. Same candidate selected, same
+  // determinism, sourced from data rather than from presentation.
+  const scoredCandidates = page.locator('[data-testid="candidate-card"][data-score-status="exact_season_scored"]');
   const anyCandidate = page.locator('[data-testid="candidate-card"]').first();
   await anyCandidate.waitFor({ state: "visible", timeout: 10_000 });
   const scoredCount = await scoredCandidates.count();
@@ -859,7 +865,14 @@ test.describe("CourtBuilder drafting flow", () => {
 
     const candidatePanel = page.locator('[data-testid="candidate-panel"]');
     await expect(candidatePanel).toBeVisible();
-    await expect(candidatePanel).toContainText(/step 1/i);
+    // The selection step is identified by BEING the candidate list inside a
+    // sheet titled "Round N of 8 — choose a player", not by a "Step 1 ·
+    // Choose a player · N eligible" label. That label restated the sheet's
+    // own title and the roll summary beside it, and cost the candidate list
+    // a visible row to do it, so it was removed; what this test is actually
+    // about — selection and placement being DISTINCT, separately-labeled
+    // steps that never overlap — is asserted here and below, unchanged.
+    await expect(candidatePanel.locator('[data-testid="candidate-card"]').first()).toBeVisible();
 
     const candidate = page.locator('[data-testid="candidate-card"]').first();
     await candidate.waitFor({ state: "visible" });
@@ -1317,18 +1330,34 @@ test.describe("CourtBuilder candidate list (Phase 6E)", () => {
     }
   });
 
-  test("humanized status badges render for roster-only and score-pending candidates when present", async ({ page }) => {
+  test("candidate rows carry data-model status as DATA, and never as visible taxonomy text", async ({ page }) => {
     await startCourtBuilder(page);
-    const rosterOnlyBadges = page.locator('[data-testid="candidate-roster-only-badge"]');
-    const scorePendingBadges = page.locator('[data-testid="candidate-unscored-badge"]');
-    // Not every roll will have one of each, but the badge text itself must
-    // be humanized (never the raw backend enum strings) whenever present.
-    if (await rosterOnlyBadges.count()) {
-      await expect(rosterOnlyBadges.first()).toHaveText(/roster only/i);
+    const rows = page.locator('[data-testid="candidate-card"]');
+    await rows.first().waitFor({ state: "visible", timeout: 10_000 });
+
+    // The status is still on every row, machine-readable, and still a real
+    // backend value -- the product-UX-recovery pass removed the CHIPS
+    // ("Roster Only" / "Score Pending" / "Season Aggregate": three internal
+    // taxonomy terms on every row of the list a player scans to make one
+    // decision), not the information. It is surfaced to the PLAYER where it
+    // changes something -- the result screen reports unscored roster spots
+    // as an explicit weakness and gates `lineup_score_status` on them.
+    const count = await rows.count();
+    expect(count).toBeGreaterThan(0);
+    let sawStatus = 0;
+    for (let i = 0; i < count; i++) {
+      const status = await rows.nth(i).getAttribute("data-score-status");
+      if (status) {
+        expect(status).toMatch(/^exact_season_(scored|unscored)$/);
+        sawStatus += 1;
+      }
     }
-    if (await scorePendingBadges.count()) {
-      await expect(scorePendingBadges.first()).toHaveText(/score pending/i);
-    }
+    expect(sawStatus, "every candidate row should publish its score status").toBe(count);
+
+    // ...and none of the raw enum values, or the chips built from them, are
+    // rendered as text a reader has to decode.
+    const listText = await page.locator('[data-testid="candidate-list"]').innerText();
+    expect(listText).not.toMatch(/exact_season_|team_year_roster_only|score pending|roster only|season aggregate/i);
   });
 });
 
@@ -2383,7 +2412,13 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
     const filledBefore = await page.locator('[data-testid="court-slot"][data-filled="true"]').count();
     expect(filledBefore).toBe(2);
 
-    const moveBtn = page.locator('[data-testid="slot-move-btn"]').first();
+    // THE PICKUP CONTROL IS THE TILE. It used to be a small permanent
+    // "Move" button inside every occupied slot; that button was removed in
+    // the product-UX-recovery pass (it competed with the player it belonged
+    // to and overhung the narrower wing tiles), and the tile itself is now
+    // the button. Same interaction under test, same keyboard story — a real
+    // <button>, so .click() and Enter/Space both reach it.
+    const moveBtn = page.locator('[data-pickup="true"]').first();
     await moveBtn.waitFor({ state: "visible", timeout: 10_000 });
     await moveBtn.click();
 
@@ -2437,7 +2472,7 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
     await playOneRound(page);
     await minimizeOverlay(page);
 
-    const moveBtn = page.locator('[data-testid="slot-move-btn"]').first();
+    const moveBtn = page.locator('[data-pickup="true"]').first();
     await moveBtn.waitFor({ state: "visible", timeout: 10_000 });
     await moveBtn.click();
 
@@ -2498,7 +2533,7 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
     await playOneRound(page);
     await minimizeOverlay(page);
 
-    const moveBtn = page.locator('[data-testid="slot-move-btn"]').first();
+    const moveBtn = page.locator('[data-pickup="true"]').first();
     await moveBtn.waitFor({ state: "visible", timeout: 10_000 });
 
     await moveBtn.click();
@@ -2566,7 +2601,15 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
     await expect(blocked).toHaveAttribute("aria-disabled", "true");
     await expect(blocked).toBeDisabled();
     await expect(blocked).toHaveAccessibleName(/already filled by|place your new pick in an open slot/i);
-    await expect(blocked).toContainText(/Full/i);
+    // "Occupied", not "Full — place in an open slot": the instruction half
+    // of that sentence was stamped on every occupied slot (five copies of
+    // one instruction) and, because the tile's height is fixed, it pushed
+    // the fit caption out of the box and clipped it. The court now carries
+    // the instruction (open slots illuminate, occupied ones recede) and the
+    // tile carries the one-word STATE, in the caption slot that is sized
+    // for it. The accessible name asserted above still carries the full
+    // explanation for a screen reader.
+    await expect(blocked).toContainText(/Occupied/i);
 
     // Clicking it does nothing -- no place request, no change in fill count.
     // Targets the explanatory text specifically, not the card's geometric
@@ -2574,7 +2617,7 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
     // the still-live "Move" button stacked inside the same card, which
     // would make this click do something (enter rearrange mode) instead of
     // proving it does nothing.
-    await blocked.getByText(/Full — place in an open slot/i).click({ force: true });
+    await blocked.getByTestId("slot-blocked-note").click({ force: true });
     await page.waitForTimeout(300);
     await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(filledBefore);
     await expect(page.locator('[data-testid="slot-swap-target"]')).toHaveCount(0);
@@ -3171,7 +3214,7 @@ test.describe("court geometry is immutable (E2)", () => {
         //    round's overlay is up — step aside to the court first.)
         await minimizeOverlay(page);
         expectSameGeometry(empty, await geometry(page), "overlay minimized");
-        await page.locator('[data-testid="slot-move-btn"]').first().click();
+        await page.locator('[data-pickup="true"]').first().click();
         await page.locator('[data-testid="slot-swap-target"]').first().waitFor({ timeout: 5_000 });
         expectSameGeometry(empty, await geometry(page), "in move mode");
 
@@ -3202,7 +3245,7 @@ test.describe("court geometry is immutable (E2)", () => {
     expectSameGeometry(empty, await geometry(page), "after first placement (mobile)");
     await playOneRound(page);
     await minimizeOverlay(page);
-    await page.locator('[data-testid="slot-move-btn"]').first().click();
+    await page.locator('[data-pickup="true"]').first().click();
     await page.locator('[data-testid="slot-swap-target"]').first().waitFor({ timeout: 5_000 });
     expectSameGeometry(empty, await geometry(page), "in move mode (mobile)");
   });
@@ -3215,7 +3258,7 @@ test.describe("direct move and swap (E3)", () => {
     await minimizeOverlay(page);
 
     // Enter move mode, cancel by clicking the source card's own face.
-    await page.locator('[data-testid="slot-move-btn"]').first().click();
+    await page.locator('[data-pickup="true"]').first().click();
     const source = page.locator('[data-testid="slot-moving-source"]');
     await expect(source).toBeVisible();
     await expect(source).toContainText(/click to cancel/i);
@@ -3224,7 +3267,7 @@ test.describe("direct move and swap (E3)", () => {
     await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(1);
 
     // Enter again, cancel with Escape.
-    await page.locator('[data-testid="slot-move-btn"]').first().click();
+    await page.locator('[data-pickup="true"]').first().click();
     await page.locator('[data-testid="slot-swap-target"]').first().waitFor({ timeout: 5_000 });
     await page.keyboard.press("Escape");
     await expect(page.locator('[data-testid="slot-swap-target"]')).toHaveCount(0);
@@ -3245,7 +3288,7 @@ test.describe("direct move and swap (E3)", () => {
     );
     expect(before).toHaveLength(2);
 
-    await page.locator('[data-testid="slot-move-btn"]').first().click();
+    await page.locator('[data-pickup="true"]').first().click();
     await Promise.all([
       page.waitForResponse((r) => r.url().includes("/swap-slots") && r.status() === 200),
       page.locator('[data-testid="slot-swap-target"][data-filled="true"]').first().click(),

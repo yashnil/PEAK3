@@ -94,9 +94,18 @@ class PeakDuelDailyResultRepository(Protocol):
     ) -> Optional[PeakDuelDailyResult]: ...
 
     async def list_results_for_owner(
-        self, owner_sub: str, limit: int = 30
+        self, owner_sub: str, limit: int = 30, mode: Optional[str] = None
     ) -> list[PeakDuelDailyResult]:
-        """Most recent daily key first."""
+        """Most recent daily key first.
+
+        `mode` narrows the read to a single daily game. It matters because
+        `save_result`/`get_result` key on `(owner_sub, mode, daily_key)` while
+        this read historically keyed on `owner_sub` alone: the moment a second
+        daily-shaped mode writes to this table, an unfiltered read would fold
+        its attempts into Peak Duel's history and its score distribution
+        without any error anywhere. `None` preserves the original
+        every-mode behavior for callers that genuinely want it.
+        """
         ...
 
     async def transfer_owner(self, from_sub: str, to_sub: str) -> int:

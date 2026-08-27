@@ -483,3 +483,54 @@ class TestRateLimiting:
         # Deliberately uninformative beyond "slow down": a remaining-count is
         # the calibration signal a prober wants.
         assert "X-RateLimit-Remaining" not in denied.headers
+
+
+@pytest.mark.asyncio
+async def test_history_read_is_scoped_to_the_peak_duel_mode():
+    """A second daily-shaped mode must not leak into Peak Duel's history.
+
+    `save_result`/`get_result` key on `(owner_sub, mode, daily_key)` -- the
+    table's UNIQUE constraint -- but `list_results_for_owner` keyed on
+    `owner_sub` alone, so the history and distribution routes would have
+    silently folded another mode's attempts into Peak Duel's the moment one
+    existed. Nothing would have raised; the counts would just have been wrong.
+    """
+    from app.repositories.peak_duel_daily_memory import (
+        MemoryPeakDuelDailyResultRepository,
+    )
+    from app.repositories.peak_duel_daily_protocols import PeakDuelDailyResult
+
+    repo = MemoryPeakDuelDailyResultRepository()
+
+    def attempt(mode: str, daily_key: str, correct: int) -> PeakDuelDailyResult:
+        return PeakDuelDailyResult(
+            id="",
+            owner_sub="owner-1",
+            mode=mode,
+            daily_key=daily_key,
+            duration_years=3,
+            duels_total=10,
+            correct_count=correct,
+            arena_points=100 * correct,
+            best_streak=correct,
+            elapsed_seconds=42,
+            played_on_daily_key=True,
+            answers={},
+            created_at=None,
+        )
+
+    await repo.save_result(attempt("peak_duel", "2026-08-25", 5))
+    await repo.save_result(attempt("peak_duel", "2026-08-26", 7))
+    # Same owner, same day as one of the above, a DIFFERENT daily mode.
+    await repo.save_result(attempt("some_other_daily", "2026-08-26", 1))
+
+    duel_only = await repo.list_results_for_owner(
+        "owner-1", limit=3650, mode="peak_duel"
+    )
+    assert [r.daily_key for r in duel_only] == ["2026-08-26", "2026-08-25"]
+    assert {r.mode for r in duel_only} == {"peak_duel"}
+    assert [r.correct_count for r in duel_only] == [7, 5]
+
+    # The unfiltered read is unchanged for any caller that wants every mode.
+    everything = await repo.list_results_for_owner("owner-1", limit=3650)
+    assert len(everything) == 3

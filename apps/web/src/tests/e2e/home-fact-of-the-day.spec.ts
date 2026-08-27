@@ -38,7 +38,13 @@ test.describe("NBA Fact of the Day", () => {
 
     // Placement: between the hero and the catalogue, not appended at the end.
     const factBox = await panel.boundingBox();
-    const modesBox = await page.locator("#modes-heading").boundingBox();
+    // `#v2-arena-heading`, formerly `#modes-heading`: the homepage's two
+    // lower sections ("Choose a game" and "Your Arena") asked the same
+    // question in the same grammar, one directly above the other, and were
+    // unified into a single "Your Arena" section in the product-UX-recovery
+    // pass. It is still the game catalogue — it is still what the fact strip
+    // must render above — it just has one heading now instead of two.
+    const modesBox = await page.locator("#v2-arena-heading").boundingBox();
     expect(factBox, "the fact panel did not render").not.toBeNull();
     expect(modesBox, "the catalogue heading did not render").not.toBeNull();
     expect(factBox!.y).toBeLessThan(modesBox!.y);

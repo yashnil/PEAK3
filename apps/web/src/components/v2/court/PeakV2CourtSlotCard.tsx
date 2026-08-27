@@ -268,9 +268,6 @@ export default function PeakV2CourtSlotCard({
       valueLabel={slot.filled ? "PEAK3" : undefined}
       state={isPendingTarget ? "staged" : slot.filled ? "filled" : "empty"}
       emptyHint={isPendingTarget ? pendingHint : blockedDuringPlacement ? "Occupied" : "Open"}
-      onMove={onMove}
-      moveLabel="Move"
-      moveTestId="slot-move-btn"
       className={isPendingTarget ? `court-slot-pending-${tier}` : undefined}
     />
   );
@@ -297,11 +294,30 @@ export default function PeakV2CourtSlotCard({
     const reason = `${SLOT_LABELS[slot.slot_type]} is already filled by ${
       slot.player_name ?? "a player"
     }. Place your new pick in an open slot instead.`;
-    const fullNote = (
+    // ONE WORD, NOT A SENTENCE. This used to read "Full — place in an open
+    // slot": a 10px uppercase grey instruction stamped on EVERY occupied
+    // slot during placement — five copies of the same sentence, and because
+    // the tile's height is fixed it pushed the fit caption underneath it
+    // out of the box and clipped it in half (design-review/10).
+    //
+    // The instruction half is now carried by the COURT (open slots
+    // illuminate, occupied ones recede) and, for assistive tech, by
+    // `aria-label={reason}` on the container below. What stays is the
+    // one-word STATE, in the same caption slot the fit label occupies on
+    // every other tile — so it is sized for, and cannot clip.
+    const blockedNote = (
       <span
-        style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.625rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--v2-text-muted)" }}
+        data-testid="slot-blocked-note"
+        style={{
+          fontFamily: "var(--v2-font-mono)",
+          fontSize: "0.5625rem",
+          fontWeight: 700,
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          color: "var(--v2-text-muted)",
+        }}
       >
-        Full — place in an open slot
+        Occupied
       </span>
     );
     // `action_swap_slots` allows rearranging even mid-placement, so `onMove`
@@ -310,6 +326,19 @@ export default function PeakV2CourtSlotCard({
     // `role="group"` container, never a `<button disabled>` wrapping a real
     // live one) is the one this actually reaches from the player's second
     // pick onward.
+    // A FILLED SLOT IS INERT WHILE A PICK IS IN HAND. The tile is the
+    // pickup control everywhere else (see the `onMove` branch further
+    // down), but NOT here: the player already has a card selected and
+    // waiting for a home, and letting them pick a second one up mid
+    // placement is a state with no sensible meaning. Selection and
+    // placement never overlap — the same rule that closes the candidate
+    // panel the instant a pick is pending.
+    //
+    // Rendered as a `role="group"`/`aria-disabled` container rather than a
+    // `<button disabled>` for the reason the original branch already
+    // documented, and still carrying `aria-label={reason}` so a screen
+    // reader is told WHY this is not a target rather than meeting an
+    // unlabeled dead element.
     if (onMove) {
       return (
         <div
@@ -319,11 +348,9 @@ export default function PeakV2CourtSlotCard({
           aria-disabled="true"
           aria-label={reason}
           className={`flex flex-col gap-1 ${fixedHeightClass}`}
-          style={{ opacity: 0.85 }}
         >
           {body}
-          {fullNote}
-          {fitCaption}
+          {blockedNote}
         </div>
       );
     }
@@ -339,8 +366,7 @@ export default function PeakV2CourtSlotCard({
         style={{ opacity: 0.55, cursor: "not-allowed" }}
       >
         {body}
-        {fullNote}
-        {fitCaption}
+        {blockedNote}
       </button>
     );
   }
@@ -348,6 +374,25 @@ export default function PeakV2CourtSlotCard({
   if (clickable) {
     return (
       <button type="button" {...sharedAttrs} onClick={onClick} className={`flex w-full flex-col gap-1 text-left ${fixedHeightClass}`}>
+        {body}
+        {fitCaption}
+        {pendingBadge}
+      </button>
+    );
+  }
+
+  // A placed player, court idle: the TILE is the pickup control. See the
+  // note on the blocked branch above for why the Move button is gone.
+  if (onMove) {
+    return (
+      <button
+        type="button"
+        {...sharedAttrs}
+        data-pickup="true"
+        onClick={onMove}
+        aria-label={`${slot.player_name ?? SLOT_LABELS[slot.slot_type]} at ${SLOT_LABELS[slot.slot_type]} — pick up to move`}
+        className={`flex w-full flex-col gap-1 text-left ${fixedHeightClass}`}
+      >
         {body}
         {fitCaption}
         {pendingBadge}

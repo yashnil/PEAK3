@@ -13,17 +13,29 @@
  * ADVANCE) action legacy's `RevealPanel` already uses. There is no auto-
  * advance timer anywhere in Peak Duel — removed entirely, not hidden.
  *
- * DOT-FILL / "YOUR PICK" SEMANTICS (corrected): `selectedPeakId` — the
- * reducer's own `selected_peak_id`, still populated in the `revealing`
- * phase until `ADVANCE` clears it — is the ONLY source of "which side is
- * the player's". It is never derived from `winnerIsLeft`/`answer.correct`.
- * The five component lanes below pass `pickedSide` computed from it, so the
- * FILLED dot always marks the side the player actually clicked, regardless
- * of position, winner/loser, or which side has the higher value in that
- * lane. A genuine no-pick (decision clock expired, see `game-engine.tsx`'s
- * `handleTimeout`) leaves `selectedPeakId` null; `pickedSide` resolves to
- * `"none"` and both dots render hollow — the neutral treatment for "no side
- * was ever the player's" rather than defaulting to either.
+ * "YOUR PICK" SEMANTICS: `selectedPeakId` — the reducer's own
+ * `selected_peak_id`, still populated in the `revealing` phase until
+ * `ADVANCE` clears it — is the ONLY source of "which side is the player's",
+ * never derived from `winnerIsLeft`/`answer.correct`. It drives the per-side
+ * TAG ("Your pick · correct" / "Not selected"), and nothing else.
+ *
+ * DOT-FILL SEMANTICS (superseded, deliberately): the five component lanes
+ * pass `fill="higher"`, so a filled dot means THIS SIDE SCORED HIGHER ON
+ * THIS LANE — computed per lane, independently of the player's selection, of
+ * who won the matchup overall, and of which side a name was dealt to. An
+ * earlier pass filled the dot for the side the player clicked; that made the
+ * lane row answer "what did I pick?", a question the reader already knows
+ * the answer to and which the tags above already state, while leaving the
+ * question the row exists to answer — "who was actually better at this?" —
+ * readable only by comparing two small numbers by eye. It also degenerated
+ * badly on a timeout: with no pick, every lane rendered both dots hollow and
+ * the entire comparison went blank (see design-review/05).
+ *
+ * A lane whose two values are EQUAL at the one-decimal precision printed
+ * beside them is a tie and renders neutral — both dots hollow. Real data
+ * produces these regularly (design-review/05 had two in one matchup), and
+ * promoting one side on a difference the reader cannot see would be the
+ * lane claiming something its own printed numbers do not support.
  */
 
 import { useEffect, useRef } from "react";
@@ -88,8 +100,8 @@ export default function PeakDuelV2Reveal({
   const rightIsWinner = !winnerIsLeft;
 
   // WHICH side is the player's — from the actual click, never from the
-  // outcome. `pickedSide="none"` (both dots hollow, no "Your pick" tag
-  // anywhere) is the genuine-no-pick case.
+  // outcome. Drives the per-side tag only; the lane dots below are decided
+  // by the lane's own data (`fill="higher"`), not by this.
   const pickedSide: "left" | "right" | "none" =
     selectedPeakId === null ? "none" : selectedPeakId === duel.left.peak_id ? "left" : "right";
   const leftPicked = pickedSide === "left";
@@ -255,7 +267,7 @@ export default function PeakDuelV2Reveal({
               rightValue={rightValue.toFixed(1)}
               scaleMin={0}
               scaleMax={max}
-              pickedSide={pickedSide}
+              fill="higher"
             />
           );
         })}

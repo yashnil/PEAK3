@@ -195,6 +195,20 @@ export default function ThreeManWeaveGame({
   const [deadlineAt, setDeadlineAt] = useState<number | null>(
     deadlineFromSeconds(initialMatch.seconds_remaining),
   );
+  // THE MATCH CLOCK, as opposed to YOUR clock.
+  //
+  // `seconds_remaining` is only populated when the open turn is yours or
+  // belongs to nobody, which is correct for "can I still act" — but it is
+  // the wrong field for the pick clock everyone watches. With seat 3 on the
+  // clock, seats 1 and 2 received null and therefore rendered NO countdown
+  // at all (design-review/14: "On the clock — Stretch Five" with no timer
+  // anywhere on the page). `turn_seconds_remaining` is the open turn's own
+  // clock and the server publishes it to EVERY seat, so all three watch the
+  // same number tick. It was already being read here — but only into the
+  // drift-comparison ref, never into state and never rendered.
+  const [turnDeadlineAt, setTurnDeadlineAt] = useState<number | null>(
+    deadlineFromSeconds(initialMatch.turn_seconds_remaining),
+  );
   // Guards a poll landing while a command is in flight from overwriting the
   // newer state the command already returned.
   const inFlight = useRef(false);
@@ -266,6 +280,7 @@ export default function ThreeManWeaveGame({
         const freshTurn = deadlineFromSeconds(next.turn_seconds_remaining);
         if (driftExceeded(applied.current.turnDeadlineAt, freshTurn) || moved) {
           applied.current = { ...applied.current, turnDeadlineAt: freshTurn };
+          setTurnDeadlineAt(freshTurn);
         }
       }
       setFailures(0);
@@ -330,6 +345,7 @@ export default function ThreeManWeaveGame({
         };
         setMatch(next);
         setDeadlineAt(fresh);
+        setTurnDeadlineAt(freshTurn);
         setFailures(0);
         return response;
       } finally {
@@ -747,8 +763,17 @@ export default function ThreeManWeaveGame({
             seats={match.seats}
             yourSeatIndex={match.your_seat_index}
             currentTurnSeatIndex={match.current_turn_seat_index}
-            poolSize={candidates.length}
             deadlineAt={deadlineAt}
+            turnDeadlineAt={turnDeadlineAt}
+            // The roll is not the board's to state until it has actually
+            // been shown. BOTH gates matter and the first fix only had one:
+            // `ceremonyOpen` covers the spin, but the shared pre-game
+            // BRIEFING (`introOpen`, the "Enter the draft room" card) sits
+            // over the board before the first ceremony has even started, and
+            // round one's franchise and decade were legible behind it
+            // (design-review/13, and reproduced again in this pass's own
+            // E01 capture after the first, partial fix).
+            rollRevealed={!ceremonyOpen && !introOpen}
             picksMade={picksMade}
             totalPicks={state.total_rounds * match.seat_count}
             onMove={rearrange}

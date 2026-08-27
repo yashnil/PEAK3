@@ -28,6 +28,7 @@ const KOBE_ROW: RankingRow = {
   row_id: "kobe-bryant-1yr-200708",
   player_slug: "kobe-bryant",
   player_name: "Kobe Bryant",
+  positions: ["SG", "SF"],
   label: "2007-08",
   team: "LAL",
   prime_score: 84.14,

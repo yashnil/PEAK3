@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { loadHomeModelData, loadNbaFactOfTheDay } from "@/components/home/home-data";
-import { MODE_COPY } from "@/lib/modes";
+import { MODE_COPY, type ModeId } from "@/lib/modes";
 import { getArenaCatalogue } from "@/lib/arena-readiness-server";
 import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
 import HomePageV2 from "@/components/v2/HomePageV2";
@@ -71,6 +71,11 @@ export default async function HomePage() {
               href: mode.href,
               title: mode.name,
               description: mode.description,
+              // The catalogue is keyed with underscores (`three_man_weave`)
+              // and MODE_COPY with hyphens (`three-man-weave`); they are the
+              // same modes, so the authored one-liner is reused rather than
+              // the catalogue sentence being truncated at render time.
+              blurb: MODE_COPY[mode.id.replace(/_/g, "-") as ModeId]?.blurb,
             }))
           : []
       }

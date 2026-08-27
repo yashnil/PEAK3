@@ -315,6 +315,14 @@ export interface RankingRow {
   data_completeness: string | null;
   headshot_url: string | null;
   season_in_progress: boolean;
+  /** CANONICAL positions for this player, structured and sorted ("PG",
+   *  "SG", …). Straight from the API's `positions` array, which is the
+   *  model's own minutes-gated `career_positions()` set — never parsed out
+   *  of a display string. An EMPTY array means "no position information"
+   *  (unknown slug, or a checkout without the optional minutes source), not
+   *  "played no position", so a position filter excludes such a row rather
+   *  than guessing one for it. */
+  positions: string[];
 }
 
 export interface RankingRowPayload {
@@ -339,6 +347,7 @@ export interface RankingRowPayload {
   data_status?: string | null;
   headshot_url?: string | null;
   season_in_progress?: boolean | null;
+  positions?: string[] | null;
 }
 
 /** Board-level provenance. Every field optional: a board that omits one simply

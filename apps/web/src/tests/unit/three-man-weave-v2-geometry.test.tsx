@@ -205,7 +205,6 @@ describe("PeakV2TMWCourts — current drafter is unmistakable (task §11)", () =
         seats={SEATS}
         yourSeatIndex={0}
         currentTurnSeatIndex={1}
-        poolSize={20}
         deadlineAt={null}
         picksMade={0}
         totalPicks={18}
@@ -223,7 +222,6 @@ describe("PeakV2TMWCourts — current drafter is unmistakable (task §11)", () =
         seats={SEATS}
         yourSeatIndex={0}
         currentTurnSeatIndex={0}
-        poolSize={20}
         deadlineAt={null}
         picksMade={0}
         totalPicks={18}
@@ -239,7 +237,6 @@ describe("PeakV2TMWCourts — current drafter is unmistakable (task §11)", () =
         seats={SEATS}
         yourSeatIndex={0}
         currentTurnSeatIndex={1}
-        poolSize={0}
         deadlineAt={null}
         picksMade={18}
         totalPicks={18}
@@ -285,7 +282,6 @@ describe("PeakV2TMWCourts — header timer during a seatless phase (task §5)", 
         seats={SEATS}
         yourSeatIndex={0}
         currentTurnSeatIndex={null}
-        poolSize={20}
         deadlineAt={introDeadline}
         picksMade={0}
         totalPicks={18}
@@ -302,7 +298,6 @@ describe("PeakV2TMWCourts — header timer during a seatless phase (task §5)", 
         seats={SEATS}
         yourSeatIndex={0}
         currentTurnSeatIndex={1}
-        poolSize={20}
         deadlineAt={turnDeadline}
         picksMade={0}
         totalPicks={18}
@@ -340,7 +335,6 @@ describe("PeakV2TMWCourts — viewport containment (follow-up closure pass)", ()
         seats={SEATS}
         yourSeatIndex={0}
         currentTurnSeatIndex={1}
-        poolSize={20}
         deadlineAt={null}
         picksMade={0}
         totalPicks={18}
@@ -357,7 +351,6 @@ describe("PeakV2TMWCourts — viewport containment (follow-up closure pass)", ()
         seats={SEATS}
         yourSeatIndex={0}
         currentTurnSeatIndex={1}
-        poolSize={20}
         deadlineAt={null}
         picksMade={0}
         totalPicks={18}
@@ -382,7 +375,6 @@ describe("PeakV2TMWCourts — viewport containment (follow-up closure pass)", ()
         seats={SEATS}
         yourSeatIndex={0}
         currentTurnSeatIndex={1}
-        poolSize={20}
         deadlineAt={null}
         picksMade={0}
         totalPicks={18}
@@ -393,5 +385,181 @@ describe("PeakV2TMWCourts — viewport containment (follow-up closure pass)", ()
     const openSlots = screen.getAllByText("Open");
     expect(openSlots.length).toBeGreaterThan(0);
     openSlots.forEach((slot) => expect(scrollRegion.contains(slot)).toBe(true));
+  });
+});
+
+describe("PeakV2TMWCourts — the roll is not stated before it is revealed", () => {
+  /**
+   * design-review/13: the round-one franchise and decade were legible on the
+   * board BEHIND the intro overlay, before any reel had spun. The server
+   * knows the roll before the ceremony starts — it has to, the reel spins to
+   * it — but the presentation must still honour the reveal.
+   */
+  it("hides the roll line while the ceremony is still running", () => {
+    render(
+      <PeakV2TMWCourts
+        state={baseTmwState()}
+        seats={SEATS}
+        yourSeatIndex={0}
+        currentTurnSeatIndex={1}
+        deadlineAt={null}
+        rollRevealed={false}
+        picksMade={0}
+        totalPicks={18}
+      />,
+    );
+    expect(screen.queryByText(/Denver Nuggets/)).toBeNull();
+    expect(screen.queryByText(/2020s/)).toBeNull();
+  });
+
+  it("shows it the moment the ceremony has revealed it", () => {
+    render(
+      <PeakV2TMWCourts
+        state={baseTmwState()}
+        seats={SEATS}
+        yourSeatIndex={0}
+        currentTurnSeatIndex={1}
+        deadlineAt={null}
+        rollRevealed
+        picksMade={0}
+        totalPicks={18}
+      />,
+    );
+    expect(screen.getByText(/Denver Nuggets/)).toBeInTheDocument();
+  });
+});
+
+describe("PeakV2TMWCourts — one clock, visible to every seat", () => {
+  /**
+   * `seconds_remaining` is only populated when the open turn is YOURS or
+   * nobody's, so with another seat on the clock the header had nothing to
+   * count and rendered no timer at all (design-review/14 — "On the clock —
+   * Stretch Five" with no countdown anywhere). `turn_seconds_remaining` is
+   * the open turn's own clock and the server publishes it to every seat.
+   */
+  it("counts the OPEN TURN's clock while another seat is picking", () => {
+    render(
+      <PeakV2TMWCourts
+        state={baseTmwState()}
+        seats={SEATS}
+        yourSeatIndex={0}
+        // Seat 1 is picking, so this viewer's own clock is null...
+        currentTurnSeatIndex={1}
+        deadlineAt={null}
+        // ...but the match clock is published to them anyway.
+        turnDeadlineAt={deadlineFromSeconds(31)}
+        picksMade={0}
+        totalPicks={18}
+      />,
+    );
+    expect(screen.getByTestId("peak-v2-timer-value")).toHaveTextContent("31");
+  });
+
+  it("names who the clock belongs to, rather than how many players are undrafted", () => {
+    render(
+      <PeakV2TMWCourts
+        state={baseTmwState()}
+        seats={SEATS}
+        yourSeatIndex={0}
+        currentTurnSeatIndex={1}
+        deadlineAt={null}
+        turnDeadlineAt={deadlineFromSeconds(31)}
+        picksMade={0}
+        totalPicks={18}
+      />,
+    );
+    expect(screen.getByTestId("tmw-on-the-clock")).toHaveTextContent(/Rim Runner/);
+    expect(screen.queryByText(/undrafted/i)).toBeNull();
+  });
+
+  it("falls back to the viewer's own clock if an older API sends no match clock", () => {
+    render(
+      <PeakV2TMWCourts
+        state={baseTmwState()}
+        seats={SEATS}
+        yourSeatIndex={0}
+        currentTurnSeatIndex={0}
+        deadlineAt={deadlineFromSeconds(12)}
+        picksMade={0}
+        totalPicks={18}
+      />,
+    );
+    expect(screen.getByTestId("peak-v2-timer-value")).toHaveTextContent("12");
+  });
+});
+
+describe("PeakV2TMWCourts — the bench shows what it is worth", () => {
+  /**
+   * Three-Man Weave's `lineup_score` is a FLAT, equally-weighted mean over
+   * all six cards (`nba_peak/three_man_weave/evaluation.py::_tmw_talent_core`)
+   * — unlike 82-0, there is no starters/bench split. The bench pick moves the
+   * final number exactly as much as the point guard does, so rendering it as
+   * a bare name with no season, no team and no PEAK3 value
+   * (design-review/14) understated the single most under-rated decision in
+   * the draft.
+   */
+  const BENCH_PICK = {
+    player_slug: "bernard-king",
+    player_name: "Bernard King",
+    positions: ["SF", "PF"],
+    eligibility: {
+      franchise_id: "NYK",
+      franchise_display_name: "New York Knicks",
+      decade: "1980s",
+      seasons: [
+        { season: "1983-84", team_code: "NYK", games_played: 77, via: "direct_team_season" },
+      ],
+    },
+    scoring_card: {
+      season: "1983-84",
+      team_id: "NYK",
+      team_name: "New York Knicks",
+      prime_score: 73.2,
+      score_source: "exact_team_stint",
+      is_multi_team_season: false,
+      formula_version: "peak3_v1",
+    },
+  } as unknown as NonNullable<TmwPublicState["rosters"][number]["slots"]["bench_1"]>;
+
+  function renderWithBench() {
+    render(
+      <PeakV2TMWCourts
+        state={baseTmwState({
+          rosters: [
+            { seat_index: 0, slots: { bench_1: BENCH_PICK }, complete: false },
+            { seat_index: 1, slots: {}, complete: false },
+            { seat_index: 2, slots: {}, complete: false },
+          ],
+        })}
+        seats={SEATS}
+        yourSeatIndex={0}
+        currentTurnSeatIndex={1}
+        deadlineAt={null}
+        turnDeadlineAt={deadlineFromSeconds(31)}
+        picksMade={1}
+        totalPicks={18}
+      />,
+    );
+  }
+
+  // `getAll*`: the courts render a desktop and a narrow variant, so every
+  // seat's board legitimately appears more than once in the DOM.
+  it("renders the bench player's PEAK3 value, exactly as a starter's is rendered", () => {
+    renderWithBench();
+    expect(screen.getAllByText("73.2").length).toBeGreaterThan(0);
+  });
+
+  it("renders the bench player's season and team, not just their name", () => {
+    renderWithBench();
+    const meta = screen.getAllByTestId("tmw-slot-season-bench_1");
+    expect(meta.length).toBeGreaterThan(0);
+    expect(meta[0]).toHaveTextContent("1983-84");
+    expect(meta[0]).toHaveTextContent("NYK");
+  });
+
+  it("labels the slot BENCH, never the raw `bench_1` key", () => {
+    renderWithBench();
+    expect(screen.queryByText("bench_1")).toBeNull();
+    expect(screen.getAllByText(/^Bench$/i).length).toBeGreaterThan(0);
   });
 });

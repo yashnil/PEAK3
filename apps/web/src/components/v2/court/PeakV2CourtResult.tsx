@@ -56,6 +56,22 @@ import {
   BENCH_SLOT_TYPES,
   fitLabel,
 } from "@/types/perfect-season";
+import type { SlotType } from "@/types/perfect-season";
+
+/**
+ * The slot's label as a READER sees it.
+ *
+ * The starters' own slot types are already the abbreviations basketball
+ * uses ("PG", "C"), so they pass through. The bench types are internal
+ * keys, and printing them raw put literal `bench_1` / `bench_2` / `bench_3`
+ * on the result screen (design-review/12) — a database column shown to a
+ * player. The API key is unchanged; only what is rendered changes.
+ */
+function slotDisplayLabel(slotType: SlotType): string {
+  const benchIndex = BENCH_SLOT_TYPES.indexOf(slotType);
+  return benchIndex >= 0 ? `Bench ${benchIndex + 1}` : slotType;
+}
+
 import type { V2Tone } from "../v2-tone";
 
 interface Props {
@@ -210,7 +226,7 @@ function fitColor(roleFit: CourtSlotPublic["role_fit"], severity?: CourtSlotPubl
  */
 function ResultSlotCard({ slot }: { slot: CourtSlotPublic }) {
   if (!slot.filled) {
-    return <PeakV2CourtSlot position={slot.slot_type} state="empty" emptyHint="Open" />;
+    return <PeakV2CourtSlot position={slotDisplayLabel(slot.slot_type)} state="empty" emptyHint="Open" />;
   }
 
   const isExactSeason = slot.exact_player_season_key != null;
@@ -252,7 +268,7 @@ function ResultSlotCard({ slot }: { slot: CourtSlotPublic }) {
   return (
     <div className="flex flex-col gap-1">
       <PeakV2CourtSlot
-        position={slot.slot_type}
+        position={slotDisplayLabel(slot.slot_type)}
         player={{ name: slot.player_name ?? "", meta: scoreLine }}
         value={value}
         valueLabel={value !== undefined ? "PEAK3" : undefined}
@@ -361,25 +377,24 @@ export default function PeakV2CourtResult({ state, result, onPlayAgain, playAgai
           </PeakV2CinematicStage>
         </div>
 
-        <PeakV2Rule spacing="md" />
+        {/* B. YOUR FINAL ROSTER — the visual centrepiece directly under the
+            result, on the same court the run was built on.
 
-        <SaveRunPanel gameId={state.game_id} wins={result.wins} savable={savable} readOnly={readOnly} />
-
-        {onPlayAgain && (
-          <div className="mt-4">
-            <PlayAgainPanel
-              mode={state.mode}
-              wins={result.wins}
-              losses={result.losses}
-              lineupPeakScore={result.lineup_score_status === "complete" ? result.lineup_peak_score : null}
-              onPlayAgain={onPlayAgain}
-              busy={playAgainBusy}
-            />
+            It used to sit five sections down, beneath a "Save this run"
+            slab, a "Play again" slab, a best/weakness row and the lineup
+            score, so the thing the player actually built was the LAST thing
+            the result showed them. The eight exact player-seasons are the
+            receipt; the analysis explains them, so it follows them. */}
+        <div>
+          <div style={sectionLabelStyle}>Your roster, revealed</div>
+          <div className="mt-3">
+            <CourtLayout starterSlots={starterSlots} benchSlots={benchSlots} renderSlot={(slot) => <ResultSlotCard slot={slot} />} />
           </div>
-        )}
+        </div>
 
         <PeakV2Rule spacing="md" />
 
+        {/* C. RUN ANALYSIS — score, best pick, weakness, what decided it. */}
         {best && (
           <div className="flex flex-col gap-4 sm:flex-row sm:items-baseline sm:justify-between" data-testid="best-and-weakness">
             <div>
@@ -447,15 +462,6 @@ export default function PeakV2CourtResult({ state, result, onPlayAgain, playAgai
         <PeakV2Rule spacing="md" />
 
         <div>
-          <div style={sectionLabelStyle}>Your roster, revealed</div>
-          <div className="mt-3">
-            <CourtLayout starterSlots={starterSlots} benchSlots={benchSlots} renderSlot={(slot) => <ResultSlotCard slot={slot} />} />
-          </div>
-        </div>
-
-        <PeakV2Rule spacing="md" />
-
-        <div>
           <div style={sectionLabelStyle}>What decided this</div>
           <ul className="mt-2 flex flex-col gap-1.5 list-none pl-0">
             {result.decisive_factors.map((f) => (
@@ -495,7 +501,28 @@ export default function PeakV2CourtResult({ state, result, onPlayAgain, playAgai
 
         <PeakV2Rule spacing="md" />
 
-        <ShareRunPanel state={state} result={result} />
+        {/* E. ACTIONS. Save and Play Again used to be the first two things
+            under the hero — two full-width bordered slabs interrupting the
+            result before it had said anything. A receipt offers its actions
+            after it has been read. */}
+        <SaveRunPanel gameId={state.game_id} wins={result.wins} savable={savable} readOnly={readOnly} />
+
+        {onPlayAgain && (
+          <div className="mt-4">
+            <PlayAgainPanel
+              mode={state.mode}
+              wins={result.wins}
+              losses={result.losses}
+              lineupPeakScore={result.lineup_score_status === "complete" ? result.lineup_peak_score : null}
+              onPlayAgain={onPlayAgain}
+              busy={playAgainBusy}
+            />
+          </div>
+        )}
+
+        <div className="mt-4">
+          <ShareRunPanel state={state} result={result} />
+        </div>
 
         {eligibility && !eligibility.leaderboard_eligible && eligibility.reason !== "game_not_complete" && (
           <p className="mt-4" style={mutedTextStyle} data-testid="eligibility-notice">
