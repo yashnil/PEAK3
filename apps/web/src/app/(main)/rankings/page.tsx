@@ -21,6 +21,9 @@ import {
   type RankingSortKey,
   type SortDirection,
 } from "@/components/rankings/board-model";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2ResultHeadline from "@/components/v2/PeakV2ResultHeadline";
+import PeakV2Rule from "@/components/v2/PeakV2Rule";
 
 /**
  * `?sort=statistical_impact` (any `RankingComponentKey`, or `"total"`) —
@@ -279,27 +282,51 @@ export default function RankingsPage() {
   const sortColumn = RANKING_COLUMNS.find((c) => c.key === sortKey);
   const isSorted = !isDefaultSort(sortKey, sortDirection);
 
-  return (
-    <div className="min-h-screen px-4 py-8">
-      <div className="mx-auto max-w-5xl flex flex-col gap-5">
+  // V2's own chrome (Pass 7) — the EXACT same state/handlers computed above,
+  // no second fetch or reducer. `RankingsTable`/`ComponentLegend`/
+  // `RankingsAnalysis`/`RankingsProvenance` are reused verbatim: this only
+  // restyles the shell, headings, tabs, and search around them. Typography
+  // roles: page identity -> cinematic display (once); controls/table body ->
+  // UI role (inherited by `RankingsTable` -- it sets no font-family of its
+  // own); numeric cells -> instrumentation/mono, via the scoped
+  // `[data-ui-version="v2"] .score-number` rule in `styles/v2/info-pages.css`
+  // rather than editing the shared table component itself.
+  const v2View = (
+    <PeakV2Shell width="live">
+      <div className="py-6 flex flex-col gap-5">
         <header className="flex flex-col gap-1.5">
-          <h1 className="font-display text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
+          <PeakV2ResultHeadline as="h1" scale="moment">
             PEAK3 Rankings
-          </h1>
-          <p className="text-sm max-w-2xl" style={{ color: "var(--text-secondary)" }}>
+          </PeakV2ResultHeadline>
+          <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.875rem", color: "var(--v2-text-secondary)", maxWidth: "42rem" }}>
             Every score below is the official PEAK3 formula. Select any row to see exactly how it
             was built.
           </p>
+          {/* Editorial/instrument note, not a warning box — the model's real
+              coverage boundary (docs/model/SCORING_METHODOLOGY.md), stated
+              once here rather than left implicit in a board that otherwise
+              looks like it ranks NBA history in full. */}
+          <p
+            data-testid="rankings-era-note"
+            style={{
+              fontFamily: "var(--v2-font-display)",
+              fontStyle: "italic",
+              fontSize: "0.8125rem",
+              color: "var(--v2-text-muted)",
+              maxWidth: "42rem",
+            }}
+          >
+            Rankings quantify peaks beginning with the 1979–80 season. Earlier player peaks are not
+            included.
+          </p>
         </header>
 
-        {/* Board toggle. flex-wrap so a narrow viewport stacks instead of
-            overflowing -- an @mobile e2e asserts no horizontal page overflow. */}
         <div className="flex flex-col gap-2">
           <div
             role="tablist"
             aria-label="Ranking board"
-            className="flex flex-wrap gap-1.5 p-1 rounded-xl w-fit max-w-full"
-            style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
+            className="flex flex-wrap gap-1.5 p-1 w-fit max-w-full"
+            style={{ background: "var(--v2-bg-surface)", border: "1px solid var(--v2-border-subtle)", borderRadius: "var(--v2-radius-control)" }}
           >
             {BOARDS.map((b) => {
               const active = b.id === board;
@@ -310,27 +337,24 @@ export default function RankingsPage() {
                   aria-selected={active}
                   data-testid={b.testId}
                   onClick={() => selectBoard(b.id)}
-                  className="text-xs font-semibold uppercase tracking-wide rounded-lg px-3.5 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-                  style={
-                    active
-                      ? { background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }
-                      : { background: "transparent", color: "var(--text-secondary)" }
-                  }
+                  className="v2-board-tab text-xs font-semibold uppercase tracking-wide px-3.5 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                  style={{
+                    borderRadius: "var(--v2-radius-control)",
+                    ...(active
+                      ? { background: "var(--v2-color-accent)", color: "var(--text-inverse)" }
+                      : { background: "transparent", color: "var(--v2-text-secondary)" }),
+                  }}
                 >
                   {b.label}
                 </button>
               );
             })}
           </div>
-          {/* Body-size, --text-secondary: this sentence is the only thing that
-              distinguishes the two boards at the 1-Year setting, so it cannot
-              be 12 px muted filler. */}
-          <p className="rankings-explainer" data-testid="pool-explainer">
+          <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.875rem", color: "var(--v2-text-secondary)" }} data-testid="pool-explainer">
             {explainer}
           </p>
         </div>
 
-        {/* Window duration -- Peak Windows only. */}
         {board === "peakWindows" && (
           <div role="tablist" aria-label="Peak window duration" className="flex flex-wrap gap-1.5">
             {WINDOW_OPTIONS.map((w) => {
@@ -342,19 +366,11 @@ export default function RankingsPage() {
                   aria-selected={active}
                   data-testid={`peak-window-tab-${w.id}`}
                   onClick={() => setPeakWindow(w.id)}
-                  className="text-xs font-semibold rounded-full px-3 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                  className="v2-peak-window-tab text-xs font-semibold px-3 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
                   style={
                     active
-                      ? {
-                          background: "var(--peak-accent-bg, rgba(245,200,66,0.12))",
-                          color: "var(--peak-accent-text, #f5c842)",
-                          border: "1px solid var(--peak-accent-dim)",
-                        }
-                      : {
-                          background: "var(--bg-surface)",
-                          color: "var(--text-secondary)",
-                          border: "1px solid var(--border-subtle)",
-                        }
+                      ? { background: "var(--v2-color-accent-bg)", color: "var(--v2-color-accent-text, var(--v2-color-accent))", border: "1px solid var(--v2-color-accent-dim)" }
+                      : { background: "var(--v2-bg-surface)", color: "var(--v2-text-secondary)", border: "1px solid var(--v2-border-subtle)" }
                   }
                 >
                   {w.label}
@@ -372,22 +388,19 @@ export default function RankingsPage() {
             placeholder={board === "seasons" ? "Search players or seasons…" : "Search players…"}
             aria-label="Search rankings"
             data-testid="rankings-search"
-            className="flex-1 rounded-lg px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+            className="flex-1 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
             style={{
-              background: "var(--bg-surface)",
-              color: "var(--text-primary)",
-              border: "1px solid var(--border-default)",
+              fontFamily: "var(--v2-font-ui)",
+              background: "var(--v2-bg-surface)",
+              color: "var(--v2-text-primary)",
+              border: "1px solid var(--v2-border)",
+              borderRadius: "var(--v2-radius-control)",
             }}
           />
           {isSorted && sortColumn && (
-            <div
-              className="flex items-center gap-2 text-xs shrink-0"
-              data-testid="active-sort-note"
-              style={{ color: "var(--text-secondary)" }}
-            >
+            <div className="flex items-center gap-2 text-xs shrink-0" data-testid="active-sort-note" style={{ fontFamily: "var(--v2-font-ui)", color: "var(--v2-text-secondary)" }}>
               <span>
-                Sorted by{" "}
-                <strong style={{ color: "var(--peak-accent-text, #f5c842)" }}>{sortColumn.full}</strong>{" "}
+                Sorted by <strong style={{ color: "var(--v2-color-accent)" }}>{sortColumn.full}</strong>{" "}
                 {sortDirection === "desc" ? "high to low" : "low to high"}
               </span>
               <button
@@ -396,12 +409,8 @@ export default function RankingsPage() {
                   setSortDirection(DEFAULT_SORT_DIRECTION);
                 }}
                 data-testid="reset-sort-btn"
-                className="font-semibold uppercase tracking-wide rounded px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-                style={{
-                  background: "var(--bg-surface)",
-                  color: "var(--text-secondary)",
-                  border: "1px solid var(--border-default)",
-                }}
+                className="font-semibold uppercase tracking-wide px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                style={{ background: "var(--v2-bg-surface)", color: "var(--v2-text-secondary)", border: "1px solid var(--v2-border)", borderRadius: "var(--v2-radius-control)" }}
               >
                 Reset
               </button>
@@ -412,90 +421,58 @@ export default function RankingsPage() {
         {showComponents && <ComponentLegend />}
 
         {error && (
-          <div
-            role="alert"
-            data-testid="rankings-error"
-            className="rounded-lg p-4 text-sm text-center"
-            style={{ background: "var(--bg-surface)", color: "var(--incorrect)" }}
-          >
+          <div role="alert" data-testid="rankings-error" className="p-4 text-sm text-center" style={{ fontFamily: "var(--v2-font-ui)", background: "var(--v2-bg-surface)", color: "var(--v2-color-negative)", borderRadius: "var(--v2-radius-control)" }}>
             {error}
           </div>
         )}
 
         {loading && !data && (
-          <div
-            className="rounded-lg p-6 text-sm text-center"
-            style={{ background: "var(--bg-surface)", color: "var(--text-muted)" }}
-          >
+          <div className="p-6 text-sm text-center" style={{ fontFamily: "var(--v2-font-ui)", background: "var(--v2-bg-surface)", color: "var(--v2-text-muted)", borderRadius: "var(--v2-radius-control)" }}>
             Loading rankings…
           </div>
         )}
 
         {data && (
           <>
-            {/* The board says what it is, in the same words as the explainer
-                above it. Previously this read "1-Year Peak Windows" while the
-                tab beside it read "Single Seasons" -- two names for one
-                concept, side by side. */}
-            <h2 className="rankings-board-heading" data-testid="rankings-board-heading">
+            <PeakV2Rule spacing="sm" />
+            <h2 style={{ fontFamily: "var(--v2-font-ui)", fontSize: "1.0625rem", fontWeight: 700, color: "var(--v2-text-primary)" }} data-testid="rankings-board-heading">
               {boardHeading}
             </h2>
-            {/* FULL WIDTH. There is no reserved analysis column: the table
-                gets the whole measure, which is what makes the component
-                figures comparable down the page. */}
             <div className="rankings-board">
-            <RankingsTable
-              rows={shownRows}
-              sortKey={sortKey}
-              sortDirection={sortDirection}
-              onSort={handleSort}
-              showComponents={showComponents}
-              caption={`${boardHeading} — ranked by PEAK3 score. Select a row to see how the score was built.`}
-              emptyMessage={
-                debouncedSearch
-                  ? `No rows match “${debouncedSearch}”.`
-                  : "No rows available for this board."
-              }
-              labelHeading={board === "seasons" ? "Season" : "Window"}
-              selectedRowId={selectedRow?.row_id ?? null}
-              onSelectRow={openAnalysis}
-            />
+              <RankingsTable
+                rows={shownRows}
+                sortKey={sortKey}
+                sortDirection={sortDirection}
+                onSort={handleSort}
+                showComponents={showComponents}
+                caption={`${boardHeading} — ranked by PEAK3 score. Select a row to see how the score was built.`}
+                emptyMessage={
+                  debouncedSearch
+                    ? `No rows match "${debouncedSearch}".`
+                    : "No rows available for this board."
+                }
+                labelHeading={board === "seasons" ? "Season" : "Window"}
+                selectedRowId={selectedRow?.row_id ?? null}
+                onSelectRow={openAnalysis}
+              />
             </div>
 
             {sortedRows.length > shownRows.length && (
               <button
                 onClick={() => setVisible((v) => v + PAGE_SIZE)}
                 data-testid="rankings-show-more"
-                className="self-center text-xs font-semibold uppercase tracking-wide rounded px-4 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-                style={{
-                  background: "var(--bg-surface)",
-                  color: "var(--text-secondary)",
-                  border: "1px solid var(--border-default)",
-                }}
+                className="self-center text-xs font-semibold uppercase tracking-wide px-4 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                style={{ fontFamily: "var(--v2-font-ui)", background: "var(--v2-bg-surface)", color: "var(--v2-text-secondary)", border: "1px solid var(--v2-border)", borderRadius: "var(--v2-radius-control)" }}
               >
                 Show more ({shownRows.length} of {sortedRows.length})
               </button>
             )}
 
-            {/* Provenance. Still last on the page, no longer 10 px grey --
-                see RankingsProvenance for why the serving-gate note in
-                particular had to stop being unreadable. */}
             <RankingsProvenance meta={data.meta} fallbackRowCount={rows.length} />
           </>
         )}
       </div>
 
-      {/* THE ANALYSIS. One destination, and the only place the chart or the
-          derivation exists. Rendered outside the list's own layout so it
-          overlays rather than displaces -- which is what preserves scroll
-          position, the sort, the search text and the duration filter with no
-          state to serialise and restore.
-
-          THERE IS NO SECOND DIALOG. `ScoreExplainModal` used to sit here,
-          opened from a `ƒ` cell in every row: two dialogs answering one
-          question, and on a phone the second one was reached through a glyph.
-          Its contents are now `ScoreDerivation`'s sections, rendered inside
-          this drawer behind three disclosures. */}
       <RankingsAnalysis
         row={selectedRow}
         board={board}
@@ -510,6 +487,8 @@ export default function RankingsPage() {
         hasPrevious={selectedIndex > 0}
         hasNext={selectedIndex >= 0 && selectedIndex < sortedRows.length - 1}
       />
-    </div>
+    </PeakV2Shell>
   );
+
+  return v2View;
 }

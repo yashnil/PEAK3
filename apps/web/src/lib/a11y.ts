@@ -259,26 +259,41 @@ export function usePrefersReducedMotion(): boolean {
 /* ------------------------------------------------------------------ */
 
 let scrollLockCount = 0;
-let scrollLockPrevious = "";
+let scrollLockPreviousBody = "";
+let scrollLockPreviousHtml = "";
 
 /**
  * Freezes background scrolling while `active`.
  *
  * Reference-counted: a dialog opened from inside another dialog must not
  * restore the page's scrolling when only the inner one closes.
+ *
+ * Locks BOTH `<body>` and `<html>` overflow, not just `<body>`. On a route
+ * whose content is taller than the viewport, `document.scrollingElement` is
+ * `<html>` (standard browser behavior) — setting only `body.style.overflow`
+ * left `<html>` free to keep scrolling (confirmed live: `window.scrollY`
+ * moved from a wheel event with a dialog open and `body { overflow: hidden
+ * }` already applied). For an `align="bottom"` dialog (e.g. 82-0's chooser)
+ * that leaves real page below its visible panel, that let the page's own
+ * footer scroll up into the gap beneath the panel and become legible
+ * against it — the fix is locking the actual scrolling element, not the one
+ * scroll locks conventionally target.
  */
 export function useBodyScrollLock(active: boolean): void {
   useEffect(() => {
     if (!active || typeof document === "undefined") return;
     if (scrollLockCount === 0) {
-      scrollLockPrevious = document.body.style.overflow;
+      scrollLockPreviousBody = document.body.style.overflow;
+      scrollLockPreviousHtml = document.documentElement.style.overflow;
       document.body.style.overflow = "hidden";
+      document.documentElement.style.overflow = "hidden";
     }
     scrollLockCount += 1;
     return () => {
       scrollLockCount = Math.max(0, scrollLockCount - 1);
       if (scrollLockCount === 0) {
-        document.body.style.overflow = scrollLockPrevious;
+        document.body.style.overflow = scrollLockPreviousBody;
+        document.documentElement.style.overflow = scrollLockPreviousHtml;
       }
     };
   }, [active]);

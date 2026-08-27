@@ -36,22 +36,36 @@ interface Props {
 const DEBOUNCE_MS = 250;
 const MIN_QUERY = 2;
 
-function ConstraintBlock({ constraint, axis }: { constraint: GridConstraint | null; axis: "Row" | "Column" }) {
+function ConstraintBlock({
+  constraint,
+  axis,
+}: {
+  constraint: GridConstraint | null;
+  axis: "Row" | "Column";
+}) {
   if (!constraint) return null;
   const color = categoryColor(constraint.category);
   return (
     <div
       data-testid={`cell-panel-${axis.toLowerCase()}-constraint`}
-      className="rounded-lg p-3"
-      style={{ background: "var(--bg-surface)", borderLeft: `3px solid ${color}` }}
+      className="p-3"
+      style={{
+        background: "var(--v2-bg-surface)",
+        borderLeft: `3px solid ${color}`,
+        borderRadius: "var(--v2-radius-control)",
+        fontFamily: "var(--v2-font-ui)",
+      }}
     >
-      <p className="text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: "var(--text-muted)" }}>
+      <p
+        className="text-[10px] font-bold uppercase tracking-[0.16em]"
+        style={{ fontFamily: "var(--v2-font-mono)", color: "var(--v2-text-muted)" }}
+      >
         {axis} · {CATEGORY_LABEL[constraint.category]}
       </p>
-      <p className="mt-1 text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+      <p className="mt-1 text-sm font-bold" style={{ color: "var(--v2-text-primary)" }}>
         {constraint.label}
       </p>
-      <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+      <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--v2-text-secondary)" }}>
         {constraint.description}
       </p>
     </div>
@@ -201,19 +215,35 @@ export default function CellPanel({
     <section
       data-testid="cell-panel"
       aria-label="Selected square"
-      className="card-elevated p-4 sm:p-5"
-      style={{ borderColor: "color-mix(in srgb, var(--peak-accent) 30%, var(--border-subtle))" }}
+      className="p-4 sm:p-5"
+      style={{
+        fontFamily: "var(--v2-font-ui)",
+        background: "var(--v2-bg-plane)",
+        border: "1px solid var(--v2-color-accent-dim, var(--v2-color-accent))",
+        borderRadius: "var(--v2-radius-modal)",
+      }}
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--text-muted)" }}>
+          <p
+            className="text-[10px] font-bold uppercase tracking-[0.18em]"
+            style={{ fontFamily: "var(--v2-font-mono)", color: "var(--v2-text-muted)" }}
+          >
             Selected square · Row {row + 1}, Column {col + 1}
           </p>
-          <h2 data-testid="cell-panel-title" className="font-display mt-1 text-lg font-bold">
+          <h2
+            data-testid="cell-panel-title"
+            className="mt-1 text-lg font-bold"
+            style={{ fontFamily: "var(--v2-font-ui)", color: "var(--v2-text-primary)" }}
+          >
             {(rowC?.label ?? `Row ${row + 1}`) + " × " + (colC?.label ?? `Column ${col + 1}`)}
           </h2>
           {spec && (
-            <p data-testid="cell-panel-pool" className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+            <p
+              data-testid="cell-panel-pool"
+              className="mt-1 text-xs"
+              style={{ color: "var(--v2-text-muted)" }}
+            >
               Answer pool: {RARITY_SHORT_LABEL[spec.rarity_bucket]} — {RARITY_POOL_HINT[spec.rarity_bucket]}{" "}
               {spec.rarity_bucket === "very_common" || spec.rarity_bucket === "common"
                 ? "Easier to fill, worth less."
@@ -227,7 +257,7 @@ export default function CellPanel({
           onClick={onClose}
           aria-label="Close selected square"
           className="rounded-md px-2 py-1 text-sm"
-          style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+          style={{ fontFamily: "var(--v2-font-ui)", border: "1px solid var(--v2-border)", color: "var(--v2-text-secondary)" }}
         >
           Close
         </button>
@@ -283,7 +313,7 @@ export default function CellPanel({
           <label
             htmlFor="daily-grid-search"
             className="text-[10px] font-bold uppercase tracking-[0.16em]"
-            style={{ color: "var(--text-muted)" }}
+            style={{ fontFamily: "var(--v2-font-mono)", color: "var(--v2-text-muted)" }}
           >
             Find a player-season
           </label>
@@ -298,9 +328,11 @@ export default function CellPanel({
             placeholder="Search a player, e.g. Olajuwon"
             className="mt-1 w-full rounded-lg px-3 py-2 text-sm"
             style={{
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border-default)",
-              color: "var(--text-primary)",
+              fontFamily: "var(--v2-font-ui)",
+              borderRadius: "var(--v2-radius-control)",
+              background: "var(--v2-bg-surface)",
+              border: "1px solid var(--v2-border)",
+              color: "var(--v2-text-primary)",
             }}
           />
 

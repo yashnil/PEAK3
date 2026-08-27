@@ -1,0 +1,116 @@
+/* ================================================================
+   V2 · Broadcast Arena — navbar override layer (Pass 5)
+   ================================================================
+   Scoped entirely under [data-ui-version="v2"]. Zero DOM/behavior change —
+   nav.tsx is unmodified except for a purely-presentational `data-scrolled`
+   attribute (see nav.tsx). Every test-asserted selector (aria-label, the
+   literal `bg-[var(--bg-surface)]` active class, data-testids) still exists
+   and still works exactly as before; this file only repaints them.
+
+   Brief: "quiet, integrated with the page" at rest, a subtle surface/
+   hairline once scrolled. No glassmorphism, no blur, no glow, no bouncy
+   scroll behavior.
+   ================================================================ */
+
+[data-ui-version="v2"] .pk-nav-header {
+  background: transparent;
+  border-bottom: 1px solid transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  transition: background-color var(--v2-dur-transition) var(--v2-ease-standard),
+    border-color var(--v2-dur-transition) var(--v2-ease-standard);
+}
+
+[data-ui-version="v2"] .pk-nav-header[data-scrolled="true"] {
+  background: color-mix(in srgb, var(--v2-bg-page) 92%, transparent);
+  border-bottom: 1px solid var(--v2-border-subtle);
+}
+
+/* Wordmark: the editorial display face, not the app's UI sans. Small enough
+   at nav scale to still read as a logotype rather than a headline. */
+[data-ui-version="v2"] .pk-nav-wordmark {
+  font-family: var(--v2-font-display);
+  font-weight: 400;
+  font-size: 1.25rem;
+  letter-spacing: 0.005em;
+}
+
+[data-ui-version="v2"] .pk-nav-wordmark span:last-of-type {
+  font-family: var(--v2-font-ui);
+  font-weight: 600;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+}
+
+/* Links: UI role, quieter weight than the legacy bold nav, restrained gold
+   underline already exists in nav.css and is kept verbatim — only the resting
+   ink and the active-state FILL are toned down here so gold stays scarce. */
+[data-ui-version="v2"] .pk-nav-link,
+[data-ui-version="v2"] .pk-playmenu > button {
+  font-family: var(--v2-font-ui);
+  font-weight: 500;
+  font-size: 0.8125rem;
+  letter-spacing: 0.01em;
+}
+
+[data-ui-version="v2"] .pk-nav-link[aria-current="page"],
+[data-ui-version="v2"] .pk-playmenu > button[aria-current="page"] {
+  /* The frozen `bg-[var(--bg-surface)]` utility still applies (spec test) —
+     override its painted result only, not the class. A hairline tint reads
+     as "current section" without becoming a SaaS active-pill. */
+  background: transparent !important;
+  color: var(--v2-text-primary);
+}
+
+[data-ui-version="v2"] .pk-nav-link:not([aria-current="page"]):hover {
+  background: transparent !important;
+}
+
+[data-ui-version="v2"] .pk-nav-burger {
+  color: var(--v2-text-secondary);
+}
+
+/* Play menu panel: same instrument, quieter fill. */
+[data-ui-version="v2"] .pk-playmenu-panel {
+  background: var(--v2-bg-plane);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  box-shadow: var(--v2-elev-modal);
+}
+
+[data-ui-version="v2"] .pk-playmenu-group-title,
+[data-ui-version="v2"] .pk-playmenu-group-hint,
+[data-ui-version="v2"] .pk-playmenu-label,
+[data-ui-version="v2"] .pk-playmenu-blurb {
+  font-family: var(--v2-font-ui);
+}
+
+[data-ui-version="v2"] .pk-playmenu-row {
+  border-radius: var(--v2-radius-control);
+}
+
+[data-ui-version="v2"] .pk-playmenu-row-featured {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--v2-color-accent) 8%, transparent);
+}
+
+/* Mobile drawer: same quiet material as the panel. */
+[data-ui-version="v2"] .pk-nav-drawer-title,
+[data-ui-version="v2"] .pk-nav-drawer-row,
+[data-ui-version="v2"] .pk-nav-drawer-toprow,
+[data-ui-version="v2"] .pk-nav-drawer-section-link,
+[data-ui-version="v2"] .pk-nav-drawer-subtitle {
+  font-family: var(--v2-font-ui);
+}
+
+[data-ui-version="v2"] .pk-nav-drawer-resume {
+  border-radius: var(--v2-radius-control);
+  border-color: color-mix(in srgb, var(--v2-color-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--v2-color-accent) 10%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ui-version="v2"] .pk-nav-header {
+    transition: none;
+  }
+}

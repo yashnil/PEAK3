@@ -798,7 +798,16 @@ describe("RunTheTableGame — v3 flow", () => {
     expect(skip).toBeEnabled();
   });
 
-  it("boss intro skip lands on the paired lineup reveal — one press, no countdown wait", async () => {
+  it("boss intro skip lands on the paired lineup reveal — one press, no countdown wait, and the lineup reveal itself needs no press at all", async () => {
+    // Pass 1 (gameplay correctness): the boss lineup reveal auto-starts the
+    // instant this surface mounts, firing the same `reveal` action a click
+    // used to — so the mock must resolve it or the run errors out.
+    mockPostAction.mockResolvedValue(
+      runState({
+        status: "boss_ready", act: 1,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(7) },
+      }),
+    );
     await startAt(
       runState({
         status: "boss_ready",
@@ -816,6 +825,8 @@ describe("RunTheTableGame — v3 flow", () => {
     expect(screen.getByTestId("rtt-reveal-source-boss")).toHaveTextContent(
       /seed and rule generated/i,
     );
+    // No press required to begin it, and none is offered.
+    expect(screen.queryByTestId("rtt-reveal-start-boss")).not.toBeInTheDocument();
   });
 
   it("pairs the player's already-known card beside the boss's card as each slot resolves", async () => {
@@ -833,6 +844,15 @@ describe("RunTheTableGame — v3 flow", () => {
         base_cost: 10, cost: 10, cost_modifiers: [], refund_value: 5,
       },
     }));
+    // Set BEFORE the intro is dismissed: the boss reveal now auto-starts
+    // (fires `reveal`) the instant its surface mounts, right after the intro
+    // skip click below — there is no separate start press left to mock around.
+    mockPostAction.mockResolvedValue(
+      runState({
+        status: "boss_ready", act: 1, starters: myStarters,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(7) },
+      }),
+    );
     await startAt(
       runState({
         status: "boss_ready",
@@ -846,13 +866,6 @@ describe("RunTheTableGame — v3 flow", () => {
       }),
     );
     await userEvent.click(screen.getByTestId("rtt-boss-intro-skip"));
-    mockPostAction.mockResolvedValue(
-      runState({
-        status: "boss_ready", act: 1, starters: myStarters,
-        reveal: { roster: rosterTrack(7), boss: bossTrack(7) },
-      }),
-    );
-    await userEvent.click(screen.getByTestId("rtt-reveal-start-boss"));
     await userEvent.click(await screen.findByTestId("rtt-reveal-skip-boss"));
     const paired = await screen.findAllByTestId("rtt-reveal-paired-card");
     expect(paired.length).toBeGreaterThan(0);
@@ -879,21 +892,8 @@ describe("RunTheTableGame — v3 flow", () => {
       ...bossOne, boss_id: "strength-in-numbers", name: "Strength in Numbers", act: 2,
     };
 
-    await startAt(
-      runState({
-        status: "boss_ready", act: 1,
-        reveal: { roster: rosterTrack(7), boss: bossTrack(0) },
-        next_boss: bossOne,
-      }),
-    );
-    // Boss 1: intro, then a reveal that genuinely has to be started.
-    expect(screen.getByTestId("rtt-boss-intro")).toBeInTheDocument();
-    await userEvent.click(screen.getByTestId("rtt-boss-intro-skip"));
-    expect(await screen.findByTestId("rtt-boss-reveal")).toBeInTheDocument();
-    expect(screen.getByTestId("rtt-reveal-start-boss")).toBeInTheDocument();
-
-    // Play it through to fully resolved, then dismiss it — mirrors the skip
-    // + continue flow every other boss-reveal test in this file uses.
+    // Boss 1's own auto-fired reveal response — set before it ever mounts,
+    // same reason as the other boss-reveal tests in this pass.
     mockPostAction.mockResolvedValue(
       runState({
         status: "boss_ready", act: 1,
@@ -901,7 +901,21 @@ describe("RunTheTableGame — v3 flow", () => {
         next_boss: bossOne,
       }),
     );
-    await userEvent.click(screen.getByTestId("rtt-reveal-start-boss"));
+    await startAt(
+      runState({
+        status: "boss_ready", act: 1,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(0) },
+        next_boss: bossOne,
+      }),
+    );
+    // Boss 1: intro, then a reveal that starts itself with no press.
+    expect(screen.getByTestId("rtt-boss-intro")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("rtt-boss-intro-skip"));
+    expect(await screen.findByTestId("rtt-boss-reveal")).toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-reveal-start-boss")).not.toBeInTheDocument();
+
+    // Play it through to fully resolved, then dismiss it — mirrors the skip
+    // + continue flow every other boss-reveal test in this file uses.
     await userEvent.click(await screen.findByTestId("rtt-reveal-skip-boss"));
     await userEvent.click(await screen.findByTestId("rtt-reveal-continue-boss"));
     expect(await screen.findByTestId("rtt-boss-preview")).toBeInTheDocument();
@@ -921,34 +935,85 @@ describe("RunTheTableGame — v3 flow", () => {
     // `boss_id`) ...
     expect(await screen.findByTestId("rtt-boss-intro")).toBeInTheDocument();
     expect(screen.getByText("Strength in Numbers")).toBeInTheDocument();
+
+    // Set for boss 2's own auto-fired reveal response — fires the instant
+    // its intro is skipped and the reveal surface mounts, below.
+    mockPostAction.mockResolvedValue(
+      runState({
+        status: "boss_ready", act: 2,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(7, { act: 2, boss_id: "strength-in-numbers", name: "Strength in Numbers" }) },
+        next_boss: bossTwo,
+      }),
+    );
     await userEvent.click(screen.getByTestId("rtt-boss-intro-skip"));
 
-    // ... and the THIS IS THE REGRESSION: boss 2's reveal must demand a
-    // press, exactly like boss 1's did — not render pre-completed with no
-    // start control, which is what the un-reset hook instance produced.
+    // ... and THIS IS THE REGRESSION: boss 2's reveal must start fresh, not
+    // pre-completed with the first boss's already-finished sequence — which
+    // is what the un-reset hook instance produced. With no start button left
+    // to gate on, the fresh-vs-inherited signal is `data-reveal-complete`
+    // (only true once boss 2's own paced presentation genuinely finishes)
+    // plus the absence of "Continue"/any player name, which an inherited
+    // `complete: true` state would already be showing.
     const reveal2 = await screen.findByTestId("rtt-boss-reveal");
-    expect(within(reveal2).getByTestId("rtt-reveal-start-boss")).toBeInTheDocument();
+    expect(reveal2).toHaveAttribute("data-reveal-complete", "false");
     expect(within(reveal2).queryByTestId("rtt-reveal-continue-boss")).not.toBeInTheDocument();
     expect(screen.queryByText(/Player \d/)).not.toBeInTheDocument();
   });
 
-  it("hands over to the briefing once the boss lineup is fully revealed", async () => {
+  // Pass 1 (product-direction): this used to assert that mounting straight
+  // into an already-fully-revealed, never-locally-dismissed boss track
+  // (`bossTrack(7)`, fresh component instance) skips straight to the
+  // briefing. Auto-reveal made that exact shape ambiguous with "reload
+  // mid-presentation, after the one-shot batched reveal POST resolved but
+  // before Continue was pressed" — which is now REQUIRED to resume showing
+  // the reveal, not skip past it (see `run-the-table.spec.ts`'s "boss reveal
+  // auto-starts with zero clicks, and a reload mid-reveal does not strand
+  // the match"). Both scenarios are the identical state at mount time, with
+  // no server-side signal to tell them apart, so the fail-safe default now
+  // wins for both: show the reveal. Dismissal correctly handing over to the
+  // briefing afterward is already covered by the "second boss" reset test
+  // above (`await userEvent.click(... "rtt-reveal-continue-boss")`).
+  it("resumes on the reveal, not the briefing, when a fully-revealed boss track has never been locally dismissed", async () => {
+    const bossOnWall = {
+      boss_id: "the-wall", name: "The Wall", tagline: "Nothing gets through.",
+      act: 1, rule: null, source: "curated", revealed: true, deterministic: true,
+      starters: [], bench: [], lane_profile: [], roster_total: 60,
+    };
+    // The boss reveal auto-fires (fires `reveal`) the instant its surface
+    // mounts, even when the track arrives already fully resolved — this
+    // mocks that response explicitly rather than relying on the resolved
+    // value a PRECEDING test happened to leave behind (`vi.clearAllMocks()`
+    // resets call history, not `mockResolvedValue`).
+    mockPostAction.mockResolvedValue(
+      runState({
+        status: "boss_ready",
+        act: 1,
+        lane_profile: [],
+        reveal: { roster: rosterTrack(7), boss: bossTrack(7) },
+        next_boss: bossOnWall,
+      }),
+    );
     await startAt(
       runState({
         status: "boss_ready",
         act: 1,
         lane_profile: [],
         reveal: { roster: rosterTrack(7), boss: bossTrack(7) },
-        next_boss: {
-          boss_id: "the-wall", name: "The Wall", tagline: "Nothing gets through.",
-          act: 1, rule: null, source: "curated", revealed: true, deterministic: true,
-          starters: [], bench: [], lane_profile: [], roster_total: 60,
-        },
+        next_boss: bossOnWall,
       }),
     );
     expect(screen.queryByTestId("rtt-boss-intro")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("rtt-boss-reveal")).not.toBeInTheDocument();
-    expect(screen.getByTestId("rtt-boss-preview")).toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-boss-preview")).not.toBeInTheDocument();
+    expect(screen.getByTestId("rtt-boss-reveal")).toBeInTheDocument();
+
+    // And it is not a dead end: dismissing it still hands over to the
+    // briefing normally. "Continue" only appears once the local paced
+    // presentation itself has resolved (not just the server's `revealed`
+    // count), so skip-all fast-forwards it first, same as every other
+    // boss-reveal test in this file.
+    await userEvent.click(await screen.findByTestId("rtt-reveal-skip-boss"));
+    await userEvent.click(await screen.findByTestId("rtt-reveal-continue-boss"));
+    expect(await screen.findByTestId("rtt-boss-preview")).toBeInTheDocument();
   });
 
   // P5-F5 (platform): the battle screen's HUD objective rendered the raw

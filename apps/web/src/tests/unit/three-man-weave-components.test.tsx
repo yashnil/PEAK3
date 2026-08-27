@@ -19,6 +19,7 @@ import userEvent from "@testing-library/user-event";
 import SeatCourt from "@/components/three-man-weave/SeatCourt";
 import RosterBoard from "@/components/three-man-weave/RosterBoard";
 import PodiumReceipt from "@/components/three-man-weave/PodiumReceipt";
+import PeakV2TMWResult from "@/components/v2/tmw/PeakV2TMWResult";
 import PickOverlay from "@/components/three-man-weave/PickOverlay";
 import IdentityLockPanel from "@/components/three-man-weave/IdentityLockPanel";
 import TurnStatus from "@/components/three-man-weave/TurnStatus";
@@ -906,6 +907,7 @@ describe("TurnStatus", () => {
 describe("PickOverlay", () => {
   function renderOverlay(overrides: Partial<React.ComponentProps<typeof PickOverlay>> = {}) {
     const onPick = vi.fn();
+    const onStage = vi.fn();
     const onMove = vi.fn();
     render(
       <PickOverlay
@@ -934,12 +936,13 @@ describe("PickOverlay", () => {
         turnSeconds={45}
         busy={false}
         onPick={onPick}
+        onStage={onStage}
         onMove={onMove}
         onClose={vi.fn()}
         {...overrides}
       />,
     );
-    return { onPick, onMove };
+    return { onPick, onStage, onMove };
   }
 
   it("shows no score for any candidate", () => {
@@ -1136,23 +1139,25 @@ describe("PickOverlay", () => {
     expect(row.className).not.toMatch(/pk-lift|pk-press/);
   });
 
-  it("stages (and, with one legal slot, commits) on the PRESS, so a click that splits across elements still lands", () => {
+  it("stages (never commits) on the PRESS, so a click that splits across elements still lands", () => {
     // A `click` is only delivered when mousedown and mouseup resolve to the
     // same element. Staging on pointerdown removes that dependency for the one
     // interaction the whole mode runs on. kyle-lowry has exactly one legal
-    // slot (PG), so the press both stages AND commits (3.2) -- onPick fires
-    // immediately, with no separate confirm press required.
-    const { onPick } = renderOverlay();
+    // slot (PG), so the press stages that pair server-side via `onStage` --
+    // but Pass 1 requires selection to STOP being commitment, so `onPick`
+    // must not fire until the separate "Draft ... at ..." press.
+    const { onPick, onStage } = renderOverlay();
     const row = screen.getByTestId("tmw-candidate-kyle-lowry");
     fireEvent.pointerDown(row, { button: 0 });
     expect(row).toHaveAttribute("data-selected", "true");
     expect(screen.getByTestId("tmw-confirm-pick")).toHaveTextContent(
       /Draft Kyle Lowry at Point guard/,
     );
-    expect(onPick).toHaveBeenCalledWith(
+    expect(onStage).toHaveBeenCalledWith(
       expect.objectContaining({ player_slug: "kyle-lowry" }),
       "PG",
     );
+    expect(onPick).not.toHaveBeenCalled();
   });
 
   it("never promises the best available player on timeout", () => {
@@ -1218,14 +1223,15 @@ describe("PickOverlay", () => {
     expect(select.closest("label")).toHaveTextContent(/Or choose a slot from a list/);
   });
 
-  it("3.2: commits the only legal slot immediately, with NO separate confirm press — one candidate is one click", async () => {
-    // This is the regression test for the reported bug: a legal candidate
-    // clicked before the deadline must BE the pick, not merely a staged
-    // suggestion that a second, separate confirm press turns into one. Before
-    // the fix, this scenario left onPick uncalled until "Draft ... at ..."
-    // was also pressed -- exactly the gap that let a timeout fallback
-    // discard an already-clicked player.
-    const { onPick } = renderOverlay({
+  it("Pass 1: a single-legal-slot candidate STAGES on click but never commits without an explicit Draft press", async () => {
+    // Reverses the old 3.2 regression test on purpose. 3.2 fixed a real
+    // incident (a visibly-selected pick discarded by the timeout fallback)
+    // by making the click itself the commit -- but Pass 1's product
+    // direction is that an accidental click must never irrevocably draft.
+    // The original incident does not reopen: staging is now server-visible
+    // (`onStage`), so a timeout drafts the staged choice instead of the
+    // fallback. See `PickOverlay`'s module docstring.
+    const { onPick, onStage } = renderOverlay({
       candidates: [
         candidate("kawhi-leonard", {
           fit: {
@@ -1243,15 +1249,23 @@ describe("PickOverlay", () => {
     expect(screen.getByTestId("tmw-staged-SF")).toBeInTheDocument();
     expect(screen.queryByTestId("tmw-place-select")).toBeNull();
     expect(screen.getByTestId("tmw-confirm-pick")).toBeEnabled();
-    // The whole point: committed WITHOUT touching "tmw-confirm-pick" at all.
+    // Staged server-side immediately...
+    expect(onStage).toHaveBeenCalledWith(
+      expect.objectContaining({ player_slug: "kawhi-leonard" }),
+      "SF",
+    );
+    // ...but NOT drafted until "Draft ... at ..." is pressed.
+    expect(onPick).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId("tmw-confirm-pick"));
+    expect(onPick).toHaveBeenCalledTimes(1);
     expect(onPick).toHaveBeenCalledWith(
       expect.objectContaining({ player_slug: "kawhi-leonard" }),
       "SF",
     );
   });
 
-  it("3.2: a multi-slot candidate commits the instant a legal slot is clicked, with no separate confirm press", async () => {
-    const { onPick } = renderOverlay({
+  it("Pass 1: a multi-slot candidate STAGES on slot click but never commits without an explicit Draft press", async () => {
+    const { onPick, onStage } = renderOverlay({
       candidates: [
         candidate("kawhi-leonard", {
           fit: {
@@ -1265,17 +1279,88 @@ describe("PickOverlay", () => {
         }),
       ],
     });
-    // Clicking the candidate alone must NOT commit -- which slot is a real,
-    // unmade decision when there is more than one legal option.
+    // Clicking the candidate alone stages nothing yet -- which slot is a
+    // real, unmade decision when there is more than one legal option.
     await userEvent.click(screen.getByTestId("tmw-candidate-kawhi-leonard"));
+    expect(onStage).not.toHaveBeenCalled();
     expect(onPick).not.toHaveBeenCalled();
-    // But clicking the SLOT is the whole decision, and commits immediately --
-    // no "tmw-confirm-pick" press required.
+    // Clicking the SLOT stages the pair server-side...
     await userEvent.click(screen.getByTestId("tmw-place-PF"));
+    expect(onStage).toHaveBeenCalledWith(
+      expect.objectContaining({ player_slug: "kawhi-leonard" }),
+      "PF",
+    );
+    // ...but still requires the explicit "Draft ... at ..." press to commit.
+    expect(onPick).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId("tmw-confirm-pick"));
+    expect(onPick).toHaveBeenCalledTimes(1);
     expect(onPick).toHaveBeenCalledWith(
       expect.objectContaining({ player_slug: "kawhi-leonard" }),
       "PF",
     );
+  });
+
+  it("Pass 1: CHANGE SELECTION clears the server's staged choice, not just local state", async () => {
+    const { onPick, onStage } = renderOverlay({
+      candidates: [
+        candidate("kawhi-leonard", {
+          fit: {
+            player_slug: "kawhi-leonard",
+            state: "fits_now",
+            direct_slots: ["SF"],
+            plan: null,
+            moves: [],
+            reason: null,
+          },
+        }),
+      ],
+    });
+    await userEvent.click(screen.getByTestId("tmw-candidate-kawhi-leonard"));
+    expect(onStage).toHaveBeenCalledWith(
+      expect.objectContaining({ player_slug: "kawhi-leonard" }),
+      "SF",
+    );
+    await userEvent.click(screen.getByTestId("tmw-cancel-pick"));
+    expect(onStage).toHaveBeenLastCalledWith(null, null);
+    expect(onPick).not.toHaveBeenCalled();
+    // The panel returns to its idle state, ready for a fresh selection.
+    expect(screen.getByTestId("tmw-place-hint")).toBeInTheDocument();
+  });
+
+  it("Pass 1: a server-visible staged choice HYDRATES on mount, surviving a refresh/reconnect", () => {
+    // The product requirement: a player who staged a choice and then
+    // reloaded the page (or reconnected) must see it still staged, not a
+    // blank panel -- `staged_pick` is part of the persisted match snapshot,
+    // not client-only state, and this is the render-side half of that.
+    const { onPick } = renderOverlay({
+      stagedPick: { player_slug: "kyle-lowry", slot_type: "PG" },
+    });
+    const row = screen.getByTestId("tmw-candidate-kyle-lowry");
+    expect(row).toHaveAttribute("data-selected", "true");
+    const confirm = screen.getByTestId("tmw-confirm-pick");
+    expect(confirm).toHaveTextContent("Draft Kyle Lowry at Point guard");
+    expect(confirm).toBeEnabled();
+    // Immediately usable -- DRAFT PLAYER commits the hydrated choice with no
+    // re-selection required.
+    return userEvent.click(confirm).then(() => {
+      expect(onPick).toHaveBeenCalledWith(
+        expect.objectContaining({ player_slug: "kyle-lowry" }),
+        "PG",
+      );
+    });
+  });
+
+  it("Pass 1: staging a NEW choice after hydration does not wipe the in-progress search or filters", async () => {
+    // Regression guard for the hydration effect's dependency array: it must
+    // fire on mount/turn-change only, never as a side effect of the stage
+    // round-trip a candidate/slot click itself triggers -- otherwise every
+    // click while actively narrowing the pool would silently clear the
+    // player's search text and position filters out from under them.
+    renderOverlay({ stagedPick: { player_slug: "kyle-lowry", slot_type: "PG" } });
+    await userEvent.type(screen.getByTestId("tmw-pick-search"), "kawhi");
+    await userEvent.click(screen.getByTestId("tmw-filter-SF"));
+    expect(screen.getByTestId("tmw-pick-search")).toHaveValue("kawhi");
+    expect(screen.getByTestId("tmw-filter-SF")).toHaveAttribute("aria-pressed", "true");
   });
 
   it("uses real buttons, not text, for both actions", async () => {
@@ -1473,6 +1558,69 @@ describe("PodiumReceipt", () => {
       rosters: [roster(0)],
     });
     expect(screen.getByTestId("tmw-result-0")).toHaveTextContent("Not ranked");
+  });
+});
+
+describe("PeakV2TMWResult — score ownership (mission bug 4)", () => {
+  function renderV2Result(
+    overrides: Partial<React.ComponentProps<typeof PeakV2TMWResult>> = {},
+  ) {
+    render(
+      <PeakV2TMWResult
+        results={[result()]}
+        rosters={[roster(0, { SF: pick() })]}
+        yourSeatIndex={0}
+        seed="m-1"
+        onPlayAgain={vi.fn()}
+        {...overrides}
+      />,
+    );
+  }
+
+  it("labels the hero score 'Your' when the viewer won", () => {
+    renderV2Result();
+    const heroScore = screen.getByTestId("tmw-winner-score");
+    expect(heroScore).toHaveAttribute("data-winner-is-you", "true");
+    expect(heroScore).toHaveTextContent(/Your PEAK3 lineup score/i);
+    expect(heroScore).toHaveTextContent("72.4");
+  });
+
+  it("names the actual winner on the hero score when the viewer did NOT win, never silently attributing it to the viewer", () => {
+    // Seat 1 ("Floor General") wins with a real, distinct score; the
+    // viewer (seat 0) places 2nd with a different score. Before the fix,
+    // the hero number was captioned with the bare, unattributed
+    // "PEAK3 lineup score" -- reading, right beneath the viewer's OWN
+    // placement badge, as if it might be the viewer's own result.
+    const results = [
+      result({ seat_index: 0, display_name: "You", placement: 2, score: 70.5, outcome: "loss" }),
+      result({
+        seat_index: 1,
+        display_name: "Floor General",
+        placement: 1,
+        score: 91.0,
+        outcome: "win",
+        detail: { ...result().detail, lineup_score: 91.0 },
+      }),
+    ];
+    renderV2Result({
+      results,
+      rosters: [roster(0, { SF: pick() }), roster(1)],
+    });
+
+    const heroScore = screen.getByTestId("tmw-winner-score");
+    expect(heroScore).toHaveAttribute("data-winner-is-you", "false");
+    // The winner's real name is on the hero score, and the winner's real
+    // score value -- NOT the viewer's -- is what's displayed there.
+    expect(heroScore).toHaveTextContent(/Floor General's PEAK3 lineup score/i);
+    expect(heroScore).toHaveTextContent("91.0");
+    expect(heroScore).not.toHaveTextContent("70.5");
+
+    // The viewer's OWN placement and their OWN score are still both
+    // present and correct elsewhere on the screen (not lost, just not the
+    // hero number).
+    expect(screen.getByTestId("tmw-your-placement")).toHaveTextContent("2");
+    expect(screen.getByTestId("tmw-result-0")).toHaveTextContent("70.5");
+    expect(screen.getByTestId("tmw-result-1")).toHaveTextContent("91.0");
   });
 });
 

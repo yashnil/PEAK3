@@ -116,6 +116,12 @@ export interface HomeModelProof {
 export interface HomeModelData {
   proof: HomeModelProof;
   windows: VignetteWindow[];
+  /** The top of the same board `windows` is drawn from, kept at a separate
+   *  (slightly deeper) depth for the V2 homepage's rankings preview —
+   *  independent of `windows`'s length so widening the preview can never
+   *  change how many cards `HeroVignette` (legacy AND V2 hero) rotates
+   *  through. Same real board, same real order, no second fetch. */
+  rankingsPreview: VignetteWindow[];
   /** `null` when `/api/v1/methodology` could not be reached — the
    *  comparison section renders nothing rather than inventing copy. */
   methodology: Methodology | null;
@@ -134,11 +140,14 @@ const EMPTY_PROOF: HomeModelProof = {
 
 /** How many windows the hero deck holds. Three is the depth the stack shows. */
 const VIGNETTE_COUNT = 3;
+/** How deep the board is fetched for. Must be >= VIGNETTE_COUNT; the extra
+ *  rows feed only the V2 rankings preview, never the hero. */
+const BOARD_FETCH_COUNT = 5;
 
 export async function loadHomeModelData(): Promise<HomeModelData> {
   const [metaResult, boardResult, methodologyResult] = await Promise.allSettled([
     getMetadata(),
-    getPeakWindowBoard("3y", { limit: VIGNETTE_COUNT }),
+    getPeakWindowBoard("3y", { limit: BOARD_FETCH_COUNT }),
     getMethodology(),
   ]);
 
@@ -159,17 +168,19 @@ export async function loadHomeModelData(): Promise<HomeModelData> {
     generatedAt: meta?.generated_at ?? null,
   };
 
-  const windows: VignetteWindow[] = (board?.rows ?? [])
-    .slice(0, VIGNETTE_COUNT)
-    .map((row) => ({
-      rank: row.rank,
-      rowId: row.row_id,
-      playerName: row.player_name,
-      label: row.label,
-      team: row.team,
-      primeScore: row.prime_score,
-      components: row.components,
-    }));
+  const toVignette = (row: NonNullable<typeof board>["rows"][number]): VignetteWindow => ({
+    rank: row.rank,
+    rowId: row.row_id,
+    playerName: row.player_name,
+    label: row.label,
+    team: row.team,
+    primeScore: row.prime_score,
+    components: row.components,
+  });
 
-  return { proof, windows, methodology };
+  const rows = board?.rows ?? [];
+  const windows: VignetteWindow[] = rows.slice(0, VIGNETTE_COUNT).map(toVignette);
+  const rankingsPreview: VignetteWindow[] = rows.slice(0, BOARD_FETCH_COUNT).map(toVignette);
+
+  return { proof, windows, rankingsPreview, methodology };
 }

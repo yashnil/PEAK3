@@ -118,9 +118,17 @@ def play_match(
             # driver with no clock resolves it immediately -- exactly what
             # that beat's own short timeout would eventually do -- rather
             # than treating a live, incomplete match as always having a
-            # seat on the clock, which is no longer true.
+            # seat on the clock, which is no longer true. A forced-fill park
+            # (PEAK3 Pass 1) is the same shape of beat, for a position no
+            # OTHER still-competing seat could ever have contested rather
+            # than one nobody at all could act on -- see `is_forced_fill_
+            # pending`'s own comment.
+            if S.is_forced_fill_pending(state):
+                S.resolve_forced_fill(state, pool)
+                continue
             assert S.is_unwinnable_lot_pending(state), (
-                "active_seat is None but no unwinnable lot is pending"
+                "active_seat is None but no unwinnable lot is pending "
+                "and no forced-fill is pending either"
             )
             S.resolve_unwinnable_lot(state, pool)
             continue

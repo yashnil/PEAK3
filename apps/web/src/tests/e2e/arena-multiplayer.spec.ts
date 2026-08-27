@@ -25,6 +25,8 @@ import AxeBuilder from "@axe-core/playwright";
 
 import { mintTestAccessToken } from "./helpers/test-jwt";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 const SERIOUS = ["serious", "critical"];
 
 async function signInAs(context: BrowserContext, page: Page, sub: string): Promise<string> {
@@ -112,16 +114,20 @@ async function axeClean(page: Page, context: string): Promise<void> {
 }
 
 test.describe("both games are reachable through normal navigation", () => {
-  test("the homepage lists them under Multiplayer and links to the lobby", async ({ page }) => {
+  test("the homepage lists them in the game slate and links to the lobby", async ({ page }) => {
+    // V2's homepage lists every multiplayer mode as its own game-slate cell
+    // (Pass 2, product-direction) rather than a separate "Multiplayer" band
+    // with one shared generic lobby link — each cell links DIRECTLY into
+    // the lobby with its game pre-selected (arena-readiness-server.ts:
+    // `href: /arena/lobby?game=${meta.id}`), which is the real navigation
+    // path this repository serves today.
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    const band = page.getByTestId("home-multiplayer-grid");
-    await expect(band).toBeVisible();
-    await expect(page.getByTestId("home-three_man_weave-card")).toBeVisible();
-    await expect(page.getByTestId("home-twenty_dollar-card")).toBeVisible();
-    await expect(page.getByTestId("home-multiplayer-lobby-link")).toHaveAttribute(
-      "href",
-      "/arena/lobby",
-    );
+    const tmwCard = page.getByTestId("home-three_man_weave-card");
+    const showdownCard = page.getByTestId("home-twenty_dollar-card");
+    await expect(tmwCard).toBeVisible();
+    await expect(showdownCard).toBeVisible();
+    await expect(tmwCard).toHaveAttribute("href", /^\/arena\/lobby/);
+    await expect(showdownCard).toHaveAttribute("href", /^\/arena\/lobby/);
   });
 
   test("the Arena catalog lists them", async ({ page }) => {
@@ -587,11 +593,28 @@ test.describe("Three-Man Weave", () => {
       await expect(page.getByTestId("tmw-identity-lock")).toContainText(/\S/, {
         timeout: 20_000,
       });
+      // 60s, NOT 40s -- 40s under-budgets this wait's own worst case and this
+      // was reproduced failing on an otherwise-idle machine, not just under
+      // CI load. This wait only covers what happens AFTER the human's own
+      // pick: up to two more seats (bot or human) must each get a turn, and
+      // per this test's own sibling comment above (`test.setTimeout(90_000)`),
+      // every one of those seats can legitimately take BOT_THINK_SECONDS_MAX
+      // (10s, `nba_peak/three_man_weave/config.py`) plus ACTION_GRACE_SECONDS
+      // (2s, `clock.py`) to resolve -- 2 x 12 = 24s on its own. On TOP of
+      // that, Three-Man Weave opens a real reveal-ceremony turn (`REVEAL_
+      // SECONDS` + its own grace, `three_man_weave/mode.py`) at the START OF
+      // EVERY ROUND, not just the match's opening one -- so if the seats this
+      // wait is watching span a round boundary, at least one more full reveal
+      // cycle lands inside this same window, uncounted by the 24s figure.
+      // 40s left no margin for that; 60s does, without changing any of the
+      // timing constants it is measuring. DO NOT lower this back toward 40s
+      // without re-deriving that math -- the failure this replaces was a
+      // budget gap, not test flakiness.
       await expect
         .poll(
           async () =>
             (await page.getByTestId("tmw-identity-lock").locator("li").count()) >= 2,
-          { timeout: 40_000, message: "the bots never took their turns" },
+          { timeout: 60_000, message: "the bots never took their turns" },
         )
         .toBe(true);
 
@@ -827,15 +850,14 @@ test.describe("Three-Man Weave", () => {
       const intended = await pressRow(0);
       expect(intended.ok, `"${intended.name}" did not stage in the final seconds`).toBe(true);
 
-      // 3.2 (gameplay-experience-polish): a legal candidate clicked before
-      // the deadline now COMMITS on the click itself, not on a separate
-      // confirm press. With exactly one legal slot the press above already
-      // submitted the pick. With more than one legal slot, the drafter still
-      // has to choose which — but clicking that slot now commits it
-      // immediately too. Either way, this test intentionally never presses
-      // "confirm": the overlay may already be advancing to the next turn by
-      // the time a further click would land, and asserting on a button that
-      // might not exist anymore would defeat the point of the fix. See
+      // PASS 1: a legal candidate clicked before the deadline STAGES on the
+      // click — a single legal slot stages that pair immediately, more than
+      // one legal slot still needs its destination clicked to complete the
+      // staged pair. Neither click commits: this test intentionally never
+      // presses "confirm" and instead lets the clock run all the way out
+      // (see below), so what actually proves the fix is that the SERVER's
+      // timeout drafts this exact staged choice rather than the weaker
+      // `autopick` fallback — see `mode._reduce_timeout` and
       // `PickOverlay`'s `select`/`selectPlacementSlot` docstrings.
       if (await confirm.isDisabled()) {
         await page.locator('[data-testid^="tmw-place-"][data-legal="true"]').first().click();
@@ -853,18 +875,24 @@ test.describe("Three-Man Weave", () => {
   });
 
   /**
-   * 3.2 (gameplay-experience-polish): CLICK PLAYER -> COMMIT PLAYER.
+   * PASS 1: a STAGED (never drafted) candidate is what a timeout drafts.
    *
-   * The reported bug: a player clicked a legal candidate (Amar'e Stoudemire,
-   * on a 2000s Suns offer) WELL BEFORE the deadline, never pressed a separate
-   * "Lock In Selection" action, and the timeout fallback assigned a
-   * different, weaker legal player (Brevin Knight) instead of honoring the
-   * click. This test reproduces the shape of that report end-to-end: click a
-   * legal candidate with time to spare, touch NOTHING else, let the full
-   * clock (and the server's grace window) run out, and assert the exact
-   * player clicked is who the server actually drafted — never a fallback.
+   * The original incident (gameplay-experience-polish 3.2): a player clicked
+   * a legal candidate (Amar'e Stoudemire, on a 2000s Suns offer) WELL BEFORE
+   * the deadline, never pressed a separate confirm action, and the timeout
+   * fallback assigned a different, weaker legal player (Brevin Knight)
+   * instead of honoring the click. 3.2's fix made the click itself commit;
+   * Pass 1 reverses that (selection must never equal commit) but closes the
+   * SAME incident a different way: staging is now server-visible, and a
+   * timeout prefers a legal staged choice over `autopick`
+   * (`mode._reduce_timeout`). This test reproduces the original report
+   * end-to-end: click (and, if needed, stage a slot for) a legal candidate
+   * with time to spare, touch NOTHING else — no confirm press either — let
+   * the full clock (and the server's grace window) run out, and assert the
+   * exact player clicked is who the server actually drafted — never a
+   * fallback.
    */
-  test("3.2: a candidate clicked well before the deadline is the pick, even if the clock runs all the way out", async ({
+  test("Pass 1: a candidate staged well before the deadline is what the timeout drafts, never the fallback", async ({
     browser,
   }) => {
     test.setTimeout(120_000);
@@ -892,9 +920,10 @@ test.describe("Three-Man Weave", () => {
       await row.click();
       await expect(row).toHaveAttribute("data-selected", "true");
 
-      // A multi-slot candidate still needs its destination chosen — but
-      // choosing it commits immediately (3.2), same as a single-slot press.
-      // Beyond that, NOTHING is pressed: no "confirm", no second action.
+      // A multi-slot candidate still needs its destination chosen — clicking
+      // it only completes the staged pair, same as a single-slot press.
+      // Beyond that, NOTHING is pressed: no "confirm", no second action. The
+      // clock is left to run all the way out onto the staged choice.
       if (await confirm.isDisabled()) {
         await page.locator('[data-testid^="tmw-place-"][data-legal="true"]').first().click();
       }
@@ -1363,7 +1392,7 @@ test.describe("The $20 Showdown", () => {
     const page = await context.newPage();
     try {
       const token = await signInAs(context, page, uniqueSub("td-done"));
-      const api = "http://localhost:8000/api/v1/arena";
+      const api = `${API_BASE}/api/v1/arena`;
       const auth = { Authorization: `Bearer ${token}` };
 
       // DRIVEN THROUGH THE API, NOT THE UI, on purpose. A full auction is ten
@@ -1439,9 +1468,17 @@ test.describe("The $20 Showdown", () => {
       // and left one side with six players and the other with four.
       await expect(result).not.toContainText(/one bid away/i);
 
-      // The itemised receipt is still there, one disclosure below.
+      // The itemised receipt is still there, one disclosure below. Settlement
+      // is a real single-level ladder today (SETTLEMENT_ORDER carries exactly
+      // one entry, "roster_total" — see receipt.py's own comment: "ONE LEVEL,
+      // AND ONLY ONE"), and PeakV2ShowdownResult deliberately hides that
+      // section whenever levels.length <= 1 — a one-level ladder repeats the
+      // hero bar's own head-to-head numbers rather than saying anything new.
+      // So "td-level-roster_total" never renders under real settlement rules;
+      // the itemised disclosure this toggle actually reveals is the
+      // slot-by-slot comparison (`td-positional-{slot}`).
       await page.getByTestId("td-result-detail-toggle").click();
-      await expect(page.getByTestId("td-level-roster_total")).toBeVisible({ timeout: 20_000 });
+      await expect(page.locator('[data-testid^="td-positional-"]').first()).toBeVisible({ timeout: 20_000 });
       await expect(page.getByTestId("td-component-disclosure")).toBeVisible();
 
       await axeClean(page, "the finished $20 Showdown result");

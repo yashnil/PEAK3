@@ -1,0 +1,161 @@
+/* ================================================================
+   V2 · Broadcast Arena — Run the Table layer (Pass 5)
+   ================================================================ */
+
+[data-ui-version="v2"] .rtt-page-legacy-header {
+  display: none;
+}
+
+/* ---- Entry gate: front-office deal energy, not a rules document ---- */
+.v2-rtt-gate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--v2-space-4);
+  padding: var(--v2-space-10) 0 var(--v2-space-12);
+}
+
+.v2-rtt-gate-nodes {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  background: var(--v2-border-subtle);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  overflow: hidden;
+  margin-top: var(--v2-space-2);
+}
+
+@media (max-width: 560px) {
+  .v2-rtt-gate-nodes {
+    grid-template-columns: 1fr;
+  }
+}
+
+.v2-rtt-gate-node {
+  background: var(--v2-bg-plane);
+  padding: var(--v2-space-3) var(--v2-space-4);
+  border-top: 2px solid;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.v2-rtt-gate-node-label {
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: var(--v2-mono-track);
+  text-transform: uppercase;
+}
+
+.v2-rtt-gate-node-purpose {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--v2-text-secondary);
+}
+
+.v2-rtt-gate-rule {
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--v2-text-secondary);
+}
+
+.v2-rtt-gate-rule strong {
+  color: var(--v2-text-primary);
+}
+
+.v2-rtt-gate-disclosure {
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  color: var(--v2-text-secondary);
+  border-top: 1px solid var(--v2-border-subtle);
+  padding-top: var(--v2-space-3);
+}
+
+.v2-rtt-gate-disclosure > summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--v2-text-primary);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.v2-rtt-gate-disclosure ul {
+  margin-top: var(--v2-space-3);
+  display: grid;
+  gap: var(--v2-space-2);
+  grid-template-columns: repeat(2, 1fr);
+}
+
+@media (max-width: 560px) {
+  .v2-rtt-gate-disclosure ul {
+    grid-template-columns: 1fr;
+  }
+}
+
+.v2-rtt-gate-disclosure li {
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  padding: var(--v2-space-2) var(--v2-space-3);
+}
+
+.v2-rtt-gate-sink-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--v2-space-2);
+  font-size: 0.8125rem;
+  color: var(--v2-text-primary);
+}
+
+.v2-rtt-gate-sink-cost {
+  font-family: var(--v2-font-mono);
+  color: var(--v2-color-accent);
+  font-weight: 700;
+}
+
+.v2-rtt-gate-sink-desc {
+  display: block;
+  margin-top: 0.125rem;
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary);
+}
+
+.v2-rtt-gate-notice {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary);
+  border-left: 2px solid var(--v2-border-emphasis);
+  padding-left: var(--v2-space-3);
+}
+
+.v2-rtt-gate-error {
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  color: var(--v2-color-negative);
+}
+
+.v2-rtt-gate-footnote {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  color: var(--v2-text-muted);
+}
+
+/* ---- Difficulty / choice nodes reusing the node-legend grammar as real buttons ---- */
+.v2-difficulty-node {
+  cursor: pointer;
+  width: 100%;
+  transition: background-color var(--v2-dur-control) var(--v2-ease-standard);
+}
+
+.v2-difficulty-node:hover {
+  background: var(--v2-bg-surface);
+}
+
+.v2-difficulty-node[data-selected="true"] {
+  background: var(--v2-bg-surface);
+  box-shadow: inset 0 0 0 1px var(--v2-border-emphasis);
+}

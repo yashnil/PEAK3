@@ -521,7 +521,8 @@ export type DuelPhase = "picking" | "revealing" | "complete";
 
 export interface DuelResult {
   duel_id: string;
-  selected_peak_id: string;
+  /** null means the decision clock expired before a pick was made. */
+  selected_peak_id: string | null;
   correct: boolean;
   arena_points_awarded: number;
   difficulty: string;
@@ -562,6 +563,51 @@ export interface DailyCompletion {
     difficulty: string;
   }>;
   completed_at: string;
+}
+
+// Official (server-recorded) Peak Duel Daily result — mirrors
+// `DailyResultRequest`/`DailyResultResponse` in apps/api/app/api/v1/game.py.
+export interface DailyResultRequest {
+  session_token: string;
+  selections: Record<string, string>;
+  elapsed_seconds?: number;
+}
+
+export interface DailyResultResponse {
+  saved: boolean;
+  already_recorded: boolean;
+  daily_key: string;
+  duration_years: number;
+  duels_total: number;
+  correct_count: number;
+  arena_points: number;
+  best_streak: number;
+  played_on_daily_key: boolean;
+}
+
+// Mirrors `DailyDistributionResponse` in apps/api/app/api/v1/game.py — the
+// real, server-recorded lifetime 0/10..10/10 histogram for this identity
+// (signed-in sub, or the anon cookie). `counts` is always length 11.
+export interface DailyDistributionResponse {
+  total: number;
+  counts: number[];
+}
+
+// Mirrors `DailyHistoryEntry`/`DailyHistoryResponse` in
+// apps/api/app/api/v1/game.py — the dated rows a per-day result-history grid
+// needs, as opposed to `DailyDistributionResponse`'s bucketed counts.
+export interface DailyHistoryEntry {
+  daily_key: string;
+  duration_years: number;
+  duels_total: number;
+  correct_count: number;
+  arena_points: number;
+  best_streak: number;
+  played_on_daily_key: boolean;
+}
+
+export interface DailyHistoryResponse {
+  entries: DailyHistoryEntry[];
 }
 
 export interface LocalProgress {

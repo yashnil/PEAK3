@@ -37,6 +37,7 @@ from app.services.arena.modes import ArenaMode, ModeRegistry
 from app.services.three_man_weave.mode import (
     COMMAND_PICK,
     COMMAND_SKIP_INTRO,
+    COMMAND_STAGE_PICK,
     EVENT_MATCH_SCORED,
     EVENT_PICK_MADE,
     EVENT_ROLL_REVEALED,
@@ -522,11 +523,16 @@ def test_legal_commands_are_offered_only_to_the_seat_on_turn(opening):
     for seat_index in range(PARTICIPANT_COUNT):
         _public, private, legal = mode.project(_match(opening), _seats(), seat_index)
         if seat_index == on_turn:
-            assert legal == (COMMAND_PICK,)
+            # STAGE_PICK is offered alongside PICK -- staging is available
+            # whenever picking is, so a not-yet-committed choice is never
+            # blocked from becoming server-visible for the timeout to prefer.
+            assert legal == (COMMAND_STAGE_PICK, COMMAND_PICK)
             assert private["legal_picks"]
+            assert private["staged_pick"] is None
         else:
             assert legal == ()
             assert "legal_picks" not in private
+            assert "staged_pick" not in private
 
 
 def test_projection_exposes_every_seats_picks_because_a_draft_is_open(opening):
@@ -1052,6 +1058,229 @@ def test_a_timed_out_pick_is_recorded_as_such_in_its_event(opening):
     out = _reduce(opening, _command(COMMAND_TYPE_TIMEOUT))
     payload = next(e.payload for e in out.events if e.event_type == EVENT_PICK_MADE)
     assert payload["resolution"] == TURN_RESOLUTION_TIMEOUT
+
+
+# ---------------------------------------------------------------------------
+# Staging (Pass 1): selection must not equal commit
+# ---------------------------------------------------------------------------
+def test_staging_records_a_choice_without_mutating_the_roster_or_the_turn(opening):
+    seat = opening["current_seat"]
+    slug, slot = _first_legal_pick(opening, seat)
+    out = _reduce(
+        opening, _command(COMMAND_STAGE_PICK, {"player_slug": slug, "slot_type": slot}, seat_index=seat)
+    )
+    assert out.accepted
+    # NO roster mutation, NO turn advance -- same contract `tmw_rearrange` has.
+    assert out.snapshot["picks"] == opening["picks"]
+    assert out.snapshot["turn_index"] == opening["turn_index"]
+    assert out.snapshot["current_seat"] == seat
+    assert out.resolve_turn is None
+    assert out.open_turn is None
+    # But the choice IS recorded, server-side.
+    assert out.snapshot["staged_pick"] == {"player_slug": slug, "slot_type": slot}
+
+
+def test_staging_is_visible_to_the_staging_seat_but_not_published_publicly(opening):
+    seat = opening["current_seat"]
+    slug, slot = _first_legal_pick(opening, seat)
+    staged = _reduce(
+        opening, _command(COMMAND_STAGE_PICK, {"player_slug": slug, "slot_type": slot}, seat_index=seat)
+    ).snapshot
+
+    match = _match(staged)
+    public, private, legal = mode.project(match, _seats(), seat)
+    assert private["staged_pick"] == {"player_slug": slug, "slot_type": slot}
+    assert COMMAND_STAGE_PICK in legal
+    assert "staged_pick" not in public
+    assert json_roundtrip_has_no_staged_pick_leak(public)
+
+    # A DIFFERENT seat's projection carries no trace of it either -- a draft
+    # is open information the instant it is DRAFTED, not while it is merely
+    # being considered.
+    other_seat = next(i for i in range(PARTICIPANT_COUNT) if i != seat)
+    _other_public, other_private, _other_legal = mode.project(match, _seats(), other_seat)
+    assert other_private.get("staged_pick") is None
+
+
+def json_roundtrip_has_no_staged_pick_leak(public_state: dict) -> bool:
+    return "staged_pick" not in public_state and "staged" not in public_state
+
+
+def test_staging_for_a_seat_that_is_not_on_the_clock_is_refused(opening):
+    seat = opening["current_seat"]
+    other_seat = next(i for i in range(PARTICIPANT_COUNT) if i != seat)
+    slug, slot = _first_legal_pick(opening, seat)
+    out = _reduce(
+        opening,
+        _command(COMMAND_STAGE_PICK, {"player_slug": slug, "slot_type": slot}, seat_index=other_seat),
+    )
+    assert not out.accepted
+    assert out.rejection_code == REJECT_NOT_YOUR_TURN
+    assert opening["staged_pick"] is None
+
+
+def test_staging_an_illegal_slot_is_refused_by_the_same_rules_a_pick_would_be(opening):
+    seat = opening["current_seat"]
+    out = _reduce(
+        opening,
+        _command(COMMAND_STAGE_PICK, {"player_slug": "nobody-eligible", "slot_type": "PG"}, seat_index=seat),
+    )
+    assert not out.accepted
+    assert out.rejection_code == "not_on_roll"
+
+
+def test_staging_is_refused_while_the_ceremony_is_running(opening):
+    seat = opening["current_seat"]
+    slug, slot = _first_legal_pick(opening, seat)
+    out = _reduce(
+        opening,
+        _command(COMMAND_STAGE_PICK, {"player_slug": slug, "slot_type": slot}, seat_index=seat),
+        open_turn=_reveal_turn(),
+    )
+    assert not out.accepted
+    assert out.rejection_code == REJECT_NOT_YOUR_TURN
+
+
+def test_change_selection_clears_the_staged_pick_without_committing(opening):
+    seat = opening["current_seat"]
+    slug, slot = _first_legal_pick(opening, seat)
+    staged = _reduce(
+        opening,
+        _command(COMMAND_STAGE_PICK, {"player_slug": slug, "slot_type": slot}, seat_index=seat, key="stage"),
+    ).snapshot
+    assert staged["staged_pick"] is not None
+
+    cleared = _reduce(
+        staged, _command(COMMAND_STAGE_PICK, {"clear": True}, seat_index=seat, key="clear")
+    )
+    assert cleared.accepted
+    assert cleared.snapshot["staged_pick"] is None
+    # Still nothing drafted, still the same seat's turn.
+    assert cleared.snapshot["picks"] == opening["picks"]
+    assert cleared.snapshot["current_seat"] == seat
+
+
+def test_draft_player_commits_exactly_once_and_the_staged_pick_it_matched_is_cleared(opening):
+    seat = opening["current_seat"]
+    slug, slot = _first_legal_pick(opening, seat)
+    staged = _reduce(
+        opening,
+        _command(COMMAND_STAGE_PICK, {"player_slug": slug, "slot_type": slot}, seat_index=seat, key="stage"),
+    ).snapshot
+
+    committed = _reduce(
+        staged,
+        _command(COMMAND_PICK, {"player_slug": slug, "slot_type": slot}, seat_index=seat, key="draft"),
+    )
+    assert committed.accepted
+    assert len(committed.snapshot["picks"]) == 1
+    assert committed.snapshot["picks"][0]["player_slug"] == slug
+    # A commit always clears the staged choice, whether or not it matched --
+    # the turn moved on, so nothing about the OLD turn's staging is still
+    # meaningful. See `apply_pick`/`_advance_after_pick` in `draft.py`.
+    assert committed.snapshot["staged_pick"] is None
+
+
+def test_a_timeout_drafts_the_legal_staged_choice_instead_of_the_weaker_fallback(opening):
+    """THE POINT OF STAGING BEING SERVER-VISIBLE. A staged choice is a real
+    decision left on the board; a timeout on it must draft exactly that, not
+    the deliberately-below-median `autopick` fallback."""
+    seat = opening["current_seat"]
+    slug, slot = _first_legal_pick(opening, seat)
+    staged = _reduce(
+        opening, _command(COMMAND_STAGE_PICK, {"player_slug": slug, "slot_type": slot}, seat_index=seat)
+    ).snapshot
+
+    out = _reduce(staged, _command(COMMAND_TYPE_TIMEOUT))
+    assert out.accepted
+    assert out.resolve_turn == TURN_RESOLUTION_TIMEOUT
+    assert len(out.snapshot["picks"]) == 1
+    assert out.snapshot["picks"][0]["player_slug"] == slug
+    assert out.snapshot["picks"][0]["slot_type"] == slot
+    payload = next(e.payload for e in out.events if e.event_type == EVENT_PICK_MADE)
+    # Still recorded as a TIMEOUT resolution -- the clock is what triggered
+    # the commit, even though the player is the one the human chose.
+    assert payload["resolution"] == TURN_RESOLUTION_TIMEOUT
+    assert out.snapshot["staged_pick"] is None
+
+
+def test_a_timeout_with_nothing_staged_still_falls_back_to_autopick(opening):
+    """Unchanged fallback path -- see `test_a_timeout_commits_the_deterministic_auto_pick`."""
+    assert opening["staged_pick"] is None
+    baseline = _reduce(opening, _command(COMMAND_TYPE_TIMEOUT, key="baseline"))
+    assert baseline.accepted
+    assert len(baseline.snapshot["picks"]) == 1
+
+
+def test_a_staged_choice_survives_a_refresh_or_reconnect_and_is_still_usable(opening):
+    """THE PRODUCT REQUIREMENT, proved at the adapter layer rather than the
+    pure-library one: a refresh re-fetches the match and re-runs `project`
+    against whatever is on the row -- it is not a turn change, so it must
+    neither lose the staged choice nor require it to be re-staged. This
+    drives the pick from values read back out of a FRESH projection built
+    off a dict round-trip of the snapshot, exactly as a reloaded page would,
+    never from the original in-memory Python objects."""
+    seat = opening["current_seat"]
+    slug, slot = _first_legal_pick(opening, seat)
+    staged_snapshot = _reduce(
+        opening, _command(COMMAND_STAGE_PICK, {"player_slug": slug, "slot_type": slot}, seat_index=seat)
+    ).snapshot
+
+    # THE "RELOAD". A round-trip through JSON-shaped plain dicts, the same
+    # shape a database row or an HTTP response carries -- not the live Python
+    # objects `_reduce` just built.
+    import json
+
+    reloaded_snapshot = json.loads(json.dumps(staged_snapshot))
+    reloaded_match = _match(reloaded_snapshot)
+    public_after_reload, private_after_reload, legal_after_reload = mode.project(
+        reloaded_match, _seats(), seat
+    )
+    assert private_after_reload["staged_pick"] == {"player_slug": slug, "slot_type": slot}
+    assert COMMAND_STAGE_PICK in legal_after_reload
+    assert COMMAND_PICK in legal_after_reload
+    assert "staged_pick" not in public_after_reload
+
+    # AND STILL USABLE: DRAFT PLAYER, built from the exact staged pair the
+    # "reloaded" client actually read back, still commits.
+    reread = private_after_reload["staged_pick"]
+    committed = _reduce(
+        reloaded_snapshot,
+        _command(
+            COMMAND_PICK,
+            {"player_slug": reread["player_slug"], "slot_type": reread["slot_type"]},
+            seat_index=seat,
+            key="k-reload",
+        ),
+    )
+    assert committed.accepted
+    assert committed.snapshot["picks"][0]["player_slug"] == slug
+
+
+def test_a_staged_choice_survives_a_reload_and_a_timeout_still_prefers_it(opening):
+    """The other half of the same requirement: a player who staged, then
+    reloaded, then let the clock run out (never re-opening the panel) must
+    still get the staged choice, not the fallback -- the reload must not
+    have silently dropped it from the server's point of view."""
+    import json
+
+    seat = opening["current_seat"]
+    slug, slot = _first_legal_pick(opening, seat)
+    staged_snapshot = _reduce(
+        opening, _command(COMMAND_STAGE_PICK, {"player_slug": slug, "slot_type": slot}, seat_index=seat)
+    ).snapshot
+    reloaded_snapshot = json.loads(json.dumps(staged_snapshot))
+
+    out = _reduce(reloaded_snapshot, _command(COMMAND_TYPE_TIMEOUT, key="k-reload-timeout"))
+    assert out.accepted
+    assert out.snapshot["picks"][0]["player_slug"] == slug
+    assert out.snapshot["picks"][0]["slot_type"] == slot
+
+
+# See `tests/three_man_weave/test_draft.py` for `staged_pick_is_still_legal`
+# re-validation against a same-seat rearrange (built with the real
+# eligibility index and real player rights, rather than a fabricated snapshot
+# at this adapter layer).
 
 
 # ---------------------------------------------------------------------------

@@ -284,3 +284,47 @@ def test_answer_response_no_scores_in_public_before_answer(client: TestClient) -
     for duel in resp.json()["duels"]:
         assert "prime_index" not in duel["left"]
         assert "prime_index" not in duel["right"]
+
+
+def test_answer_null_selection_is_a_genuine_timeout_not_an_error(client: TestClient) -> None:
+    """A decision-clock expiry submits `selected_peak_id: null` — this must be
+    accepted (not a 400), scored as incorrect, and still return a full reveal
+    (winner/loser/explanation), exactly like a wrong manual pick."""
+    token, duels = _get_daily_session(client, years=1)
+    duel = duels[0]
+    resp = client.post(
+        "/api/v1/game/answer",
+        json={
+            "session_token": token,
+            "duel_id": duel["id"],
+            "selected_peak_id": None,
+            "elapsed_ms": 5000,
+            "current_streak": 3,
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["correct"] is False
+    assert body["arena_points_awarded"] == 0
+    assert body["updated_streak"] == 0
+    assert body["selected_correctly"] is False
+    assert "winning_peak_id" in body
+    assert len(body["explanation"]) > 0
+
+
+def test_answer_omitted_selection_defaults_to_null_timeout(client: TestClient) -> None:
+    """`selected_peak_id` is optional on the wire — an omitted field must behave
+    identically to an explicit null, not 422."""
+    token, duels = _get_daily_session(client, years=1)
+    duel = duels[0]
+    resp = client.post(
+        "/api/v1/game/answer",
+        json={
+            "session_token": token,
+            "duel_id": duel["id"],
+            "elapsed_ms": 5000,
+            "current_streak": 0,
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["correct"] is False

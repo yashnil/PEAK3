@@ -16,9 +16,16 @@
  *
  * `progression-api.ts` and `ranked-api.ts` are deliberately absent from the
  * list: their routes are `RequiredAuth` and they authenticate with an
- * `Authorization: Bearer` header, not the cookie. `api.ts` is absent because it
- * only calls public, ownerless routes (`/meta`, `/methodology`,
- * `/game/answer`).
+ * `Authorization: Bearer` header, not the cookie.
+ *
+ * `api.ts` mostly calls public, ownerless routes (`/meta`, `/methodology`,
+ * `/game/answer`) through a shared, uncredentialed `apiFetch` — but it also
+ * now has one owner-scoped exception, `postDailyResult` (`POST
+ * /game/daily/result`), which records the official Peak Duel Daily attempt
+ * under the same anon-cookie-first identity as the other cookie-scoped
+ * clients and sets `credentials: "include"` directly on its own `fetch`
+ * call rather than through `apiFetch`. It is listed below for exactly that
+ * reason, same as the others.
  */
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
@@ -33,6 +40,7 @@ const COOKIE_SCOPED_CLIENTS = [
   "perfect-season-api.ts",
   "run-the-table-api.ts",
   "head-to-head-api.ts",
+  "api.ts",
 ];
 
 describe("API clients on owner-scoped routes", () => {

@@ -12,14 +12,26 @@ CATEGORIES
   team       one franchise, relocations folded in (Sonics seasons answer
              "Thunder", Bullets answer "Wizards") -- franchise continuity is
              how fans actually think about team history.
-  award      MVP / DPOY / Finals MVP / All-NBA / All-Defense / All-Star and
-             the league-leader titles, from the scored table's own columns.
+  award      MVP / DPOY / Sixth Man of the Year / Most Improved Player /
+             Finals MVP / All-NBA / All-Defense / All-Star and the
+             league-leader titles, from the scored table's own columns.
   era        decade of the season's start year.
   position   the position the player logged THAT season.
   context    season shape: minutes per game, games played.
   outcome    how far that season's team actually went in the playoffs.
   peak       PEAK3 prime_score thresholds.
   component  top-decile seasons in one of the five PEAK3 components.
+
+SEASON VALIDITY (`Constraint.valid_from`)
+Some awards did not exist for the whole 1979-80..2025-26 data window: DPOY
+and Sixth Man of the Year were both introduced for the 1982-83 season, and
+Most Improved Player for 1985-86. Earlier seasons' `awards` string simply
+cannot contain those tokens, so those seasons already fail the constraint's
+mask honestly -- but `valid_from` makes that fact an explicit, readable
+property of the constraint itself (a `season_start_year` floor that
+`Constraint.matches()` ANDs into every mask) rather than something provable
+only by noticing a column is null. A constraint with `valid_from=None` is
+valid for the whole window.
 
 PHASE 11C: PEAK3-NATIVE CONSTRAINTS ARE NO LONGER STANDARD
 `peak` and `component` are still shipped -- they are honest, well-defined
@@ -66,7 +78,19 @@ import pandas as pd
 from nba_peak.daily_grid.pool import STAT_TITLE_COLUMNS, GridPool, load_pool
 from nba_peak.franchises import FRANCHISES
 
-CONSTRAINTS_VERSION = "daily_grid_constraints.v2"
+# v3: adds Sixth Man of the Year / Most Improved Player and the explicit
+# `Constraint.valid_from` season-gating field. See generator.py's
+# NOVELTY_CUTOVER_DATE for why a date before that cutover still generates
+# from the frozen v2 subset of this taxonomy rather than the whole thing.
+CONSTRAINTS_VERSION = "daily_grid_constraints.v3"
+
+# Constraint ids that did not exist in v2. generator.py filters these back out
+# to reconstruct the EXACT v2 taxonomy (same members, same order) for any
+# board date at or before the cutover -- see
+# generator._legacy_v2_taxonomy(). Frozen here, next to the ids it names,
+# rather than re-derived, so it can never silently drift if this module is
+# edited again.
+V3_ADDED_CONSTRAINT_IDS = frozenset({"award_smoy", "award_smoy_votes", "award_mip"})
 
 # Top-decile cut for the component constraints. One shared value so "top 10%"
 # means the same thing in every component label.
@@ -89,9 +113,18 @@ class Constraint:
     exclusive_group: Optional[str]
     description: str
     mask: Callable[[pd.DataFrame], np.ndarray]
+    # Season-grain validity floor -- see the module docstring's SEASON
+    # VALIDITY section. None means "valid for the whole data window"; every
+    # constraint whose real-world award predates 1979-80 (or has no season
+    # concept at all, e.g. team/era/position) leaves this at the default.
+    valid_from: Optional[int] = None
 
     def matches(self, frame: pd.DataFrame) -> np.ndarray:
-        return np.asarray(self.mask(frame), dtype=bool)
+        mask = np.asarray(self.mask(frame), dtype=bool)
+        if self.valid_from is not None:
+            in_window = frame["season_start_year"].to_numpy() >= self.valid_from
+            mask = mask & in_window
+        return mask
 
     def as_dict(self) -> dict:
         """Public shape. Deliberately excludes `mask` and any answer
@@ -150,6 +183,17 @@ def _team_constraints() -> list[Constraint]:
 # Award / recognition constraints
 # ---------------------------------------------------------------------------
 
+# Real award introduction seasons (season_start_year of the first year each
+# award was actually given), used as `valid_from` below so a season before
+# the award existed can never satisfy it -- see the module docstring's
+# SEASON VALIDITY section. Not derived from the data: these are historical
+# facts about the NBA's own awards, the same way DECADES below is a fact
+# about the calendar.
+DPOY_SEASON_START = 1982   # Defensive Player of the Year, first awarded 1982-83.
+SMOY_SEASON_START = 1982   # Sixth Man of the Year, first awarded 1982-83.
+MIP_SEASON_START = 1985    # Most Improved Player, first awarded 1985-86.
+
+
 def _award_constraints() -> list[Constraint]:
     return [
         Constraint(
@@ -178,6 +222,7 @@ def _award_constraints() -> list[Constraint]:
             exclusive_group="dpoy",
             description="Won Defensive Player of the Year that season.",
             mask=lambda f: (f["dpoy_rank"] == 1).to_numpy(),
+            valid_from=DPOY_SEASON_START,
         ),
         Constraint(
             id="award_dpoy_votes",
@@ -187,6 +232,7 @@ def _award_constraints() -> list[Constraint]:
             exclusive_group="dpoy",
             description="Received Defensive Player of the Year votes that season.",
             mask=lambda f: f["dpoy_rank"].notna().to_numpy(),
+            valid_from=DPOY_SEASON_START,
         ),
         Constraint(
             id="award_finals_mvp",
@@ -269,6 +315,48 @@ def _award_constraints() -> list[Constraint]:
             mask=lambda f: (
                 sum(f[column] == 1 for column, _ in STAT_TITLE_COLUMNS) > 0
             ).to_numpy(),
+        ),
+        # Sixth Man of the Year and Most Improved Player -- read off the same
+        # `awards` string MVP/DPOY already come from (see pool.py::_award_rank
+        # for the shared ordinal-rank parsing), never a separate or fabricated
+        # source. Appended at the end of the award block (not interspersed
+        # among the pre-existing ids) so their addition cannot shift where any
+        # earlier constraint sits in the taxonomy list -- see build_constraints
+        # below on why that ordering matters.
+        Constraint(
+            id="award_smoy",
+            label="Sixth Man of the Year",
+            short_label="6MOY",
+            category="award",
+            exclusive_group="smoy",
+            description="Won Sixth Man of the Year that season.",
+            mask=lambda f: (f["smoy_rank"] == 1).to_numpy(),
+            valid_from=SMOY_SEASON_START,
+        ),
+        Constraint(
+            id="award_smoy_votes",
+            label="Sixth Man of the Year Votes",
+            short_label="6MOY Votes",
+            category="award",
+            exclusive_group="smoy",
+            description="Received Sixth Man of the Year votes that season.",
+            mask=lambda f: f["smoy_rank"].notna().to_numpy(),
+            valid_from=SMOY_SEASON_START,
+        ),
+        # No "MIP votes" counterpart: unlike MVP/DPOY/6MOY, the source awards
+        # string only ever encodes MIP-1 (the winner) -- there is no runner-up
+        # rank to read, so a second MIP constraint would just duplicate this
+        # one rather than add real information. See pool.py's build_pool
+        # docstring note on this column.
+        Constraint(
+            id="award_mip",
+            label="Most Improved Player",
+            short_label="MIP",
+            category="award",
+            exclusive_group="mip",
+            description="Won Most Improved Player that season.",
+            mask=lambda f: (f["mip_rank"] == 1).to_numpy(),
+            valid_from=MIP_SEASON_START,
         ),
     ]
 

@@ -2179,6 +2179,40 @@ def test_battle_receipt_carries_the_full_contract_field_set(client: TestClient):
             assert retired not in lane, f"retired alias {retired!r} is back on the wire"
 
 
+def test_lane_winner_is_decided_by_lineup_ratings_never_by_top_contributor(client: TestClient):
+    """Pass 1 (gameplay correctness): the frontend must be able to trust that
+    `winner`/`margin` are a pure function of the two REAL lineup ratings
+    (`player_lineup_rating` vs `boss_lineup_rating`), never of either side's
+    `top_contributor` -- a lane where the individual leader lost the roster
+    comparison must still report the roster's own winner, matching
+    `BattleReveal.tsx`'s "a 21-point individual edge beside a lost lane is not
+    a bug" contract note."""
+    state = _create(client, seed=30092)
+    while state["status"] != "boss_ready":
+        state = _act(client, state["run_id"], **_next_action(state))
+    state = _act(client, state["run_id"], action_type="resolve_boss")
+
+    battle = state["battles"][-1]
+    assert len(battle["lanes"]) == 5
+    for lane in battle["lanes"]:
+        player = lane["player_lineup_rating"]
+        boss = lane["boss_lineup_rating"]
+        if lane["tie_broken_by_rule"]:
+            # A rule-broken tie may declare a winner despite equal ratings --
+            # exactly what `tie_broken_by_rule` exists to flag, not a case
+            # this invariant covers.
+            continue
+        if player > boss:
+            assert lane["winner"] == "player"
+        elif boss > player:
+            assert lane["winner"] == "opponent"
+        else:
+            assert lane["winner"] == "tie"
+        # `margin` is signed (positive/negative by convention, not
+        # necessarily |player - boss|), so only its MAGNITUDE is checked here.
+        assert abs(abs(lane["margin"]) - abs(player - boss)) < 1e-6
+
+
 # ---------------------------------------------------------------------------
 # v2 retires gracefully — both the saved run and the challenge link (spec §4)
 # ---------------------------------------------------------------------------

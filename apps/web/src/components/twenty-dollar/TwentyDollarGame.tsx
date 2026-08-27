@@ -20,24 +20,12 @@ import {
 import { BOT_DISPLAY_NAME, modeMeta } from "@/lib/arena-modes";
 import HowToPlay from "@/components/arena/HowToPlay";
 import { deadlineFromSeconds } from "@/components/shared/ArenaTimer";
-import {
-  AuctionLog,
-  AuctionStage,
-  LotReveal,
-  RosterBoard,
-  SeatCard,
-  TurnBanner,
-} from "./AuctionBoard";
-import { ResumeRecap, SettledLotTray, useLotLedger } from "./LotLedger";
-import BidControls from "./BidControls";
-import MatchIntro from "./MatchIntro";
-import ShowdownClock from "./ShowdownClock";
-import ShowdownResult from "./ShowdownResult";
-import TwentyDollarReceipt, {
-  buildShowdownShareText,
-  type TwentyDollarReceiptData,
-} from "./TwentyDollarReceipt";
+import { useLotLedger } from "./LotLedger";
+import { buildShowdownShareText, type TwentyDollarReceiptData } from "./TwentyDollarReceipt";
 import { useShowdownPhase } from "./useShowdownPhase";
+import PeakV2ShowdownIntro from "@/components/v2/showdown/PeakV2ShowdownIntro";
+import PeakV2ShowdownLive from "@/components/v2/showdown/PeakV2ShowdownLive";
+import PeakV2ShowdownResult from "@/components/v2/showdown/PeakV2ShowdownResult";
 
 /**
  * One $20 Showdown match — the auction room.
@@ -82,9 +70,23 @@ import { useShowdownPhase } from "./useShowdownPhase";
  * now an immediate re-poll on `visibilitychange` and on `focus`. The interval
  * itself no longer depends on `view`, which used to tear it down and recreate
  * it on every single response.
+ *
+ * WHY A BOT'S MOVE COULD TAKE UP TO ~3.2s TO APPEAR, AND WHAT NARROWS IT. The
+ * server applies a pending bot's move lazily, on the next authoritated read,
+ * once `BOT_THINK_SECONDS` (1.2s, `apps/api/app/services/arena/bots.py`) has
+ * elapsed since its turn opened — there is no push. Left to the fixed
+ * `POLL_MS` cadence alone, a bot move that becomes due one tick late can sit
+ * unseen for up to another full interval on top of the think time. Every
+ * submit that hands the turn to a seat other than the player's own now also
+ * arms one extra one-shot poll timed just past `BOT_THINK_MS`, so the
+ * player's own action is what schedules the read most likely to catch the
+ * reply, instead of leaving it to chance against a clock that was already
+ * running before the click.
  */
 
 const POLL_MS = 2000;
+const BOT_THINK_MS = 1200;
+const BOT_FOLLOW_UP_POLL_MS = BOT_THINK_MS + 200;
 
 export default function TwentyDollarGame({ matchId }: { matchId: string }) {
   const router = useRouter();
@@ -115,6 +117,11 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
   // overlapping requests can complete out of order, and the newer state must
   // win regardless of arrival order.
   const appliedVersion = useRef(-1);
+  // The one armed-but-not-yet-fired bot follow-up poll (see the module
+  // docstring). Re-arming clears whatever was already pending so a fast
+  // human — pass, then bid, then pass again — cannot stack timers that all
+  // fire into the same `load()` guard for no benefit.
+  const botFollowUpTimer = useRef<number | null>(null);
 
   /**
    * Apply an authoritative view, unless it is older than what is on screen.
@@ -189,6 +196,10 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", tick);
+      if (botFollowUpTimer.current !== null) {
+        window.clearTimeout(botFollowUpTimer.current);
+        botFollowUpTimer.current = null;
+      }
     };
   }, []);
 
@@ -235,6 +246,27 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
         // derived from the board as it now is rather than from the stale render
         // the click was made against.
         applyView(result.match);
+        // THE TURN JUST LEFT THE HUMAN'S HANDS. If it is now on the clock for
+        // anyone else — bot or opponent — arm one extra poll timed just past
+        // `BOT_THINK_MS` so a bot's reply is read as soon as it is likely to
+        // be due, rather than waiting on whatever is left of the fixed
+        // interval. Harmless against a human opponent: the poll simply finds
+        // them still deciding and the normal interval carries on.
+        if (botFollowUpTimer.current !== null) {
+          window.clearTimeout(botFollowUpTimer.current);
+          botFollowUpTimer.current = null;
+        }
+        const nextActive = result.match.public_state.active_seat;
+        if (
+          result.match.public_state.phase !== "complete" &&
+          nextActive !== null &&
+          nextActive !== result.match.your_seat_index
+        ) {
+          botFollowUpTimer.current = window.setTimeout(() => {
+            botFollowUpTimer.current = null;
+            void loadRef.current();
+          }, BOT_FOLLOW_UP_POLL_MS);
+        }
         // `replayed` NO LONGER SUPPRESSES THE EXPLANATION. A replayed rejection
         // is still a rejection the player has not been told about, and the old
         // guard turned exactly that case into a silent no-op.
@@ -477,226 +509,63 @@ function AuctionRoom({
     seatNames[opponentSeats[0]?.seat_index ?? 1] ?? BOT_DISPLAY_NAME;
 
   if (complete && receipt) {
+    const onCopyResult = () => {
+      void navigator.clipboard
+        ?.writeText(buildShowdownShareText(receipt, yourSeat))
+        .then(() => onCopy(true));
+    };
     return (
-      // The result state keeps the room's lighting: a match ends IN the
-      // building it was played in, not on a blank page.
-      <div className="td-game ar-room pk-atmosphere" data-testid="td-game">
-        <ShowdownResult
+      <div data-testid="td-game" data-phase="complete">
+        <PeakV2ShowdownResult
           receipt={receipt}
           publicState={publicState}
           seatNames={seatNames}
           yourSeat={yourSeat}
           onPlayAgain={onPlayAgain}
-          onCopy={() => {
-            void navigator.clipboard
-              ?.writeText(buildShowdownShareText(receipt, yourSeat))
-              .then(() => onCopy(true));
-          }}
+          onCopy={onCopyResult}
           copied={copied}
-        >
-          <TwentyDollarReceipt receipt={receipt} seatNames={seatNames} yourSeat={yourSeat} />
-        </ShowdownResult>
+        />
       </div>
     );
   }
 
+  // V2's own live board — same already-computed state/handlers, no second
+  // poll or reducer. Built once here so it composes with the intro overlay
+  // exactly like legacy's `MatchIntro` (mounted OVER an already-live board,
+  // never gating it) rather than as a separate first screen.
+  const v2Live = (
+    <PeakV2ShowdownLive
+      publicState={publicState}
+      privateState={privateState}
+      seatNames={seatNames}
+      yourSeat={yourSeat}
+      phase={phase}
+      clockDeadlineAt={clockDeadlineAt}
+      turnDeadlineAt={turnDeadlineAt}
+      controlsLive={controlsLive}
+      busy={busy}
+      inFlightAction={inFlightAction}
+      locallyExpired={locallyExpired}
+      consequence={yourTurn ? timeoutConsequence(privateState, seatNames, publicState) : null}
+      revealedHistory={revealedHistory}
+      reveal={reveal}
+      queued={queued}
+      recap={recap}
+      onAcknowledgeRecap={acknowledgeRecap}
+      error={error}
+      onExpire={onExpire}
+      onDismissError={onDismissError}
+      onSubmit={onSubmit}
+      helpControl={meta ? <HowToPlay title={meta.name} rules={meta.rules} testId="td-rules" /> : null}
+      forfeitControl={<ForfeitControl onConfirm={onForfeit} busy={busy} />}
+    />
+  );
+
   return (
-    /* `.pk-atmosphere` is globals' arena lighting -- two floodlights and the
-       court grid -- applied on the room shell so the auction happens somewhere
-       rather than on a flat page. The grid pitch is widened for this room in
-       `twenty-dollar.css`, because three dense columns over a tight lattice
-       reads as interference. */
-    <div className="td-game ar-room pk-atmosphere" data-testid="td-game" data-phase={phase}>
-      <header className="ar-room-head">
-        <div className="ar-room-meta">
-          <h1 className="ar-room-title">The $20 Showdown</h1>
-          <span className="ar-badge" data-testid="td-lot-badge">
-            Lot {Math.min(publicState.lot_index + 1, publicState.max_lots)}
-          </span>
-          {/* THE MARKET PHASE IS NAMED. A player whose roster is still short
-              after the standard market needs to know the board has changed its
-              rules — it now guarantees them a usable candidate on a bounded
-              schedule — rather than noticing the lot numbers went past 24. */}
-          <span
-            className="ar-badge"
-            data-testid="td-market-phase"
-            data-phase={publicState.market_phase}
-          >
-            {publicState.market_phase === "closeout"
-              ? "Closeout market"
-              : `Standard market · ${publicState.standard_market_lots} lots`}
-          </span>
-          <span className="ar-badge">{view.rated ? "Rated" : "Unrated"}</span>
-        </div>
-        <div className="ar-room-tools">
-          {meta ? <HowToPlay title={meta.name} rules={meta.rules} testId="td-rules" /> : null}
-          {/* CONCEDING IS AVAILABLE FOR AS LONG AS THE MATCH IS LIVE, and is
-              deliberately NOT gated on whose turn it is: the moment a player
-              gives up on an auction is usually while they are WAITING. */}
-          <ForfeitControl onConfirm={onForfeit} busy={busy} />
-        </div>
-      </header>
-
-      {/* THE TURN, AT THE TOP OF THE ROOM (S20-03). The only `aria-live` region
-          on the board that tracks play: it changes when the turn changes and at
-          no other time. */}
-      <TurnBanner
-        activeSeat={publicState.active_seat}
-        yourSeat={yourSeat}
-        seatNames={seatNames}
-        phase={phase}
-      />
-
-      {/* THE ERROR IS DISMISSIBLE AND SELF-CLEARING, and it never carries
-          backend wording — `explainRejection` and `explainTransportError` have
-          already decided what a player can act on. */}
-      {error ? (
-        <div
-          className="td-error"
-          role="alert"
-          data-testid="td-error"
-          data-code={error.code ?? ""}
-          data-tone={error.tone}
-        >
-          <p className="td-error-text">{error.message}</p>
-          <button
-            type="button"
-            className="td-error-dismiss"
-            data-testid="td-error-dismiss"
-            onClick={onDismissError}
-          >
-            Dismiss
-          </button>
-        </div>
-      ) : null}
-
-      {/* THE RECAP IS COMPACT AND IT DOES NOT DISPLACE ANYTHING. It appears only
-          across a genuine resume boundary (see `useLotLedger`), shows three rows
-          with a "View N more", and sits above a board that is still fully
-          rendered underneath it. */}
-      {recap.length > 0 ? (
-        <ResumeRecap
-          lots={recap}
-          seatNames={seatNames}
-          yourSeat={yourSeat}
-          onDismiss={acknowledgeRecap}
-        />
-      ) : null}
-
-      {/* THREE SYMMETRICAL COLUMNS. Both participants get the same panel with
-          the same fields in the same order. The settled history is a full-width
-          tray below, so it cannot compress the opponent's roster. */}
-      <div className="td-table" data-testid="td-table">
-        <div className="td-column td-column-seat">
-          <SeatCard
-            seat={yourSeatPublic}
-            skipAllowance={publicState.market_skips_per_seat}
-            isYou
-            isActive={publicState.active_seat === yourSeat}
-            isOpener={publicState.opening_seat === yourSeat}
-            label="You"
-          />
-          <RosterBoard seat={yourSeatPublic} slots={publicState.slots} label="Your five" />
-        </div>
-
-        <div className="td-column td-column-centre">
-          <AuctionStage
-            publicState={publicState}
-            fits={privateState.candidate_fits}
-            seatNames={seatNames}
-            yourSeat={yourSeat}
-          />
-
-          {/* THE CLOCK, ATTACHED TO THE ACTION, saying what expiry will cost
-              before it costs it — and frozen the instant a command goes out.
-              It never says WHOSE turn it is; `TurnBanner` above is the single
-              turn surface. */}
-          <ShowdownClock
-            phase={phase}
-            deadlineAt={clockDeadlineAt}
-            activeSeat={publicState.active_seat}
-            yourSeat={yourSeat}
-            consequence={
-              yourTurn ? timeoutConsequence(privateState, seatNames, publicState) : null
-            }
-            // A NEW TURN RESTARTS THE COUNT-UP. Lot, action count and seat
-            // together identify one turn: any of the three moving means the
-            // previous turn is over.
-            turnKey={`${publicState.lot_index}:${publicState.lot_actions.length}:${publicState.active_seat ?? "none"}`}
-            opponentDeadlineAt={turnDeadlineAt}
-            pendingCommand={inFlightAction?.command ?? null}
-            pendingAmount={inFlightAction?.amount ?? 0}
-            onExpire={onExpire}
-          />
-
-          <BidControls
-            publicState={publicState}
-            privateState={privateState}
-            seatNames={seatNames}
-            busy={busy}
-            live={controlsLive}
-            // NOT WHILE A COMMAND IS IN FLIGHT. `busy` already froze the clock,
-            // so `locallyExpired` can only be true for a turn that ran out with
-            // nothing sent — which is the only case the expired copy is true of.
-            expired={locallyExpired && !busy}
-            onSubmit={onSubmit}
-          />
-
-          {/* ONE LOT AT A TIME, ON CENTRE STAGE. A run of settled lots is a
-              SEQUENCE — `queued` says how many are still coming — rather than a
-              catch-up banner over the top of live play. */}
-          {reveal ? (
-            <LotReveal
-              lot={reveal}
-              seatNames={seatNames}
-              yourSeat={yourSeat}
-              queued={queued}
-            />
-          ) : null}
-
-          {/* ONE TURN SURFACE, NOT FOUR. A `td-waiting` line reading "Your
-              move — open or pass." used to sit here, under a `Your move`
-              banner, an `ON THE CLOCK` chip on the seat card and a `YOUR TURN`
-              clock label. That is TMW-07's "three stacked rows" defect,
-              reproduced in the Showdown. The banner says whose turn it is, the
-              seat card shows it as a state, the clock shows the time, and the
-              controls say what the actions do. Nothing repeats. */}
-          <AuctionLog
-            actions={publicState.lot_actions}
-            seatNames={seatNames}
-            yourSeat={yourSeat}
-          />
-        </div>
-
-        <div className="td-column td-column-seat">
-          {opponentSeats.map((seat) => (
-            <div key={seat.seat_index} className="td-column-stack">
-              <SeatCard
-                seat={seat}
-                skipAllowance={publicState.market_skips_per_seat}
-                isYou={false}
-                isActive={publicState.active_seat === seat.seat_index}
-                isOpener={publicState.opening_seat === seat.seat_index}
-                label={seatNames[seat.seat_index] ?? "Opponent"}
-              />
-              <RosterBoard
-                seat={seat}
-                slots={publicState.slots}
-                label={`${seatNames[seat.seat_index] ?? "Opponent"}'s five`}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <SettledLotTray
-        history={revealedHistory}
-        seatNames={seatNames}
-        yourSeat={yourSeat}
-      />
-
+    <>
+      {v2Live}
       {phase === "intro" ? (
-        <MatchIntro
+        <PeakV2ShowdownIntro
           opponentName={opponentName}
           startingBudget={yourSeatPublic?.budget ?? 20}
           slots={publicState.slots.length}
@@ -705,7 +574,7 @@ function AuctionRoom({
           onDismiss={onSkipIntro}
         />
       ) : null}
-    </div>
+    </>
   );
 }
 

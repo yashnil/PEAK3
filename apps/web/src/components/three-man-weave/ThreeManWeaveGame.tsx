@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
   ArenaResultView,
@@ -11,6 +11,7 @@ import {
   TMW_COMMAND_REARRANGE,
   TMW_COMMAND_SKIP_INTRO,
   TMW_COMMAND_SKIP_REVEAL,
+  TMW_COMMAND_STAGE_PICK,
   TMW_OPENING_REVEAL_SECONDS,
   TMW_REVEAL_SECONDS,
   TMW_TURN_PHASE_INTRO,
@@ -25,7 +26,6 @@ import {
 } from "@/lib/arena-api";
 import type { TmwCandidate } from "@/lib/three-man-weave-state";
 import {
-  TMW_TIMEOUT_CONSEQUENCE,
   candidatesForSeat,
   canPick,
   connectionState,
@@ -39,12 +39,11 @@ import { modeMeta } from "@/lib/arena-modes";
 import HowToPlay from "@/components/arena/HowToPlay";
 import { deadlineFromSeconds } from "@/components/shared/ArenaTimer";
 import GameIntro from "@/components/shared/GameIntro";
-import IdentityLockPanel from "./IdentityLockPanel";
 import PickOverlay from "./PickOverlay";
-import PodiumReceipt from "./PodiumReceipt";
-import RosterBoard from "./RosterBoard";
-import TurnStatus from "./TurnStatus";
-import WeaveSpinner from "./WeaveSpinner";
+import IdentityLockPanel from "./IdentityLockPanel";
+import PeakV2TMWCourts from "@/components/v2/tmw/PeakV2TMWCourts";
+import PeakV2TMWReveal from "@/components/v2/tmw/PeakV2TMWReveal";
+import PeakV2TMWResult from "@/components/v2/tmw/PeakV2TMWResult";
 
 const TMW_INTRO_RULES = [
   { label: "Shared roll", detail: "one real franchise and decade, rolled once for all three drafters" },
@@ -190,21 +189,12 @@ export default function ThreeManWeaveGame({
   const [busy, setBusy] = useState(false);
   const [rejection, setRejection] = useState<string | null>(null);
   const [failures, setFailures] = useState(0);
-  const [justPicked, setJustPicked] = useState<string | null>(null);
   // A LOCAL MONOTONIC DEADLINE, not a duration in state. A duration re-seeded
   // from a two-second poll and ticked down locally drifts, so a control could
   // read "3" on a turn the server had already closed. See `ArenaTimer`.
   const [deadlineAt, setDeadlineAt] = useState<number | null>(
     deadlineFromSeconds(initialMatch.seconds_remaining),
   );
-  // THE OPEN TURN'S DEADLINE, WHOEVER IS ON IT. Distinct from `deadlineAt`,
-  // which is null while somebody else is deciding — that null is why the
-  // opponent's wait used to be timed locally and drawn as a count-UP. See
-  // `TurnStatus`.
-  const [turnDeadlineAt, setTurnDeadlineAt] = useState<number | null>(
-    deadlineFromSeconds(initialMatch.turn_seconds_remaining),
-  );
-
   // Guards a poll landing while a command is in flight from overwriting the
   // newer state the command already returned.
   const inFlight = useRef(false);
@@ -276,7 +266,6 @@ export default function ThreeManWeaveGame({
         const freshTurn = deadlineFromSeconds(next.turn_seconds_remaining);
         if (driftExceeded(applied.current.turnDeadlineAt, freshTurn) || moved) {
           applied.current = { ...applied.current, turnDeadlineAt: freshTurn };
-          setTurnDeadlineAt(freshTurn);
         }
       }
       setFailures(0);
@@ -341,7 +330,6 @@ export default function ThreeManWeaveGame({
         };
         setMatch(next);
         setDeadlineAt(fresh);
-        setTurnDeadlineAt(freshTurn);
         setFailures(0);
         return response;
       } finally {
@@ -373,7 +361,8 @@ export default function ThreeManWeaveGame({
         const response = await send(TMW_COMMAND_PICK, payload);
         if (!response) return;
         if (response.accepted || response.replayed) {
-          setJustPicked(candidate.player_slug);
+          // V2's courts re-render from the server's own updated roster
+          // immediately — no separate "just picked" flash state to track.
         } else {
           setRejection(response.message ?? "That pick was refused.");
         }
@@ -382,6 +371,43 @@ export default function ThreeManWeaveGame({
         setFailures((count) => count + 1);
       } finally {
         setBusy(false);
+      }
+    },
+    [busy, send],
+  );
+
+  /**
+   * Record (or clear) the not-yet-committed choice, server-side.
+   *
+   * NOT A COMMIT. `pick` below is the only thing that drafts. This exists so
+   * a timeout can safely prefer whatever the player last staged instead of
+   * the deliberately-weak `autopick` fallback -- see
+   * `mode._reduce_timeout`'s docstring in the API for why that closes the
+   * original defect (a visibly-selected pick silently overwritten by the
+   * fallback) rather than reintroducing it.
+   *
+   * DELIBERATELY DOES NOT SET `busy`. Staging happens on every candidate and
+   * slot click, and gating the whole panel on each one's round trip would
+   * make selection itself feel laggy -- the property this pass exists to
+   * fix. `inFlight.current` (set inside `send`) still prevents it from
+   * overlapping a real command, so a fast "select then Draft" can, in the
+   * rare case the stage request is still in flight, need one extra click;
+   * nothing incorrect can commit from that, since `pick` itself always
+   * gates on `busy`/`inFlight` and only ever submits what is on screen.
+   * Failures are swallowed on purpose: staging is a convenience for the
+   * timeout path, not the commit, so nothing here needs a rejection banner.
+   */
+  const stage = useCallback(
+    async (candidate: TmwCandidate | null, slotType: TmwSlotType | null) => {
+      if (busy || inFlight.current) return;
+      const payload: Record<string, unknown> =
+        candidate && slotType
+          ? { player_slug: candidate.player_slug, slot_type: slotType }
+          : { clear: true };
+      try {
+        await send(TMW_COMMAND_STAGE_PICK, payload);
+      } catch {
+        // Best-effort -- see docstring above.
       }
     },
     [busy, send],
@@ -538,6 +564,11 @@ export default function ThreeManWeaveGame({
   const yourTurn = isYourTurn(match);
   const candidates = useMemo(() => candidatesForSeat(match), [match]);
   const lockedEntries = useMemo(() => identityLock(state), [state]);
+  // SERVER-VISIBLE, SURVIVES A REFRESH. Read straight off the current
+  // projection rather than local state -- a reload re-fetches the match and
+  // this is part of that response, so a player who staged a choice and then
+  // reloaded the page sees it still staged, not blank.
+  const stagedPick = match.private_state.staged_pick ?? null;
   const yourRoster =
     state.rosters.find((roster) => roster.seat_index === match.your_seat_index) ??
     null;
@@ -590,6 +621,41 @@ export default function ThreeManWeaveGame({
       : upNextSeat === match.your_seat_index
         ? "You're up"
         : `${seatLabel(match.seats, upNextSeat)} is up`;
+
+  // Final closure pass, task "TMW viewport containment": the V2 arena shell
+  // (`tmw-v2-arena-shell` below) used to take whatever height its content
+  // naturally wanted, which at 1280x800 and 390x844 pushed the bottom of the
+  // active task surface below the viewport -- confirmed by measurement
+  // (1280x800: 55px below; 390x844: ~177px below). The fix reserves the
+  // REAL available height up front rather than guessing a breakpoint-keyed
+  // constant: measure this wrapper's own distance from the top of the
+  // viewport (whatever sits above it -- nav, this room's own legacy header,
+  // etc. -- without needing to touch or know about any of those files) and
+  // publish it as a CSS custom property the wrapper's descendants can read
+  // via `var()` (custom properties inherit). `100dvh` (not `100vh`) so a
+  // mobile browser's collapsing/expanding address bar is accounted for
+  // exactly as the requirement calls for. This runs identically regardless
+  // of reveal stage, so it cannot itself introduce any geometry diff across
+  // intro/spinning/resolved/picker -- only the viewport and whatever sits
+  // above this wrapper can change it.
+  const arenaShellRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = arenaShellRef.current;
+    if (!el) return;
+    const BOTTOM_SAFE_MARGIN_PX = 16;
+    function updateCap() {
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      el.style.setProperty("--tmw-viewport-cap", `calc(100dvh - ${top}px - ${BOTTOM_SAFE_MARGIN_PX}px)`);
+    }
+    updateCap();
+    window.addEventListener("resize", updateCap);
+    window.addEventListener("orientationchange", updateCap);
+    return () => {
+      window.removeEventListener("resize", updateCap);
+      window.removeEventListener("orientationchange", updateCap);
+    };
+  }, []);
 
   return (
     <div
@@ -660,16 +726,64 @@ export default function ThreeManWeaveGame({
       )}
 
       {complete && results ? (
-        <PodiumReceipt
-          results={results}
-          rosters={state.rosters}
-          yourSeatIndex={match.your_seat_index}
-          seed={match.match_id}
-          onPlayAgain={() => router.push("/arena/three-man-weave")}
-        />
+            <PeakV2TMWResult
+              results={results}
+              rosters={state.rosters}
+              yourSeatIndex={match.your_seat_index}
+              seed={match.match_id}
+              onPlayAgain={() => router.push("/arena/three-man-weave")}
+            />
       ) : (
-        <>
-          <WeaveSpinner
+        // `relative` so `PeakV2TMWReveal`'s overlay is `absolute inset-0`
+        // to THIS box (final closure pass, task §1) -- courts stay
+        // mounted and drive this wrapper's only size contribution (the
+        // overlay is absolutely positioned, so it contributes none),
+        // making this one persistent element the same "outer shell" from
+        // match-open intro through the picker: nothing to reserve, since
+        // nothing here ever changes size across reveal stages.
+        <div ref={arenaShellRef} className="relative" data-testid="tmw-v2-arena-shell">
+          <PeakV2TMWCourts
+            state={state}
+            seats={match.seats}
+            yourSeatIndex={match.your_seat_index}
+            currentTurnSeatIndex={match.current_turn_seat_index}
+            poolSize={candidates.length}
+            deadlineAt={deadlineAt}
+            picksMade={picksMade}
+            totalPicks={state.total_rounds * match.seat_count}
+            onMove={rearrange}
+            busy={busy}
+          >
+            {/* THE RECENT-PICKS RAIL (restored — the V2 cutover deleted the
+                legacy JSX branch that rendered this without carrying it into
+                the V2 layout, even though the data (`lockedEntries`) was
+                still being computed and fed to `PickOverlay`'s own empty-state
+                copy). Presentation only: still the same component, the same
+                real server-derived entries, just mounted here between the
+                courts and the pick surface, exactly where it always was. */}
+            <IdentityLockPanel entries={lockedEntries} seats={match.seats} />
+            <PickOverlay
+              open={overlayOpen}
+              roll={state.current_roll}
+              roundNumber={state.current_round}
+              pickNumber={picksMade + 1}
+              totalRounds={state.total_rounds}
+              candidates={candidates}
+              roster={yourRoster}
+              seats={match.seats}
+              yourSeatIndex={match.your_seat_index}
+              lockedEntries={lockedEntries}
+              stagedPick={stagedPick}
+              deadlineAt={deadlineAt}
+              turnSeconds={TURN_SECONDS}
+              busy={busy}
+              onPick={pick}
+              onStage={stage}
+              onMove={rearrange}
+              onClose={() => setRejection(null)}
+            />
+          </PeakV2TMWCourts>
+          <PeakV2TMWReveal
             open={ceremonyOpen}
             roll={state.current_roll}
             roundNumber={state.current_round}
@@ -677,77 +791,13 @@ export default function ThreeManWeaveGame({
             seats={match.seats}
             yourSeatIndex={match.your_seat_index}
             handoffLabel={nextUp ?? undefined}
-            // Round one opens on the matchup: title, the three competitors with
-            // you marked, the objective, then the roll (TMW-13).
             showIntro={openingCeremony}
-            // THE CEREMONY'S CLOCK IS THE SERVER'S. Both of these come from the
-            // reveal turn, so a reload mid-ceremony resumes at the right beat.
             deadlineAt={deadlineAt}
-            // THE DENOMINATOR MUST BE THE WINDOW THE SERVER ACTUALLY OPENED.
-            // Round one's ceremony carries the matchup card and is longer
-            // (`OPENING_REVEAL_SECONDS`); using one number for both would put
-            // every stage boundary in the wrong place on one of them.
-            revealSeconds={
-              openingCeremony ? TMW_OPENING_REVEAL_SECONDS : TMW_REVEAL_SECONDS
-            }
+            revealSeconds={openingCeremony ? TMW_OPENING_REVEAL_SECONDS : TMW_REVEAL_SECONDS}
             onSkip={skipReveal}
             skipping={busy}
           />
-
-          <TurnStatus
-            state={state}
-            seats={match.seats}
-            currentTurnSeatIndex={match.current_turn_seat_index}
-            yourSeatIndex={match.your_seat_index}
-            complete={complete}
-            pickNumber={picksMade + 1}
-            totalPicks={state.total_rounds * match.seat_count}
-            deadlineAt={deadlineAt}
-            opponentDeadlineAt={turnDeadlineAt}
-            turnSeconds={TURN_SECONDS}
-            timeoutConsequence={TMW_TIMEOUT_CONSEQUENCE}
-            // Expiry is not a resolution -- it is a prompt to go and read the
-            // one the server already committed.
-            onExpire={() => {
-              void refresh();
-            }}
-          />
-
-          <RosterBoard
-            state={state}
-            seats={match.seats}
-            yourSeatIndex={match.your_seat_index}
-            currentTurnSeatIndex={match.current_turn_seat_index}
-            justPickedSlug={justPicked}
-            onMove={rearrange}
-            busy={busy}
-          />
-
-          <IdentityLockPanel entries={lockedEntries} seats={match.seats} />
-
-          <PickOverlay
-            open={overlayOpen}
-            roll={state.current_roll}
-            roundNumber={state.current_round}
-            pickNumber={picksMade + 1}
-            totalRounds={state.total_rounds}
-            candidates={candidates}
-            roster={yourRoster}
-            seats={match.seats}
-            yourSeatIndex={match.your_seat_index}
-            lockedEntries={lockedEntries}
-            deadlineAt={deadlineAt}
-            turnSeconds={TURN_SECONDS}
-            busy={busy}
-            onPick={pick}
-            onMove={rearrange}
-            // A turn you must resolve has no cancel, so closing simply returns
-            // to the board -- the overlay reopens on the next render because
-            // `overlayOpen` is derived from the server's own turn state, and
-            // that is the correct behaviour: the clock is still running.
-            onClose={() => setRejection(null)}
-          />
-        </>
+        </div>
       )}
     </div>
   );

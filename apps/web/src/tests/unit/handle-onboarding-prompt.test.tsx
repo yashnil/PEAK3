@@ -174,6 +174,14 @@ describe("during a live Arena match", () => {
   for (const route of [
     "/arena/three-man-weave/2f9b1a4c-0000-4000-8000-000000000001",
     "/arena/twenty-dollar/2f9b1a4c-0000-4000-8000-000000000002",
+    // Pass 7 (human acceptance testing, task §15): the same failure mode
+    // recurred on 82-0, Peak Duel, and Daily Grid -- none of these were in
+    // the original denylist.
+    "/arena/court/daily",
+    "/arena/court/practice",
+    "/play/daily",
+    "/play/endless",
+    "/daily/grid",
   ]) {
     it(`stays hidden on ${route}`, async () => {
       mockPathname = route;
@@ -198,4 +206,23 @@ describe("during a live Arena match", () => {
       await screen.findByTestId("handle-onboarding-prompt"),
     ).toBeInTheDocument();
   });
+
+  for (const route of [
+    // 82-0's own review pages -- not a live board, must not be swept up by
+    // the broadened `/arena/court/...` match.
+    "/arena/court/leaderboard",
+    "/arena/court/results",
+    "/arena/court/history",
+    // The bare Play/Daily hubs list modes; they are not gameplay itself.
+    "/play",
+    "/daily",
+  ]) {
+    it(`still appears on ${route}, which is not a live board`, async () => {
+      mockPathname = route;
+      render(<HandleOnboardingPrompt />);
+      expect(
+        await screen.findByTestId("handle-onboarding-prompt"),
+      ).toBeInTheDocument();
+    });
+  }
 });

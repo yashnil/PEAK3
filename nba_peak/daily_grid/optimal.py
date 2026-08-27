@@ -193,22 +193,50 @@ def solve_optimal(
     )
 
 
-_OPTIMAL_CACHE: dict[str, OptimalSolution] = {}
+_OPTIMAL_CACHE: dict[tuple[str, tuple[str, ...], tuple[str, ...]], OptimalSolution] = {}
 # Bounded for the same reason as generator._BOARD_CACHE: `date` is
 # caller-supplied, and an unbounded cache would let date enumeration grow the
 # process. Recomputation is cheap and deterministic, so eviction is free.
 _OPTIMAL_CACHE_MAX = 200
 
 
+def _optimal_cache_key(board: GridBoard) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
+    """`board.board_id` alone is NOT a valid cache key: it is derived only
+    from (date, version) -- see `generator.board_id()` -- never from the
+    board's actual rows/cols. A caller that generates a board with its own
+    `constraints=` (tests do, e.g. to exercise a reduced or alternate
+    taxonomy) gets a `GridBoard` with the exact same `board_id` as the real
+    default-taxonomy board for that same date, but different cells.
+
+    CONFIRMED REAL BUG this fixes: `test_daily_grid.py`'s `boards` fixture
+    generates "2026-11-11" via `generate_board(date, constraints=taxonomy)`
+    (its own `build_constraints(pool)`) and calls `build_result` on it,
+    caching an optimal solution under board_id "daily-grid-v3-2026-11-11".
+    `test_daily_grid_optimal_legality.py` then calls `get_board("2026-11-11")`
+    (the real default-taxonomy, novelty-aware path) -- a DIFFERENT board
+    that happens to share the same board_id -- and got back the FIRST
+    board's stale, mismatched solution: a real reference fill scored 865
+    against a cached "optimal" of 813, an impossible result the "no legal
+    fill beats the maximum" invariant exists to catch. Reproduced
+    deterministically by running just these two files together.
+
+    The fix: key the cache on the board's actual row/col constraint ids too,
+    not board_id alone -- still cheap (short id tuples), still a pure
+    function of the board's real content.
+    """
+    return (board.board_id, tuple(c.id for c in board.rows), tuple(c.id for c in board.cols))
+
+
 def get_optimal(board: GridBoard, pool: GridPool | None = None) -> OptimalSolution:
     """Process-cached maximum for a board. Pure function of the board."""
-    cached = _OPTIMAL_CACHE.get(board.board_id)
+    key = _optimal_cache_key(board)
+    cached = _OPTIMAL_CACHE.get(key)
     if cached is not None:
         return cached
     solution = solve_optimal(board, pool=pool)
     if len(_OPTIMAL_CACHE) >= _OPTIMAL_CACHE_MAX:
         _OPTIMAL_CACHE.pop(next(iter(_OPTIMAL_CACHE)))
-    _OPTIMAL_CACHE[board.board_id] = solution
+    _OPTIMAL_CACHE[key] = solution
     return solution
 
 

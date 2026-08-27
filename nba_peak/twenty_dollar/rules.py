@@ -23,6 +23,7 @@ from __future__ import annotations
 from typing import Optional
 
 from nba_peak.twenty_dollar.config import (
+    FORCED_FILL_PRICE_BY_TIER,
     MIN_OPENING_BID,
     MIN_RAISE,
     MIN_RESERVE_PER_SLOT,
@@ -79,6 +80,27 @@ def is_solvent(budget: int, filled_slots: int, *, roster_size: int = ROSTER_SIZE
     return budget >= max(0, roster_size - filled_slots) * MIN_RESERVE_PER_SLOT
 
 
+def forced_fill_reserve_price(rank: int) -> int:
+    """What a FORCED-FILL assignment costs, by the candidate's published rank.
+
+    Looks up `FORCED_FILL_PRICE_BY_TIER`; a rank outside every published band
+    (unreachable against the committed 500-row qualified pool, but not a type
+    the qualified pool enforces at this function's boundary) falls back to the
+    cheapest tier's price rather than raising, matching `_draw_candidate`'s own
+    "never re-weighted for strength" posture -- an unranked candidate is not
+    made to cost MORE for being unclassifiable.
+
+    THIS IS A RESERVE PRICE, NOT THE FINAL ONE. The caller still clamps it
+    through `max_legal_bid` -- the reserve owed to every OTHER slot this seat
+    has yet to fill is never spent to pay this one, exactly as it never is for
+    an ordinary bid.
+    """
+    for first, last, price in FORCED_FILL_PRICE_BY_TIER:
+        if first <= rank <= last:
+            return price
+    return FORCED_FILL_PRICE_BY_TIER[-1][2]
+
+
 # ---------------------------------------------------------------------------
 # The ascending step
 # ---------------------------------------------------------------------------
@@ -127,6 +149,7 @@ __all__ = [
     "MIN_RESERVE_PER_SLOT",
     "STARTING_BUDGET",
     "can_afford_minimum",
+    "forced_fill_reserve_price",
     "is_solvent",
     "is_whole_dollars",
     "max_legal_bid",

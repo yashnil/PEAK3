@@ -1,0 +1,538 @@
+"use client";
+
+/**
+ * PeakV2CourtResult — the V2 "Broadcast Arena" completion/result
+ * presentation for 82-0 Peak Season (Pass 3). Same real data contract as
+ * `SeasonResultStub` (legacy) — same props, same numbers, same correctness
+ * gating (`is_perfect_season` withheld on an incomplete-score run, the
+ * "Estimated" record caveat, the incomplete-score explanation, the
+ * peak-value reassurance sentence) — restyled into the CINEMATIC → LIVE
+ * pattern already established by `PeakV2RTTBattleResult`:
+ *
+ *   CINEMATIC: the {wins}-{losses} record is the one big serif headline
+ *   (`PeakV2ResultHeadline scale="hero"`), `resultTier(wins)` a small label
+ *   above it, `recordFraming(...)` a line beneath — never a second
+ *   number treated as the headline.
+ *
+ *   LIVE: everything else — the real roster ON the real `CourtLayout`
+ *   court (reused unchanged, same as `PeakV2CourtLive`), best pick /
+ *   weakness, the lineup score, decisive factors, and the already-built
+ *   save/play-again/leaderboard/share/insight panels — reads plain,
+ *   flattened into hairline-divided sections (`PeakV2Rule`) instead of
+ *   legacy's many small bordered pill/box treatments. The technical
+ *   receipt (seed/versions/coverage) stays behind a native `<details>`,
+ *   exactly as legacy tucks it away.
+ *
+ * `resultTier` is imported directly (SeasonResultStub exports it).
+ * `recordFraming`/`teamIdentityPhrase`/`bestAndWorstPick` are NOT exported
+ * by that file, so they are ported here verbatim (same logic, same
+ * thresholds, same strings) rather than approximated — see each function's
+ * own comment for the exact SeasonResultStub.tsx origin. Keep these three
+ * in sync with SeasonResultStub.tsx by hand if that file's logic ever
+ * changes; this file does not import from it beyond `resultTier`.
+ */
+
+import type { CSSProperties, ReactNode } from "react";
+import PeakV2Shell from "../PeakV2Shell";
+import PeakV2CinematicStage from "../PeakV2CinematicStage";
+import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
+import PeakV2Rule from "../PeakV2Rule";
+import PeakV2Score from "../PeakV2Score";
+import PeakV2CourtSlot from "../PeakV2CourtSlot";
+import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
+import CourtLayout from "@/components/court/CourtLayout";
+import SaveRunPanel from "@/components/court/SaveRunPanel";
+import PlayAgainPanel from "@/components/court/PlayAgainPanel";
+import LeaderboardSubmitPanel from "@/components/court/LeaderboardSubmitPanel";
+import LineupInsightPanel from "@/components/court/LineupInsightPanel";
+import PeakPicksRecap from "@/components/court/PeakPicksRecap";
+import ShareRunPanel from "@/components/court/ShareRunPanel";
+import { resultTier } from "@/components/court/SeasonResultStub";
+import {
+  CourtSlotPublic,
+  SharedCourtResult,
+  SimulationResultPublic,
+  STARTER_SLOT_TYPES,
+  BENCH_SLOT_TYPES,
+  fitLabel,
+} from "@/types/perfect-season";
+import type { V2Tone } from "../v2-tone";
+
+interface Props {
+  state: SharedCourtResult;
+  result: SimulationResultPublic;
+  onPlayAgain?: () => void;
+  playAgainBusy?: boolean;
+  readOnly?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Ported verbatim from SeasonResultStub.tsx (not exported there) -- same
+// logic, same strings, same thresholds. Keep in sync by hand.
+// ---------------------------------------------------------------------------
+
+/** SeasonResultStub.tsx::recordFraming -- an incomplete-score roster never
+ * gets the confident "PERFECT SEASON" framing, even if the noisy win
+ * formula happened to clamp to 82. */
+function recordFraming(wins: number, losses: number, isIncomplete: boolean): string {
+  if (isIncomplete) return "Provisional record — not all cards are officially scored";
+  if (wins >= 82) return "PERFECT SEASON";
+  if (losses === 1) return "One loss from perfect";
+  if (losses <= 3) return "So close to perfect";
+  if (wins >= 60) return "A strong season";
+  if (wins >= 45) return "A playoff-caliber season";
+  return "A rebuilding season";
+}
+
+const GUARD_POSITIONS = new Set(["PG", "SG"]);
+const WING_POSITIONS = new Set(["SF"]);
+const BIG_POSITIONS = new Set(["PF", "C"]);
+
+/** SeasonResultStub.tsx::teamIdentityPhrase -- client-side, from
+ * already-revealed slot data only, never a new hidden computation. */
+function teamIdentityPhrase(slots: CourtSlotPublic[]): string {
+  const starters = slots.filter((s) => STARTER_SLOT_TYPES.includes(s.slot_type));
+  const guards = starters.filter((s) => s.primary_position && GUARD_POSITIONS.has(s.primary_position)).length;
+  const wings = starters.filter((s) => s.primary_position && WING_POSITIONS.has(s.primary_position)).length;
+  const bigs = starters.filter((s) => s.primary_position && BIG_POSITIONS.has(s.primary_position)).length;
+  const offPosition = starters.filter((s) => s.role_fit === "off_position").length;
+
+  const scores = slots
+    .map((s) => s.season_score ?? s.individual_peak_score)
+    .filter((v): v is number => v != null);
+  const avgScore = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+
+  let base: string;
+  if (bigs === 0) base = "No interior anchor";
+  else if (guards >= 3) base = "Guard overload";
+  else if (wings >= 3) base = "Wing factory";
+  else if (avgScore != null && avgScore >= 75 && bigs >= 1 && guards >= 1) base = "Balanced contender";
+  else if (avgScore != null && avgScore >= 75) base = "Star-heavy";
+  else base = "Defensive-minded build";
+
+  if (offPosition >= 3 && !base.includes("position")) {
+    return `${base}, but position-broken`;
+  }
+  return base;
+}
+
+/** SeasonResultStub.tsx::bestAndWorstPick -- client-side fallback only used
+ * when the server hasn't computed best_pick/structural_weakness (legacy
+ * peak-window boards). */
+function bestAndWorstPick(slots: CourtSlotPublic[]): { best: string | null; weakness: string } {
+  const scored = slots
+    .map((s) => ({ name: s.player_name, score: s.season_score ?? s.individual_peak_score }))
+    .filter((s): s is { name: string; score: number } => s.name != null && s.score != null);
+  if (scored.length === 0) {
+    return { best: null, weakness: "No exact-season scores available yet for this roster" };
+  }
+  const best = scored.reduce((a, b) => (b.score > a.score ? b : a));
+  const unscoredCount = slots.filter((s) => s.filled && s.score_status && s.score_status !== "exact_season_scored").length;
+  if (unscoredCount > 0) {
+    return { best: best.name, weakness: `${unscoredCount} roster spot${unscoredCount === 1 ? "" : "s"} with no PEAK3 score yet` };
+  }
+  const worst = scored.reduce((a, b) => (b.score < a.score ? b : a));
+  return { best: best.name, weakness: worst.name };
+}
+
+/**
+ * The cinematic hero's one ambient light color. `showPerfectStyling` (never
+ * true on an incomplete-score run -- same gate the headline itself uses)
+ * gets the one legitimate gold moment. Otherwise this follows
+ * SeasonResultStub.tsx::tierGlow's own real threshold (wins >= 45 is where
+ * its scale first turns on) to pick a win/loss-flavored ambient wash, the
+ * same outcome-tone convention `PeakV2RTTBattleResult` already uses for its
+ * win/loss/draw light -- gold stays reserved for the perfect-season moment,
+ * never a blanket "every result gets a gold glow" treatment. An incomplete
+ * run gets the same baseline ambient every other V2 cinematic stage uses by
+ * default (no outcome color at all), mirroring legacy's own
+ * `data-tier-glow={isIncomplete ? "none" : tierGlow(wins)}` override.
+ */
+function heroLightTone(wins: number, isIncomplete: boolean, showPerfectStyling: boolean): V2Tone {
+  if (isIncomplete) return "accent";
+  if (showPerfectStyling) return "accent";
+  return wins >= 45 ? "positive" : "negative";
+}
+
+const sectionLabelStyle: CSSProperties = {
+  fontFamily: "var(--v2-font-mono)",
+  fontSize: "0.6875rem",
+  fontWeight: 700,
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+  color: "var(--v2-text-muted)",
+};
+
+const bodyTextStyle: CSSProperties = {
+  fontFamily: "var(--v2-font-ui)",
+  fontSize: "0.8125rem",
+  color: "var(--v2-text-secondary)",
+};
+
+const mutedTextStyle: CSSProperties = {
+  fontFamily: "var(--v2-font-ui)",
+  fontSize: "0.75rem",
+  color: "var(--v2-text-muted)",
+};
+
+/**
+ * Mirrors `PeakCardCourt.tsx`'s own `fitColor` exactly (same trust-bug fix:
+ * a "mild" off-position fit costs 0.0 fit points, so painting it the same
+ * warning color as a real -14.0 structural mismatch told users the model
+ * had penalized something it scored as free). The reveal was rendering
+ * every fit caption in flat muted gray regardless of severity -- silently
+ * dropping real, meaningful state on the one screen where a player most
+ * wants to know WHY a pick fell short.
+ */
+function fitColor(roleFit: CourtSlotPublic["role_fit"], severity?: CourtSlotPublic["role_fit_severity"]): string {
+  if (roleFit === "off_position") {
+    if (severity === "mild") return "var(--v2-text-secondary)"; // neutral: costs nothing
+    if (severity === "moderate") return "var(--accent-orange)";
+    return "var(--v2-color-negative)";
+  }
+  if (roleFit === "primary") return "var(--v2-color-accent)";
+  if (roleFit === "natural" || roleFit === "secondary") return "var(--v2-color-positive)";
+  return "var(--v2-text-muted)";
+}
+
+/**
+ * One revealed court/bench slot. A simpler, read-only sibling of
+ * `PeakV2CourtSlotCard` (the interactive LIVE renderer) -- no click/move
+ * affordances, just the real revealed identity + score, in the same
+ * `PeakV2CourtSlot` grammar `PeakV2CourtLive` already established for this
+ * exact court. Mirrors legacy `PeakCardCourt`'s reveal data (team/season,
+ * rounded revealed score, rank for legacy peak-window slots, the
+ * "no official score yet" / "season aggregate" notes) -- never fabricates a
+ * score for an unscored card, never shows a career-peak substitute for a
+ * team-year card. No team logo/avatar image, matching `PeakV2CourtSlotCard`
+ * (and CLAUDE.md's no-photos/no-logos design principle) -- identity is
+ * carried by name + team/season text alone.
+ */
+function ResultSlotCard({ slot }: { slot: CourtSlotPublic }) {
+  if (!slot.filled) {
+    return <PeakV2CourtSlot position={slot.slot_type} state="empty" emptyHint="Open" />;
+  }
+
+  const isExactSeason = slot.exact_player_season_key != null;
+  const revealedScore = isExactSeason ? slot.season_score : slot.individual_peak_score;
+  const revealed = revealedScore != null;
+  const value = revealed ? Math.round(revealedScore ?? 0) : undefined;
+
+  // Same reveal-discipline testid contract as `PeakV2CourtSlotCard` (the
+  // LIVE court) and legacy `PeakCardCourt.tsx`: a real score line only once
+  // the server has actually revealed it, a locked/unavailable note
+  // otherwise -- courtbuilder.spec.ts's result-credibility tests count
+  // these directly (`revealed-score-line` === 8, `peak-locked-note` === 0
+  // once every card is scored).
+  const scoreLine: ReactNode = isExactSeason ? (
+    <span data-testid="exact-season-line">
+      {slot.team_name} · {slot.season}
+      {revealed ? (
+        <span data-testid="revealed-score-line"> · {Math.round(slot.season_score ?? 0)} pts</span>
+      ) : null}
+      {!revealed && slot.score_status === "exact_season_unscored" ? (
+        <span data-testid="score-unavailable-note"> · No official score</span>
+      ) : null}
+      {slot.score_source === "exact_season_aggregate" ? (
+        <span data-testid="season-aggregate-note" title="Traded mid-season -- score is the whole-season total, not specific to this exact team stint.">
+          {" "}· Season Aggregate
+        </span>
+      ) : null}
+    </span>
+  ) : revealed ? (
+    <span data-testid="revealed-score-line">
+      {slot.anchor_season} · {Math.round(slot.individual_peak_score ?? 0)} pts · #{slot.individual_peak_rank}
+    </span>
+  ) : (
+    <span data-testid="peak-locked-note">{slot.anchor_season} · Peak locked</span>
+  );
+
+  const fit = fitLabel(slot.role_fit, slot.role_fit_severity);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <PeakV2CourtSlot
+        position={slot.slot_type}
+        player={{ name: slot.player_name ?? "", meta: scoreLine }}
+        value={value}
+        valueLabel={value !== undefined ? "PEAK3" : undefined}
+        state="filled"
+      />
+      {fit ? (
+        <span data-testid="role-fit-badge" style={{ ...mutedTextStyle, fontSize: "0.625rem", color: fitColor(slot.role_fit, slot.role_fit_severity) }}>
+          {fit}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+export default function PeakV2CourtResult({ state, result, onPlayAgain, playAgainBusy = false, readOnly = false }: Props) {
+  const starterSlots = state.slots.filter((s) => STARTER_SLOT_TYPES.includes(s.slot_type));
+  const benchSlots = state.slots.filter((s) => BENCH_SLOT_TYPES.includes(s.slot_type));
+  const isExactSeasonMode = state.experimental_team_year_data_version != null;
+  // Same gate as legacy: an incomplete-score run never gets the confident
+  // "PERFECT SEASON" gold treatment, even if the noisy win formula clamps
+  // to 82 -- one or more cards has no real PEAK3 score.
+  const isIncomplete = result.lineup_score_status === "incomplete";
+  const showPerfectStyling = result.is_perfect_season && !isIncomplete;
+  const identity = teamIdentityPhrase(state.slots);
+
+  const clientFallback = bestAndWorstPick(state.slots);
+  const best = result.best_pick ?? clientFallback.best;
+  const weakness = result.structural_weakness ?? clientFallback.weakness;
+  const weaknessLabel = result.weakness_framing
+    ? (result.weakness_framing === "ceiling_limiter" ? "Ceiling limiter" : "Weakness")
+    : (result.wins >= 65 ? "Ceiling limiter" : "Weakness");
+
+  const scoredSlotCount = state.slots.filter((s) => s.score_status === "exact_season_scored").length;
+  const filledSlotCount = state.slots.filter((s) => s.filled).length;
+
+  const isDaily = state.challenge_kind === "daily";
+  const dailyDateLabel = state.challenge_date
+    ? new Date(`${state.challenge_date}T00:00:00Z`).toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        timeZone: "UTC",
+      })
+    : null;
+
+  const eligibility = state.eligibility ?? null;
+  const savable = eligibility?.savable ?? true;
+
+  return (
+    <PeakV2Shell width="live">
+      <div className="py-6" data-testid="season-result">
+        <div className="flex items-center justify-between gap-3">
+          <span style={sectionLabelStyle}>PEAK3 · {isDaily ? "Daily PEAK Season" : "82-0 Peak Season"}</span>
+          <span style={{ ...sectionLabelStyle, fontSize: "0.625rem" }} data-testid="v0-simulator-label">
+            Experimental simulator
+          </span>
+        </div>
+
+        <div data-testid="result-hero" className="mt-2">
+          <PeakV2CinematicStage light={{ tone: heroLightTone(result.wins, isIncomplete, showPerfectStyling) }}>
+            <span style={sectionLabelStyle} data-testid="result-tier">
+              {resultTier(result.wins)}
+            </span>
+            <div className="mt-2 flex items-start justify-center gap-2">
+              <span data-testid="season-record">
+                <PeakV2ResultHeadline as="h1" scale="hero" tone={showPerfectStyling ? "accent" : "primary"}>
+                  {result.wins}-{result.losses}
+                </PeakV2ResultHeadline>
+              </span>
+              {isIncomplete && (
+                <span
+                  className="mt-2"
+                  style={{ ...sectionLabelStyle, fontSize: "0.625rem" }}
+                  data-testid="estimated-record-badge"
+                  title="One or more cards have no official PEAK3 score yet -- this record uses conservative provisional impact for those cards, based on each card's real games/minutes sample."
+                >
+                  Estimated
+                </span>
+              )}
+            </div>
+            <p
+              className="mt-2"
+              style={{
+                fontFamily: "var(--v2-font-ui)",
+                fontSize: "0.9375rem",
+                fontWeight: 700,
+                color: showPerfectStyling ? "var(--v2-color-accent)" : "var(--v2-text-secondary)",
+                margin: 0,
+              }}
+              data-testid="record-framing"
+            >
+              {recordFraming(result.wins, result.losses, isIncomplete)}
+            </p>
+            <p className="mt-1" style={{ ...mutedTextStyle, margin: 0 }} data-testid="team-identity-phrase">
+              {identity}
+            </p>
+            {isDaily && dailyDateLabel && (
+              <p
+                className="mt-1"
+                style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 700, color: "var(--v2-color-accent)", margin: 0 }}
+                data-testid="daily-challenge-label"
+              >
+                Daily challenge · {dailyDateLabel}
+              </p>
+            )}
+          </PeakV2CinematicStage>
+        </div>
+
+        <PeakV2Rule spacing="md" />
+
+        <SaveRunPanel gameId={state.game_id} wins={result.wins} savable={savable} readOnly={readOnly} />
+
+        {onPlayAgain && (
+          <div className="mt-4">
+            <PlayAgainPanel
+              mode={state.mode}
+              wins={result.wins}
+              losses={result.losses}
+              lineupPeakScore={result.lineup_score_status === "complete" ? result.lineup_peak_score : null}
+              onPlayAgain={onPlayAgain}
+              busy={playAgainBusy}
+            />
+          </div>
+        )}
+
+        <PeakV2Rule spacing="md" />
+
+        {best && (
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-baseline sm:justify-between" data-testid="best-and-weakness">
+            <div>
+              <div style={sectionLabelStyle}>Best pick</div>
+              <div className="mt-1" style={{ fontFamily: "var(--v2-font-ui)", fontWeight: 700, fontSize: "0.9375rem", color: "var(--v2-text-primary)" }}>
+                {best}
+              </div>
+            </div>
+            <div>
+              <div style={sectionLabelStyle}>{weaknessLabel}</div>
+              <div
+                className="mt-1"
+                style={{ fontFamily: "var(--v2-font-ui)", fontWeight: 700, fontSize: "0.9375rem", color: "var(--v2-text-primary)" }}
+                data-testid="weakness-label"
+              >
+                {weakness}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* A bare label like "thin bench depth" reads as a real basketball
+            insult on its own -- this clarifies it's relative to PEAK3's
+            0-100 all-time-peak scale, not an absolute real-world judgment. */}
+        {result.structural_weakness_detail && (
+          <p className="mt-2" style={mutedTextStyle} data-testid="weakness-detail">
+            {result.structural_weakness_detail}
+          </p>
+        )}
+
+        <PeakV2Rule spacing="md" />
+
+        <div data-testid="lineup-peak-score">
+          <div style={sectionLabelStyle}>PEAK3 Lineup Score</div>
+          {result.lineup_score_status === "incomplete" ? (
+            <>
+              <div
+                className="mt-1"
+                style={{ fontFamily: "var(--v2-font-display)", fontWeight: 600, fontSize: "1.5rem", color: "var(--v2-text-muted)" }}
+                data-testid="lineup-score-incomplete"
+              >
+                Score incomplete
+              </div>
+              <p className="mt-1" style={mutedTextStyle} data-testid="score-coverage-note">
+                {scoredSlotCount}/{filledSlotCount} exact season cards scored — one or more selected
+                player-seasons has no official PEAK3 score yet (below the model&apos;s minutes
+                threshold). Projected record above uses conservative provisional impact for those
+                cards, based on each card&apos;s real games/minutes sample; the lineup score itself
+                is not shown rather than estimated.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="mt-1">
+                <PeakV2Score role="instrument" size="lg" tone="neutral" value={`${result.lineup_peak_score.toFixed(1)} / 100`} />
+              </div>
+              <p className="mt-1" style={mutedTextStyle} data-testid="score-coverage-note">
+                {scoredSlotCount}/{filledSlotCount} exact season cards scored · Mean of your 8 cards&apos;{" "}
+                real {isExactSeasonMode ? "exact season" : "peak"} PEAK3 scores — the number to compare across runs.
+              </p>
+            </>
+          )}
+        </div>
+
+        <PeakV2Rule spacing="md" />
+
+        <div>
+          <div style={sectionLabelStyle}>Your roster, revealed</div>
+          <div className="mt-3">
+            <CourtLayout starterSlots={starterSlots} benchSlots={benchSlots} renderSlot={(slot) => <ResultSlotCard slot={slot} />} />
+          </div>
+        </div>
+
+        <PeakV2Rule spacing="md" />
+
+        <div>
+          <div style={sectionLabelStyle}>What decided this</div>
+          <ul className="mt-2 flex flex-col gap-1.5 list-none pl-0">
+            {result.decisive_factors.map((f) => (
+              <li key={f} style={bodyTextStyle}>
+                <span aria-hidden="true" style={{ color: "var(--v2-text-muted)" }}>
+                  —{" "}
+                </span>
+                {f}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3" style={mutedTextStyle} data-testid="peak-value-reassurance">
+            PEAK3 scores this roster mostly on peak talent and real position fit — it never docks a
+            lineup for having too many elite peaks.
+          </p>
+        </div>
+
+        {result.peak_picks_recap && result.peak_picks_recap.length > 0 && (
+          <div className="mt-6">
+            <PeakPicksRecap recap={result.peak_picks_recap} />
+          </div>
+        )}
+
+        <div className="mt-6">
+          <LineupInsightPanel result={result} />
+        </div>
+
+        {readOnly && (
+          <>
+            <PeakV2Rule spacing="md" />
+            <div className="flex items-center justify-between gap-3">
+              <span style={bodyTextStyle}>Think you can build a better roster?</span>
+              <PeakV2PrimaryAction href="/arena/court/practice/apex_1y">Build your own</PeakV2PrimaryAction>
+            </div>
+          </>
+        )}
+
+        <PeakV2Rule spacing="md" />
+
+        <ShareRunPanel state={state} result={result} />
+
+        {eligibility && !eligibility.leaderboard_eligible && eligibility.reason !== "game_not_complete" && (
+          <p className="mt-4" style={mutedTextStyle} data-testid="eligibility-notice">
+            <span style={{ fontWeight: 700, color: "var(--warning)" }}>Not leaderboard-eligible · </span>
+            {eligibility.reason_detail}
+          </p>
+        )}
+
+        {!readOnly && (
+          <div className="mt-4">
+            <LeaderboardSubmitPanel gameId={state.game_id} mode={state.mode} lineupScoreStatus={result.lineup_score_status} />
+          </div>
+        )}
+
+        <p className="mt-6" style={mutedTextStyle} data-testid="experimental-notice">
+          {result.experimental_notice}
+        </p>
+
+        <details
+          className="mt-4"
+          style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.625rem", color: "var(--v2-text-muted)" }}
+          data-testid="result-receipt"
+        >
+          <summary className="cursor-pointer select-none" style={{ color: "var(--v2-text-secondary)" }}>
+            Data receipt
+          </summary>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 pt-2">
+            <span>Seed {state.board_seed}</span>
+            <span>{state.card_pool_version}</span>
+            <span>{result.lineup_model_version}</span>
+            <span>{result.simulator_version}</span>
+            {state.experimental_team_year_data_version && <span>{state.experimental_team_year_data_version}</span>}
+            {state.formula_version && <span>{state.formula_version}</span>}
+            {state.coverage_mode && <span>{state.coverage_mode}</span>}
+          </div>
+        </details>
+      </div>
+    </PeakV2Shell>
+  );
+}

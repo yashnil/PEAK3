@@ -80,7 +80,20 @@ import PlacementBoard, { type PlacementMode } from "./PlacementBoard";
  * `plan` verbatim. THE SEARCH BOX AND THE FILTER CHIPS ARE VIEW STATE ONLY:
  * they never reach a command, and the timeout fallback is resolved server-side
  * from the full feasible pool, so narrowing this list cannot change what an
- * expired turn drafts.
+ * expired turn drafts (unless the player has staged a choice -- see below).
+ *
+ * SELECTION IS NOT COMMITMENT (Pass 1).
+ * ---------------------------------------
+ * A candidate click and a slot click STAGE only, via `onStage` -- they no
+ * longer draft. Two explicit affordances resolve a staged choice:
+ * "Draft {name} at {slot}" commits it (`onPick`), "Cancel selection" drops it
+ * (`onStage(null, null)`). This reverses the previous "click is the decision"
+ * fix (see the old docstring on `select`, kept below for the incident it
+ * closed), but stays safe against the SAME incident because staging is now
+ * SERVER-VISIBLE: a timeout drafts the staged choice instead of the weaker
+ * `autopick` fallback (see `mode._reduce_timeout`), so a player who staged
+ * and then ran out of clock still gets exactly what they chose. What clicking
+ * can no longer do is draft a player the user did not explicitly confirm.
  */
 export default function PickOverlay({
   open,
@@ -93,10 +106,12 @@ export default function PickOverlay({
   seats,
   yourSeatIndex,
   lockedEntries = [],
+  stagedPick = null,
   deadlineAt,
   turnSeconds,
   busy,
   onPick,
+  onStage,
   onMove,
   onClose,
 }: {
@@ -111,11 +126,20 @@ export default function PickOverlay({
   yourSeatIndex: number | null;
   /** Every identity already off the board, for the empty state. */
   lockedEntries?: TmwLockEntry[];
+  /** This seat's SERVER-VISIBLE staged choice for the current turn, or null.
+   *  Hydrates local selection on mount/reconnect -- see the mount effect
+   *  below. */
+  stagedPick?: { player_slug: string; slot_type: TmwSlotType } | null;
   /** Local monotonic deadline; see `ArenaTimer`. */
   deadlineAt: number | null;
   turnSeconds: number;
   busy: boolean;
+  /** COMMITS. Only ever called from an explicit "Draft {name} at {slot}" press. */
   onPick: (candidate: TmwCandidate, slot: TmwSlotType) => void;
+  /** STAGES (or, with both arguments null, CLEARS). Never drafts -- see this
+   *  module's docstring. Fired on every candidate/slot click so the server
+   *  can prefer the staged choice if the clock runs out. */
+  onStage: (candidate: TmwCandidate | null, slot: TmwSlotType | null) => void;
   /** Commit a rearrangement of the existing roster. The COMPLETE final
    *  assignment, slot -> player_slug, which is the only shape the server takes. */
   onMove: (placements: Record<string, string>) => void;
@@ -162,37 +186,60 @@ export default function PickOverlay({
     return () => window.clearTimeout(timer);
   }, [expiredDeadline]);
 
-  const reset = useCallback(() => {
-    setQuery("");
-    setFilters([]);
-    setSelected(null);
-    setSlot(null);
-    setMovingFrom(null);
-  }, []);
+  /** Clears local selection -- or, given a staged choice, HYDRATES it. */
+  const reset = useCallback(
+    (hydrate?: { player_slug: string; slot_type: TmwSlotType } | null) => {
+      setQuery("");
+      setFilters([]);
+      setSelected(hydrate?.player_slug ?? null);
+      setSlot(hydrate?.slot_type ?? null);
+      setMovingFrom(null);
+    },
+    [],
+  );
 
   // A fresh turn is a fresh decision. Resetting on the roll AND the pick number
   // means a player never returns to the clock with the previous round's search
   // still narrowing a different pool -- and never inherits a stale expiry.
+  //
+  // HYDRATED FROM `stagedPick` ON THAT SAME TRANSITION -- a mount (fresh page
+  // load, reconnect) or a genuine turn change may find a choice this seat
+  // already staged before a refresh, and it must render as still selected,
+  // not blank. `stagedPick` is deliberately NOT a dependency here: it changes
+  // as a SIDE EFFECT of `select`/`selectPlacementSlot` staging through the
+  // server, and re-running this effect on every one of those round trips
+  // would wipe the search box and position filters the player is actively
+  // using mid-selection. Reading it only at mount/turn-change time is
+  // correct because staging is already scoped server-side to the CURRENT
+  // turn (cleared on any turn change, see `draft.py`'s `apply_pick`), so by
+  // construction it can never belong to a different turn than the one this
+  // effect just opened on.
   useEffect(() => {
     if (!open) return;
-    reset();
+    reset(stagedPick);
     // Focus the search rather than the dialog: the first thing a drafter does
     // is look for a name, and landing on the input skips a tab for everyone
     // while still putting focus inside the dialog for a screen reader.
     const timer = window.setTimeout(() => searchRef.current?.focus(), 30);
     return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, roll?.roll_id, pickNumber, reset]);
 
   // Escape backs out of the current selection before it closes the dialog: a
   // player who staged the wrong slot should not have to leave the room to undo
   // it. A turn you must resolve still has no cancel, which is why the last
   // Escape returns to the board rather than dismissing the clock.
+  //
+  // BACKING OUT OF A CANDIDATE SELECTION ALSO CLEARS THE SERVER'S STAGED
+  // CHOICE. A move-in-progress (`movingFrom`) has no staged pick to clear --
+  // rearranging never stages a draft.
   useEffect(() => {
     if (!open) return;
     function onKey(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
       if (movingFrom !== null || selected !== null) {
         event.stopPropagation();
+        if (selected !== null) onStage(null, null);
         setSelected(null);
         setSlot(null);
         setMovingFrom(null);
@@ -202,7 +249,7 @@ export default function PickOverlay({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose, movingFrom, selected]);
+  }, [open, onClose, onStage, movingFrom, selected]);
 
   const nameOf = useMemo(() => {
     const byslug = new Map<string, string>();
@@ -289,37 +336,26 @@ export default function PickOverlay({
   }, [mode, chosen, nameOf]);
 
   /**
-   * Stage a candidate — and, when there is only one legal slot for them,
-   * COMMIT immediately. Local, reversible (for the multi-slot case),
-   * idempotent — see the row's `onPointerDown` for why it has to be all
-   * three.
+   * Select a candidate. STAGES only — never commits.
    *
-   * BUG FIX (gameplay-experience-polish 3.2): this used to only ever stage.
-   * A player who clicked a legal candidate and never separately pressed
-   * "Draft {name} at {slot}" had made no submission at all — clicking only
-   * set local React state — so a timeout resolved through the server's
-   * auto-pick fallback exactly as if nothing had been chosen, discarding a
-   * player the user visibly had selected (reported: Amar'e Stoudemire
-   * clicked, Brevin Knight drafted by the fallback). The fix is CLICK
-   * PLAYER -> COMMIT PLAYER: when the candidate has exactly one legal slot,
-   * there is no second decision to make, so nothing is gained by staging
-   * and waiting for a further press — the click itself is now the
-   * submission, through the exact same `onPick` the confirm button used to
-   * be the only way to reach. `onPick`'s caller (`pick()` in
-   * ThreeManWeaveGame.tsx) already guards `busy`/`inFlight` against a
-   * double-submit, so a fast repeat click here is safe without new
-   * machinery.
+   * PASS 1 REVERSED THE PRIOR "click is the decision" FIX (kept here for the
+   * incident it closed, gameplay-experience-polish 3.2): a player who
+   * clicked a legal candidate and never separately pressed "Draft {name} at
+   * {slot}" used to lose that pick to the server's timeout fallback exactly
+   * as if nothing had been chosen (reported: Amar'e Stoudemire clicked,
+   * Brevin Knight drafted by the fallback). That fix made the click itself
+   * the submission. The new requirement is the opposite — an accidental
+   * click must never irrevocably draft — so it is reversed here, but the
+   * ORIGINAL INCIDENT DOES NOT REOPEN: `onStage` below makes the choice
+   * server-visible the instant it is made, and a timeout now drafts THAT
+   * instead of the weak `autopick` fallback (`mode._reduce_timeout`). The
+   * player therefore still gets exactly what they selected if the clock
+   * runs out, without the click having to be the draft.
    *
-   * A candidate with more than one legal slot still only STAGES here —
-   * which slot is a genuine second decision the player has to make, not a
-   * formality — but committing there is no longer gated on this button
-   * either: see `PlacementBoard`'s `onSelectSlot` wiring below, which
-   * commits the instant a legal slot is clicked while placing. The old
-   * "Draft {name} at {slot}" button and the `<select>` accessible fallback
-   * both still work and still commit on their own click/change, for the one
-   * case that must NOT auto-commit — a native `<select>` fires `onChange`
-   * while arrow-keying through options in some browsers, so auto-committing
-   * there would draft an unintended player mid-browse.
+   * When the candidate has exactly one legal slot, that slot is also staged
+   * immediately (there is no second decision to make) — but staged, not
+   * committed; "Draft {name} at {slot}" still has to be pressed, or the
+   * `<select>` fallback's own commit used, same as the multi-slot case.
    */
   const select = useCallback((candidate: TmwCandidate) => {
     // Selecting a candidate always cancels a move in progress: the two are
@@ -329,27 +365,24 @@ export default function PickOverlay({
     const options = placementOptionsFor(candidate);
     if (options.length === 1) {
       setSlot(options[0]);
-      if (!expired) onPick(candidate, options[0]);
+      if (!expired) onStage(candidate, options[0]);
       return;
     }
     setSlot(null);
-  }, [expired, onPick]);
+  }, [expired, onStage]);
 
   /** The board's own slot click, while placing a multi-slot candidate:
-   *  commits immediately, same "click is the decision" rule as `select`
-   *  above — see its docstring. Only wired for `mode === "placing"`
-   *  (drafting); a rearrange-mode slot click still only stages (`setSlot`
-   *  via `onSelectSlot` below), since a move has its own explicit confirm
-   *  step this fix does not touch. */
+   *  stages the pair server-side — never commits, see `select` above and
+   *  this module's docstring. Only wired for `mode === "placing"`
+   *  (drafting); a rearrange-mode slot click still only sets local state
+   *  (`setSlot` via `onSelectSlot` below), since a move has its own
+   *  explicit confirm step and never stages a draft. */
   const selectPlacementSlot = useCallback(
     (targetSlot: TmwSlotType) => {
       setSlot(targetSlot);
-      // `expired` (the grace window is gone too, not just the visible
-      // countdown) is the one case this must not auto-submit for — same
-      // condition the old confirm button gated on via `canCommitPlacement`.
-      if (chosen && !expired) onPick(chosen, targetSlot);
+      if (chosen && !expired) onStage(chosen, targetSlot);
     },
-    [chosen, expired, onPick],
+    [chosen, expired, onStage],
   );
 
   const commitMove = useCallback(() => {
@@ -657,7 +690,11 @@ export default function PickOverlay({
                   value={slot ?? ""}
                   disabled={expired}
                   data-testid="tmw-place-select"
-                  onChange={(event) => setSlot(event.target.value as TmwSlotType)}
+                  onChange={(event) => {
+                    const nextSlot = event.target.value as TmwSlotType;
+                    setSlot(nextSlot);
+                    if (chosen && !expired) onStage(chosen, nextSlot);
+                  }}
                 >
                   <option value="" disabled>
                     Select a slot…
@@ -723,6 +760,11 @@ export default function PickOverlay({
                     className="btn-secondary"
                     data-testid="tmw-cancel-pick"
                     onClick={() => {
+                      // CHANGE SELECTION: clears the server's staged choice
+                      // too, not just local state — otherwise a player who
+                      // visibly cancelled could still time out into the
+                      // player they just backed away from.
+                      onStage(null, null);
                       setSelected(null);
                       setSlot(null);
                     }}

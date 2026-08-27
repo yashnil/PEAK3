@@ -43,13 +43,16 @@ export default function GridCell({
 }: Props) {
   const state = filled ? "filled" : active ? "active" : invalid ? "invalid" : "empty";
 
+  // Pass 7 (human acceptance testing, task §3): the same court-slot
+  // radius/border grammar established elsewhere (`--v2-radius-control`,
+  // `--v2-border*`, `--v2-color-accent`).
   const borderColor = filled
-    ? "color-mix(in srgb, var(--peak-accent) 45%, transparent)"
+    ? "var(--v2-border-emphasis)"
     : invalid
-      ? "var(--incorrect)"
+      ? "var(--v2-color-negative)"
       : active
-        ? "var(--peak-accent)"
-        : "var(--border-default)";
+        ? "var(--v2-color-accent)"
+        : "var(--v2-border-subtle)";
 
   const poolHint = spec ? RARITY_POOL_HINT[spec.rarity_bucket] : "";
   const ariaLabel = filled
@@ -70,14 +73,16 @@ export default function GridCell({
       className="relative flex w-full flex-col items-center justify-center overflow-hidden rounded-lg px-1 py-1.5 text-center transition-colors"
       style={{
         aspectRatio: "1 / 1",
+        borderRadius: "var(--v2-radius-control)",
+        fontFamily: "var(--v2-font-ui)",
         background: filled
-          ? "linear-gradient(180deg, rgba(245,200,66,0.07), rgba(245,200,66,0.02))"
+          ? "var(--v2-bg-plane)"
           : active
-            ? "var(--bg-surface-hover)"
-            : "var(--bg-surface)",
+            ? "var(--v2-bg-surface)"
+            : "var(--v2-bg-page)",
         border: `1px solid ${borderColor}`,
-        boxShadow: active ? "0 0 0 2px color-mix(in srgb, var(--peak-accent) 28%, transparent)" : "none",
-        color: "var(--text-primary)",
+        boxShadow: active ? "0 0 0 2px color-mix(in srgb, var(--v2-color-accent) 28%, transparent)" : "none",
+        color: "var(--v2-text-primary)",
       }}
     >
       {filled ? (

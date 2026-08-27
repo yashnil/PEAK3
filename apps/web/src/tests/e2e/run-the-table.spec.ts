@@ -224,8 +224,16 @@ async function stepOnce(page: Page, surface: SurfaceId): Promise<void> {
       // this file that reaches a reveal has been hanging for the full 20s
       // timeout and then failing, unnoticed only because the suite has not
       // actually been run this pass.
+      //
+      // Pass 1 (gameplay correctness): the boss lineup now auto-starts its
+      // reveal with zero clicks (`RevealSequenceSurface`'s boss-only
+      // auto-start effect) — there is no `rtt-reveal-start-boss` button to
+      // click at all. The roster path is untouched and still requires the
+      // one manual press.
       const kind = surface === "rtt-opening-reveal" ? "roster" : "boss";
-      await page.locator(`[data-testid="rtt-reveal-start-${kind}"]`).click();
+      if (kind === "roster") {
+        await page.locator(`[data-testid="rtt-reveal-start-${kind}"]`).click();
+      }
       const skip = page.locator(`[data-testid="rtt-reveal-skip-${kind}"]`);
       await skip.waitFor({ state: "visible", timeout: 20_000 });
       await skip.click();
@@ -271,10 +279,17 @@ async function stepOnce(page: Page, surface: SurfaceId): Promise<void> {
       await page.locator('[data-testid="rtt-resolve-boss"]').click();
       break;
     case "rtt-battle-reveal":
-      // Skip the lane-by-lane reveal, then advance. Asserting the END state
-      // instead of watching the animation is the whole point of the skip
-      // affordance existing.
-      await page.locator('[data-testid="rtt-battle-skip"]').click();
+      // V2 REBUILD (PeakV2RTTBattleResult.tsx, Pass 3 — "the boss battle
+      // result" is one of the four surfaces explicitly rebuilt for V2,
+      // verified against the design reference E2 page 17). Legacy's
+      // `BattleReveal` played the lane-by-lane resolution as an animated
+      // sequence with its own "Skip" affordance (`rtt-battle-skip`); V2's
+      // replacement renders the finished five-lane receipt statically and
+      // completely the instant this surface mounts — there is no animation
+      // left to skip, so there is no `rtt-battle-skip` button any more (only
+      // `rtt-battle-advance`, unchanged). Asserting the end state instead of
+      // watching an animation — the property `rtt-battle-skip` used to
+      // exist for — is now true of this surface unconditionally.
       await page.locator('[data-testid="rtt-battle-advance"]').click();
       break;
     case "rtt-result":
@@ -548,44 +563,56 @@ test.describe("RUN THE TABLE opening reveal", () => {
     expect(revealPosts).toBe(1);
   });
 
-  test("the roster dock conceals every unrevealed slot during the sequence — no name, score, or window leaks", async ({
+  test("the reveal sequence conceals every unrevealed slot — no name, score, or window leaks", async ({
     page,
   }) => {
+    // V2 CONSOLIDATION (PeakV2RTTBossLineup.tsx, Pass 3 polish). The
+    // opening-roster reveal and the boss reveal used to be two divergent
+    // implementations: legacy's `RevealSequenceSurface` paired with a
+    // separate always-mounted `RunTray` "roster dock" (`data-reveal-active`,
+    // compact `rtt-slot-compact-*` chips) tracking concealment state beside
+    // the big reveal cards. `PeakV2RTTBossLineup` is the real V2 rebuild of
+    // BOTH surfaces as one shared card-grid/arena-light presentation
+    // (`kind="roster"` vs `kind="boss"`) — `RunTray` is dead code now
+    // (confirmed: no `<RunTray` render site anywhere in the tree), and there
+    // is no second, parallel "dock" duplicating the reveal cards' own state.
+    // Concealment lives entirely on `[data-testid="rtt-reveal-card"]`'s own
+    // `data-reveal-status` ("concealed" | "active" | "settled") — the exact
+    // attribute this same file's boss-reveal tests already assert against
+    // (see `revealedSlotCount()` above, and the mobile boss-reveal test
+    // below). This test now protects the identical player-facing property
+    // ("nothing is turned over until asked, and only what has been asked
+    // for") through that real, current mechanism instead of the retired one.
     await freshGate(page);
     await startRun(page, "rtt-start-standard");
-    await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toBeVisible();
+    const reveal = page.locator('[data-testid="rtt-opening-reveal"]');
+    await expect(reveal).toBeVisible();
 
-    const dock = page.locator('[data-testid="rtt-roster-dock"]');
-    await expect(dock).toHaveAttribute("data-reveal-active", "true");
-    // Every compact roster chip reads concealed before the reveal starts.
-    await expect(page.locator('[data-testid^="rtt-slot-compact-"][data-concealed="false"]')).toHaveCount(0);
+    // Before the player presses "Reveal your roster", the card grid has not
+    // even mounted yet — nothing is rendered for a name or score to leak
+    // from at all, the strongest form of "concealed" there is.
+    await expect(page.locator('[data-testid="rtt-reveal-card"]')).toHaveCount(0);
 
     await page.locator('[data-testid="rtt-reveal-start-roster"]').click();
     await page.locator('[data-testid="rtt-reveal-skip-roster"]').click();
 
-    // TWO DIFFERENT FLAGS, checked separately, because they answer two
-    // different questions (RunTray.tsx / RunTheTableGame.tsx's
-    // `rosterConcealment`): `data-reveal-active` is "has the player
-    // dismissed this reveal yet" — stays true here, because skip alone does
-    // not dismiss (the lead's ruling this pass). Per-slot `data-concealed`
-    // tracks the PRESENTATION CURSOR, which skip-all legitimately fast-
-    // forwards to every slot — the full roster is already sitting in the
-    // main reveal card list on screen at this exact moment, so the compact
-    // dock matching that is correct, not a leak. (An earlier version of
-    // this test asserted every slot was STILL concealed here, which read as
-    // a stronger check but was actually asserting the wrong thing — verified
-    // live against the running app before writing this comment, not assumed.)
-    await expect(dock).toHaveAttribute("data-reveal-active", "true");
-    await expect(page.locator('[data-testid^="rtt-slot-compact-"][data-concealed="false"]')).toHaveCount(7);
+    // "Skip all" is a real server round trip that returns every authoritative
+    // `revealed_slots` entry at once (SYNTHESIS_CONTRACT.md §2.2); the client
+    // then settles every card's presentation in lockstep — all seven read
+    // "settled" together, never a partial disclosure.
+    await expect(
+      page.locator('[data-testid="rtt-reveal-card"][data-reveal-status="settled"]'),
+    ).toHaveCount(7);
+    await expect(revealedSlotCount(page)).resolves.toBe(7);
 
     const continueRoster = page.locator('[data-testid="rtt-reveal-continue-roster"]');
     await continueRoster.waitFor({ state: "visible", timeout: 20_000 });
     await continueRoster.click();
     await expect(page.locator('[data-testid="rtt-system-select"]')).toBeVisible({ timeout: 20_000 });
 
-    // Only once the player has explicitly moved on does the dock stop
-    // concealing.
-    await expect(dock).toHaveAttribute("data-reveal-active", "false");
+    // Only once the player has explicitly moved on does the reveal surface
+    // itself unmount.
+    await expect(reveal).toHaveCount(0);
   });
 });
 
@@ -679,7 +706,10 @@ test.describe("RUN THE TABLE full run", () => {
     // Deliberately NOT `stepOnce` here — it also waits for the surface to be
     // replaced (by the "Continue" click), and the settled-but-still-mounted
     // moment in between is exactly what needs inspecting.
-    await page.locator('[data-testid="rtt-reveal-start-boss"]').click();
+    //
+    // No click to start the boss reveal (Pass 1): it auto-starts the instant
+    // this surface mounts, so there is no `rtt-reveal-start-boss` button —
+    // go straight to waiting for "Skip all" to appear.
     const skip = page.locator('[data-testid="rtt-reveal-skip-boss"]');
     await skip.waitFor({ state: "visible", timeout: 20_000 });
     await skip.click();
@@ -730,6 +760,38 @@ test.describe("RUN THE TABLE resume", () => {
 
     // And it is still playable from there.
     await stepOnce(page, before);
+  });
+
+  /**
+   * Pass 1 (gameplay correctness): the boss reveal must never require a
+   * click to start, and a reload mid-presentation must never strand the
+   * match behind it — the reveal auto-fires again on remount, same as the
+   * first time, and the battle is still reachable afterward.
+   */
+  test("boss reveal auto-starts with zero clicks, and a reload mid-reveal does not strand the match", async ({
+    page,
+  }) => {
+    test.setTimeout(FULL_RUN_TIMEOUT_MS);
+    await freshGate(page);
+    await startRun(page, "rtt-start-standard");
+    await skipOpeningReveal(page);
+    await driveTo(page, "rtt-boss-reveal");
+
+    // No click starts it — the "Skip all" control (only rendered once the
+    // sequence has started) appears on its own.
+    await expect(page.locator('[data-testid="rtt-reveal-start-boss"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="rtt-reveal-skip-boss"]')).toBeVisible({ timeout: 20_000 });
+
+    // Reload mid-presentation, before ever pressing skip/continue.
+    await page.reload({ waitUntil: "load" });
+    await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible({ timeout: 20_000 });
+    expect(await currentSurface(page)).toBe("rtt-boss-reveal");
+
+    // It auto-starts again, with no click required, and the match is still
+    // completable from here — not stuck behind the presentation.
+    await expect(page.locator('[data-testid="rtt-reveal-start-boss"]')).toHaveCount(0);
+    await stepOnce(page, "rtt-boss-reveal");
+    expect(await currentSurface(page)).not.toBe("rtt-boss-reveal");
   });
 });
 

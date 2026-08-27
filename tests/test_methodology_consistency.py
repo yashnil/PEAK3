@@ -32,6 +32,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PEAK3_PATH = REPO_ROOT / "peak3.py"
 METHODOLOGY_PATH = REPO_ROOT / "METHODOLOGY.md"
 SCORING_DOC_PATH = REPO_ROOT / "docs" / "model" / "SCORING_METHODOLOGY.md"
+BUILD_WEB_DATASET_PATH = REPO_ROOT / "scripts" / "build_web_dataset.py"
+V2_COMPONENT_MAP_PATH = REPO_ROOT / "apps" / "web" / "src" / "lib" / "v2-component-map.ts"
 
 EXPECTED_WEIGHTS = {
     "statistical_impact": 0.38,
@@ -200,4 +202,48 @@ def test_limitations_section_names_the_open_defects(scoring_doc):
     assert "no role/workload component" in limitations.lower()
     assert "MIN_SERVED_ANCHOR_MPG" in limitations, (
         "the limitations section should say what currently contains the defect"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The web dataset exporter's reader-facing component labels must agree with
+# the frontend's own canonical label map. Final closure pass: the Phase 12B
+# UI rename ("Postseason Value"/"Postseason Individual Value" -> "Playoff
+# Rate Impact"; "Team Achievement" -> "Team Result") had shipped everywhere
+# except this one exporter, which fed the Methodology page's data-driven
+# sections (legend, accordion, full-text summary) the stale names while the
+# SAME page's own hardcoded formula string already said the new ones -- one
+# page, two names apiece for two components.
+# ---------------------------------------------------------------------------
+
+RENAMED_COMPONENTS = {
+    "postseason_individual_value": "Playoff Rate Impact",
+    "team_achievement": "Team Result",
+}
+
+
+@pytest.mark.parametrize("component_id,expected_label", sorted(RENAMED_COMPONENTS.items()))
+def test_exporter_label_matches_the_canonical_frontend_label(component_id, expected_label):
+    exporter_source = BUILD_WEB_DATASET_PATH.read_text()
+    block = exporter_source.split(f'"id": "{component_id}"')[1].split("},")[0]
+    match = re.search(r'"label":\s*"([^"]+)"', block)
+    assert match, f"{component_id} entry has no \"label\" field"
+    exporter_label = match.group(1)
+
+    map_source = V2_COMPONENT_MAP_PATH.read_text()
+    label_map = map_source.split("RANKING_COMPONENT_LABEL")[1]
+    canonical_match = re.search(rf'{component_id}:\s*"([^"]+)"', label_map)
+    assert canonical_match, (
+        f"RANKING_COMPONENT_LABEL.{component_id} not found in {V2_COMPONENT_MAP_PATH}"
+    )
+    canonical_label = canonical_match.group(1)
+
+    assert exporter_label == canonical_label == expected_label, (
+        f"scripts/build_web_dataset.py labels {component_id} as {exporter_label!r}, "
+        f"but the canonical frontend label (RANKING_COMPONENT_LABEL, "
+        f"apps/web/src/lib/utils.ts componentLabel(), "
+        f"apps/api/app/services/explanation.py COMPONENT_LABELS) is "
+        f"{canonical_label!r} -- the Methodology page renders the exporter's "
+        "generated label verbatim, so a mismatch here is a real, visible "
+        "user-facing inconsistency, not a cosmetic one."
     )

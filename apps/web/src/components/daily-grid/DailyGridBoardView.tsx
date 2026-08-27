@@ -42,8 +42,27 @@ function HeaderChip({
         style={{ background: color, width: orientation === "col" ? 22 : 16, height: 2 }}
       />
       <span
-        className="break-words text-[clamp(9px,2.4vw,12px)] font-bold uppercase tracking-[0.04em]"
-        style={{ color: "var(--text-primary)", lineHeight: 1.15 }}
+        className={
+          orientation === "col"
+            ? "break-words text-[clamp(9px,2.4vw,12px)] font-bold uppercase tracking-[0.04em]"
+            : // Row-header gutter is the narrowest column on the board (see the
+              // grid's `minmax(68px, 0.55fr)` track below) -- no letter-spacing
+              // overhead here, and a single long word (e.g. "Champion",
+              // "Timberwolves") shrinks a little further before `break-words`
+              // is ever forced to slice it mid-word.
+              "break-words font-bold uppercase"
+        }
+        style={{
+          color: "var(--v2-text-primary)",
+          fontFamily: "var(--v2-font-ui)",
+          lineHeight: 1.15,
+          fontSize:
+            orientation === "row"
+              ? label.length > 9
+                ? "clamp(7.5px, 2.1vw, 10px)"
+                : "clamp(9px, 2.4vw, 12px)"
+              : undefined,
+        }}
       >
         {label}
       </span>
@@ -65,7 +84,7 @@ export default function DailyGridBoardView({ board, progress, selected, invalidC
       role="group"
       aria-label={`Daily grid, ${GRID_SIZE} by ${GRID_SIZE}`}
       className="grid w-full gap-1.5 sm:gap-2"
-      style={{ gridTemplateColumns: "minmax(58px, 0.55fr) repeat(3, minmax(0, 1fr))" }}
+      style={{ gridTemplateColumns: "minmax(68px, 0.55fr) repeat(3, minmax(0, 1fr))" }}
     >
       {/* Corner */}
       <div aria-hidden="true" />

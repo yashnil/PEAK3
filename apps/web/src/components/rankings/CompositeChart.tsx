@@ -21,10 +21,20 @@ import { RANKING_COMPONENT_KEYS } from "./board-model";
  * the board already publishes for exactly this comparison, and the ring labels
  * say so.
  *
- * THE SIXTH AXIS IS DATA COMPLETENESS, pinned to 100 for a complete row rather
- * than left to render as zero. A spike collapsing to the origin would read as
- * "this player scored nothing here" rather than "this axis does not apply" --
- * the same decision `ComponentSilhouette` records for the same reason.
+ * THE SIXTH AXIS IS THE OVERALL PEAK3 PERCENTILE (`percentiles.total`,
+ * already published by every board that carries component percentiles at
+ * all -- see `scripts/build_top_peaks.py::_percentile_map`, which ranks the
+ * total score with `df.rank(pct=True) * 100` over the exact same served
+ * population the five component axes are already ranked against). It used
+ * to be "data completeness" instead, pinned to ~100 for virtually every row
+ * this board serves -- a spoke that never moved is not a comparison, so it
+ * told a reader nothing. Data completeness itself is not lost; it is still
+ * surfaced as a chip in the full score derivation (`ScoreDerivation`). This
+ * axis reports something that actually varies row to row: how this
+ * player's TOTAL score ranks against the same population the other five
+ * axes use, which the five component percentiles alone cannot show (a
+ * player can be individually strong in one component yet unremarkable
+ * overall, or the reverse).
  *
  * THE CHART IS NEVER THE ONLY WAY TO READ THE DATA. `RankingsDetail` renders an
  * accessible table of the identical values beside it, always present and never
@@ -45,11 +55,16 @@ export interface CompositeAxis {
 
 /** The six axes for one row, in a fixed order so the shape is comparable
  * between players. Returns null when the board publishes no percentiles at
- * all -- a radar of absent values would be a drawing of zeros. */
+ * all -- a radar of absent values would be a drawing of zeros.
+ *
+ * `overallRaw` is the underlying figure behind the sixth axis's percentile
+ * (`percentiles.total`) -- pass the row's `prime_score`, the same total the
+ * percentile ranks, so the table beside the chart can show "the number"
+ * next to "the percentile" exactly as it does for the five components. */
 export function compositeAxes(
   percentiles: RankingPercentiles | null,
   components: Partial<Record<RankingComponentKey, number | null>> | null,
-  dataComplete: boolean,
+  overallRaw: number | null,
 ): CompositeAxis[] | null {
   if (!percentiles) return null;
   const axes: CompositeAxis[] = RANKING_COMPONENT_KEYS.map((key) => ({
@@ -60,10 +75,10 @@ export function compositeAxes(
     color: componentColor(key),
   }));
   axes.push({
-    key: "data_completeness",
-    label: "Data completeness",
-    value: dataComplete ? 100 : 60,
-    raw: null,
+    key: "total",
+    label: "Overall PEAK3 percentile",
+    value: clamp(percentiles.total ?? 0),
+    raw: overallRaw,
     color: "var(--comp-tm)",
   });
   return axes;

@@ -29,6 +29,9 @@
 
 import { useEffect, useRef } from "react";
 import { Clock, HelpCircle, Play } from "lucide-react";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
 
 interface Props {
   date: string;
@@ -70,98 +73,61 @@ export default function StartGate({
   }, []);
 
   return (
-    <section
-      data-testid="daily-grid-start-gate"
-      data-motion={reducedMotion ? "none" : "auto"}
-      aria-labelledby="daily-grid-start-gate-heading"
-      className="card-elevated mx-auto w-full max-w-2xl p-6 sm:p-8"
-      style={{
-        transition: reducedMotion ? "none" : "opacity 200ms ease",
-      }}
-    >
-      <p
-        className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-        style={{ color: "var(--peak-accent-text)" }}
-      >
-        Daily Grid
-      </p>
+      <PeakV2Shell width="cinematic">
+        <div className="v2-rtt-gate" data-testid="daily-grid-start-gate" data-motion={reducedMotion ? "none" : "auto"}>
+          <p className="v2-page-kicker">Daily Grid</p>
+          <h1 className="v2-page-title" style={{ fontSize: "var(--v2-display-size-line)" }}>
+            Today&rsquo;s Daily Grid
+          </h1>
+          <p className="v2-page-lede" data-testid="daily-grid-gate-objective">
+            <span data-testid="daily-grid-gate-shape">9 squares · 9 different exact player-seasons.</span>{" "}
+            Build the highest-scoring valid grid you can.
+          </p>
 
-      {/* The four briefed lines, verbatim and in order. */}
-      <h1
-        id="daily-grid-start-gate-heading"
-        className="font-display mt-1 text-2xl font-bold sm:text-3xl"
-      >
-        Today&rsquo;s Daily Grid
-      </h1>
+          <p className="v2-rtt-gate-notice" data-testid="daily-grid-gate-timer-note">
+            <Clock size={13} aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: "0.35em" }} />
+            The timer starts only when you press Start. Picks are final — no resets, no swapping.
+          </p>
 
-      <p
-        data-testid="daily-grid-gate-shape"
-        className="mt-3 text-sm font-semibold"
-        style={{ color: "var(--text-primary)" }}
-      >
-        9 squares &middot; 9 different exact player-seasons
-      </p>
-      <p
-        data-testid="daily-grid-gate-objective"
-        className="mt-1 text-sm leading-relaxed"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        Build the highest-scoring valid grid you can.
-      </p>
-      <p
-        data-testid="daily-grid-gate-timer-note"
-        className="mt-1 flex items-center gap-1.5 text-sm leading-relaxed"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        <Clock size={13} aria-hidden="true" style={{ color: "var(--peak-accent-text)" }} />
-        The timer starts only when you press Start.
-      </p>
+          <div className="flex flex-wrap gap-3 mt-1">
+            <PeakV2PrimaryAction
+              ref={startRef}
+              type="button"
+              data-testid="start-daily-grid"
+              onClick={onStart}
+              disabled={starting}
+              busy={starting}
+            >
+              <Play size={14} aria-hidden="true" />
+              Start Timed Grid
+            </PeakV2PrimaryAction>
 
-      <div className="mt-6 flex flex-col gap-2.5 sm:flex-row sm:items-center">
-        <button
-          ref={startRef}
-          type="button"
-          data-testid="start-daily-grid"
-          onClick={onStart}
-          disabled={starting}
-          className="inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:opacity-60"
-          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
-        >
-          <Play size={14} aria-hidden="true" />
-          Start Timed Grid
-        </button>
+            <PeakV2SecondaryAction
+              type="button"
+              data-testid="daily-grid-gate-how-to-play"
+              onClick={onHowToPlay}
+            >
+              <HelpCircle size={14} aria-hidden="true" />
+              How to Play
+            </PeakV2SecondaryAction>
 
-        <button
-          type="button"
-          data-testid="daily-grid-gate-how-to-play"
-          onClick={onHowToPlay}
-          className="inline-flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-          style={{ borderColor: "var(--border-emphasis)", color: "var(--text-primary)" }}
-        >
-          <HelpCircle size={14} aria-hidden="true" />
-          How to Play
-        </button>
+            <button
+              type="button"
+              data-testid="daily-grid-gate-skip-tour"
+              onClick={onSkipTourAndStart}
+              disabled={starting}
+              className="rounded-lg px-3 py-2.5 text-sm font-medium underline underline-offset-4 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:opacity-60"
+              style={{ fontFamily: "var(--v2-font-ui)", color: "var(--v2-text-muted)" }}
+            >
+              Skip Tour and Start
+            </button>
+          </div>
 
-        <button
-          type="button"
-          data-testid="daily-grid-gate-skip-tour"
-          onClick={onSkipTourAndStart}
-          disabled={starting}
-          className="rounded-lg px-3 py-2.5 text-sm font-medium underline underline-offset-4 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:opacity-60"
-          style={{ color: "var(--text-muted)" }}
-        >
-          Skip Tour and Start
-        </button>
-      </div>
-
-      <p
-        data-testid="daily-grid-gate-board-line"
-        className="mt-5 text-xs"
-        style={{ color: "var(--text-muted)" }}
-      >
-        Today&rsquo;s board &middot; {date}
-        {theme ? ` · ${theme}` : ""} &middot; {difficulty} difficulty
-      </p>
-    </section>
+          <p className="v2-rtt-gate-footnote" data-testid="daily-grid-gate-board-line">
+            Today&rsquo;s board · {date}
+            {theme ? ` · ${theme}` : ""} · {difficulty} difficulty
+          </p>
+        </div>
+      </PeakV2Shell>
   );
 }

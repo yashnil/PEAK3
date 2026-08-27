@@ -518,7 +518,9 @@ test.describe("Homepage", () => {
     const cta = page.locator('[data-testid="home-primary-cta"]');
     await expect(cta).toBeVisible();
     await expect(cta).toHaveJSProperty("tagName", "A");
-    await expect(cta).toContainText(/Visit Arena/i);
+    // Pass 6 fixed the CTA's own label to "GO TO ARENA" (`HomePageV2.tsx`
+    // docstring point 1) — same arena-first destination, new fixed label.
+    await expect(cta).toContainText(/GO TO ARENA/i);
     await expect(cta).not.toHaveAttribute("aria-haspopup");
     await expect(cta).toHaveAttribute("href", "/arena");
 
@@ -547,7 +549,7 @@ test.describe("Homepage", () => {
     await page.evaluate(() => window.localStorage.clear());
     await page.reload({ waitUntil: "load" });
     const cta = page.locator('[data-testid="home-primary-cta"]');
-    await expect(cta).toContainText(/Visit Arena/i);
+    await expect(cta).toContainText(/GO TO ARENA/i);
     await expect(cta).not.toContainText(/Continue Run/i);
     await expect(page.getByTestId("home-launcher-resume")).toHaveCount(0);
     await expect(page.getByTestId("home-launcher-standard")).toHaveCount(0);
@@ -576,10 +578,10 @@ test.describe("Homepage", () => {
     await page.reload({ waitUntil: "load" });
 
     // ARENA-FIRST PASS: the primary control itself no longer swaps to
-    // "Continue Run" — it stays "Visit Arena" regardless of run state, and
-    // resume gets its own peer control instead.
+    // "Continue Run" — it stays "GO TO ARENA" (Pass 6 fixed label)
+    // regardless of run state, and resume gets its own peer control instead.
     const cta = page.locator('[data-testid="home-primary-cta"]');
-    await expect(cta).toContainText(/Visit Arena/i);
+    await expect(cta).toContainText(/GO TO ARENA/i);
     await expect(cta).toHaveAttribute("href", "/arena");
 
     const resume = page.getByTestId("home-launcher-resume");
@@ -597,8 +599,14 @@ test.describe("Homepage", () => {
     await page.goto("/", { waitUntil: "load" });
     const h1 = page.locator("h1");
     await expect(h1, "exactly one h1 on the homepage").toHaveCount(1);
-    await expect(h1).toContainText("Build a roster of peaks.");
-    await expect(h1).toContainText("Run the table.");
+    // V2 HOMEPAGE PASS 6: the headline leads with the five open PEAK3
+    // components rather than one mode's name ("Build a roster of peaks. /
+    // Run the table." → "Five lanes. / One point each.", `HomePageV2.tsx`'s
+    // unchanged Pass 5 hero copy). What this test actually protects — RUN
+    // THE TABLE is the page's one featured, gold flagship — is the
+    // `assertSoleFeaturedCard` check below, unaffected by the headline copy.
+    await expect(h1).toContainText("Five lanes.");
+    await expect(h1).toContainText("One point each.");
     // The retired hero line must be gone, not merely pushed down the page.
     await expect(page.getByText("Chase 82-0", { exact: false })).toHaveCount(0);
     await assertSoleFeaturedCard(page, "home-flagship-card");

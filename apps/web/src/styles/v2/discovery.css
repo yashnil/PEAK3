@@ -1,0 +1,228 @@
+/* ================================================================
+   V2 · Broadcast Arena — discovery-page shell layer (Pass 5)
+   ================================================================
+   Shared chrome for informational/discovery V2 routes that previously had
+   no V2 branch at all: Daily hub, Ranked, Rankings, Methodology, About.
+   One quiet page-header pattern + a few section primitives so these routes
+   read as the same product as the homepage/arena hub, not islands.
+   ================================================================ */
+
+.v2-page-header {
+  padding: var(--v2-space-10) 0 var(--v2-space-8);
+}
+
+.v2-page-kicker {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-color-accent);
+  margin: 0;
+}
+
+.v2-page-title {
+  font-family: var(--v2-font-display);
+  font-weight: 400;
+  font-size: var(--v2-display-size-moment);
+  line-height: var(--v2-display-leading);
+  letter-spacing: var(--v2-display-track);
+  color: var(--v2-text-primary);
+  margin: var(--v2-space-2) 0 0;
+}
+
+.v2-page-lede {
+  font-family: var(--v2-font-ui);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--v2-text-secondary);
+  max-width: 62ch;
+  margin: var(--v2-space-3) 0 0;
+}
+
+/* ---- Daily hub ---- */
+.v2-daily-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  overflow: hidden;
+  background: var(--v2-bg-plane);
+}
+
+@media (max-width: 720px) {
+  .v2-daily-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.v2-daily-cell {
+  padding: var(--v2-space-6);
+  border-left: 1px solid var(--v2-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: var(--v2-space-3);
+}
+
+.v2-daily-cell:first-child {
+  border-left: none;
+}
+
+@media (max-width: 720px) {
+  .v2-daily-cell {
+    border-left: none;
+    border-top: 1px solid var(--v2-border-subtle);
+  }
+  .v2-daily-cell:first-child {
+    border-top: none;
+  }
+}
+
+.v2-daily-cell-kicker {
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: var(--v2-mono-track);
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+
+.v2-daily-cell-title {
+  font-family: var(--v2-font-display);
+  font-size: 1.75rem;
+  font-weight: 400;
+  color: var(--v2-text-primary);
+}
+
+.v2-daily-cell-desc {
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--v2-text-secondary);
+  flex: 1 1 auto;
+}
+
+.v2-daily-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v2-space-4);
+  padding: var(--v2-space-5) var(--v2-space-6);
+  border-top: 1px solid var(--v2-border-subtle);
+}
+
+/* ---- Shared "instrument row" list: ranked, arena hub, etc ---- */
+.v2-row-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.v2-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v2-space-4);
+  padding: var(--v2-space-4) 0;
+  border-bottom: 1px solid var(--v2-border-subtle);
+}
+
+.v2-row:first-child {
+  border-top: 1px solid var(--v2-border-subtle);
+}
+
+/* ---- Informational pages: About / Methodology / Rankings shells ----
+   CSS-only reskin — these routes are otherwise unmodified client/server
+   components; only typography, width and rhythm change here. Table/chart/
+   accordion internals are untouched. */
+[data-ui-version="v2"] .v2-info-page {
+  max-width: var(--v2-width-live);
+  margin: 0 auto;
+  padding-left: var(--v2-gutter);
+  padding-right: var(--v2-gutter);
+}
+
+[data-ui-version="v2"] .v2-info-page > div {
+  max-width: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+[data-ui-version="v2"] .v2-info-page-head h1,
+[data-ui-version="v2"] .v2-info-page-head h1.font-display {
+  font-family: var(--v2-font-display) !important;
+  font-weight: 400 !important;
+  font-size: var(--v2-display-size-moment) !important;
+  letter-spacing: var(--v2-display-track);
+}
+
+[data-ui-version="v2"] .v2-info-page-head p {
+  font-family: var(--v2-font-ui);
+}
+
+[data-ui-version="v2"] .v2-info-section h2.font-display {
+  font-family: var(--v2-font-display) !important;
+  font-weight: 400 !important;
+  font-size: 1.375rem !important;
+}
+
+/* The section body text itself (About's five `<p>` sections) had no V2
+   branch at all -- only the heading and page-head subtitle did -- so it
+   fell through to the legacy body default (--font-inter) even under
+   [data-ui-version="v2"], confirmed live via computed font-family. */
+[data-ui-version="v2"] .v2-info-section {
+  font-family: var(--v2-font-ui);
+}
+
+[data-ui-version="v2"] .v2-info-loading,
+[data-ui-version="v2"] .v2-info-error {
+  font-family: var(--v2-font-ui);
+}
+
+/* ---- `.card-elevated`: a shared legacy card class used by ~13 error/start-
+   gate surfaces across the app (Daily Grid's StartGate, Methodology's error
+   state, sign-in, etc). Reskinned once, here, rather than chased
+   individually — every one of those "stray legacy card" moments picks up
+   the V2 quiet-panel treatment for free. Brief: "loading/error states must
+   look like PEAK3 V2, not a generic component-library default." ---- */
+[data-ui-version="v2"] .card-elevated {
+  font-family: var(--v2-font-ui);
+  background: var(--v2-bg-plane) !important;
+  border: 1px solid var(--v2-border-subtle) !important;
+  border-radius: var(--v2-radius-modal) !important;
+  box-shadow: var(--v2-elev-plane) !important;
+}
+
+[data-ui-version="v2"] .card-elevated .font-display {
+  font-family: var(--v2-font-display) !important;
+  font-weight: 400 !important;
+  letter-spacing: var(--v2-display-track);
+}
+
+/* ---- Daily Grid's live stat strip: five individually-bordered `.card-
+   surface` cells (Score/Locked/Misses/Time/Difficulty), the exact "every
+   surface independently rounds its own corners" anti-pattern the brief
+   calls out. Reskinned to the one instrument-strip grammar every other V2
+   surface already uses (`.v2-slate-grid`'s single bordered plane, hairline
+   dividers, no per-cell radius) — CSS-only, `DailyGridGame.tsx`'s own
+   `data-tour-id="dg-score"` selector, zero logic/markup touched. Board
+   gameplay (`GridCell`/`DailyGridBoardView`) is untouched — deliberately
+   out of scope for this pass; see PROGRESS.md. */
+[data-ui-version="v2"] [data-tour-id="dg-score"] {
+  gap: 0 !important;
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  overflow: hidden;
+  background: var(--v2-bg-plane);
+  font-family: var(--v2-font-ui);
+}
+
+[data-ui-version="v2"] [data-tour-id="dg-score"] > .card-surface {
+  border-radius: 0 !important;
+  border: none !important;
+  border-left: 1px solid var(--v2-border-subtle) !important;
+  background: transparent !important;
+}
+
+[data-ui-version="v2"] [data-tour-id="dg-score"] > .card-surface:first-child {
+  border-left: none !important;
+}

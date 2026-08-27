@@ -109,6 +109,7 @@ function publicState(
     qualified_pool_size: 500,
     history: [],
     seat_names: ["You", "Rival"],
+    lot_kind: "standard",
     ...overrides,
   };
 }
@@ -166,6 +167,7 @@ const SETTLED_LOT: ResolvedLot = {
   winner_seat: 0,
   price: 5,
   decided_by: "pass_out",
+  lot_kind: "standard",
   actions: [
     { seat_index: 0, action: "bid", amount: 3 },
     { seat_index: 1, action: "bid", amount: 4 },
@@ -558,6 +560,137 @@ describe("bid controls are a designed auction control, not a form", () => {
     expect(screen.getByTestId("td-bid-controls")).toHaveAttribute("data-live", "false");
     expect(screen.getByTestId("td-submit-bid")).toBeDisabled();
     expect(screen.getByTestId("td-pass")).toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PEAK3 Pass 1 — an uncontested lot (`lot_kind: "uncontested"`) reads as a
+// claim, never as a raise war nobody structurally left in the auction could
+// join. `nba_peak/twenty_dollar/state.py::LOT_KIND_UNCONTESTED` is the
+// server-authoritative source of the flag; this only covers the presentation.
+// ---------------------------------------------------------------------------
+describe("an uncontested lot never presents as a live raise war", () => {
+  it("hides the raise stepper and quick-bid chips", () => {
+    render(
+      <BidControls
+        publicState={publicState({ lot_kind: "uncontested" })}
+        privateState={privateState()}
+        seatNames={["You", "Rival"]}
+        busy={false}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("td-bid-minus")).toBeNull();
+    expect(screen.queryByTestId("td-bid-plus")).toBeNull();
+    expect(screen.queryByTestId("td-bid-plus-1")).toBeNull();
+    expect(screen.queryByTestId("td-bid-plus-2")).toBeNull();
+    expect(screen.queryByTestId("td-bid-max")).toBeNull();
+  });
+
+  it("labels the primary control as a claim at the floor price, not an open/raise", () => {
+    render(
+      <BidControls
+        publicState={publicState({ lot_kind: "uncontested" })}
+        privateState={privateState()}
+        seatNames={["You", "Rival"]}
+        busy={false}
+        onSubmit={vi.fn()}
+      />,
+    );
+    const button = screen.getByTestId("td-submit-bid");
+    expect(button).toHaveAttribute("data-uncontested", "true");
+    expect(button).toHaveTextContent("Claim for $1");
+    expect(screen.getByTestId("td-bid-controls")).toHaveAttribute("data-lot-kind", "uncontested");
+    expect(screen.getByText(/no one else can compete/i)).toBeInTheDocument();
+    expect(screen.getByText(/no legal way to use this player/i)).toBeInTheDocument();
+  });
+
+  it("still submits the ordinary `bid` command at the floor amount", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(
+      <BidControls
+        publicState={publicState({ lot_kind: "uncontested" })}
+        privateState={privateState()}
+        seatNames={["You", "Rival"]}
+        busy={false}
+        onSubmit={onSubmit}
+      />,
+    );
+    await user.click(screen.getByTestId("td-submit-bid"));
+    expect(onSubmit).toHaveBeenCalledWith("bid", 1);
+  });
+
+  it("a standard (contested) lot keeps the ordinary raise stepper", () => {
+    render(
+      <BidControls
+        publicState={publicState({ lot_kind: "standard" })}
+        privateState={privateState()}
+        seatNames={["You", "Rival"]}
+        busy={false}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("td-bid-minus")).toBeInTheDocument();
+    expect(screen.getByTestId("td-bid-plus")).toBeInTheDocument();
+    expect(screen.getByTestId("td-submit-bid")).toHaveAttribute("data-uncontested", "false");
+  });
+
+  it("does not switch to the claim presentation once a bid is already standing", () => {
+    // `uncontested` is only meaningful before the sole eligible seat has
+    // acted — once a bid stands the lot is resolving regardless, and the
+    // stepper reappearing here would be a visual flicker for no reason.
+    render(
+      <BidControls
+        publicState={publicState({ lot_kind: "uncontested", current_bid: 1, high_bidder: 0 })}
+        privateState={privateState({ minimum_bid: 2 })}
+        seatNames={["You", "Rival"]}
+        busy={false}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("td-submit-bid")).toHaveAttribute("data-uncontested", "false");
+  });
+});
+
+describe("the settled tray narrates an uncontested win distinctly", () => {
+  it("does not say a seat 'took' the player when the lot was uncontested", () => {
+    render(
+      <SettledLotTray
+        history={[{ ...SETTLED_LOT, lot_kind: "uncontested" }]}
+        seatNames={["You", "Rival"]}
+        yourSeat={0}
+      />,
+    );
+    const row = screen.getByTestId("td-history-0");
+    expect(row).toHaveTextContent(/uncontested/i);
+    expect(row).not.toHaveTextContent(/took them/i);
+  });
+
+  it("keeps the ordinary 'took them for' wording for a genuinely standard win", () => {
+    render(
+      <SettledLotTray
+        history={[{ ...SETTLED_LOT, lot_kind: "standard" }]}
+        seatNames={["You", "Rival"]}
+        yourSeat={0}
+      />,
+    );
+    const row = screen.getByTestId("td-history-0");
+    expect(row).toHaveTextContent(/took them for/i);
+  });
+
+  it("narrates a forced-fill as never having been a lot at all", () => {
+    render(
+      <SettledLotTray
+        history={[{ ...SETTLED_LOT, decided_by: "forced_fill", lot_kind: "forced_fill" }]}
+        seatNames={["You", "Rival"]}
+        yourSeat={0}
+      />,
+    );
+    const row = screen.getByTestId("td-history-0");
+    expect(row).toHaveTextContent(/forced fill/i);
+    expect(row).not.toHaveTextContent(/took them/i);
+    expect(row).not.toHaveTextContent(/uncontested/i);
   });
 });
 

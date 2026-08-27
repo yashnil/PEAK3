@@ -1,0 +1,548 @@
+/* ================================================================
+   V2 · Broadcast Arena — homepage composition layer (Pass 5)
+   ================================================================
+   The hero's right-side data object and the horizontal game slate need
+   real layout (grid, dividers, a bounded panel) beyond what inline styles
+   comfortably express. Scoped to the V2 homepage's own classes only —
+   nothing here reaches into legacy.
+   ================================================================ */
+
+.v2-eyebrow {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-color-accent);
+  margin: 0;
+}
+
+/* ---- Hero data object: real bounded mass, not a thin border-left rule ---- */
+.v2-hero-object {
+  background: var(--v2-bg-plane);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  padding: var(--v2-space-6) var(--v2-space-6);
+  box-shadow: var(--v2-elev-plane);
+}
+
+.v2-hero-object-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--v2-space-3);
+  padding-bottom: var(--v2-space-3);
+  border-bottom: 1px solid var(--v2-border-subtle);
+}
+
+.v2-hero-object-kicker {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: var(--v2-mono-track);
+  color: var(--v2-text-muted);
+  text-transform: uppercase;
+}
+
+.v2-hero-object-score {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--v2-color-accent);
+}
+
+.v2-hero-object-link {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--v2-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.v2-hero-object-link:hover {
+  color: var(--v2-color-accent);
+}
+
+/* ---- Game slate: ONE instrument strip, vertical hairline dividers ---- */
+.v2-slate-section {
+  margin-top: var(--v2-space-12);
+}
+
+.v2-slate-heading-row {
+  display: flex;
+  align-items: center;
+  gap: var(--v2-space-2);
+  margin-bottom: var(--v2-space-3);
+}
+
+.v2-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--v2-color-positive);
+}
+
+.v2-slate-heading {
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--v2-text-primary);
+  margin: 0;
+}
+
+.v2-slate-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  overflow: hidden;
+  background: var(--v2-bg-plane);
+}
+
+.v2-slate-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: var(--v2-space-5) var(--v2-space-4);
+  border-left: 1px solid var(--v2-border-subtle);
+  min-height: 168px;
+  transition: background-color var(--v2-dur-transition) var(--v2-ease-standard);
+}
+
+.v2-slate-cell:first-child {
+  border-left: none;
+}
+
+.v2-slate-cell:hover,
+.v2-slate-cell:focus-visible {
+  background: var(--v2-bg-surface);
+  outline: none;
+}
+
+.v2-slate-cell-flagship {
+  background: color-mix(in srgb, var(--v2-color-accent) 7%, var(--v2-bg-plane));
+}
+
+.v2-slate-cell-flagship:hover,
+.v2-slate-cell-flagship:focus-visible {
+  background: color-mix(in srgb, var(--v2-color-accent) 12%, var(--v2-bg-plane));
+}
+
+.v2-slate-cell-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  min-height: 1.1rem;
+}
+
+.v2-slate-cell-tag {
+  font-family: var(--v2-font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: var(--v2-mono-track);
+  text-transform: uppercase;
+  color: var(--v2-color-accent);
+}
+
+.v2-slate-cell-badge {
+  font-family: var(--v2-font-ui);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.0625rem 0.375rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--v2-color-positive) 16%, transparent);
+  color: var(--v2-color-positive);
+}
+
+.v2-slate-cell-title {
+  font-family: var(--v2-font-ui);
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: var(--v2-text-primary);
+  line-height: 1.25;
+}
+
+.v2-slate-cell-desc {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--v2-text-secondary);
+  flex: 1 1 auto;
+}
+
+.v2-slate-cell-action {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--v2-color-accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: auto;
+}
+
+.v2-slate-cell-arrow {
+  transition: transform var(--v2-dur-control) var(--v2-ease-standard);
+}
+
+.v2-slate-cell:hover .v2-slate-cell-arrow {
+  transform: translateX(2px);
+}
+
+@media (max-width: 1024px) {
+  .v2-slate-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .v2-slate-cell:nth-child(2n+1) {
+    border-left: none;
+  }
+  .v2-slate-cell:nth-child(-n+2) {
+    border-top: none;
+  }
+  .v2-slate-cell {
+    border-top: 1px solid var(--v2-border-subtle);
+  }
+  .v2-slate-cell:nth-child(1),
+  .v2-slate-cell:nth-child(2) {
+    border-top: none;
+  }
+}
+
+@media (max-width: 639px) {
+  .v2-slate-grid {
+    grid-template-columns: 1fr;
+  }
+  .v2-slate-cell {
+    border-left: none !important;
+    border-top: 1px solid var(--v2-border-subtle);
+    min-height: 0;
+  }
+  .v2-slate-cell:first-child {
+    border-top: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v2-slate-cell,
+  .v2-slate-cell-arrow {
+    transition: none;
+  }
+}
+
+/* ---- Your Arena strip: the game slate's grammar, a variable column count.
+   Scoped to the same desktop width the slate's own unscoped 5-column rule
+   applies at — the slate's 1024px/639px breakpoints above must still win
+   on tablet/mobile, not be shadowed by this rule's later source order. ---- */
+@media (min-width: 1025px) {
+  .v2-arena-grid {
+    grid-template-columns: repeat(var(--v2-arena-cols, 3), 1fr);
+  }
+}
+
+/* ---- Section eyebrow — shared by "How a player is rated" / "The board" ---- */
+.v2-section-eyebrow {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+  margin: 0;
+}
+
+/* ---- 4. Interactive five-lane explainer ---- */
+.v2-lanes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--v2-space-4);
+}
+
+.v2-lanes-bar {
+  display: flex;
+  width: 100%;
+  height: 40px;
+  border-radius: var(--v2-radius-control);
+  overflow: hidden;
+  gap: 2px;
+}
+
+.v2-lanes-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  opacity: 1;
+  transition: opacity var(--v2-dur-control) var(--v2-ease-standard);
+}
+
+/* A plain outline can land the same hue as the segment's own fill (the
+   Statistical Impact lane is blue; so is `--focus-ring` in most themes) and
+   disappear. A gapped double-ring — page-color inner gap, focus-ring
+   outer — stays visible against any of the five component colors. */
+.v2-lanes-segment:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--v2-bg-page), inset 0 0 0 4px var(--focus-ring);
+}
+
+/* A steep opacity cut (originally 0.35) reads fine for the cool component
+   hues but collapses dark orange into a muddy brown — dimming a warm hue
+   toward the near-black page background is a lossy blend, not a clean
+   fade. 0.82 is the shallowest cut that still visibly recedes behind the
+   active segment without corrupting any of the five component colors —
+   verified against all five, not assumed from one. */
+.v2-lanes-segment[data-dim="true"] {
+  opacity: 0.82;
+}
+
+.v2-lanes-segment-pct {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: var(--v2-mono-track);
+  color: var(--v2-text-inverse);
+  pointer-events: none;
+}
+
+.v2-lanes-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--v2-space-2) var(--v2-space-5);
+}
+
+.v2-lanes-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: none;
+  background: none;
+  padding: 0.125rem 0;
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--v2-text-secondary);
+  cursor: pointer;
+}
+
+.v2-lanes-legend-item[data-active="true"] {
+  color: var(--v2-text-primary);
+}
+
+.v2-lanes-legend-item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.v2-lanes-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.v2-lanes-detail {
+  min-height: 4.5rem;
+  padding: var(--v2-space-4) var(--v2-space-5);
+  background: var(--v2-bg-plane);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+}
+
+.v2-lanes-detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--v2-space-2);
+  margin: 0;
+  font-family: var(--v2-font-ui);
+  font-weight: 700;
+  font-size: 0.9375rem;
+}
+
+.v2-lanes-detail-pct {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--v2-text-muted);
+}
+
+.v2-lanes-detail-body {
+  margin: 0.375rem 0 0;
+  max-width: 62ch;
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--v2-text-secondary);
+}
+
+.v2-lanes-detail-prompt {
+  margin-top: 0;
+  color: var(--v2-text-muted);
+}
+
+/* ---- 5. Rankings preview — hairline rows, no card wrapper ---- */
+.v2-rankings-list {
+  list-style: none;
+  margin: var(--v2-space-4) 0 0;
+  padding: 0;
+}
+
+.v2-rankings-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--v2-space-4);
+  padding: var(--v2-space-3) 0;
+  border-bottom: 1px solid var(--v2-border-subtle);
+}
+
+.v2-rankings-row:first-child {
+  border-top: 1px solid var(--v2-border-subtle);
+}
+
+.v2-rankings-rank {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--v2-text-muted);
+  width: 1.5rem;
+  flex-shrink: 0;
+}
+
+.v2-rankings-identity {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.5rem;
+}
+
+.v2-rankings-name {
+  font-family: var(--v2-font-ui);
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: var(--v2-text-primary);
+}
+
+.v2-rankings-meta {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary);
+}
+
+/* Gold marks rank 1 only — the board's one "current identity" moment,
+   same read as the hero object's own gold score. Every other row is data,
+   not a moment, so it stays neutral (brief: gold only for primary
+   action/selection/identity, never sprinkled across a whole list). */
+.v2-rankings-score {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--v2-text-primary);
+  flex-shrink: 0;
+}
+
+.v2-rankings-row:first-child .v2-rankings-score {
+  color: var(--v2-color-accent);
+}
+
+/* ---- 6. Why Peaks? — short editorial bridge ---- */
+.v2-why-section {
+  max-width: var(--v2-width-cinematic);
+}
+
+.v2-why-headline {
+  font-family: var(--v2-font-display);
+  font-size: var(--v2-display-size-line);
+  font-weight: 400;
+  letter-spacing: var(--v2-display-track);
+  line-height: var(--v2-display-leading);
+  color: var(--v2-text-primary);
+  margin: 0;
+}
+
+.v2-why-body {
+  margin: var(--v2-space-4) 0 var(--v2-space-6);
+  max-width: 56ch;
+  font-family: var(--v2-font-ui);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--v2-text-secondary);
+}
+
+/* ---- 7. FAQ — collapsed accordion ---- */
+.v2-faq-heading {
+  font-family: var(--v2-font-display);
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: var(--v2-text-primary);
+  margin: 0;
+}
+
+.v2-faq-row {
+  border-bottom: 1px solid var(--v2-border-subtle);
+}
+
+.v2-faq-question {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v2-space-3);
+  padding: var(--v2-space-4) 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--v2-font-ui);
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: var(--v2-text-primary);
+}
+
+.v2-faq-question:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.v2-faq-chevron {
+  flex-shrink: 0;
+  color: var(--v2-text-muted);
+  transition: transform var(--v2-dur-control) var(--v2-ease-standard);
+}
+
+.v2-faq-chevron[data-open="true"] {
+  transform: rotate(180deg);
+  color: var(--v2-color-accent);
+}
+
+.v2-faq-answer {
+  margin: 0 0 var(--v2-space-4);
+  max-width: 62ch;
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--v2-text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v2-lanes-segment,
+  .v2-faq-chevron {
+    transition: none;
+  }
+}

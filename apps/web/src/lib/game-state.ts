@@ -11,6 +11,9 @@ import type {
 export type GameAction =
   | { type: "SELECT_PEAK"; peak_id: string }
   | { type: "SUBMIT_START" }
+  /** The decision clock expired with no pick made. Distinct from SUBMIT_START
+   *  because that action requires `selected_peak_id` to already be set. */
+  | { type: "SUBMIT_TIMEOUT" }
   | { type: "SUBMIT_SUCCESS"; answer: AnswerResponse; elapsed_ms: number }
   | { type: "SUBMIT_ERROR"; error: string }
   | { type: "ADVANCE" }
@@ -55,6 +58,11 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...state, is_submitting: true, error: null };
     }
 
+    case "SUBMIT_TIMEOUT": {
+      if (state.phase !== "picking" || state.is_submitting) return state;
+      return { ...state, is_submitting: true, error: null };
+    }
+
     case "SUBMIT_SUCCESS": {
       const answer = action.answer;
       const points = answer.arena_points_awarded;
@@ -63,7 +71,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const duel = state.duels[state.current_index];
       const result: DuelResult = {
         duel_id: duel.id,
-        selected_peak_id: state.selected_peak_id!,
+        selected_peak_id: state.selected_peak_id,
         correct: answer.correct,
         arena_points_awarded: points,
         difficulty: answer.difficulty,

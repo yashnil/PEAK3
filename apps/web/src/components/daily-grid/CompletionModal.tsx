@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { Dialog } from "@/components/ui/Dialog";
+import PeakV2Modal from "@/components/v2/PeakV2Modal";
 import {
   DailyGridArchive,
   DailyGridBoard,
@@ -68,7 +68,7 @@ export default function CompletionModal({
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
-    <Dialog
+    <PeakV2Modal
       open={open}
       onClose={onClose}
       size="lg"
@@ -94,6 +94,6 @@ export default function CompletionModal({
         onClose={onClose}
         closeButtonRef={closeButtonRef}
       />
-    </Dialog>
+    </PeakV2Modal>
   );
 }

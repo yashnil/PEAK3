@@ -1,6 +1,10 @@
 import { z } from "zod";
 import type {
   DailyChallenge,
+  DailyDistributionResponse,
+  DailyHistoryResponse,
+  DailyResultRequest,
+  DailyResultResponse,
   EndlessSession,
   LeaderboardResponse,
   PeaksResponse,
@@ -386,10 +390,75 @@ export async function getEndlessSession(
   return apiFetch<EndlessSession>(`/api/v1/game/endless?${params}`);
 }
 
+// The official record, distinct from `submitAnswer` above: this is the one
+// row that survives a sign-in and can become a personal best, so unlike the
+// rest of this file's `apiFetch` it needs `credentials: "include"` to carry
+// the `peak3_anon` cookie (or an auth cookie) cross-origin. Idempotent on the
+// server per (owner, mode, daily_key) — a repeat call for the same day
+// returns `already_recorded: true` rather than erroring, so no client-side
+// completion guard is required to call it safely more than once.
+export async function postDailyResult(
+  body: DailyResultRequest
+): Promise<DailyResultResponse> {
+  const res = await fetch(`${API_BASE}/api/v1/game/daily/result`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let message = `API error ${res.status}`;
+    try {
+      const errBody = await res.json();
+      message = errBody.detail ?? message;
+    } catch {}
+    throw new APIError(res.status, message);
+  }
+  return res.json() as Promise<DailyResultResponse>;
+}
+
+// GET, not POST, but still needs the anon cookie round-trip — same as
+// `postDailyResult`, and for the same reason: an identity with no account
+// yet is resolved from `peak3_anon`, which only travels cross-origin
+// (web on :3000, API on :8000 in dev) with `credentials: "include"`.
+export async function getDailyDistribution(): Promise<DailyDistributionResponse> {
+  const res = await fetch(`${API_BASE}/api/v1/game/daily/distribution`, {
+    credentials: "include",
+  });
+  if (!res.ok) {
+    let message = `API error ${res.status}`;
+    try {
+      const errBody = await res.json();
+      message = errBody.detail ?? message;
+    } catch {}
+    throw new APIError(res.status, message);
+  }
+  return res.json() as Promise<DailyDistributionResponse>;
+}
+
+// Same identity resolution and same cross-origin cookie requirement as
+// `getDailyDistribution` — this is the dated-rows sibling of that aggregate,
+// for a result-history grid (`GET /game/daily/history` in game.py).
+export async function getDailyHistory(): Promise<DailyHistoryResponse> {
+  const res = await fetch(`${API_BASE}/api/v1/game/daily/history`, {
+    credentials: "include",
+  });
+  if (!res.ok) {
+    let message = `API error ${res.status}`;
+    try {
+      const errBody = await res.json();
+      message = errBody.detail ?? message;
+    } catch {}
+    throw new APIError(res.status, message);
+  }
+  return res.json() as Promise<DailyHistoryResponse>;
+}
+
 export async function submitAnswer(body: {
   session_token: string;
   duel_id: string;
-  selected_peak_id: string;
+  /** null means the decision clock expired before a pick was made. */
+  selected_peak_id: string | null;
   elapsed_ms: number;
   current_streak: number;
 }): Promise<AnswerResponse> {

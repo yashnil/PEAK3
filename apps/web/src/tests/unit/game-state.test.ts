@@ -170,6 +170,22 @@ describe("game-state", () => {
     expect(state.phase).toBe("complete");
   });
 
+  it("a second ADVANCE right after the first is a no-op (double-press safe)", () => {
+    // Peak Duel no longer auto-advances -- the only path off the reveal is a
+    // manual press, which can itself fire twice (double-click, or a stray
+    // Enter racing a click). Once the first ADVANCE has already moved the
+    // phase off "revealing", a second dispatch must not skip a further duel.
+    const duels = [mockDuel("duel1"), mockDuel("duel2"), mockDuel("duel3")];
+    let state = createInitialState("daily", 3, duels, "token");
+    state = { ...state, phase: "revealing", current_index: 0 };
+    state = gameReducer(state, { type: "ADVANCE" });
+    expect(state.current_index).toBe(1);
+    const advancedOnce = state;
+    state = gameReducer(state, { type: "ADVANCE" });
+    expect(state).toEqual(advancedOnce);
+    expect(state.current_index).toBe(1);
+  });
+
   it("isComplete returns true only when phase is complete", () => {
     const duels = [mockDuel("duel1")];
     const state = createInitialState("daily", 3, duels, "token");
@@ -196,6 +212,46 @@ describe("game-state", () => {
       ],
     };
     expect(getAccuracy(state)).toBe(0.5);
+  });
+
+  it("SUBMIT_TIMEOUT enters submitting without a selected peak", () => {
+    const duels = [mockDuel("duel1")];
+    let state = createInitialState("daily", 3, duels, "token");
+    state = gameReducer(state, { type: "SUBMIT_TIMEOUT" });
+    expect(state.is_submitting).toBe(true);
+    expect(state.selected_peak_id).toBeNull();
+    expect(state.phase).toBe("picking");
+  });
+
+  it("SUBMIT_TIMEOUT is ignored outside the picking phase", () => {
+    const duels = [mockDuel("duel1")];
+    let state = createInitialState("daily", 3, duels, "token");
+    state = { ...state, phase: "revealing" };
+    const next = gameReducer(state, { type: "SUBMIT_TIMEOUT" });
+    expect(next.is_submitting).toBe(false);
+  });
+
+  it("SUBMIT_TIMEOUT is ignored while already submitting (no double-submit)", () => {
+    const duels = [mockDuel("duel1")];
+    let state = createInitialState("daily", 3, duels, "token");
+    state = gameReducer(state, { type: "SELECT_PEAK", peak_id: "left-duel1" });
+    state = gameReducer(state, { type: "SUBMIT_START" });
+    const next = gameReducer(state, { type: "SUBMIT_TIMEOUT" });
+    // The already-in-flight manual submission's selection must not be wiped.
+    expect(next.selected_peak_id).toBe("left-duel1");
+  });
+
+  it("a timed-out duel records a null selection as an incorrect result", () => {
+    const duels = [mockDuel("duel1")];
+    let state = createInitialState("daily", 3, duels, "token");
+    state = gameReducer(state, { type: "SUBMIT_TIMEOUT" });
+    const answer = mockAnswer(false, 0, 0);
+    state = gameReducer(state, { type: "SUBMIT_SUCCESS", answer, elapsed_ms: 5000 });
+
+    expect(state.phase).toBe("revealing");
+    expect(state.results).toHaveLength(1);
+    expect(state.results[0].selected_peak_id).toBeNull();
+    expect(state.results[0].correct).toBe(false);
   });
 
   it("RESET clears game state", () => {

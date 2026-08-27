@@ -581,8 +581,13 @@ test.describe("Daily Grid — discoverability", () => {
       "/arena/run-the-table",
       { timeout: 15_000 },
     );
-    // ...and the previous flagship kept its full entry block on the hub.
-    await expect(page.getByTestId("courtbuilder-hero")).toBeVisible();
+    // ...and the previous flagship kept its full entry block on the hub —
+    // same row, same href, same "Build a Perfect Season" CTA (ModeGroupRow's
+    // CTA text is real accessible link content, not decoration — only its
+    // trailing arrow glyph is `aria-hidden`; see ArenaPageV2.tsx's own
+    // comment and courtbuilder.spec.ts's identical assertion).
+    const courtbuilderHero = page.getByTestId("courtbuilder-hero");
+    await expect(courtbuilderHero).toBeVisible();
     await expect(page.getByRole("link", { name: /Build a Perfect Season/i })).toBeVisible();
   });
 });

@@ -194,6 +194,17 @@ export interface LotAction {
   consumed_skip?: boolean;
 }
 
+/** Whether a lot, at the moment it was drawn, had more than one seat able to
+ *  act on it at all. "uncontested" means the OTHER seat was already out
+ *  before its first possible action -- see `nba_peak/twenty_dollar/state.py`'s
+ *  `LOT_KIND_UNCONTESTED`. `decided_by` alone cannot say this: `pass_out` and
+ *  `unsold` are also the outcome of a genuinely two-sided lot. "forced_fill"
+ *  means the position was never a live lot at all -- no other still-
+ *  competing seat could ever have contested it once the intersection of
+ *  every incomplete seat's legal wins came up empty; see
+ *  `LOT_KIND_FORCED_FILL`. */
+export type LotKind = "standard" | "uncontested" | "autofill" | "forced_fill";
+
 /** A lot that has already resolved. Everything is revealed at this point --
  *  the amounts and the card ARE the result. */
 export interface ResolvedLot {
@@ -209,10 +220,13 @@ export interface ResolvedLot {
   timed_out: boolean[];
   winner_seat: number | null;
   price: number;
-  decided_by: "bid" | "pass_out" | "unsold" | "autofill" | null;
+  decided_by: "bid" | "pass_out" | "unsold" | "autofill" | "forced_fill" | null;
+  lot_kind: LotKind;
   actions: LotAction[];
   slot_options?: string[];
   autofill_reason?: string;
+  /** Present only when `decided_by === "forced_fill"`. */
+  forced_fill_reason?: string;
 }
 
 /** @deprecated The v1 spelling. Kept as an alias while call sites migrate. */
@@ -254,6 +268,9 @@ export interface TwentyDollarPublicState {
   seat_is_bot?: boolean[];
   /** Present only once the match completes. */
   receipt?: Record<string, unknown>;
+  /** The CURRENT lot's kind, decided the instant it was drawn. `null` only
+   *  before the very first lot has ever been drawn. See `LotKind`. */
+  lot_kind: LotKind | null;
 }
 
 /**

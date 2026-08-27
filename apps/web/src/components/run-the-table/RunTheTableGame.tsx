@@ -1,10 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { motion } from "motion/react";
 import { usePrefersReducedMotion } from "@/lib/a11y";
 import { useDailyReset } from "@/lib/use-daily-reset";
-import { TourLauncher } from "@/components/ui/GuidedTour";
-import { motionTransition } from "@/lib/motion";
 import {
   CreditSink,
   LaneField,
@@ -55,21 +52,32 @@ import { useRevealSequence } from "./useRevealSequence";
 import ScoutPrepare from "./ScoutPrepare";
 import RunStartGate from "./RunStartGate";
 import RunSkeleton from "./RunSkeleton";
-import RunMap from "./RunMap";
-import RunTray from "./RunTray";
-import MobileTray from "./MobileTray";
-import RunProgressStrip from "./RunProgressStrip";
 import SystemSelect from "./SystemSelect";
 import NodeChoice from "./NodeChoice";
 import DraftRoom from "./DraftRoom";
 import TradeDesk from "./TradeDesk";
 import ChoiceNode from "./ChoiceNode";
-import RunHUD from "./RunHUD";
 import RestartRunControl from "./RestartRunControl";
 import BossIntro from "./BossIntro";
 import BossPreview from "./BossPreview";
 import BattleReveal from "./BattleReveal";
 import RunResult from "./RunResult";
+import MobileTray from "./MobileTray";
+import PeakV2RTTShell from "@/components/v2/rtt/PeakV2RTTShell";
+import PeakV2RTTBossIntro from "@/components/v2/rtt/PeakV2RTTBossIntro";
+import PeakV2RTTBossLineup from "@/components/v2/rtt/PeakV2RTTBossLineup";
+import PeakV2RTTBattleResult from "@/components/v2/rtt/PeakV2RTTBattleResult";
+import PeakV2RTTDraftRoom from "@/components/v2/rtt/PeakV2RTTDraftRoom";
+import PeakV2RTTTradeDesk from "@/components/v2/rtt/PeakV2RTTTradeDesk";
+import PeakV2RTTScoutPrepare from "@/components/v2/rtt/PeakV2RTTScoutPrepare";
+import PeakV2RTTChoiceNode from "@/components/v2/rtt/PeakV2RTTChoiceNode";
+import PeakV2RTTSystemSelect from "@/components/v2/rtt/PeakV2RTTSystemSelect";
+import PeakV2RTTNodeChoice from "@/components/v2/rtt/PeakV2RTTNodeChoice";
+import PeakV2RTTBossPreview from "@/components/v2/rtt/PeakV2RTTBossPreview";
+import PeakV2RTTCreditSinks from "@/components/v2/rtt/PeakV2RTTCreditSinks";
+import PeakV2RTTResult from "@/components/v2/rtt/PeakV2RTTResult";
+import { GuidedTour, useGuidedTour } from "@/components/ui/GuidedTour";
+import { RUN_THE_TABLE_TOUR, RUN_THE_TABLE_TOUR_ID, RUN_THE_TABLE_TOUR_VERSION } from "@/components/ui/tour-steps";
 
 /**
  * RUN THE TABLE, top to bottom.
@@ -314,27 +322,66 @@ export default function RunTheTableGame({
   const showRosterReveal =
     !!state && (needsOpeningReveal(state) || rosterSequence.started) && !rosterRevealDismissed;
 
-  const bossActive =
-    !!state && !!bossTrack && (needsBossReveal(state) || bossSequence.started);
-  const bossIntroDone = !bossTrack || dismissedBossIntroId === bossTrack.boss_id;
   const bossRevealDismissedNow = !!bossTrack && dismissedBossRevealId === bossTrack.boss_id;
+  const bossActive =
+    !!state &&
+    !!bossTrack &&
+    (needsBossReveal(state) ||
+      bossSequence.started ||
+      // The boss reveal is ONE batched POST (SYNTHESIS_CONTRACT.md §2.2):
+      // `boss.complete` flips true server-side the instant it resolves, well
+      // before the local, paced presentation (`bossSequence.started`) has
+      // even had a chance to run — and `bossSequence.started` is plain
+      // component state, gone the instant a reload remounts this component.
+      // Without this clause, a reload in that narrow but real window (reveal
+      // already fired, presentation not yet dismissed) drops straight past
+      // the boss reveal into the briefing screen, silently skipping a
+      // presentation the player never actually saw. `bossTrack.revealed > 0`
+      // is the SERVER's proof the reveal has begun; `!bossRevealDismissedNow`
+      // stops this from re-opening a reveal the player already continued past
+      // in THIS session (dismissal just cannot survive a reload itself, same
+      // limitation the pre-existing roster reveal already has). Gated on
+      // `status === "boss_ready"` because `state.reveal.boss` keeps carrying
+      // the finished track's data long after the battle resolves (the
+      // "names the boss" HUD-objective test depends on exactly that) — this
+      // clause must never fire once play has moved past the boss_ready
+      // status the reveal belongs to.
+      (state.status === "boss_ready" && bossTrack.revealed > 0 && !bossRevealDismissedNow));
+  const bossIntroDone =
+    !bossTrack ||
+    dismissedBossIntroId === bossTrack.boss_id ||
+    // Same reload gap as above, one screen earlier: skip the intro once the
+    // server shows the reveal already began, rather than replaying it.
+    bossTrack.revealed > 0;
   /** The pre-roll: name, philosophy, win condition, countdown, skip. */
   const showBossIntro = bossActive && !bossIntroDone;
   /** The paired lineup reveal, after the intro is dismissed. */
   const showBossReveal = bossActive && bossIntroDone && !bossRevealDismissedNow;
 
   /**
-   * Handed to `RunTray`'s roster dock — see that component's
-   * `concealedRosterUnless` docstring. `null` when there is nothing to
-   * conceal (no reveal track on this payload, or the reveal already fully
-   * resolved either this session or a prior one); a `Set` — built from the
-   * SAME `rosterSequence.visible` the reveal stage is animating — while an
-   * opening reveal genuinely owns this roster right now.
+   * The in-run guided tour (W4), auto-starting for a genuine first-time
+   * player once a run actually exists.
+   *
+   * NOT on the start gate — `RunStartGate`'s own `TourLauncher` is
+   * `autoStart={false}` on purpose (same policy Daily Grid's start gate
+   * later copied, see `DailyGridGame.tsx`'s own comment): a walkthrough that
+   * opens by itself on top of a "press a button to begin" screen is a modal
+   * in front of a call to action. This hook call has to sit here,
+   * unconditionally, before the `if (!state) return <RunStartGate ... />`
+   * below — the Rules of Hooks forbid a conditional call — but the
+   * `<GuidedTour>` element itself only renders further down, in the
+   * post-gate JSX, so it is never mounted while the gate owns the screen.
+   *
+   * `blocked` while a reveal sequence is animating or an action is in
+   * flight, mirroring Daily Grid's `tourBlocked`: a spotlight over a
+   * split-flap reveal or a busy control is worse than no onboarding at all.
    */
-  const rosterConcealment: Set<string> | null =
-    state && rosterTrack && (needsOpeningReveal(state) || rosterSequence.started) && !rosterRevealDismissed
-      ? new Set(rosterSequence.visible.map((s) => s.slot_id))
-      : null;
+  const tourBlocked = showRosterReveal || showBossIntro || showBossReveal || busy;
+  const tour = useGuidedTour({
+    tourId: RUN_THE_TABLE_TOUR_ID,
+    version: RUN_THE_TABLE_TOUR_VERSION,
+    blocked: tourBlocked,
+  });
 
   /**
    * Capture the scout report the moment it's on the wire (see the
@@ -1217,150 +1264,380 @@ export default function RunTheTableGame({
   }
 
   /**
-   * Is a guided tour allowed to run right now?
-   *
-   * True while a server round-trip is in flight (`busy` — the surface is about
-   * to be replaced under the spotlight) and for the whole battle screen, which
-   * is a timed lane-by-lane reveal. W3's `GuidedTour` takes this as `blocked`.
+   * V2's presentation of the SAME screen this function just resolved into
+   * `surface` (Pass 3, product-direction). Four moments get a real V2
+   * rebuild — Draft Room (the flagship decision), the boss-reveal cinematic
+   * (`showBossIntro`/`showBossReveal`), the boss battle result, and the final
+   * run receipt (`PeakV2RTTResult` — added on the final-polish pass that
+   * closed the confirmed hard-stop where this branch fell through to
+   * legacy's `RunResult` with no V2 pixel at all) — because those are the
+   * surfaces the brief calls out by name. Every other node type (Trade Desk,
+   * Scout & Prepare, Choice/Rest Bank, System Select, Node Select, Boss
+   * Preview, the opening roster reveal) reuses the EXACT already-built
+   * `surface` node above rather than a second, divergent implementation of
+   * mechanics this pass does not need to redesign — `PeakV2RTTShell` still
+   * gives it the V2 status strip, run map and roster/lane rails around it.
    */
-  const tourBlocked = busy || screen === "battle";
+  let v2Content: React.ReactNode = surface;
+  let v2Layout: "live" | "cinematic" | "bare" = "live";
 
-  return (
-    <div className="rtt-shell" data-testid="rtt-shell" data-tour-blocked={tourBlocked ? "true" : "false"}>
-      {/* Top HUD (PRODUCT_EXPERIENCE_CONTRACT.md §4) — credits, lives, act
-          progress and the current objective, always visible above the
-          three-zone grid. Spans the full shell width via `.rtt-hud`'s
-          `grid-column: 1 / -1` (rtt-polish.css). */}
-      <RunHUD
-        state={state}
-        objective={objective}
-        scoutIntel={activeScoutIntel}
-        restartControl={
-          /* Only while the run is still live. A concluded run already offers
-             "Run it back" on the result screen, which creates a new run WITHOUT
-             abandoning anything -- a finished run is a result the player earned
-             and must never be relabelled. */
-          !isTerminal(state.status) ? (
-            <RestartRunControl
-              canRestart={state.can_restart !== false}
-              busy={busy}
-              onConfirm={handleRestart}
-            />
-          ) : null
+  if (showRosterReveal && rosterTrack) {
+    // P3 polish gap fix: this branch was previously MISSING, so `v2Content`
+    // fell through to `surface` above — legacy's own `RevealSequenceSurface`
+    // (hardcoded `--peak-accent`/`--text-primary` tokens, no V2 grammar at
+    // all) — meaning every run under `?ui=v2` opened on a fully legacy-styled
+    // screen before a single V2 pixel had rendered. `PeakV2RTTBossLineup`'s
+    // `kind="roster"` (this pass) is the same cinematic card-grid reveal
+    // built for the boss, gated on the same explicit "Reveal your roster"
+    // press legacy also requires.
+    v2Layout = "cinematic";
+    v2Content = (
+      <PeakV2RTTBossLineup
+        kind="roster"
+        title="Meet your roster"
+        subtitle="Five starters and two bench players, revealed together."
+        sourceNote={revealSourceFor("roster")}
+        track={rosterTrack}
+        sequence={rosterSequence}
+        reducedMotion={reducedMotion}
+        busy={busy}
+        onStartReveal={(count) => reveal("roster", count)}
+        onContinue={() => setRosterRevealDismissed(true)}
+      />
+    );
+  } else if (showBossIntro && bossTrack && state.next_boss) {
+    v2Layout = "cinematic";
+    v2Content = (
+      <PeakV2RTTBossIntro
+        boss={state.next_boss}
+        lanesToWin={state.next_boss.lanes_to_win ?? state.lanes_to_win}
+        reducedMotion={reducedMotion}
+        onComplete={() => setDismissedBossIntroId(bossTrack.boss_id)}
+      />
+    );
+  } else if (showBossReveal && bossTrack) {
+    v2Layout = "cinematic";
+    v2Content = (
+      <PeakV2RTTBossLineup
+        kind="boss"
+        title={bossTrack.name}
+        subtitle={bossTrack.tagline}
+        sourceNote={revealSourceFor("boss")}
+        track={bossTrack}
+        sequence={bossSequence}
+        reducedMotion={reducedMotion}
+        busy={busy}
+        onStartReveal={(count) => reveal("boss", count)}
+        onContinue={() => setDismissedBossRevealId(bossTrack.boss_id)}
+        pairedCardLookup={(slotId) =>
+          [...state.starters, ...state.bench].find((s) => s.slot_id === slotId)?.card ?? null
         }
       />
+    );
+  } else if (screen === "node_active" && node && node.node_type === "draft_room") {
+    v2Content = (
+      <>
+        <PeakV2RTTDraftRoom
+          node={node}
+          slots={[...state.starters, ...state.bench]}
+          credits={state.credits}
+          busy={busy}
+          onBuy={(offer, slotId, useVetMin) => {
+            trackRunTheTable({
+              type: "rtt_acquisition",
+              cost: useVetMin ? 0 : offer.cost,
+              veteran_minimum: useVetMin,
+              act: state.act,
+            });
+            act(
+              runActions.draftBuy(offer.card_id, slotId, useVetMin),
+              `buy:${offer.card_id}:${slotId}`,
+              `${offer.player_name} signed.`,
+            );
+          }}
+          onPass={() => {
+            trackRunTheTable({ type: "rtt_offer_passed", node_type: "draft_room", act: state.act });
+            act(runActions.draftPass(), "draft_pass", "Passed on the draft room.");
+          }}
+        />
+        {/* Every node's priced controls render below its own decision, same
+            as Trade Desk and the generic choice node below — this branch was
+            missing them entirely. */}
+        <PeakV2RTTCreditSinks sinks={node.credit_sinks ?? []} busy={busy} onSpend={spendSink} />
+      </>
+    );
+  } else if (screen === "node_active" && node && node.node_type === "trade_desk") {
+    v2Content = (
+      <>
+        <PeakV2RTTTradeDesk
+          node={node}
+          credits={state.credits}
+          busy={busy}
+          scoutIntel={activeScoutIntel}
+          onTrade={(outgoingSlotId, incomingCardId, netCost) => {
+            trackRunTheTable({ type: "rtt_trade", net_cost: netCost, act: state.act });
+            act(
+              runActions.trade(outgoingSlotId, incomingCardId),
+              `trade:${outgoingSlotId}:${incomingCardId}`,
+              "Trade completed.",
+            );
+          }}
+          onDecline={() => {
+            trackRunTheTable({ type: "rtt_offer_passed", node_type: "trade_desk", act: state.act });
+            act(runActions.declineTrade(), "decline_trade", "Trade declined.");
+          }}
+        />
+        <PeakV2RTTCreditSinks sinks={node.credit_sinks ?? []} busy={busy} onSpend={spendSink} />
+      </>
+    );
+  } else if (screen === "node_active" && node && node.node_type === "film_room") {
+    v2Content = (
+      <PeakV2RTTScoutPrepare
+        node={node}
+        credits={state.credits}
+        busy={busy}
+        onScoutBoss={(lane: LaneField) =>
+          act(
+            runActions.filmRoom("scout_boss", { lane }),
+            `scout:${node.node_id}:${lane}`,
+            "Boss scouted. One lane prepared.",
+          )
+        }
+        onShapeMarket={(role: Role) =>
+          act(
+            runActions.filmRoom("shape_market", { role }),
+            `focus:${node.node_id}:${role}`,
+            "Role Focus armed for the next market.",
+          )
+        }
+        onReserveCard={(cardId: string) =>
+          act(
+            runActions.filmRoom("reserve_card", { card_id: cardId }),
+            `reserve:${node.node_id}:${cardId}`,
+            "Card reserved at today's price.",
+          )
+        }
+      />
+    );
+  } else if (screen === "node_active" && node) {
+    // Every other written-choice node type (rest_bank under v3) shares the
+    // exact `choices` payload shape ChoiceNode already renders for.
+    v2Content = (
+      <>
+        <PeakV2RTTChoiceNode
+          node={node}
+          busy={busy}
+          onChoose={(choiceId) =>
+            act(
+              runActions.restBank(choiceId),
+              `${node.node_type}:${choiceId}`,
+              "Choice taken.",
+            )
+          }
+        />
+        <PeakV2RTTCreditSinks sinks={node.credit_sinks ?? []} busy={busy} onSpend={spendSink} />
+      </>
+    );
+  } else if (screen === "system_select") {
+    v2Content = (
+      <PeakV2RTTSystemSelect
+        offer={state.pending_system_offer ?? []}
+        active={state.systems}
+        act={state.act}
+        busy={busy}
+        onSelect={(systemId) => {
+          trackRunTheTable({ type: "rtt_system_selected", system_id: systemId });
+          act(
+            runActions.selectSystem(systemId),
+            `system:${systemId}`,
+            "Front Office Perk selected.",
+          );
+        }}
+      />
+    );
+  } else if (screen === "node_select") {
+    v2Content = (
+      <PeakV2RTTNodeChoice
+        options={state.stage_options ?? []}
+        act={state.act}
+        stage={state.stage}
+        stagesPerAct={state.stages_per_act}
+        busy={busy}
+        onChoose={(option) => {
+          trackRunTheTable({
+            type: "rtt_node_chosen",
+            node_type: option.node_type,
+            act: state.act,
+            stage: state.stage,
+          });
+          act(runActions.chooseNode(option.node_id), `node:${option.node_id}`, `${option.title} opened.`);
+        }}
+      />
+    );
+  } else if (screen === "boss_preview" && state.next_boss) {
+    const boss = state.next_boss;
+    v2Content = (
+      <PeakV2RTTBossPreview
+        boss={boss}
+        playerLanes={state.lane_profile}
+        playerTotal={state.roster_total}
+        benchWeight={state.bench_weight}
+        lives={state.lives}
+        busy={busy}
+        onResolve={() => {
+          trackRunTheTable({ type: "rtt_boss_started", act: state.act, boss_id: boss.boss_id });
+          act(runActions.resolveBoss(), `resolve:${boss.boss_id}`, "Battle resolved.");
+        }}
+        lanesToWin={boss.lanes_to_win ?? state.lanes_to_win}
+      />
+    );
+  } else if (screen === "battle" && battle) {
+    v2Layout = "cinematic";
+    v2Content = (
+      <PeakV2RTTBattleResult
+        battle={battle}
+        boss={state.next_boss}
+        onAdvance={() => {
+          trackRunTheTable({
+            type: "rtt_boss_completed",
+            act: battle.act,
+            boss_id: battle.boss_id,
+            outcome: battle.outcome,
+          });
+          act(runActions.advance(), `advance:${battle.act}`, "Moving on.");
+        }}
+        advanceLabel={battle.act >= state.acts_total ? "See the receipt" : "Next act"}
+      />
+    );
+  } else if (screen === "result" && state.receipt) {
+    // P3 polish gap fix (mission §15, confirmed hard-stop item): this branch
+    // was previously MISSING its own content, so `v2Content` fell through to
+    // `surface` above — legacy's `RunResult` directly, no V2 rebuild at all —
+    // meaning every completed run under `?ui=v2` ended on a fully
+    // legacy-styled receipt. `PeakV2RTTResult` is the real V2 rebuild, same
+    // real `receipt`/`versions`/`map` data `RunResult` itself renders.
+    v2Layout = "bare";
+    v2Content = (
+      <PeakV2RTTResult
+        receipt={state.receipt}
+        versions={state.versions}
+        actsTotal={state.acts_total}
+        map={state.map}
+        busy={busy}
+        onRunItBack={handleRunItBack}
+        onReplaySeed={handleReplaySeed}
+        onChallenge={handleChallenge}
+      />
+    );
+  }
+  // No `else if (screen === "result")` fallback to `"bare"` here: that layout
+  // is earned only by a REAL receipt-bearing result (`PeakV2RTTResult`,
+  // above), which supplies its own full composition. A "result" status with
+  // no receipt yet is the same inconsistent-payload edge case the generic
+  // `surface` fallback (bottom of the big if/else chain above) already
+  // handles — it still deserves the ordinary shell (HUD, restart control)
+  // around it, not a bare, chrome-less page.
 
-      {/* Zone 1 — the ladder. Desktop only; a phone gets the progress strip
-          inside the decision column instead (DOM order: strip, surface,
-          roster). It RECEDES: `.rtt-map-rail` quiets the whole rail so the
-          decision column is unambiguously the dominant surface, and only the
-          current row keeps full contrast. */}
-      <div className="rtt-zone-left" data-tour-id="run-map">
-        <RunMap map={state.map} />
+  return (
+    <>
+      {/* Screen-reader announcer for every committed action — same
+          `liveMessage` legacy's shell carried, just no longer nested inside
+          a `.rtt-shell` div of its own. `sr-only`: never a visible element. */}
+      <div aria-live="polite" className="sr-only" data-testid="rtt-live">
+        {liveMessage}
       </div>
-
-      {/* Zone 2 — the decision surface */}
-      <div className="flex flex-col gap-4 min-w-0">
-        <div className="rtt-mobile-only">
-          <RunProgressStrip map={state.map} />
-        </div>
-
-        <div aria-live="polite" className="sr-only" data-testid="rtt-live">
-          {liveMessage}
-        </div>
-
-        {error && (
+      {/* The in-run guided tour — see the `tour`/`tourBlocked` hook call
+          above for why this mounts only here, past the start gate. Opening
+          it changes no run state: the server-authoritative `state` this
+          component holds is untouched either way. */}
+      <GuidedTour
+        steps={RUN_THE_TABLE_TOUR}
+        tourId={RUN_THE_TABLE_TOUR_ID}
+        version={RUN_THE_TABLE_TOUR_VERSION}
+        eyebrow="How Run the Table works"
+        open={tour.open}
+        onOpenChange={(next) => {
+          if (!next) tour.stop();
+        }}
+        autoStart={false}
+        data-testid="guided-tour"
+      />
+      <PeakV2RTTShell
+      state={state}
+      objective={objective}
+      layout={v2Layout}
+      content={v2Content}
+      scoutIntel={activeScoutIntel}
+      restartControl={
+        // Only while the run is still live — a concluded run already offers
+        // "Run it back" on the result screen, which creates a new run
+        // WITHOUT abandoning anything, so a finished run must never be
+        // relabelled. Same gate and the same `RestartRunControl` legacy's
+        // `RunHUD` rendered.
+        !isTerminal(state.status) ? (
+          <RestartRunControl
+            canRestart={state.can_restart !== false}
+            busy={busy}
+            onConfirm={handleRestart}
+          />
+        ) : null
+      }
+      mobileTray={
+        // Root cause of a mobile hit-testing regression (Playwright's
+        // elementFromPoint at the boss-intro Skip button's own on-screen
+        // center resolved to `.rtt-mobile-tray`/its row div, not the
+        // button): `mobilePrimaryLabel`/`mobilePrimary` above are derived
+        // from `screen` alone, and `screenForStatus` maps `"boss_ready"` to
+        // `"boss_preview"` -- the SAME status the roster-pairing and
+        // pre-battle intro ceremonies (`showRosterReveal`/`showBossIntro`/
+        // `showBossReveal`) also run under, before the real Boss Preview
+        // briefing is ever shown. The tray was therefore rendering a real,
+        // tappable "Resolve" button for a screen that was not actually on
+        // screen yet, sitting in the same sticky bottom band as the
+        // ceremony's own Skip control. Those three states already get their
+        // own `v2Content`/`v2Layout` override just above (the ceremony is
+        // its own moment, not the briefing) -- suppressing the tray for the
+        // exact same three states removes the stray control (and the
+        // sticky band's own hitbox) rather than papering over the overlap
+        // with a z-index. `screen === "battle"` is untouched: it is a real,
+        // correctly-matched screen with its own legitimate "Continue"
+        // action, not a ceremony masking a different status.
+        showRosterReveal || showBossIntro || showBossReveal ? null : (
+          <MobileTray
+            state={state}
+            primaryLabel={mobilePrimaryLabel}
+            onPrimary={mobilePrimary}
+            primaryDisabled={busy}
+          />
+        )
+      }
+      errorBanner={
+        error && (
           <div
             role="alert"
             data-testid="rtt-error"
-            className="rounded-lg px-3 py-2 flex flex-wrap items-center gap-2 text-sm"
-            style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}
+            className="flex flex-wrap items-center gap-2 p-3"
+            style={{ background: "var(--v2-bg-plane)", border: "1px solid var(--v2-color-negative)", borderRadius: "var(--v2-radius-control)" }}
           >
-            <span>{error}</span>
+            <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-color-negative)" }}>
+              {error}
+            </span>
             {retry && (
               <button
                 type="button"
                 data-testid="rtt-error-retry"
                 onClick={() => void run(retry.fn, retry.announce)}
-                className="rtt-tap rounded px-3 text-xs font-semibold uppercase tracking-wide"
-                style={{
-                  background: "var(--bg-surface)",
-                  color: "var(--text-primary)",
-                  border: "1px solid var(--border-default)",
-                }}
+                className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", color: "var(--v2-text-secondary)", border: "1px solid var(--v2-border)", borderRadius: "var(--v2-radius-control)", padding: "0.375rem 0.75rem" }}
               >
                 Try again
               </button>
             )}
           </div>
-        )}
-
-        {/* The focus target's container. A plain wrapper, so it simply takes
-            the surface's place as the flex item and the column's gaps are
-            unchanged.
-
-            `motion.div` keyed on the surface identity gives each decision a
-            short directional enter — the new surface arrives from below rather
-            than replacing the old one in a single frame, which is the only
-            cue that the board moved. `layout={false}` and transform/opacity
-            only; under reduced motion the transition is zero-length and the
-            initial state is skipped entirely, so the surface is finished on
-            first paint. */}
-        <div
-          ref={surfaceRef}
-          /* `.rtt-decision-zone` is the "dominant surface" treatment, applied
-             to a wrapper this file owns rather than to the shared
-             `.rtt-decision-surface` class — three of the six components using
-             that class belong to W3, and restyling it would reach into their
-             work. Skipped on the receipt, which already has its own
-             `.share-card-shell` frame and must not be double-boxed. */
-          className={`min-w-0${screen === "result" ? "" : " rtt-decision-zone"}`}
-          data-tour-id="rtt-decision"
-        >
-          <motion.div
-            key={surfaceKey ?? "surface"}
-            initial={reducedMotion ? false : { opacity: 0, transform: "translateY(8px)" }}
-            animate={{ opacity: 1, transform: "translateY(0px)" }}
-            transition={motionTransition("base", "out", reducedMotion)}
-          >
-            {surface}
-          </motion.div>
-        </div>
-
-        {/* W3's guided tour: the visible Help / Tour control AND the
-            auto-starting instance, in one mount. `blocked` defers the
-            auto-start and disables the button while the board is mid-action —
-            see `tourBlocked` above — and re-evaluates when the block clears.
-            Placed AFTER the decision surface in DOM order deliberately: the
-            e2e driver clicks the first enabled button inside a surface testid,
-            and this button is outside every surface. */}
-        <div className="flex flex-wrap items-center gap-2">
-          <TourLauncher blocked={tourBlocked} data-testid="rtt-tour-launcher" />
-        </div>
-      </div>
-
-      {/* Zone 3 — the persistent front-office rail.
-          Rendered ONCE. It used to be two `<RunTray>` instances (a desktop rail
-          plus an `.rtt-mobile-only` copy inside the decision column), which
-          duplicated every `data-testid` and made a `data-tour-id` ambiguous.
-          `.rtt-zone-right-fluid` (rtt-polish.css) drops the same element back
-          into normal flow below 1024px, so the phone gets exactly one roster,
-          after the decision and never above it. */}
-      <div className="rtt-zone-right rtt-zone-right-fluid">
-        <RunTray
-          state={state}
-          laneProfileRelevant={screen === "boss_preview" || screen === "battle"}
-          concealedRosterUnless={rosterConcealment}
-        />
-      </div>
-
-      <MobileTray
-        state={state}
-        primaryLabel={mobilePrimaryLabel}
-        onPrimary={mobilePrimary}
-        primaryDisabled={busy}
+        )
+      }
       />
-    </div>
+    </>
   );
 }
 
@@ -1395,31 +1672,6 @@ export function surfaceKeyFor(
   if (activeReveal ? activeReveal.boss : needsBossReveal(state)) return `reveal_boss:${state.act}`;
   return `${screenForStatus(state.status)}:${state.active_node?.node_id ?? state.act}`;
 }
-
-/* ---------------------------------------------------------------------------
- * Guided tour contract (W3's `components/ui/tour-steps.ts::TOUR_TARGET_IDS`)
- * ---------------------------------------------------------------------------
- * Placed by this workstream, one attribute per element:
- *
- *   rtt-run-map        RunMap's <nav>
- *   rtt-progress-strip RunProgressStrip's root (mobile)
- *   rtt-decision       the surfaceRef wrapper above
- *   rtt-credits        RunHUD's Credits tile (moved out of RunTray — §4)
- *   rtt-lives          RunHUD's Lives tile (moved out of RunTray — §4)
- *   rtt-roster         RunTray's roster <section>
- *   rtt-systems        RunTray's rtt-active-systems <section>
- *   rtt-lane-profile   RunTray's lane-profile <details>
- *   rtt-mobile-tray    MobileTray's root
- *
- * `rtt-system-select` is W3's own, on SystemSelect, and is not duplicated here.
- *
- * `<TourLauncher blocked={tourBlocked} />` is mounted once, after the decision
- * surface — it is the visible Help / Tour control AND the auto-starting
- * instance. Coachmarks are mounted in DraftRoom, TradeDesk and BossPreview,
- * always AFTER that surface's action controls: `e2e/run-the-table.spec.ts`
- * drives the game by clicking the first enabled <button> inside a surface's
- * testid, and a coachmark's "Got it" would otherwise capture that click.
- * ------------------------------------------------------------------------- */
 
 /** Exported for tests: how many offers a node is showing, used to fire the
  *  "offer viewed" event exactly once per node rather than per render. */

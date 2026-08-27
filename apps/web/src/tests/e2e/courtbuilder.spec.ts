@@ -52,10 +52,25 @@ async function playOneRound(page: Page): Promise<void> {
   await anyCandidate.waitFor({ state: "visible", timeout: 10_000 });
   const scoredCount = await scoredCandidates.count();
   const candidate = scoredCount > 0 ? scoredCandidates.first() : anyCandidate;
-  await Promise.all([
-    page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
-    candidate.click(),
-  ]);
+
+  // Same class of race as the `place` step below, one step earlier: a
+  // `waitForResponse((r) => r.url().includes("/select") ...)` raced against
+  // `candidate.click()` is exactly the "arbitrary race-prone network
+  // response" pattern the `place` fix's own comment (below) already
+  // documents replacing -- the request can resolve before the listener
+  // attaches, or (under CI's slower/more contended runners) simply take
+  // long enough that the fixed 120s test budget is spent waiting on the
+  // network call itself. `openSlot` becoming the interactive `<button>`
+  // (waited for immediately below) is already the deterministic,
+  // UI-observable proof that select succeeded -- CourtBuilder.tsx only
+  // ever reaches `phase === "placing"` via a successful `/select` response
+  // (see PeakCardCourt.tsx: `onClick` present -> <button>, absent -> a
+  // plain <div> Playwright would happily click without complaint). A
+  // genuine select failure still fails loudly here, just via that
+  // `openSlot.waitFor` timing out instead of a specific response never
+  // arriving -- a clearer signal of the real symptom (no slot ever became
+  // placeable), not a weaker one.
+  await candidate.click();
 
   // Root cause of the CI flake this replaces (verified from the actual
   // failing run's server log: a real "select" 200 response arrives, then
@@ -856,8 +871,14 @@ test.describe("CourtBuilder drafting flow", () => {
     const placingBanner = page.locator('[data-testid="placing-banner"]');
     await expect(placingBanner).toBeVisible();
     // E1: the placement step names the SELECTION rather than a step number --
-    // the overlay has closed and the court is the placement surface.
-    await expect(placingBanner).toContainText(/Selected:/);
+    // the overlay has closed and the court is the placement surface. V2's
+    // real, deliberate wording for this (PeakV2CourtLive.tsx's "Pass 7"
+    // unified banner grammar -- a "Place" chip beside the player's own
+    // identity row, shared with the "Moving" banner's identical grammar)
+    // names the selection just as concretely as legacy's "Selected: X" did,
+    // just with a different verb -- assert on that real copy instead of the
+    // literal legacy string.
+    await expect(placingBanner).toContainText(/Place/i);
     // The candidate panel is gone once a pick is pending -- selection and
     // placement never overlap visually.
     await expect(candidatePanel).toHaveCount(0);
@@ -2878,7 +2899,10 @@ test.describe("selection overlay (E1)", () => {
         page.locator('[data-testid="candidate-card"]').first().click(),
       ]);
       await expect(overlay).toBeHidden();
-      await expect(page.locator('[data-testid="placing-banner"]')).toContainText(/Selected:/);
+      // See the same note on the other `/Selected:/` assertion above: V2's
+      // real "Place" chip + player-identity grammar names the selection
+      // just as concretely, with a different verb.
+      await expect(page.locator('[data-testid="placing-banner"]')).toContainText(/Place/i);
       await expect(page.locator('[data-testid="cancel-selection-btn"]')).toContainText(/Switch selection/i);
 
       // SWITCH SELECTION returns to the SAME roll — same round, overlay back,
@@ -2925,7 +2949,12 @@ test.describe("selection overlay (E1)", () => {
       // A click inside the panel (on its header) must NOT minimize it -- and
       // must not be swallowed by the search box or a candidate row either,
       // both of which sit further inside the same bubble path as the header.
-      await page.locator(".courtb-overlay-head").first().click({ position: { x: 4, y: 4 } });
+      // V2's header carries this as a real, stable `data-testid` (the
+      // legacy `.courtb-overlay-head` class this used to target was deleted
+      // along with every other legacy JSX branch in the V2-only cutover;
+      // the underlying click-delegation behavior this test is actually
+      // about is unchanged).
+      await page.locator('[data-testid="selection-overlay-head"]').first().click({ position: { x: 4, y: 4 } });
       await expect(overlay).toBeVisible();
       await page.locator('[data-testid="candidate-card"]').first().hover();
       await expect(overlay).toBeVisible();

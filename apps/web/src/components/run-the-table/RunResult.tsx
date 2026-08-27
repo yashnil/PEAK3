@@ -251,7 +251,7 @@ export default function RunResult({
           it the first thing that lands, and the display face gives it the
           tracking the rest of the game's headlines already use. */}
       <header
-        className="pk-reveal pk-depth-decision pk-crown pk-crown-accent pk-spotlight flex flex-col gap-1.5 rounded-xl border p-3.5"
+        className="pk-reveal pk-depth-decision pk-crown pk-crown-accent pk-spotlight rtt-result-verdict-block flex flex-col gap-1.5 rounded-xl border p-3.5"
         style={{ "--pk-reveal-index": 0 } as React.CSSProperties}
       >
         <span
@@ -292,7 +292,7 @@ export default function RunResult({
                 key={`${b.act}-${b.boss_id}`}
                 data-testid={`rtt-result-battle-${b.act}`}
                 data-outcome={b.outcome}
-                className="pk-depth pk-crown flex flex-wrap items-baseline gap-2 rounded-lg px-2 py-1.5 text-xs"
+                className="pk-depth pk-crown rtt-result-row flex flex-wrap items-baseline gap-2 rounded-lg px-2 py-1.5 text-xs"
               >
                 <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
                   Act <span className="score-number">{b.act}</span>
@@ -433,7 +433,7 @@ export default function RunResult({
           {roster.map((entry) => (
             <li
               key={entry.slot_id}
-              className="flex items-center gap-2 rounded-lg px-2 py-1.5 min-w-0"
+              className="rtt-result-row flex items-center gap-2 rounded-lg px-2 py-1.5 min-w-0"
               style={{ background: "var(--bg-surface)" }}
             >
               <PlayerAvatar name={entry.player_name} size={24} />
@@ -581,7 +581,7 @@ export default function RunResult({
                 key={`${item.kind}-${i}`}
                 data-testid={`rtt-result-item-${i}`}
                 data-kind={item.kind}
-                className="flex items-baseline gap-2 rounded-lg px-2 py-1.5"
+                className="rtt-result-row flex items-baseline gap-2 rounded-lg px-2 py-1.5"
                 style={{ background: "var(--bg-surface)" }}
               >
                 <span
@@ -736,7 +736,7 @@ function Highlight({
        the same visual weight as the explanatory paragraphs around them. */
     <div
       data-testid={testId}
-      className="pk-depth pk-crown rounded-xl border p-2.5 flex flex-col gap-1"
+      className="pk-depth pk-crown rtt-result-row rounded-xl border p-2.5 flex flex-col gap-1"
       style={{
         borderColor: tone === "incorrect" ? "var(--incorrect-dim)" : "var(--border-default)",
       }}

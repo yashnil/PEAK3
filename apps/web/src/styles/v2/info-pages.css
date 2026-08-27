@@ -1,0 +1,31 @@
+/* ================================================================
+   PEAK3 V2 · Rankings + Methodology — scoped typography overrides
+   ================================================================
+   Pass 7 (human acceptance testing). Rankings and Methodology had NO V2
+   branch at all before this pass — `RankingsTable`/`ComponentLegend`/
+   `RankingsAnalysis` are reused verbatim for data/logic, but they carry no
+   font-family of their own (they inherit ambient body font), so their
+   INSTRUMENTATION role (the existing `.score-number` class already used for
+   every numeric cell — rank, prime_score, component figures) is opted into
+   the V2 mono/tabular treatment here, scoped so legacy is byte-for-byte
+   unaffected: `--v2-font-mono` only resolves to something under
+   `[data-ui-version="v2"]` (tokens.css's own scoping), and a legacy render
+   never has that ancestor attribute.
+   ================================================================ */
+
+[data-ui-version="v2"] .score-number {
+  font-family: var(--v2-font-mono);
+  letter-spacing: var(--v2-mono-track);
+}
+
+/* The duration-pill toggle (1-Year/2-Year/3-Year/5-Year) used a fuller pill
+   radius than the rest of V2's control vocabulary (disclosed gap, Pass 6).
+   `--v2-radius-control` (8px) instead of the legacy full-pill radius. */
+[data-ui-version="v2"] .v2-peak-window-tab {
+  border-radius: var(--v2-radius-control) !important;
+  font-family: var(--v2-font-ui);
+}
+
+[data-ui-version="v2"] .v2-board-tab {
+  font-family: var(--v2-font-ui);
+}

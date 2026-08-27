@@ -38,10 +38,9 @@ export default function RankingsDetail({
   windowLabel: string | null;
   populationNoun: string;
 }) {
-  const dataComplete = (row?.data_completeness ?? "complete") === "complete";
   const axes = useMemo(
-    () => compositeAxes(row?.percentiles ?? null, row?.components ?? null, dataComplete),
-    [row?.percentiles, row?.components, dataComplete],
+    () => compositeAxes(row?.percentiles ?? null, row?.components ?? null, row?.prime_score ?? null),
+    [row?.percentiles, row?.components, row?.prime_score],
   );
 
   if (!row) {
@@ -116,19 +115,24 @@ export default function RankingsDetail({
                   </td>
                 </tr>
               ))}
-              <tr data-testid="rk-detail-row-data_completeness">
-                <th scope="row">Data completeness</th>
-                <td>{dataComplete ? 100 : 60}</td>
-                <td>{dataComplete ? "Complete" : (row.data_completeness ?? "Partial")}</td>
+              <tr data-testid="rk-detail-row-total">
+                <th scope="row">Overall PEAK3 percentile</th>
+                <td>
+                  {row.percentiles?.total === null || row.percentiles?.total === undefined
+                    ? "—"
+                    : Math.round(row.percentiles.total)}
+                </td>
+                <td>{row.prime_score === null ? "—" : formatScore2(row.prime_score)}</td>
               </tr>
             </tbody>
           </table>
 
           <p className="rk-detail-note">
             The five components are PEAK3&apos;s own weighted contributions; the
-            sixth axis reports how complete this row&apos;s source data is, so a
-            partially-covered season is visible rather than silently flattering.
-            PEAK3 rates peaks — it does not settle them.
+            sixth axis is this player&apos;s overall PEAK3 percentile against
+            every {populationNoun} on this board — the same population and
+            method (percentile rank of the total score) the five component
+            axes already use. PEAK3 rates peaks — it does not settle them.
           </p>
         </>
       ) : (

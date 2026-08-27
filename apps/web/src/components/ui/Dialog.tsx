@@ -19,7 +19,15 @@
  *   - the entrance transition is skipped entirely under `prefers-reduced-motion`
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { cn } from "@/lib/utils";
 import {
   useBodyScrollLock,
@@ -53,10 +61,72 @@ interface DialogBaseProps {
   className?: string;
   /** Class applied to the full-screen backdrop layer. */
   backdropClassName?: string;
+  /**
+   * Style overrides for the panel/backdrop, merged AFTER (so they win over)
+   * this component's own inline defaults — panel color/radius/elevation are
+   * set inline, not via a class, so `className` alone cannot reskin them.
+   * Added for `PeakV2Modal` (Pass 2, product-direction): a V2-styled
+   * dialog reuses this component's focus trap / restore-focus / scroll
+   * lock / Escape / portal wiring exactly rather than re-deriving it, and
+   * only changes presentation. Optional and additive — every existing
+   * caller passes neither and is completely unaffected.
+   */
+  panelStyle?: CSSProperties;
+  backdropStyle?: CSSProperties;
+  /**
+   * `"center"` (default, every existing caller) or `"bottom"` — docks the
+   * panel to the bottom edge instead of centering it. Added for
+   * `PeakV2DockedPanel` (Pass 2.5, product-direction): a temporary
+   * interaction surface (e.g. 82-0's chooser) that must coexist with
+   * still-visible background context reuses this component's real focus
+   * trap / restore-focus / scroll lock / Escape / portal wiring rather
+   * than a second overlay implementation — only the alignment and (via
+   * `panelStyle`/`backdropStyle`) the visual treatment differ.
+   */
+  align?: "center" | "bottom";
+  /**
+   * Sets `data-ui-version="v2"` on the dialog's own PORTAL ROOT (rendered
+   * into `document.body`, a SIBLING of the page's own tree, not a
+   * descendant of it). Added after a real screenshot caught `PeakV2Modal`/
+   * `PeakV2DockedPanel` rendering with a fully transparent panel and no
+   * border on any screen where V2 is active only via `PeakV2Shell`'s own
+   * self-applied attribute (the `/v2-preview` gallery, any isolated
+   * render) rather than on `<html>` itself: `Portal` moves this dialog's
+   * DOM out from under `PeakV2Shell`'s subtree entirely, so its
+   * `panelStyle`/`backdropStyle` `var(--v2-*)` references had no scoped
+   * ancestor to resolve against and silently fell through to nothing —
+   * invisible, not merely unstyled. `PeakV2Modal`/`PeakV2DockedPanel` both
+   * pass `"v2"` here; every existing (legacy) caller passes neither and is
+   * unaffected. In real production use `<html data-ui-version="v2">` is
+   * already set by the blocking init script whenever V2 is genuinely
+   * active, so this is redundant-but-harmless there — it only matters for
+   * an isolated render, which is exactly the case a screenshot exposed and
+   * a DOM-only assertion could not.
+   */
+  rootDataUiVersion?: "v2";
   /** When false, neither Escape nor a backdrop click closes the dialog. */
   dismissible?: boolean;
+  /**
+   * When true, `open=false` hides the panel (visually, and out of the a11y
+   * tree) instead of unmounting it. Added for `PeakV2CourtChooser` (Pass 7,
+   * human acceptance testing): its child `SpinStage` restarts its own reveal
+   * ceremony on every mount (documented in its own file, and in legacy
+   * `CourtBuilder`'s equivalent overlay, which avoids this exact problem the
+   * same way — staying mounted for the whole round and toggling `hidden`
+   * rather than conditionally rendering). Every existing caller omits this
+   * and keeps the original unmount-on-close behavior; the focus trap /
+   * escape / scroll-lock hooks already gate their own side effects on
+   * `open` internally, so hiding-not-unmounting while closed does not risk
+   * a stray focus trap or scroll lock.
+   */
+  keepMounted?: boolean;
   describedBy?: string;
   "data-testid"?: string;
+  /** Optional `data-testid` for the backdrop element, set only by callers
+   *  that need a stable hook for "click outside closes it" (e.g. 82-0's
+   *  chooser, `selection-overlay-scrim`) — every other caller omits this
+   *  and its backdrop is completely unaffected. */
+  "data-backdrop-testid"?: string;
 }
 
 /** Exactly one of `label` / `labelledBy` — an unnamed dialog is a defect. */
@@ -75,7 +145,13 @@ export function Dialog({
   describedBy,
   label,
   labelledBy,
+  panelStyle,
+  backdropStyle,
+  align = "center",
+  rootDataUiVersion,
+  keepMounted = false,
   "data-testid": testId,
+  "data-backdrop-testid": backdropTestId,
 }: DialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   // Focus is placed from the panel's own ref callback -- see the long note on
@@ -166,7 +242,7 @@ export function Dialog({
     node.focus();
   }, []);
 
-  if (!open) return null;
+  if (!open && !keepMounted) return null;
 
   // Under reduced motion the surface is simply present — no opacity/transform
   // ramp at all, rather than a "fast" one.
@@ -178,9 +254,18 @@ export function Dialog({
   return (
     <Portal>
       <div
-        className="fixed inset-0 flex items-center justify-center"
-        style={{ zIndex: "var(--pk-z-dialog, 110)", padding: "var(--pk-space-4, 16px)" }}
+        className={cn("fixed inset-0 flex justify-center", align === "bottom" ? "items-end" : "items-center")}
+        style={{
+          zIndex: "var(--pk-z-dialog, 110)",
+          padding: "var(--pk-space-4, 16px)",
+          // `keepMounted` + closed: hidden from view and from the a11y tree,
+          // but still in the DOM/React tree so children (e.g. a reveal
+          // ceremony with its own internal timers) never remount.
+          display: !open ? "none" : undefined,
+        }}
+        aria-hidden={!open}
         data-pk-dialog-root=""
+        data-ui-version={rootDataUiVersion}
       >
         {/* Backdrop is its own element so a click on it is unambiguous — a
             click that started inside the panel and ended on the backdrop
@@ -188,6 +273,7 @@ export function Dialog({
         <div
           aria-hidden="true"
           data-pk-dialog-backdrop=""
+          data-testid={backdropTestId}
           onClick={handleClose}
           className={cn("absolute inset-0", backdropClassName)}
           style={{
@@ -195,6 +281,7 @@ export function Dialog({
             backdropFilter: "blur(2px)",
             opacity: visible ? 1 : 0,
             transition: `opacity ${durationMs}ms ${easing}`,
+            ...backdropStyle,
           }}
         />
         <div
@@ -217,6 +304,7 @@ export function Dialog({
             opacity: visible ? 1 : 0,
             transform: visible ? "translateY(0) scale(1)" : "translateY(8px) scale(0.98)",
             transition: `opacity ${durationMs}ms ${easing}, transform ${durationMs}ms ${easing}`,
+            ...panelStyle,
           }}
         >
           {children}

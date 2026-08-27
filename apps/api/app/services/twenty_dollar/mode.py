@@ -143,6 +143,32 @@ PHASE_LOT_UNWINNABLE = "lot_unwinnable"
 #: an ordinary poll cadence can actually land inside it at least once.
 LOT_UNWINNABLE_SECONDS = 1.6
 
+#: THE "NO OTHER ROSTER COULD EVER CONTEST THIS" BEAT, AS A REAL SERVER TURN.
+#: `PHASE_LOT_UNWINNABLE`'s own sibling, for `rules_state.LOT_KIND_
+#: FORCED_FILL` rather than for a candidate nobody at all could use. The
+#: Pass 1 brief's fix for the "$20 Showdown becomes a near-free acquisition"
+#: defect is `nba_peak.twenty_dollar.state._park_forced_fill`: normal lots now
+#: draw from the INTERSECTION of every still-incomplete seat's legal wins, and
+#: the moment that intersection is empty while something is still winnable by
+#: SOMEONE, one stranded position settles outside the ordinary bid/raise
+#: auction rather than opening as a lot only one side could ever act on.
+#:
+#: THIS PHASE EXISTS FOR THE SAME REASON `PHASE_LOT_UNWINNABLE` DOES: an
+#: earlier version of `_park_forced_fill` committed the assignment inline, the
+#: instant the intersection was found empty -- which is the phantom-lot bug
+#: again, reopened (`tests/twenty_dollar/test_phantom_lot_fix.py` caught it:
+#: a player settled `forced_fill` in history without ever being observed as
+#: `current_candidate` on any read). The fix is the identical pattern: a real
+#: turn, in its own phase, belonging to no seat, accepting no action from
+#: anybody, that resolves only on its own (short) deadline
+#: (`_resolve_forced_fill`, calling `rules_state.resolve_forced_fill`).
+PHASE_LOT_FORCED_FILL = "lot_forced_fill"
+
+#: Short for the same reason `LOT_UNWINNABLE_SECONDS` is: nobody is deciding
+#: anything, so this should not cost either player real time, but has to be
+#: long enough that an ordinary poll cadence can land inside it at least once.
+LOT_FORCED_FILL_SECONDS = 1.6
+
 EVENT_BID_PLACED = "bid_placed"
 EVENT_PASSED = "seat_passed"
 EVENT_LOT_RESOLVED = "lot_resolved"
@@ -191,11 +217,11 @@ class TwentyDollarMode:
         Read by `arena.bots.drive_pending_bots`. Without it the driver reads
         the intro's `seat_index is None` as a SIMULTANEOUS turn and lets the bot
         bid underneath an intro nobody has finished reading. `PHASE_LOT_
-        UNWINNABLE` is the same shape of turn for the same reason: it also
-        belongs to no seat, and a bot must not "act" on a candidate nobody --
-        bot or human -- can legally acquire.
+        UNWINNABLE` and `PHASE_LOT_FORCED_FILL` are the same shape of turn for
+        the same reason: both belong to no seat, and a bot must not "act" on
+        a beat where nobody -- bot or human -- has anything to decide.
         """
-        return phase not in (PHASE_INTRO, PHASE_LOT_UNWINNABLE)
+        return phase not in (PHASE_INTRO, PHASE_LOT_UNWINNABLE, PHASE_LOT_FORCED_FILL)
 
     # -- opening state ------------------------------------------------------
 
@@ -259,6 +285,9 @@ class TwentyDollarMode:
         in_unwinnable_beat = (
             data.open_turn is not None and data.open_turn.phase == PHASE_LOT_UNWINNABLE
         )
+        in_forced_fill_beat = (
+            data.open_turn is not None and data.open_turn.phase == PHASE_LOT_FORCED_FILL
+        )
 
         if command.command_type == COMMAND_TYPE_TIMEOUT:
             # A TIMEOUT ON THE INTRO IS NOT A PASS -- it is the intro ending.
@@ -272,6 +301,11 @@ class TwentyDollarMode:
             # which is what actually settles the lot (the phantom-lot fix).
             if in_unwinnable_beat:
                 return self._resolve_unwinnable_lot(snapshot, data)
+            # SAME SHAPE, FOR A FORCED-FILL PARK: not a pass either -- it is
+            # the beat ending, which is what actually AWARDS the stranded
+            # position (see `PHASE_LOT_FORCED_FILL`'s own comment).
+            if in_forced_fill_beat:
+                return self._resolve_forced_fill(snapshot, data)
             actor = snapshot.get("active_seat")
             snapshot = rules_state.timeout_active_seat(snapshot)
             events: list[EventDraft] = [
@@ -396,16 +430,28 @@ class TwentyDollarMode:
 
         Centralizing this is what makes the phantom-lot fix actually hold:
         every caller that opens a turn after a rules call (`_open_first_lot`,
-        `_finish`, `_resolve_unwinnable_lot`) goes through here, so a
-        candidate neither seat can act on is NEVER handed a normal per-seat
-        turn (which would have no seat to belong to) and is ALWAYS surfaced
-        as the short, seatless `PHASE_LOT_UNWINNABLE` beat instead.
+        `_finish`, `_resolve_unwinnable_lot`, `_resolve_forced_fill`) goes
+        through here, so a candidate neither seat can act on is NEVER handed a
+        normal per-seat turn (which would have no seat to belong to) and is
+        ALWAYS surfaced as the short, seatless `PHASE_LOT_UNWINNABLE` beat
+        instead -- and a forced-fill assignment is ALWAYS surfaced as
+        `PHASE_LOT_FORCED_FILL` rather than committed silently. The two checks
+        are mutually exclusive by construction (`rules_state.is_unwinnable_
+        lot_pending` explicitly excludes a forced-fill park; see its own
+        comment), so the order between them here does not matter -- checked in
+        this order only because the unwinnable beat existed first.
         """
         if rules_state.is_unwinnable_lot_pending(snapshot):
             return TurnDraft(
                 phase=PHASE_LOT_UNWINNABLE,
                 seat_index=None,
                 deadline_at=data.now + timedelta(seconds=LOT_UNWINNABLE_SECONDS),
+            )
+        if rules_state.is_forced_fill_pending(snapshot):
+            return TurnDraft(
+                phase=PHASE_LOT_FORCED_FILL,
+                seat_index=None,
+                deadline_at=data.now + timedelta(seconds=LOT_FORCED_FILL_SECONDS),
             )
         return TurnDraft(
             phase=rules_state.PHASE_AUCTION,
@@ -424,6 +470,37 @@ class TwentyDollarMode:
         """
         before = len(snapshot.get("history") or [])
         snapshot = rules_state.resolve_unwinnable_lot(snapshot)
+        events: list[EventDraft] = []
+        for record in (snapshot.get("history") or [])[before:]:
+            events.append(
+                EventDraft(
+                    event_type=EVENT_LOT_RESOLVED,
+                    payload=dict(record),
+                    visibility=VISIBILITY_PUBLIC,
+                )
+            )
+
+        if rules_state.is_complete(snapshot):
+            return self._complete(snapshot, data, events, TURN_RESOLUTION_TIMEOUT)
+
+        return ReducerOutput(
+            accepted=True,
+            snapshot=snapshot,
+            events=tuple(events),
+            resolve_turn=TURN_RESOLUTION_TIMEOUT,
+            open_turn=self._open_turn_for_snapshot(snapshot, data),
+        )
+
+    def _resolve_forced_fill(self, snapshot: dict, data: ReducerInput) -> ReducerOutput:
+        """The seatless `PHASE_LOT_FORCED_FILL` beat has run its own (short)
+        course. Award the parked assignment now -- nobody was ever on the
+        clock for it, so this is not a timeout in the ordinary sense -- and
+        open whatever comes next, which may itself be another forced-fill (or
+        unwinnable) beat. Mirrors `_resolve_unwinnable_lot` exactly; the only
+        difference is which rules-layer function actually commits.
+        """
+        before = len(snapshot.get("history") or [])
+        snapshot = rules_state.resolve_forced_fill(snapshot)
         events: list[EventDraft] = []
         for record in (snapshot.get("history") or [])[before:]:
             events.append(

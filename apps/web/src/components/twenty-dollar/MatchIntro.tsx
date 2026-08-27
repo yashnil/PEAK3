@@ -127,6 +127,19 @@ export default function MatchIntro({
               roster slots to fill — a legal starting five
             </span>
           </li>
+          {/* THE LOT/BID/RAISE MECHANIC, AND THE ONE HIDDEN THING. Neither had
+              a line before this: a first-time player reached the board not
+              knowing what "$1–$16 legal" was ranging over, or that the
+              player up for bid is otherwise a blank until the lot settles. */}
+          <li>
+            <span className="td-intro-rule-value pk-numeral" aria-hidden="true">
+              1
+            </span>
+            <span className="td-intro-rule-text">
+              player up at a time — open at $1, raise by at least $1, or pass.
+              Their exact PEAK3 score stays hidden until the lot settles.
+            </span>
+          </li>
           <li>
             <span className="td-intro-rule-value pk-numeral">{marketSkips}</span>
             <span className="td-intro-rule-text">
@@ -140,7 +153,8 @@ export default function MatchIntro({
           className="td-intro-basis pk-reveal"
           style={{ "--pk-reveal-index": 4 } as CSSProperties}
         >
-          Highest total across five career-best PEAK3 seasons wins.
+          Highest total across five career-best PEAK3 seasons wins, once both
+          rosters are full.
         </p>
 
         <button

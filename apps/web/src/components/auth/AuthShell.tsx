@@ -32,16 +32,16 @@ export function AuthShell({ title, subtitle, children, footer, testId }: AuthShe
         <div className="card-elevated w-full p-8 space-y-6">
           <div className="text-center">
             <p
-              className="text-xs font-semibold tracking-[0.2em] uppercase"
+              className="auth-shell-wordmark text-xs font-semibold tracking-[0.2em] uppercase"
               style={{ color: "var(--text-muted)" }}
             >
               <span style={{ color: "var(--peak-accent-text)" }}>PEAK</span>3 Arena
             </p>
-            <h1 className="mt-2 text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+            <h1 className="auth-shell-title mt-2 text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
               {title}
             </h1>
             {subtitle && (
-              <p className="mt-1.5 text-sm" style={{ color: "var(--text-muted)" }}>
+              <p className="auth-shell-subtitle mt-1.5 text-sm" style={{ color: "var(--text-muted)" }}>
                 {subtitle}
               </p>
             )}

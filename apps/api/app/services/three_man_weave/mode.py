@@ -234,6 +234,11 @@ COMMAND_PICK = "tmw_pick"
 #: Repositioning your OWN roster. Does not consume a turn -- see
 #: `draft.rearrange` for why that is a rule rather than a convenience.
 COMMAND_REARRANGE = "tmw_rearrange"
+#: Record (or clear) a not-yet-committed candidate/slot choice for the seat on
+#: the clock. Does not consume a turn -- see `draft.stage_pick`. Payload is
+#: either `{"player_slug": ..., "slot_type": ...}` to stage, or `{"clear":
+#: true}` to drop the staged choice without drafting it (CHANGE SELECTION).
+COMMAND_STAGE_PICK = "tmw_stage_pick"
 
 EVENT_ROLL_REVEALED = "tmw_roll_revealed"
 EVENT_PICK_MADE = "tmw_pick_made"
@@ -445,6 +450,17 @@ class ThreeManWeaveMode:
                     "The franchise and decade are still being revealed.",
                 )
             return self._reduce_pick(data, state)
+        if command.command_type == COMMAND_STAGE_PICK:
+            # NOBODY STAGES UNDER THE CEREMONY either -- there is nothing to
+            # place a candidate against yet (the pick panel is not open), and
+            # a stage that outlived the ceremony would carry into a turn it
+            # was never validated for.
+            if data.open_turn is not None and data.open_turn.phase == PHASE_REVEAL:
+                return _reject(
+                    REJECT_NOT_YOUR_TURN,
+                    "The franchise and decade are still being revealed.",
+                )
+            return self._reduce_stage_pick(data, state)
         if command.command_type == COMMAND_SKIP_REVEAL:
             return self._reduce_skip_reveal(data, state)
         if command.command_type == COMMAND_REARRANGE:
@@ -550,16 +566,37 @@ class ThreeManWeaveMode:
         )
 
     def _reduce_timeout(self, data: ReducerInput, state: D.DraftState) -> ReducerOutput:
-        """Resolve an expired turn with the deterministic auto-pick.
+        """Resolve an expired turn: draft the staged choice, or fall back.
 
         A timeout never skips a turn: a skipped pick would leave that seat a
-        slot short and make its roster unscoreable, so the seat is given the
-        pick `autopick.auto_pick` computes -- a pure function of (state, seed)
-        that any node recomputes identically.
+        slot short and make its roster unscoreable.
+
+        IF THE SEAT ON THE CLOCK HAS A LEGAL STAGED CHOICE, THAT IS WHAT
+        TIMES OUT INTO THE ROSTER -- not the deterministic-but-deliberately-
+        below-median `autopick` fallback. A staged choice is a player's own
+        decision, made and left on the board; timing out on it must draft
+        exactly what they chose, never something else. This is also what
+        makes staging safe to ship at all: the original incident this
+        replaces (a visibly-selected pick silently overwritten by autopick,
+        see `PickOverlay.tsx`'s prior 3.2 fix) cannot recur, because the
+        timeout now agrees with the staged selection instead of ignoring it.
+        Re-validated with `staged_pick_is_still_legal` rather than trusted,
+        because the seat on the clock may `rearrange` its own roster between
+        staging and timing out.
+
+        WITH NOTHING LEGAL STAGED, the fallback is exactly what it always
+        was: `autopick.auto_pick`, a pure function of (state, seed) that any
+        node recomputes identically.
         """
         seat_index = state.current_seat
         if seat_index is None:
             return _reject(REJECT_MATCH_COMPLETE, "The match is already complete")
+
+        staged = state.staged_pick
+        if staged is not None and D.staged_pick_is_still_legal(state, get_index(), staged):
+            return self._commit(
+                data, state, seat_index, staged.player_slug, staged.slot_type, timed_out=True
+            )
 
         choice = auto_pick(state, get_index())
         if choice is None:
@@ -570,6 +607,60 @@ class ThreeManWeaveMode:
             )
         return self._commit(
             data, state, seat_index, choice.player_slug, choice.slot_type, timed_out=True
+        )
+
+    def _reduce_stage_pick(self, data: ReducerInput, state: D.DraftState) -> ReducerOutput:
+        """Stage (or clear) the acting seat's not-yet-committed choice.
+
+        NEVER RESOLVES OR OPENS A TURN -- the same contract `_reduce_rearrange`
+        documents: `resolve_turn=None, open_turn=None` leaves the open turn
+        exactly as it was, so staging cannot shorten, extend or steal anyone's
+        clock. The state version still advances (a new snapshot is always
+        returned), which is what makes a concurrent stale action -- a pick or
+        another stage against an older version -- fail its
+        `expected_state_version` check rather than silently landing on a board
+        that has moved underneath it.
+        """
+        command = data.command
+        seat_index = command.actor_seat_index
+        if seat_index is None or seat_index != state.current_seat:
+            return _reject(
+                REJECT_NOT_YOUR_TURN,
+                f"It is seat {state.current_seat}'s turn, not seat {seat_index}'s",
+            )
+
+        payload = command.payload or {}
+        if payload.get("clear"):
+            new_state = D.clear_staged_pick(state)
+            return ReducerOutput(
+                accepted=True,
+                snapshot=self._to_snapshot(new_state),
+                events=(),
+                resolve_turn=None,
+                open_turn=None,
+                status=None,
+            )
+
+        player_slug = payload.get("player_slug")
+        slot_type = payload.get("slot_type")
+        if not isinstance(player_slug, str) or not isinstance(slot_type, str):
+            return _reject(
+                REJECT_BAD_PAYLOAD,
+                "payload requires string 'player_slug' and 'slot_type', or {'clear': true}",
+            )
+
+        try:
+            new_state = D.stage_pick(state, get_index(), seat_index, player_slug, slot_type)
+        except D.DraftError as exc:
+            return _reject(exc.code, exc.message)
+
+        return ReducerOutput(
+            accepted=True,
+            snapshot=self._to_snapshot(new_state),
+            events=(),
+            resolve_turn=None,
+            open_turn=None,
+            status=None,
         )
 
     def _commit(
@@ -1061,6 +1152,17 @@ class ThreeManWeaveMode:
                 }
                 if any(fit.selectable for fit in fits.values()):
                     legal_commands = (COMMAND_PICK,) + legal_commands
+                # THE STAGED CHOICE IS PRIVATE, not published on `public_state`
+                # like a pick is. A draft's picks are open information the
+                # instant they are made -- but a staged, uncommitted choice is
+                # a player's in-progress thinking, which this mode has never
+                # exposed to opponents. It survives a same-seat refresh (it is
+                # part of the persisted snapshot) but is only ever handed back
+                # to the seat that made it.
+                private_state["staged_pick"] = (
+                    state.staged_pick.as_dict() if state.staged_pick else None
+                )
+                legal_commands = (COMMAND_STAGE_PICK,) + legal_commands
 
         return public_state, private_state, legal_commands
 
@@ -1392,6 +1494,7 @@ register_bot()
 
 __all__ = [
     "COMMAND_PICK",
+    "COMMAND_STAGE_PICK",
     "COMMAND_SKIP_INTRO",
     "COMMAND_SKIP_REVEAL",
     "INTRO_SECONDS",

@@ -208,10 +208,14 @@ function RevealHarness({
   revealTrack,
   reducedMotion = false,
   onStartReveal = vi.fn(),
+  kind = "roster",
+  busy = false,
 }: {
   revealTrack: RevealTrack;
   reducedMotion?: boolean;
   onStartReveal?: (count: number) => void;
+  kind?: "roster" | "boss";
+  busy?: boolean;
 }) {
   const sequence = useRevealSequence<RevealSlot>({
     items: revealTrack.revealed_slots,
@@ -222,13 +226,13 @@ function RevealHarness({
     <RevealSequenceSurface
       track={revealTrack}
       sequence={sequence}
-      kind="roster"
-      title="Meet your roster"
-      sourceNote={revealSourceFor("roster")}
+      kind={kind}
+      title={kind === "roster" ? "Meet your roster" : "Boss lineup"}
+      sourceNote={revealSourceFor(kind)}
       orderLabelFor={(slotId, label) => label ?? slotId}
       cardLookup={() => null}
       reducedMotion={reducedMotion}
-      busy={false}
+      busy={busy}
       onStartReveal={onStartReveal}
     />
   );
@@ -299,5 +303,68 @@ describe("RevealSequenceSurface", () => {
     rerender(<RevealHarness revealTrack={track(7)} reducedMotion />);
     await waitFor(() => expect(live).toHaveTextContent("Player 0"));
     expect(live).toHaveTextContent("Player 6");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pass 1 — automatic boss reveal: no required "Reveal the lineup" click.
+// The roster path above is untouched and still gates on the press.
+// ---------------------------------------------------------------------------
+
+describe("RevealSequenceSurface — boss auto-reveal", () => {
+  it("fires onStartReveal for the boss with zero clicks", async () => {
+    const onStartReveal = vi.fn();
+    render(<RevealHarness revealTrack={track(0)} kind="boss" onStartReveal={onStartReveal} />);
+    await waitFor(() => expect(onStartReveal).toHaveBeenCalledWith(7));
+    expect(onStartReveal).toHaveBeenCalledTimes(1);
+  });
+
+  it("never renders a boss reveal start button — there is nothing to click", async () => {
+    render(<RevealHarness revealTrack={track(0)} kind="boss" />);
+    await waitFor(() => expect(screen.queryByTestId("rtt-reveal-start-boss")).not.toBeInTheDocument());
+  });
+
+  it("does not auto-start while busy, and starts as soon as busy clears", async () => {
+    const onStartReveal = vi.fn();
+    const { rerender } = render(
+      <RevealHarness revealTrack={track(0)} kind="boss" onStartReveal={onStartReveal} busy />,
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onStartReveal).not.toHaveBeenCalled();
+    rerender(<RevealHarness revealTrack={track(0)} kind="boss" onStartReveal={onStartReveal} busy={false} />);
+    await waitFor(() => expect(onStartReveal).toHaveBeenCalledTimes(1));
+  });
+
+  it("auto-starts only once even as the surface re-renders while revealing", async () => {
+    const onStartReveal = vi.fn();
+    const { rerender } = render(
+      <RevealHarness revealTrack={track(0)} kind="boss" onStartReveal={onStartReveal} />,
+    );
+    await waitFor(() => expect(onStartReveal).toHaveBeenCalledTimes(1));
+    rerender(<RevealHarness revealTrack={track(7)} kind="boss" onStartReveal={onStartReveal} />);
+    rerender(<RevealHarness revealTrack={track(7)} kind="boss" onStartReveal={onStartReveal} />);
+    expect(onStartReveal).toHaveBeenCalledTimes(1);
+  });
+
+  it("reduced motion resolves the boss lineup with no click and no pause/skip affordance needed", async () => {
+    const { rerender } = render(<RevealHarness revealTrack={track(0)} kind="boss" reducedMotion />);
+    rerender(<RevealHarness revealTrack={track(7)} kind="boss" reducedMotion />);
+    expect(await screen.findByText("Player 0")).toBeInTheDocument();
+    expect(screen.getByText("Player 6")).toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-reveal-start-boss")).not.toBeInTheDocument();
+  });
+
+  it("still exposes Skip all once the boss sequence is auto-started, for a player who wants to bypass it", async () => {
+    const { rerender } = render(<RevealHarness revealTrack={track(0)} kind="boss" />);
+    rerender(<RevealHarness revealTrack={track(7)} kind="boss" />);
+    expect(await screen.findByTestId("rtt-reveal-skip-boss")).toBeInTheDocument();
+  });
+
+  it("the roster path is unaffected — still requires the manual press", async () => {
+    const onStartReveal = vi.fn();
+    render(<RevealHarness revealTrack={track(0)} kind="roster" onStartReveal={onStartReveal} />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onStartReveal).not.toHaveBeenCalled();
+    expect(screen.getByTestId("rtt-reveal-start-roster")).toBeInTheDocument();
   });
 });

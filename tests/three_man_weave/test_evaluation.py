@@ -288,6 +288,7 @@ def test_the_comparator_is_the_lineup_quality_index_not_the_mean(index, all_time
     """
     from nba_peak.perfect_season.exact_season import resolve_player_season_card
     from nba_peak.perfect_season.simulation import simulate_exact_season
+    from nba_peak.three_man_weave.evaluation import _tmw_lineup_quality
 
     result = evaluate_roster(all_time_roster, index, board_seed=7)
     cards = [
@@ -295,7 +296,15 @@ def test_the_comparator_is_the_lineup_quality_index_not_the_mean(index, all_time
     ]
     authoritative = simulate_exact_season(cards, 7, list(SLOT_TYPES))
 
-    assert result.ranking_score == pytest.approx(round(authoritative.lineup_quality, 2))
+    # The comparator is TMW's own arrangement-invariant `_tmw_lineup_quality`
+    # (bug fix: bench-scoring parity) -- built FROM the authoritative
+    # evaluator's `fit_components`, but no longer equal to its raw
+    # `lineup_quality`, which still bakes in the 0.8-starters/0.2-bench split
+    # that is correct for CourtBuilder's 8-card roster and wrong for TMW's
+    # 6-card one (see `_tmw_lineup_quality`'s own module comment).
+    assert result.ranking_score == pytest.approx(
+        round(_tmw_lineup_quality(cards, authoritative.fit_components), 2)
+    )
     assert result.mean_season_score == pytest.approx(authoritative.lineup_peak_score)
     assert result.ranking_score != pytest.approx(result.mean_season_score)
     assert resolve_player_season_card is not None  # the import is the point
@@ -329,6 +338,41 @@ def test_roster_construction_moves_the_comparator_but_not_the_mean(index, all_ti
     assert crossed.ranking_score < straight.ranking_score
 
 
+def test_bench_and_starter_slots_score_a_player_identically(index, all_time_roster):
+    """Bug fix regression (bench-scoring parity, product-authorized).
+
+    The SAME six players, in two different LEGAL starter/bench arrangements:
+    Scottie Pippen (listed on the bench) and Larry Bird (listed starting SF)
+    swap slots. Both are genuinely SF-eligible, so `positional_fit` is
+    identical either way -- this isolates the fix from
+    `test_roster_construction_moves_the_comparator_but_not_the_mean`'s
+    starter-vs-starter positional-fit case above. Before the fix, the
+    evaluator's `talent_core` (0.8 weighted-starters / 0.2 bench split) plus
+    its separate `bench_strength` term gave whichever of these two players
+    sat in the single bench slot a DIFFERENT raw weight than the starter
+    slot -- so the total `ranking_score` changed purely from who was
+    benched, with the same six real seasons on the floor either way. The
+    fix requires the two arrangements to score EXACTLY the same.
+    """
+    swapped = dict(all_time_roster)
+    swapped["SF"] = dataclasses.replace(all_time_roster["bench_1"], slot_type="SF")
+    swapped["bench_1"] = dataclasses.replace(all_time_roster["SF"], slot_type="bench_1")
+
+    straight = evaluate_roster(all_time_roster, index, board_seed=7)
+    crossed = evaluate_roster(swapped, index, board_seed=7)
+
+    assert straight.score_status == SCORE_STATUS_COMPLETE
+    assert crossed.score_status == SCORE_STATUS_COMPLETE
+    # Both Pippen-at-SF and Bird-at-SF are fully on-position -- the fix is
+    # isolated from any positional-fit difference.
+    assert straight.fit_components["positional_fit"] == pytest.approx(
+        crossed.fit_components["positional_fit"]
+    )
+    assert straight.mean_season_score == pytest.approx(crossed.mean_season_score)
+    assert straight.ranking_score == pytest.approx(crossed.ranking_score)
+    assert straight.lineup_score == pytest.approx(crossed.lineup_score)
+
+
 def test_the_decisive_pick_is_a_measured_leave_one_out_drop(index, all_time_roster):
     result = evaluate_roster(all_time_roster, index, board_seed=7)
     decisive = result.decisive_pick
@@ -336,18 +380,22 @@ def test_the_decisive_pick_is_a_measured_leave_one_out_drop(index, all_time_rost
     assert decisive["slot_type"] in SLOT_TYPES
     assert decisive["lineup_quality_drop"] > 0
 
-    # It really is the largest drop, recomputed independently.
+    # It really is the largest drop, recomputed independently against the
+    # SAME comparator the module itself now uses (bug fix: bench-scoring
+    # parity) -- not the authoritative evaluator's raw `lineup_quality`.
     from nba_peak.perfect_season.simulation import simulate_exact_season
+    from nba_peak.three_man_weave.evaluation import _tmw_lineup_quality
 
     cards = [
         resolve_scoring_season_card(all_time_roster[slot], index) for slot in SLOT_TYPES
     ]
-    full = simulate_exact_season(cards, 7, list(SLOT_TYPES)).lineup_quality
+    full = _tmw_lineup_quality(cards, simulate_exact_season(cards, 7, list(SLOT_TYPES)).fit_components)
     drops = {}
     for i, slot in enumerate(SLOT_TYPES):
         rest = [c for j, c in enumerate(cards) if j != i]
         rest_slots = [s for j, s in enumerate(SLOT_TYPES) if j != i]
-        drops[slot] = full - simulate_exact_season(rest, 7, rest_slots).lineup_quality
+        without = _tmw_lineup_quality(rest, simulate_exact_season(rest, 7, rest_slots).fit_components)
+        drops[slot] = full - without
     assert decisive["slot_type"] == max(drops, key=drops.get)
 
 

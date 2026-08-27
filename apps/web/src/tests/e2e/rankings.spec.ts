@@ -975,7 +975,7 @@ test.describe("Rankings — the player analysis, and only on request", () => {
       "individual_recognition",
       "postseason_individual_value",
       "team_achievement",
-      "data_completeness",
+      "total",
     ]) {
       await expect(page.locator(`[data-testid="rk-chart-label-${key}"]`)).toBeAttached();
     }

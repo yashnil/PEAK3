@@ -391,3 +391,97 @@ describe("submitting freezes the clock (S20-08), end to end", () => {
     expect(firstKey).toContain("amount=1");
   });
 });
+
+// ---------------------------------------------------------------------------
+// PEAK3 Pass 1 — a bot's reply is polled for as soon as it is likely due,
+// rather than waiting on whatever is left of the fixed 2s interval. Handing
+// the turn to a seat other than the human's own arms one extra poll timed
+// just past `BOT_THINK_MS` (1.2s server-side, `apps/api/.../bots.py`).
+//
+// MARGINS ARE DELIBERATELY WIDE, NOT TIGHT TO THE 1400ms MARK. The suite runs
+// under `shouldAdvanceTime: true`, which lets real wall-clock jitter shift a
+// fake-timer boundary by tens of milliseconds -- a check pinned close to
+// 1400ms flaked under that jitter in practice. What actually matters to a
+// player is "well under the fixed 2s interval", not the exact millisecond, so
+// the checkpoints below sit far enough from every real boundary (~1400ms
+// follow-up, ~2000ms interval) to be robust to that jitter either way.
+// ---------------------------------------------------------------------------
+describe("a bot's move is polled for without waiting out the fixed interval", () => {
+  it("arms an extra poll when the turn passes to the bot, well inside the ordinary 2s interval", async () => {
+    await openRoom();
+    getMatch.mockClear();
+    submitCommand.mockResolvedValue({
+      accepted: true,
+      replayed: false,
+      match: view({
+        state_version: 3,
+        public_state: { active_seat: 1, current_bid: 1, high_bidder: 0 },
+      }),
+    });
+
+    await act(async () => {
+      screen.getByTestId("td-submit-bid").click();
+    });
+    await waitFor(() => expect(submitCommand).toHaveBeenCalled());
+
+    // Far too early for either mechanism -- proves this isn't an immediate,
+    // unconditional re-poll on every submit.
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(getMatch).not.toHaveBeenCalled();
+
+    // Past the follow-up's ~1400ms mark with real margin either side; a poll
+    // must have happened by here, well short of a full fresh 2000ms wait.
+    await act(async () => {
+      vi.advanceTimersByTime(1700);
+    });
+    expect(getMatch).toHaveBeenCalled();
+  });
+
+  it("does not poll again immediately when the turn stays with the human", async () => {
+    await openRoom();
+    getMatch.mockClear();
+    submitCommand.mockResolvedValue({
+      accepted: false,
+      replayed: false,
+      rejection_code: "bid_too_low",
+      message: "Bid too low.",
+      match: view({ state_version: 3, public_state: { active_seat: 0 } }),
+    });
+
+    await act(async () => {
+      screen.getByTestId("td-submit-bid").click();
+    });
+    await waitFor(() => expect(submitCommand).toHaveBeenCalled());
+
+    // No bot to catch, so nothing should poll again this soon.
+    await act(async () => {
+      vi.advanceTimersByTime(900);
+    });
+    expect(getMatch).not.toHaveBeenCalled();
+  });
+
+  it("does not poll again immediately once the match is complete", async () => {
+    await openRoom();
+    getMatch.mockClear();
+    submitCommand.mockResolvedValue({
+      accepted: true,
+      replayed: false,
+      match: view({
+        state_version: 3,
+        public_state: { phase: "complete", active_seat: null },
+      }),
+    });
+
+    await act(async () => {
+      screen.getByTestId("td-submit-bid").click();
+    });
+    await waitFor(() => expect(submitCommand).toHaveBeenCalled());
+
+    await act(async () => {
+      vi.advanceTimersByTime(900);
+    });
+    expect(getMatch).not.toHaveBeenCalled();
+  });
+});

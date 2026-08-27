@@ -63,6 +63,7 @@ function settledCurryLot(overrides: Partial<ResolvedLot> = {}): ResolvedLot {
     winner_seat: 1,
     price: 1,
     decided_by: "pass_out",
+    lot_kind: "standard",
     actions: [
       { seat_index: 1, action: "bid", amount: 1 },
       { seat_index: 0, action: "pass", amount: 0, timed_out: true },
@@ -97,6 +98,7 @@ function state(overrides: Partial<TwentyDollarPublicState> = {}): TwentyDollarPu
     qualified_pool_size: 500,
     history: [settledCurryLot()],
     seat_names: SEAT_NAMES,
+    lot_kind: "standard",
     ...overrides,
   };
 }

@@ -21,6 +21,22 @@ vi.mock("next/font/local", () => ({
   }),
 }));
 
+// Mock ResizeObserver — jsdom does not implement it at all (unlike
+// getBoundingClientRect, which exists but always returns zeros). Needed by
+// `PeakV2TMWCourts` (TMW viewport containment, final closure pass): it
+// observes its own header block to keep the scrollable court region's
+// height cap correct as the header's real height changes. `observe`/
+// `disconnect` are enough for tests -- none currently assert on a fired
+// resize callback, only on the synchronous `getBoundingClientRect()`-based
+// initial measurement the component also does.
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(globalThis as any).ResizeObserver = ResizeObserverMock;
+
 // Mock localStorage
 const localStorageMock = (() => {
   let store: Record<string, string> = {};

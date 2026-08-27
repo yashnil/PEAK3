@@ -7,9 +7,9 @@ export const metadata: Metadata = {
 
 export default function AboutPage() {
   return (
-    <div className="min-h-screen px-4 py-12">
+    <div className="v2-info-page min-h-screen px-4 py-12">
       <div className="mx-auto max-w-2xl space-y-10">
-        <div>
+        <div className="v2-info-page-head">
           <h1 className="font-display text-3xl font-bold">About PEAK3 Arena</h1>
           <p className="mt-2 text-sm text-[var(--text-secondary)]">
             An open basketball analytics project.
@@ -90,7 +90,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section>
+    <section className="v2-info-section">
       <h2 className="font-display text-xl font-bold mb-3">{title}</h2>
       <div className="text-sm text-[var(--text-secondary)] leading-relaxed">{children}</div>
     </section>

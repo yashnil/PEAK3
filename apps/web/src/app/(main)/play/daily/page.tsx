@@ -12,6 +12,8 @@ import {
 import { useDailyReset } from "@/lib/use-daily-reset";
 import type { DailyChallenge } from "@/types";
 import GameIntro from "@/components/shared/GameIntro";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakDuelV2AlreadyCompleted from "@/components/v2/duel/PeakDuelV2AlreadyCompleted";
 
 const PEAK_DUEL_INTRO_RULES = [
   { label: "Pick the higher peak", detail: "two real player peak-windows, side by side — choose the one PEAK3 rates higher" },
@@ -126,54 +128,14 @@ export default function DailyPage() {
   if (alreadyCompleted) {
     const repo = getProgressRepository();
     const completion = repo.getDailyCompletion(today, years);
+    const countdownLabel =
+      secondsLeft === null
+        ? "New daily board at midnight PT."
+        : `New daily board at midnight PT — next one in ${formatCountdown(secondsLeft)}.`;
     return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="card-elevated max-w-md p-8 text-center space-y-4">
-          {/* This IS the result screen for a player returning after finishing:
-              the verdict deserves display scale and the accent, not the same
-              weight as the sentence beneath it. */}
-          <h1 className="font-display text-3xl font-extrabold text-[var(--peak-accent-text)] sm:text-4xl">
-            Already completed!
-          </h1>
-          <p className="text-[var(--text-secondary)]">
-            You finished today&apos;s challenge.
-          </p>
-          {completion && (
-            <div className="grid grid-cols-2 gap-3">
-              {/* RECALLED, not resolved — these two numbers were earned
-                  earlier today and read out of local storage, so they are
-                  displayed rather than counted up. The captions move off the
-                  10px muted tier for the usual reason: they are the only thing
-                  that says which number is which. */}
-              <div className="card-surface pk-depth pk-crown p-3 text-center">
-                <p className="font-display text-xl font-bold score-number text-[var(--peak-accent-text)]">
-                  {completion.correct}/{completion.total}
-                </p>
-                <p className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Correct</p>
-              </div>
-              <div className="card-surface pk-depth pk-crown p-3 text-center">
-                <p className="font-display text-xl font-bold score-number text-[var(--peak-accent-text)]">
-                  {completion.arena_points.toLocaleString()}
-                </p>
-                <p className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Points</p>
-              </div>
-            </div>
-          )}
-          {/* WAS `--text-muted`. When the next board arrives is the reason a
-              player would come back; it is the point of this screen. */}
-          <p className="text-sm text-[var(--text-secondary)]" data-testid="daily-duel-countdown">
-            {secondsLeft === null
-              ? "New daily board at midnight PT."
-              : `New daily board at midnight PT — next one in ${formatCountdown(secondsLeft)}.`}
-          </p>
-          <a
-            href="/play/endless"
-            className="pk-lift pk-press pk-sheen block rounded-lg bg-[var(--peak-accent)] py-3 text-sm font-semibold text-[var(--text-inverse)] hover:bg-[var(--peak-accent-dim)]"
-          >
-            Play Endless Mode
-          </a>
-        </div>
-      </div>
+      <PeakV2Shell width="live">
+        <PeakDuelV2AlreadyCompleted completion={completion} countdownLabel={countdownLabel} />
+      </PeakV2Shell>
     );
   }
 
@@ -194,16 +156,23 @@ export default function DailyPage() {
         startLabel="Start today's duel"
         testId="peak-duel-game-intro"
       />
-      <div className="mx-auto max-w-2xl px-4">
-        <div className="pt-8 text-center">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)]">
-            Daily Challenge · {today}
-          </p>
-          <h1 className="mt-1 font-display text-2xl font-bold">Peak Duel</h1>
-          <p className="text-sm text-[var(--text-secondary)]">
-            10 matchups · {years}-year windows
-          </p>
-        </div>
+      <div>
+        {/* Once the V2 game mounts, `PeakV2LiveHeader` (question/reveal) and
+            `PeakDuelV2Final`'s own eyebrow already carry this exact same
+            "Peak Duel · N of 10" identity with V2 typography — so this plain
+            header stays only for the intro backdrop and disappears once the
+            real V2 screen takes over, rather than doubling it. */}
+        {introOpen && (
+          <div className="pt-8 text-center">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)]">
+              Daily Challenge · {today}
+            </p>
+            <h1 className="mt-1 font-display text-2xl font-bold">Peak Duel</h1>
+            <p className="text-sm text-[var(--text-secondary)]">
+              10 matchups · {years}-year windows
+            </p>
+          </div>
+        )}
         {!introOpen && (
           <GameEngine
             mode="daily"

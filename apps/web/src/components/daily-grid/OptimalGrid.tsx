@@ -201,8 +201,17 @@ function FragmentRow({
     <>
       <p
         data-testid="complete-optimal-row-header"
-        className="self-center break-words pr-1 text-right text-[9px] font-bold uppercase leading-tight tracking-[0.08em]"
-        style={{ color: "var(--text-secondary)" }}
+        className="self-center break-words pr-1 text-right font-bold uppercase leading-tight"
+        style={{
+          color: "var(--text-secondary)",
+          // No letter-spacing here (unlike the column headers above, which
+          // have roughly 3x the width) -- this is the narrowest column on
+          // the board, and a long single-word category (e.g. "Champion",
+          // "Timberwolves") needs every pixel of it to avoid a mid-word
+          // break. See `DailyGridBoardView.tsx`'s `HeaderChip` for the same
+          // fix on the live board.
+          fontSize: (rowConstraint(board, row)?.short_label ?? "").length > 9 ? "8px" : "9px",
+        }}
         title={rowConstraint(board, row)?.label ?? `Row ${row + 1}`}
       >
         {rowConstraint(board, row)?.short_label ?? `Row ${row + 1}`}

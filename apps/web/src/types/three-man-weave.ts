@@ -136,6 +136,19 @@ export const TMW_COMMAND_PICK = "tmw_pick";
 /** Repositioning your OWN roster. Does not consume a turn. */
 export const TMW_COMMAND_REARRANGE = "tmw_rearrange";
 /**
+ * Record (or clear) the seat-on-the-clock's not-yet-committed choice.
+ *
+ * NOT A DRAFT. Payload is `{player_slug, slot_type}` to stage, or
+ * `{clear: true}` to drop the staged choice without drafting it (CHANGE
+ * SELECTION). Does not consume a turn -- see `TMW_COMMAND_REARRANGE`.
+ * Server-visible on purpose: a timeout prefers a legal staged choice over
+ * the deterministic-but-deliberately-weak autopick fallback, which is what
+ * lets the client stage without risking the original defect ("a visibly
+ * selected pick silently overwritten by the fallback") staging alone used
+ * to reintroduce.
+ */
+export const TMW_COMMAND_STAGE_PICK = "tmw_stage_pick";
+/**
  * End the pre-match briefing early.
  *
  * A SERVER COMMAND, not a client dismiss -- the ceremony does not open until
@@ -435,6 +448,16 @@ export interface TmwPrivateState {
   legal_picks?: Record<string, TmwSlotType[]>;
   /** player_slug -> fit verdict, for EVERY candidate on the roll. */
   candidate_fits?: Record<string, TmwCandidateFit>;
+  /**
+   * This seat's not-yet-committed candidate/slot choice, or null. SERVER-
+   * VISIBLE and scoped to the current turn: it persists across a refresh or
+   * reconnect (it is part of the persisted match snapshot, not client-only
+   * state) and is cleared only on a turn change -- a new round, a different
+   * seat's turn, or a real pick committing. A timeout prefers this over the
+   * weaker `autopick` fallback if it is still legal. See
+   * `TMW_COMMAND_STAGE_PICK`.
+   */
+  staged_pick?: { player_slug: string; slot_type: TmwSlotType } | null;
 }
 
 /** `arena_match_results.detail` as this mode writes it. */

@@ -2,7 +2,20 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { AuthProvider } from "@/lib/auth-context";
 import { themeInitScript } from "@/lib/theme-script";
+import { uiVersionInitScript } from "@/lib/ui-version-script";
+import UiVersionDevSwitch from "@/components/v2/UiVersionDevSwitch";
 import "@/styles/globals.css";
+import "@/styles/v2/tokens.css";
+import "@/styles/v2/nav.css";
+import "@/styles/v2/footer.css";
+import "@/styles/v2/home.css";
+import "@/styles/v2/discovery.css";
+import "@/styles/v2/rtt.css";
+import "@/styles/v2/court.css";
+import "@/styles/v2/rtt-result.css";
+import "@/styles/v2/game-intro.css";
+import "@/styles/v2/arena-lobby.css";
+import "@/styles/v2/info-pages.css";
 
 /* SELF-HOSTED, NOT `next/font/google`.
  *
@@ -62,6 +75,54 @@ const spaceGrotesk = localFont({
   weight: "300 700",
 });
 
+/**
+ * PEAK3 V2 · BROADCAST ARENA — the DISPLAY/MOMENT typography role (see
+ * `styles/v2/tokens.css`'s module docstring for the full three-role system).
+ * Legacy render is completely unaffected: this variable is only ever
+ * referenced from `--v2-font-display`, which nothing in `globals.css` or any
+ * legacy component reads.
+ *
+ * Single static weight (400) plus its italic — Instrument Serif ships no
+ * other weight — self-hosted via `@fontsource/instrument-serif`, the same
+ * "resolved from the lockfile, no network at build time" pattern as `inter`/
+ * `spaceGrotesk` above. Used ONLY for cinematic display moments (a boss
+ * name, a franchise · decade line, a result headline, a homepage
+ * statement) — never for routine controls, per the brief.
+ */
+const instrumentSerif = localFont({
+  src: [
+    {
+      path: "../../node_modules/@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "../../node_modules/@fontsource/instrument-serif/files/instrument-serif-latin-400-italic.woff2",
+      weight: "400",
+      style: "italic",
+    },
+  ],
+  variable: "--font-instrument-serif",
+  display: "swap",
+  // Final closure pass: `next/font/local` cannot infer a category for a
+  // custom local font, so with no `adjustFontFallback` it silently matched
+  // this SERIF display face against `local("Arial")` -- a sans-serif system
+  // font (confirmed by inspecting the generated `@font-face` for
+  // 'instrumentSerif Fallback': `src: local("Arial")`). Ascent/descent/
+  // size-adjust metric matching corrects vertical CLS but cannot correct
+  // the character-WIDTH mismatch between a geometric sans and a
+  // high-contrast serif, which measured as a real ~30% width reflow on cold
+  // load wherever `--v2-font-display` renders a headline (confirmed via
+  // live Playwright measurement: 687px -> 460px at 1440px on the TMW
+  // reveal's "Three-Man Weave" headline). Naming the correct SERIF system
+  // fallback here is the documented, supported `next/font/local` option for
+  // exactly this mismatch -- it changes only which metrics Next.js computes
+  // the fallback's `ascent-override`/`descent-override`/`size-adjust`
+  // against, not the approved font, not any typography, not the swap
+  // behaviour itself.
+  adjustFontFallback: "Times New Roman",
+});
+
 export const metadata: Metadata = {
   title: {
     default: "PEAK3 Arena",
@@ -93,7 +154,8 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${inter.variable} ${spaceGrotesk.variable}`}
+      data-ui-version="v2"
+      className={`${inter.variable} ${spaceGrotesk.variable} ${instrumentSerif.variable}`}
     >
       <head>
         {/* Sets `data-theme` synchronously, before first paint, so there is
@@ -104,6 +166,20 @@ export default function RootLayout({
             `content` matches Arena Night (`--bg-page`); the script
             overwrites it synchronously once it knows the real theme. */}
         <script dangerouslySetInnerHTML={{ __html: themeInitScript() }} />
+        {/* Same contract, for PEAK3 V2's UI-version switch (Pass 3,
+            product-direction: V2-only cutover). V2 reached full parity with
+            legacy and is now the ONLY shipped presentation — every legacy
+            JSX branch has been deleted at its call site, and
+            `data-ui-version="v2"` is load-bearing for several V2-only
+            stylesheets (see `ui-version-script.ts`'s module docstring), so
+            the static `data-ui-version="v2"` attribute above (the true
+            no-JS/pre-hydration default) and this script (which now always
+            resolves "v2" too, unconditionally — see that same docstring)
+            can never disagree. Kept as a real blocking script rather than
+            deleted outright only because the local dev switch
+            (`UiVersionDevSwitch`) still needs the DOM attribute mechanism
+            to flip client-side for local inspection. */}
+        <script dangerouslySetInnerHTML={{ __html: uiVersionInitScript() }} />
         <meta name="theme-color" content="#0a0b0d" />
       </head>
       <body>
@@ -111,6 +187,7 @@ export default function RootLayout({
           Skip to main content
         </a>
         <AuthProvider>{children}</AuthProvider>
+        <UiVersionDevSwitch />
       </body>
     </html>
   );

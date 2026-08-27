@@ -32,6 +32,12 @@ export type RetryOutcome = DailyGridRetryCompleteResponse | "failed" | null;
 import OptimalGrid from "./OptimalGrid";
 import RecentResults from "./RecentResults";
 import DailyLeaderboard from "./DailyLeaderboard";
+import PeakV2CinematicStage from "@/components/v2/PeakV2CinematicStage";
+import PeakV2ResultHeadline from "@/components/v2/PeakV2ResultHeadline";
+import PeakV2Rule from "@/components/v2/PeakV2Rule";
+import PeakV2Score from "@/components/v2/PeakV2Score";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
 
 interface Props {
   board: DailyGridBoard;
@@ -113,52 +119,6 @@ const GRADE_CHIP: Record<CellGrade, string> = {
   fair: "",
   weak: "",
 };
-
-function ScoreTile({
-  value,
-  label,
-  accent,
-  testId,
-  large,
-}: {
-  value: string;
-  label: string;
-  accent?: string;
-  testId: string;
-  large?: boolean;
-}) {
-  return (
-    /* A raised plate with a lit top edge rather than a flat rectangle: these
-       three tiles ARE the result, and they were carrying the same visual
-       weight as the explanatory paragraphs further down the panel.
-
-       THE NUMBER IS DELIBERATELY NOT A COUNT-UP. `complete-total-score`,
-       `complete-optimal-total` and `complete-percent-of-best` are asserted
-       with Playwright's EXACT `toHaveText(/^\d+$/)` in `daily-grid.spec.ts`,
-       and every count-up component in this app carries a visually-hidden
-       sibling holding the authoritative value — which doubles the element's
-       `textContent` and would fail those assertions. The choice here is
-       between a count-up and a green suite; the suite wins, and this note
-       exists so the next person does not rediscover it the hard way. */
-    <div className="card-surface pk-depth pk-crown flex-1 px-3 py-3 text-center">
-      <p
-        data-testid={testId}
-        className={`score-number font-display font-bold leading-none ${large ? "text-3xl sm:text-4xl" : "text-2xl"}`}
-        style={{ color: accent ?? "var(--text-primary)" }}
-      >
-        {value}
-      </p>
-      {/* WAS 9px `--text-muted`. Three big numbers in a row are unreadable
-          without the words that say which is which. */}
-      <p
-        className="mt-1.5 text-[10px] font-bold uppercase tracking-[0.12em]"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        {label}
-      </p>
-    </div>
-  );
-}
 
 /**
  * The completion state.
@@ -318,532 +278,393 @@ export default function CompletionPanel({
     URL.revokeObjectURL(url);
   }
 
-  return (
-    // Launch-polish §4: no border/background/shadow of its own any more --
-    // `CompletionModal` renders this inside `Dialog`, which already owns the
-    // surface. A second card drawn here would nest one card inside another.
-    <section data-testid="daily-grid-complete" aria-label="Grid complete">
-      {/* Four bands, in reading order: the verdict, the three numbers, the
-          per-square recap, then the biggest miss. `.pk-reveal` only fades and
-          rises them — every band is in the DOM and in the accessibility tree
-          from the first paint, and the shared reduced-motion block zeroes both
-          the delay and the movement. */}
-      <div
-        className="pk-reveal flex items-start justify-between gap-4"
-        style={{ "--pk-reveal-index": 0 } as React.CSSProperties}
-      >
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--peak-accent-text)" }}>
+  // Pass 7 (human acceptance testing, task §3): the completion recap
+  // rebuilt as CINEMATIC (one hero moment) -> LIVE (hairline-divided detail)
+  // instead of the legacy card-in-card-in-card nesting. Every value below is
+  // the SAME variable computed above -- zero re-derivation, zero data
+  // removed, only the markup differs. `OptimalGrid`/`RecentResults`/
+  // `DailyLeaderboard` are reused verbatim (their own internal presentation
+  // untouched by this pass).
+  const sectionLabelStyle: React.CSSProperties = {
+      fontFamily: "var(--v2-font-mono)",
+      fontSize: "0.6875rem",
+      fontWeight: 700,
+      letterSpacing: "0.06em",
+      textTransform: "uppercase",
+      color: "var(--v2-text-muted)",
+    };
+    const bodyTextStyle: React.CSSProperties = {
+      fontFamily: "var(--v2-font-ui)",
+      fontSize: "0.8125rem",
+      color: "var(--v2-text-secondary)",
+    };
+    const mutedTextStyle: React.CSSProperties = {
+      fontFamily: "var(--v2-font-ui)",
+      fontSize: "0.75rem",
+      color: "var(--v2-text-muted)",
+    };
+
+    return (
+      <section data-testid="daily-grid-complete" aria-label="Grid complete">
+        {onClose && (
+          <div className="flex justify-end">
+            <button
+              ref={closeButtonRef}
+              type="button"
+              data-testid="daily-grid-complete-close"
+              onClick={onClose}
+              aria-label="Close and return to the board"
+              className="rounded-md p-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+              style={{ border: "1px solid var(--v2-border)", color: "var(--v2-text-secondary)" }}
+            >
+              <X size={14} aria-hidden="true" />
+            </button>
+          </div>
+        )}
+
+        {/* CINEMATIC: one hero moment -- the verdict, the score, and its
+            relationship to today's max. */}
+        <PeakV2CinematicStage align="start">
+          <span style={sectionLabelStyle}>
             {board.date}
             {board.theme ? ` · ${board.theme}` : ""}
-          </p>
-          {/* The verdict. WAS `text-2xl font-bold` — one step above the
-              paragraph under it. Whether the grid was a Perfect Grid or Room
-              to Improve is the single fact this panel exists to state, so it
-              now reads at display scale. The TEXT is unchanged: `daily-grid.
-              spec.ts` matches it exactly. */}
-          <h2
-            id="daily-grid-complete-heading"
-            data-testid="complete-headline"
-            className="font-display mt-1 text-3xl font-extrabold sm:text-4xl"
-          >
-            {grade ? grade.headline : "Grid complete"}
-          </h2>
-          <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+          </span>
+          {/* `id`/`data-testid` live on this wrapper, not on
+              `PeakV2ResultHeadline` itself (it already renders its own real
+              `<h2>` — nesting a second `<h2>` inside it is invalid HTML and
+              triggers a hydration warning). `aria-labelledby` on a dialog may
+              point at any element containing the accessible name, so this
+              still labels the dialog correctly. */}
+          <div id="daily-grid-complete-heading" data-testid="complete-headline" className="mt-1">
+            <PeakV2ResultHeadline as="h2" scale="moment" tone={grade ? "accent" : "primary"} style={{ margin: 0 }}>
+              {grade ? grade.headline : "Grid complete"}
+            </PeakV2ResultHeadline>
+          </div>
+          <p className="mt-1" style={bodyTextStyle}>
             {grade ? grade.blurb : `All ${TOTAL_CELLS} squares filled with ${TOTAL_CELLS} different players.`}
           </p>
-        </div>
-        {/* Optional: only `CompletionModal` passes this. The board itself
-            stays centred and visible behind the overlay -- this is how a
-            player gets back to it without waiting for the countdown copy at
-            the bottom of a long panel, or reaching for Escape. */}
-        {onClose && (
-          <button
-            ref={closeButtonRef}
-            type="button"
-            data-testid="daily-grid-complete-close"
-            onClick={onClose}
-            aria-label="Close and return to the board"
-            className="pk-lift pk-press shrink-0 rounded-md border p-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-            style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
-          >
-            <X size={14} aria-hidden="true" />
-          </button>
-        )}
-      </div>
-
-      <div
-        className="pk-reveal mt-4 flex gap-2"
-        style={{ "--pk-reveal-index": 1 } as React.CSSProperties}
-      >
-        <ScoreTile
-          testId="complete-total-score"
-          value={String(result ? result.user_total : total)}
-          label="Your score"
-          accent="var(--peak-accent)"
-          large
-        />
-        {result && (
-          <>
-            <ScoreTile testId="complete-optimal-total" value={String(result.optimal_total)} label={maxLabel} large />
-            <ScoreTile
-              testId="complete-percent-of-best"
-              value={`${result.percent_of_best}%`}
-              label="Of that max"
-              accent="var(--comp-team)"
-              large
-            />
-          </>
-        )}
-      </div>
-
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-        <span data-testid="complete-time" className="inline-flex items-center gap-1">
-          <Clock size={11} aria-hidden="true" />
-          {formatElapsed(elapsed)}
-        </span>
-        <span data-testid="complete-attempts" className="inline-flex items-center gap-1">
-          <Target size={11} aria-hidden="true" />
-          {progress.incorrect_attempts} {progress.incorrect_attempts === 1 ? "miss" : "misses"}
-        </span>
-        {result && (
-          <span data-testid="complete-matched" className="inline-flex items-center gap-1">
-            <Crown size={11} aria-hidden="true" />
-            {result.squares_matching_optimal}/{TOTAL_CELLS} squares at the max
-          </span>
-        )}
-      </div>
-
-      {result && (
-        <>
-          {/* The recap grid. Three rows of three, laid out like the board so a
-              square's position is enough to find it again -- `mapCells` is
-              sorted by (row, col) specifically so this `grid-cols-3`'s visual
-              position N really is board square N, not whichever square the
-              player happened to fill Nth. */}
-          <div
-            data-testid="complete-mini-grid"
-            role="group"
-            aria-label="Per-square recap, laid out to match the board"
-            className="pk-reveal mt-4 grid grid-cols-3 gap-1.5"
-            style={{ "--pk-reveal-index": 2 } as React.CSSProperties}
-          >
-            {mapCells.map((cell: ResultCell) => {
-              const cellIsBiggestMiss =
-                result.biggest_miss !== null &&
-                result.biggest_miss.row === cell.row &&
-                result.biggest_miss.col === cell.col;
-              const g = cellGrade(cell);
-              return (
-                <div
-                  key={`${cell.row}-${cell.col}`}
-                  data-testid="complete-mini-cell"
-                  data-grade={g}
-                  data-biggest-miss={cellIsBiggestMiss ? "true" : "false"}
-                  className="rounded-lg px-1.5 py-2 text-center"
-                  aria-label={`${cellShortTitle(board, cell.row, cell.col)}: ${cell.user_points} points, ${
-                    GRADE_WORD[g]
-                  }${cellIsBiggestMiss ? ". Biggest miss." : ""}`}
-                  style={{
-                    background: "var(--bg-surface)",
-                    border: `1px solid ${
-                      cellIsBiggestMiss ? "var(--incorrect)" : `color-mix(in srgb, ${GRADE_COLOR[g]} 45%, transparent)`
-                    }`,
-                  }}
-                >
-                  <p
-                    className="score-number font-display text-lg font-bold leading-none"
-                    style={{ color: GRADE_COLOR[g] }}
-                  >
-                    {cell.user_points}
-                  </p>
-                  {/* WAS 9px `--text-muted`. "Beat" / "Max" / "−12" is the
-                      verdict for the square; it is the reason the recap grid
-                      exists at all. */}
-                  <p
-                    className="mt-1 truncate text-[10px] font-semibold uppercase tracking-[0.06em]"
-                    style={{ color: "var(--text-secondary)" }}
-                    title={cellShortTitle(board, cell.row, cell.col)}
-                  >
-                    {GRADE_CHIP[g] || `−${cell.points_left}`}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-          {/* WAS 10px `--text-muted`. It is the legend for the grid above it
-              — the only place "Max" and "Beat" are defined. */}
-          <p className="mt-1.5 text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-            Points scored per square.{" "}
-            <span style={{ color: "var(--comp-team-text)" }}>Max</span> means the best legal grid scored the
-            same here; <span style={{ color: "var(--peak-accent-text)" }}>Beat</span> means you scored more
-            than it did. A red outline marks your biggest miss.
-          </p>
-
-          {result.biggest_miss ? (
-            <div
-              data-testid="complete-biggest-miss"
-              className="pk-reveal pk-depth mt-4 rounded-lg p-3"
-              style={{ "--pk-reveal-index": 3, borderLeft: "3px solid var(--incorrect)" } as React.CSSProperties}
-            >
-              <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--incorrect)" }}>
-                Biggest miss · {result.biggest_miss.points_left} points left
-              </p>
-              <p className="mt-1 text-sm font-bold" style={{ color: "var(--text-primary)" }}>
-                {result.biggest_miss.row_constraint_label} × {result.biggest_miss.col_constraint_label}
-              </p>
-              <div className="mt-2 grid gap-1.5 text-xs sm:grid-cols-2">
-                <div>
-                  {/* Both column labels WERE `--text-muted`. They are the
-                      only thing distinguishing your answer from the model's. */}
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em]" style={{ color: "var(--text-secondary)" }}>
-                    You used
-                  </p>
-                  <p style={{ color: "var(--text-primary)" }}>
-                    {result.biggest_miss.user_player_season.label} · {result.biggest_miss.user_points} pts
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em]" style={{ color: "var(--text-secondary)" }}>
-                    PEAK3 would have used
-                  </p>
-                  <p style={{ color: "var(--comp-team-text)" }}>
-                    {result.biggest_miss.optimal_player_season.label} · {result.biggest_miss.optimal_points} pts
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <p
-              data-testid="complete-perfect"
-              className="mt-4 rounded-lg px-3 py-2 text-sm font-semibold"
-              style={{ background: "var(--bg-surface)", color: "var(--comp-team-text)" }}
-            >
-              No square left a single point on the board.
-            </p>
-          )}
-
-          {/* DG-01: ONE EXPLANATION, NOT TWO. This block used to open with a
-              nine-line text list — square, your pick, the grid's pick,
-              matched/replaced — and then render the identical nine facts again
-              as the board below it. The list is gone. Everything it said,
-              including the "you played them on X" overlap note it uniquely
-              carried, now sits on the square it is about, where a reader finds
-              it by looking rather than by cross-referencing three coordinates
-              per line. */}
-          <div
-            data-testid="complete-comparison"
-            className="mt-4 rounded-lg p-3"
-            style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
-          >
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--text-muted)" }}>
-              The best legal grid
-            </p>
-            <p
-              data-testid="complete-comparison-summary"
-              className="mt-1 text-xs leading-relaxed"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              {changed.length === 0
-                ? "Your grid matched the best legal grid on every square."
-                : `The highest-scoring board legal under these six constraints uses nine different players. It agrees with you on ${
-                    TOTAL_CELLS - changed.length
-                  } of ${TOTAL_CELLS} squares; the rest show what it would have played instead.`}
-            </p>
-            <OptimalGrid board={board} cells={result.cells} />
-          </div>
-        </>
-      )}
-
-      {!result && resultError && (
-        <p data-testid="complete-result-error" className="mt-3 text-xs" style={{ color: "var(--text-secondary)" }}>
-          {resultError} Your score still stands — the comparison against today&rsquo;s maximum could not be
-          loaded.
-        </p>
-      )}
-
-      {/* --- the daily loop ------------------------------------------------
-          Streak, history and the reason to come back. Everything here is read
-          from this browser's own storage, and says so: there is no rank, no
-          percentile and no comparison to other players, because none of that
-          exists yet and inventing it would be the one thing that makes the
-          rest of this screen untrustworthy. */}
-      {archive && (
-        <div
-          data-testid="complete-retention"
-          className="mt-4 rounded-lg p-3"
-          style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <p
-              className="text-[10px] font-bold uppercase tracking-[0.14em]"
-              style={{ color: "var(--text-muted)" }}
-            >
-              Your Daily Grid record
-            </p>
-            {/* Says exactly which of the two things is true, and neither
-                implies a ranking. A signed-in player's result is durable and
-                server-validated; an anonymous one's lives in this browser. */}
-            <span
-              data-testid="complete-local-only"
-              data-official={officialSaved ? "true" : "false"}
-              className="rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.06em]"
-              style={
-                officialSaved
-                  ? { background: "var(--correct-bg)", color: "var(--correct)" }
-                  : { background: "rgba(255,255,255,0.06)", color: "var(--text-muted)" }
-              }
-              title={
-                officialSaved
-                  ? "Saved to your account and validated by the server. Not ranked against other players."
-                  : "Stored in this browser only. Not an account, not a global ranking."
-              }
-            >
-              {officialSaved ? "Saved to your account" : "Saved on this device"}
-            </span>
-          </div>
-
-          <div className="mt-2 flex gap-2">
-            <div className="card-surface pk-depth pk-crown flex-1 px-2 py-2 text-center">
-              <p
-                data-testid="complete-current-streak"
-                className="score-number font-display text-xl font-bold leading-none"
-                style={{ color: "var(--peak-accent-text)" }}
-              >
-                {archive.current_streak}
-              </p>
-              <p
-                className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em]"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                Day streak
-              </p>
-            </div>
-            <div className="card-surface pk-depth pk-crown flex-1 px-2 py-2 text-center">
-              <p
-                data-testid="complete-longest-streak"
-                className="score-number font-display text-xl font-bold leading-none"
-              >
-                {archive.longest_streak}
-              </p>
-              <p
-                className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em]"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                Longest
-              </p>
-            </div>
-            <div className="card-surface pk-depth pk-crown flex-1 px-2 py-2 text-center">
-              <p
-                data-testid="complete-total-played"
-                className="score-number font-display text-xl font-bold leading-none"
-              >
-                {archive.total_completed}
-              </p>
-              <p
-                className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em]"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                Grids played
-              </p>
-            </div>
-          </div>
-
-          <p
-            data-testid="complete-come-back"
-            className="mt-3 flex flex-wrap items-center gap-1.5 text-xs"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            <CalendarClock size={13} aria-hidden="true" style={{ color: "var(--peak-accent-text)" }} />
-            {isArchiveBoard ? (
+          <div className="mt-4 flex flex-wrap items-baseline gap-6">
+            {/* `valueTestId`, not `data-testid`, on each `PeakV2Score`: the
+                latter lands on the wrapper that ALSO contains `label`
+                ("Your score"), which would make e.g. `complete-total-score`
+                read "Your score590" instead of the bare number these ids
+                promise. */}
+            <PeakV2Score role="moment" size="lg" tone="accent" value={String(result ? result.user_total : total)} label="Your score" valueTestId="complete-total-score" />
+            {result && (
               <>
-                <strong style={{ color: "var(--text-primary)" }}>That was an archive board.</strong>
-                <Link
-                  href="/daily/grid"
-                  data-testid="complete-play-today"
-                  className="font-semibold underline underline-offset-2"
-                  style={{ color: "var(--peak-accent-text)" }}
-                >
-                  Play today&rsquo;s grid
-                </Link>
-                <span>to keep your streak going.</span>
-              </>
-            ) : (
-              <>
-                <strong style={{ color: "var(--text-primary)" }}>
-                  Come back tomorrow for a new grid.
-                </strong>
-                {countdown !== null && <span>Next board in {formatCountdown(countdown)}.</span>}
+                <PeakV2Score role="instrument" size="md" tone="neutral" value={String(result.optimal_total)} label={maxLabel} valueTestId="complete-optimal-total" />
+                <PeakV2Score role="instrument" size="md" tone="team" value={`${result.percent_of_best}%`} label="Of that max" valueTestId="complete-percent-of-best" />
               </>
             )}
-          </p>
+          </div>
+        </PeakV2CinematicStage>
 
-          {archive.entries.length > 1 && (
-            <div className="mt-3">
-              <p
-                className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.14em]"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Recent grids
-              </p>
-              <RecentResults entries={recentEntries(archive, 3)} />
-              <Link
-                href="/daily/history"
-                data-testid="complete-history-link"
-                className="mt-2 inline-block text-[11px] font-semibold underline-offset-2 hover:underline"
-                style={{ color: "var(--peak-accent-text)" }}
-              >
-                See all {archive.total_completed} grids
-              </Link>
-            </div>
+        <PeakV2Rule spacing="md" />
+
+        {/* LIVE: everything else, hairline-divided rather than stacked cards. */}
+        <div className="flex flex-wrap gap-x-4 gap-y-1" style={mutedTextStyle}>
+          <span data-testid="complete-time" className="inline-flex items-center gap-1">
+            <Clock size={11} aria-hidden="true" />
+            {formatElapsed(elapsed)}
+          </span>
+          <span data-testid="complete-attempts" className="inline-flex items-center gap-1">
+            <Target size={11} aria-hidden="true" />
+            {progress.incorrect_attempts} {progress.incorrect_attempts === 1 ? "miss" : "misses"}
+          </span>
+          {result && (
+            <span data-testid="complete-matched" className="inline-flex items-center gap-1">
+              <Crown size={11} aria-hidden="true" />
+              {result.squares_matching_optimal}/{TOTAL_CELLS} squares at the max
+            </span>
           )}
         </div>
-      )}
 
-      <p className="mt-4 text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-        PEAK3 rates each season on its own; a square pays that season&rsquo;s calibrated score plus a bonus for how
-        small its answer pool was. Scoring is server-side — this page only displays what the model returned. Your
-        time is for you: it does not affect your score.
-      </p>
+        {result && (
+          <>
+            <div
+              data-testid="complete-mini-grid"
+              role="group"
+              aria-label="Per-square recap, laid out to match the board"
+              className="mt-4 grid grid-cols-3 gap-1.5"
+            >
+              {mapCells.map((cell: ResultCell) => {
+                const cellIsBiggestMiss =
+                  result.biggest_miss !== null &&
+                  result.biggest_miss.row === cell.row &&
+                  result.biggest_miss.col === cell.col;
+                const g = cellGrade(cell);
+                return (
+                  <div
+                    key={`${cell.row}-${cell.col}`}
+                    data-testid="complete-mini-cell"
+                    data-grade={g}
+                    data-biggest-miss={cellIsBiggestMiss ? "true" : "false"}
+                    className="rounded-lg px-1.5 py-2 text-center"
+                    aria-label={`${cellShortTitle(board, cell.row, cell.col)}: ${cell.user_points} points, ${
+                      GRADE_WORD[g]
+                    }${cellIsBiggestMiss ? ". Biggest miss." : ""}`}
+                    style={{
+                      background: "var(--v2-bg-plane)",
+                      border: `1px solid ${
+                        cellIsBiggestMiss ? "var(--v2-color-negative)" : "var(--v2-border-subtle)"
+                      }`,
+                    }}
+                  >
+                    <p style={{ fontFamily: "var(--v2-font-mono)", fontSize: "1.125rem", fontWeight: 700, lineHeight: 1, color: GRADE_COLOR[g] }}>
+                      {cell.user_points}
+                    </p>
+                    <p
+                      className="mt-1 truncate"
+                      style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.625rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--v2-text-secondary)" }}
+                      title={cellShortTitle(board, cell.row, cell.col)}
+                    >
+                      {GRADE_CHIP[g] || `−${cell.points_left}`}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="mt-1.5" style={mutedTextStyle}>
+              Points scored per square.{" "}
+              <span style={{ color: "var(--v2-color-positive)" }}>Max</span> means the best legal grid scored the
+              same here; <span style={{ color: "var(--v2-color-accent)" }}>Beat</span> means you scored more
+              than it did. A red outline marks your biggest miss.
+            </p>
 
-      {/* A1: THE SHAREABLE ARTIFACT IS AN IMAGE. Two primary-adjacent actions
-          produce the same rendered card — share through the native sheet when
-          the browser can share files, download otherwise — and the clipboard
-          text survives only as the small tertiary fallback beside them. */}
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          data-testid="daily-grid-share-image"
-          onClick={handleShareImage}
-          disabled={generating}
-          className="pk-lift pk-press pk-sheen rounded-lg px-4 py-2 text-sm font-bold disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
-        >
-          {generating ? "Generating…" : "Share image"}
-        </button>
-        <button
-          type="button"
-          data-testid="daily-grid-download-image"
-          onClick={handleDownloadImage}
-          disabled={generating}
-          className="pk-lift pk-press rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-          style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
-        >
-          Download image
-        </button>
-        <button
-          type="button"
-          data-testid="daily-grid-share"
-          onClick={handleShare}
-          className="rounded-lg px-3 py-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-          style={{ background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
-        >
-          {copied ? "Copied" : "Copy text"}
-        </button>
-        {copied && (
-          <span role="status" className="text-xs" style={{ color: "var(--text-muted)" }}>
-            Copied to clipboard
-          </span>
+            <PeakV2Rule spacing="md" />
+
+            {result.biggest_miss ? (
+              <div data-testid="complete-biggest-miss">
+                <span style={{ ...sectionLabelStyle, color: "var(--v2-color-negative)" }}>
+                  Biggest miss · {result.biggest_miss.points_left} points left
+                </span>
+                <p className="mt-1" style={{ fontFamily: "var(--v2-font-ui)", fontWeight: 700, fontSize: "0.875rem", color: "var(--v2-text-primary)" }}>
+                  {result.biggest_miss.row_constraint_label} × {result.biggest_miss.col_constraint_label}
+                </p>
+                <div className="mt-2 grid gap-1.5 sm:grid-cols-2" style={bodyTextStyle}>
+                  <div>
+                    <p style={sectionLabelStyle}>You used</p>
+                    <p style={{ color: "var(--v2-text-primary)" }}>
+                      {result.biggest_miss.user_player_season.label} · {result.biggest_miss.user_points} pts
+                    </p>
+                  </div>
+                  <div>
+                    <p style={sectionLabelStyle}>PEAK3 would have used</p>
+                    <p style={{ color: "var(--v2-color-positive)" }}>
+                      {result.biggest_miss.optimal_player_season.label} · {result.biggest_miss.optimal_points} pts
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p data-testid="complete-perfect" style={{ fontFamily: "var(--v2-font-ui)", fontWeight: 700, fontSize: "0.875rem", color: "var(--v2-color-positive)" }}>
+                No square left a single point on the board.
+              </p>
+            )}
+
+            <PeakV2Rule spacing="md" />
+
+            <div data-testid="complete-comparison">
+              <span style={sectionLabelStyle}>The best legal grid</span>
+              <p className="mt-1" style={bodyTextStyle} data-testid="complete-comparison-summary">
+                {changed.length === 0
+                  ? "Your grid matched the best legal grid on every square."
+                  : `The highest-scoring board legal under these six constraints uses nine different players. It agrees with you on ${
+                      TOTAL_CELLS - changed.length
+                    } of ${TOTAL_CELLS} squares; the rest show what it would have played instead.`}
+              </p>
+              <div className="mt-3">
+                <OptimalGrid board={board} cells={result.cells} />
+              </div>
+            </div>
+          </>
         )}
-        {shareOutcome && (
-          <span role="status" data-testid="daily-grid-share-outcome" className="text-xs" style={{ color: shareOutcome === "failed" ? "var(--incorrect)" : "var(--text-muted)" }}>
-            {shareOutcome === "shared"
-              ? "Shared"
-              : shareOutcome === "downloaded"
-                ? "Image saved"
-                : "Could not generate the image — try again."}
-          </span>
-        )}
-      </div>
 
-      {/* Leaderboard retries (final integrity closure). The retry banner and
-          outcome speak plainly: the official result is untouched, and only a
-          strictly better run moves the board. */}
-      {retryRun && (
-        <p
-          data-testid="daily-grid-retry-banner"
-          className="mt-4 rounded-lg px-3 py-2 text-xs"
-          style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
-        >
-          <strong style={{ color: "var(--text-primary)" }}>Replay run.</strong>{" "}
-          Your official result for today is unchanged — this run only counts if
-          it beats your best on the leaderboard.
+        {!result && resultError && (
+          <p data-testid="complete-result-error" className="mt-3" style={mutedTextStyle}>
+            {resultError} Your score still stands — the comparison against today&rsquo;s maximum could not be
+            loaded.
+          </p>
+        )}
+
+        <PeakV2Rule spacing="md" />
+
+        {archive && (
+          <div data-testid="complete-retention">
+            <div className="flex items-center justify-between gap-2">
+              <span style={sectionLabelStyle}>Your Daily Grid record</span>
+              <span
+                data-testid="complete-local-only"
+                data-official={officialSaved ? "true" : "false"}
+                style={{
+                  fontFamily: "var(--v2-font-mono)",
+                  fontSize: "0.625rem",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  color: officialSaved ? "var(--v2-color-positive)" : "var(--v2-text-muted)",
+                }}
+                title={
+                  officialSaved
+                    ? "Saved to your account and validated by the server. Not ranked against other players."
+                    : "Stored in this browser only. Not an account, not a global ranking."
+                }
+              >
+                {officialSaved ? "Saved to your account" : "Saved on this device"}
+              </span>
+            </div>
+
+            <div className="mt-3 flex gap-6">
+              <div data-testid="complete-current-streak-wrap">
+                <PeakV2Score role="instrument" size="md" tone="accent" value={String(archive.current_streak)} label="Day streak" />
+              </div>
+              <div data-testid="complete-longest-streak-wrap">
+                <PeakV2Score role="instrument" size="md" tone="neutral" value={String(archive.longest_streak)} label="Longest" />
+              </div>
+              <div data-testid="complete-total-played-wrap">
+                <PeakV2Score role="instrument" size="md" tone="neutral" value={String(archive.total_completed)} label="Grids played" />
+              </div>
+            </div>
+            {/* Hidden authoritative values for anything (tests, tooling) that
+                still looks for the original flat testids -- the tiles above
+                are the visible presentation. */}
+            <span data-testid="complete-current-streak" className="sr-only">{archive.current_streak}</span>
+            <span data-testid="complete-longest-streak" className="sr-only">{archive.longest_streak}</span>
+            <span data-testid="complete-total-played" className="sr-only">{archive.total_completed}</span>
+
+            <p className="mt-3 flex flex-wrap items-center gap-1.5" style={bodyTextStyle} data-testid="complete-come-back">
+              <CalendarClock size={13} aria-hidden="true" style={{ color: "var(--v2-color-accent)" }} />
+              {isArchiveBoard ? (
+                <>
+                  <strong style={{ color: "var(--v2-text-primary)" }}>That was an archive board.</strong>
+                  <Link
+                    href="/daily/grid"
+                    data-testid="complete-play-today"
+                    className="font-semibold underline underline-offset-2"
+                    style={{ color: "var(--v2-color-accent)" }}
+                  >
+                    Play today&rsquo;s grid
+                  </Link>
+                  <span>to keep your streak going.</span>
+                </>
+              ) : (
+                <>
+                  <strong style={{ color: "var(--v2-text-primary)" }}>Come back tomorrow for a new grid.</strong>
+                  {countdown !== null && <span>Next board in {formatCountdown(countdown)}.</span>}
+                </>
+              )}
+            </p>
+
+            {archive.entries.length > 1 && (
+              <div className="mt-3">
+                <p className="mb-1.5" style={sectionLabelStyle}>Recent grids</p>
+                <RecentResults entries={recentEntries(archive, 3)} />
+                <Link
+                  href="/daily/history"
+                  data-testid="complete-history-link"
+                  className="mt-2 inline-block underline-offset-2 hover:underline"
+                  style={{ ...mutedTextStyle, color: "var(--v2-color-accent)" }}
+                >
+                  See all {archive.total_completed} grids
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
+
+        <p className="mt-4" style={mutedTextStyle}>
+          PEAK3 rates each season on its own; a square pays that season&rsquo;s calibrated score plus a bonus for how
+          small its answer pool was. Scoring is server-side — this page only displays what the model returned. Your
+          time is for you: it does not affect your score.
         </p>
-      )}
-      {retryRun && retryOutcome && (
-        <p
-          role="status"
-          data-testid="daily-grid-retry-outcome"
-          className="mt-2 text-xs"
-          style={{
-            color:
-              retryOutcome === "failed"
-                ? "var(--incorrect)"
-                : retryOutcome.improved
-                  ? "var(--comp-team-text)"
-                  : "var(--text-secondary)",
-          }}
-        >
-          {retryOutcome === "failed"
-            ? "This replay could not be submitted — it did not count. Your best entry is unchanged."
-            : retryOutcome.improved
-              ? `Leaderboard updated: ${retryOutcome.score} in ${formatCompletionTime(retryOutcome.completion_time_ms)} is your new best.`
-              : `Your earlier run stays on the board — this replay (${retryOutcome.score} in ${formatCompletionTime(retryOutcome.completion_time_ms)}) didn't beat it.`}
-        </p>
-      )}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {canReplay && (
-          <button
-            type="button"
-            data-testid="daily-grid-replay"
-            onClick={onReplay}
-            disabled={replayStarting}
-            className="pk-lift pk-press rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-            style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
-          >
-            {replayStarting ? "Starting…" : "Replay this board"}
-          </button>
-        )}
-        {canReplay && !retryRun && (
-          <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-            Your official result stays recorded — a better replay can improve
-            today&rsquo;s leaderboard placement. The clock starts the moment
-            you press replay.
-          </span>
-        )}
-        {retryRun && onExitRetry && (
-          <button
-            type="button"
-            data-testid="daily-grid-retry-exit"
-            onClick={onExitRetry}
-            className="rounded-lg px-3 py-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-            style={{ background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
-          >
-            Back to your official result
-          </button>
-        )}
-      </div>
 
-      {/* A2: how today's score compares — the server's ranked board, with the
-          player highlighted and honest states for every other case. */}
-      <DailyLeaderboard
-        date={board.date}
-        isArchiveBoard={isArchiveBoard}
-        refreshKey={
-          (officialSaved ? 1 : 0) +
-          (retryOutcome && retryOutcome !== "failed" ? 2 : 0)
-        }
-      />
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <PeakV2PrimaryAction onClick={handleShareImage} disabled={generating} data-testid="daily-grid-share-image">
+            {generating ? "Generating…" : "Share image"}
+          </PeakV2PrimaryAction>
+          <PeakV2SecondaryAction onClick={handleDownloadImage} disabled={generating} data-testid="daily-grid-download-image">
+            Download image
+          </PeakV2SecondaryAction>
+          <PeakV2SecondaryAction onClick={handleShare} data-testid="daily-grid-share">
+            {copied ? "Copied" : "Copy text"}
+          </PeakV2SecondaryAction>
+          {copied && (
+            <span role="status" style={mutedTextStyle}>
+              Copied to clipboard
+            </span>
+          )}
+          {shareOutcome && (
+            <span role="status" data-testid="daily-grid-share-outcome" style={{ ...mutedTextStyle, color: shareOutcome === "failed" ? "var(--v2-color-negative)" : "var(--v2-text-muted)" }}>
+              {shareOutcome === "shared" ? "Shared" : shareOutcome === "downloaded" ? "Image saved" : "Could not generate the image — try again."}
+            </span>
+          )}
+        </div>
 
-      {copyFailed && (
-        <pre
-          data-testid="daily-grid-share-fallback"
-          className="mt-3 overflow-x-auto rounded-lg p-3 text-xs"
-          style={{ background: "var(--bg-surface)", color: "var(--text-secondary)" }}
-        >
-          {shareText}
-        </pre>
-      )}
-    </section>
-  );
+        {retryRun && (
+          <p data-testid="daily-grid-retry-banner" className="mt-4" style={bodyTextStyle}>
+            <strong style={{ color: "var(--v2-text-primary)" }}>Replay run.</strong>{" "}
+            Your official result for today is unchanged — this run only counts if it beats your best on the
+            leaderboard.
+          </p>
+        )}
+        {retryRun && retryOutcome && (
+          <p
+            role="status"
+            data-testid="daily-grid-retry-outcome"
+            className="mt-2"
+            style={{
+              ...mutedTextStyle,
+              color:
+                retryOutcome === "failed"
+                  ? "var(--v2-color-negative)"
+                  : retryOutcome.improved
+                    ? "var(--v2-color-positive)"
+                    : "var(--v2-text-secondary)",
+            }}
+          >
+            {retryOutcome === "failed"
+              ? "This replay could not be submitted — it did not count. Your best entry is unchanged."
+              : retryOutcome.improved
+                ? `Leaderboard updated: ${retryOutcome.score} in ${formatCompletionTime(retryOutcome.completion_time_ms)} is your new best.`
+                : `Your earlier run stays on the board — this replay (${retryOutcome.score} in ${formatCompletionTime(retryOutcome.completion_time_ms)}) didn't beat it.`}
+          </p>
+        )}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {canReplay && (
+            <PeakV2SecondaryAction onClick={onReplay} disabled={replayStarting} data-testid="daily-grid-replay">
+              {replayStarting ? "Starting…" : "Replay this board"}
+            </PeakV2SecondaryAction>
+          )}
+          {canReplay && !retryRun && (
+            <span style={mutedTextStyle}>
+              Your official result stays recorded — a better replay can improve today&rsquo;s leaderboard
+              placement. The clock starts the moment you press replay.
+            </span>
+          )}
+          {retryRun && onExitRetry && (
+            <PeakV2SecondaryAction onClick={onExitRetry} data-testid="daily-grid-retry-exit">
+              Back to your official result
+            </PeakV2SecondaryAction>
+          )}
+        </div>
+
+        <div className="mt-4">
+          <DailyLeaderboard
+            date={board.date}
+            isArchiveBoard={isArchiveBoard}
+            refreshKey={(officialSaved ? 1 : 0) + (retryOutcome && retryOutcome !== "failed" ? 2 : 0)}
+          />
+        </div>
+
+        {copyFailed && (
+          <pre
+            data-testid="daily-grid-share-fallback"
+            className="mt-3 overflow-x-auto rounded-lg p-3"
+            style={{ ...mutedTextStyle, background: "var(--v2-bg-plane)" }}
+          >
+            {shareText}
+          </pre>
+        )}
+      </section>
+    );
 }

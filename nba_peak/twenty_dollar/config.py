@@ -196,6 +196,32 @@ CLOSEOUT_FIT_GUARANTEE_LOTS: Final[int] = 3
 #: least `k` dollars by construction (see `rules.max_legal_bid`).
 AUTOFILL_PRICE: Final[int] = 1
 
+#: What a FORCED-FILL assignment costs its owner, by the candidate's published
+#: rank -- `(first_rank, last_rank, price)`, inclusive on both ends, using the
+#: same bands as `POOL_TIERS` so a forced-fill price is legible in the same
+#: language as everything else on the board.
+#:
+#: WHY NOT `AUTOFILL_PRICE` FLAT. Forced-fill exists for a genuinely different
+#: reason than autofill: it settles a position no OTHER still-competing seat
+#: could ever have contested (see `state._intersection_eligible_candidates`),
+#: not a pool that ran out or a clock that ran to `HARD_MAX_LOTS`. A flat $1
+#: would make an elite, rank-1-100 player who happens to be the only fit for a
+#: diverged need cost the same as a replacement-level one -- a cheap-star
+#: exploit in the exact shape CLAUDE.md and the Pass 1 brief both warn against,
+#: just moved from "no other bidder can act" to "no other bidder ever could
+#: have". The bands below are calibrated against `scripts/audit_run_the_table
+#: _v3.py`'s sibling for this mode -- the observed mean CONTESTED price by tier
+#: across a 2,000-match bot simulation ($3.83 / $1.99 / $1.12) -- rounded to
+#: whole dollars, so a forced-fill price approximates what the tier typically
+#: costs to WIN rather than what it costs to be handed. Still bounded by
+#: `rules.max_legal_bid` at the call site: the reserve rule for every OTHER
+#: still-open slot is never spent to pay this one.
+FORCED_FILL_PRICE_BY_TIER: Final[tuple[tuple[int, int, int], ...]] = (
+    (1, 100, 4),
+    (101, 250, 2),
+    (251, 500, 1),
+)
+
 
 # ---------------------------------------------------------------------------
 # Candidate pool

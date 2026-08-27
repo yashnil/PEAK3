@@ -19,6 +19,7 @@ import asyncio
 import copy
 import random
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 import pytest
 
@@ -40,8 +41,10 @@ from app.services.twenty_dollar.mode import (
     COMMAND_FORFEIT,
     COMMAND_SKIP_INTRO,
     INTRO_SECONDS,
+    LOT_FORCED_FILL_SECONDS,
     LOT_UNWINNABLE_SECONDS,
     PHASE_INTRO,
+    PHASE_LOT_FORCED_FILL,
     PHASE_LOT_UNWINNABLE,
 )
 from app.services.twenty_dollar.mode import bot as td_bot
@@ -142,6 +145,23 @@ def unwinnable_turn(seq: int = 0) -> ArenaTurn:
         match_id="m1",
         turn_seq=seq,
         phase=PHASE_LOT_UNWINNABLE,
+        seat_index=None,
+        deadline_at=NOW,
+        opened_at=NOW,
+    )
+
+
+def forced_fill_turn(seq: int = 0) -> ArenaTurn:
+    """`unwinnable_turn`'s sibling for `PHASE_LOT_FORCED_FILL` (PEAK3 Pass 1):
+    a position no OTHER still-competing seat could ever have contested,
+    parked as a real, observable, seatless beat rather than committed inline
+    -- see `mode.py`'s own `PHASE_LOT_FORCED_FILL` comment for why. A driver
+    walking a match through the reducer past this beat has to construct this
+    turn, exactly as `unwinnable_turn` does for its sibling."""
+    return ArenaTurn(
+        match_id="m1",
+        turn_seq=seq,
+        phase=PHASE_LOT_FORCED_FILL,
         seat_index=None,
         deadline_at=NOW,
         opened_at=NOW,
@@ -860,21 +880,25 @@ class TestFullMatch:
 
     def test_every_turn_before_completion_names_exactly_one_seat(self):
         """Every per-seat AUCTION turn before completion names exactly one
-        seat. The one legitimate exception is the seatless
-        `PHASE_LOT_UNWINNABLE` beat (the phantom-lot fix): a candidate neither
-        seat can act on opens as a real turn belonging to no seat, not a
-        per-seat turn with no seat to hand it to. That beat is walked forward
-        via its own timeout, exactly as the foundation's clock sweep would,
-        and is asserted here to never masquerade as a normal seat turn.
+        seat. The two legitimate exceptions are the seatless
+        `PHASE_LOT_UNWINNABLE` beat (the phantom-lot fix -- a candidate
+        neither seat can act on) and `PHASE_LOT_FORCED_FILL` (PEAK3 Pass 1 --
+        a position no OTHER still-competing seat could ever have contested):
+        both open as a real turn belonging to no seat, not a per-seat turn
+        with no seat to hand it to. Each beat is walked forward via its own
+        timeout, exactly as the foundation's clock sweep would, and is
+        asserted here to never masquerade as a normal seat turn.
         """
         match = make_match(seed=555)
         rng = random.Random(555)
         for step in range(2000):
             seat = active(match)
             if seat is None:
+                forced_fill = S.is_forced_fill_pending(match.snapshot)
+                turn = forced_fill_turn(step) if forced_fill else unwinnable_turn(step)
                 out = td_mode.reduce(
                     ReducerInput(
-                        match=match, seats=SEATS, open_turn=unwinnable_turn(step),
+                        match=match, seats=SEATS, open_turn=turn,
                         command=TIMEOUT_CMD, now=NOW,
                     )
                 )
@@ -883,8 +907,8 @@ class TestFullMatch:
                     assert out.open_turn is None
                     break
                 assert out.open_turn is not None
-                assert out.open_turn.phase in ("auction", PHASE_LOT_UNWINNABLE)
-                if out.open_turn.phase == PHASE_LOT_UNWINNABLE:
+                assert out.open_turn.phase in ("auction", PHASE_LOT_UNWINNABLE, PHASE_LOT_FORCED_FILL)
+                if out.open_turn.phase in (PHASE_LOT_UNWINNABLE, PHASE_LOT_FORCED_FILL):
                     assert out.open_turn.seat_index is None
                 else:
                     assert out.open_turn.seat_index in (0, 1)
@@ -897,7 +921,7 @@ class TestFullMatch:
                 assert out.open_turn is None
                 break
             assert out.open_turn is not None
-            if out.open_turn.phase == PHASE_LOT_UNWINNABLE:
+            if out.open_turn.phase in (PHASE_LOT_UNWINNABLE, PHASE_LOT_FORCED_FILL):
                 assert out.open_turn.seat_index is None
             else:
                 assert out.open_turn.seat_index in (0, 1)
@@ -981,14 +1005,68 @@ def _build_parked_snapshot(seed: int, seats=SEATS) -> tuple[dict, str]:
     orchestration seam's equivalent proof that the MECHANISM still behaves
     correctly if a snapshot should ever carry the shape again (most plausibly
     one written by a build that predates this fix).
+
+    RETRIED ACROSS A FEW DETERMINISTIC SEED OFFSETS, NOT JUST THE ONE PASSED
+    IN -- see `tests/twenty_dollar/test_phantom_lot_fix.py::_build_parked_
+    state`'s identical retry for why: intersection-drawn lots (PEAK3 Pass 1)
+    can converge a leading roster fast enough that the OTHER seat is still
+    very sparse (zero or one players) at the exact moment one side fills,
+    which occasionally leaves no candidate in the qualified pool that is both
+    outside its naive open slots and provably unacquirable once multi-
+    position reassignment is considered. A property of one specific seed's
+    play meeting a wide-open roster, not of `can_seat_acquire` or the
+    eligibility rule -- retrying a few seeds away finds one where enough
+    commitment survived to construct a genuine outsider.
     """
+    last_error: Optional[AssertionError] = None
+    for attempt in range(6):
+        try:
+            return _try_build_parked_snapshot(seed + attempt * 100_000, seats)
+        except AssertionError as exc:
+            last_error = exc
+    assert last_error is not None
+    raise last_error
+
+
+#: See `tests/twenty_dollar/test_phantom_lot_fix.py::_MIN_OPEN_SEAT_
+#: COMMITMENT`'s identical constant for why "one seat full" alone is not
+#: enough to stop on: an empty still-open roster cannot construct an outsider
+#: against at all, by definition.
+_MIN_OPEN_SEAT_COMMITMENT = 2
+
+
+def _try_build_parked_snapshot(seed: int, seats) -> tuple[dict, str]:
     match = make_match(seed=seed)
     rng = random.Random(seed ^ 0x20D0)
+
+    def _ready() -> bool:
+        sizes = sorted(len(s["roster"]) for s in match.snapshot["seats"])
+        return sizes[-1] >= ROSTER_SIZE and _MIN_OPEN_SEAT_COMMITMENT <= sizes[0] < ROSTER_SIZE
+
     for step in range(2000):
-        if any(len(s["roster"]) >= ROSTER_SIZE for s in match.snapshot["seats"]):
+        if _ready():
             break
         seat = active(match)
-        assert seat is not None, f"seed {seed}: active_seat is None mid-match"
+        if seat is None:
+            # A forced-fill park (PEAK3 Pass 1) is an expected beat once
+            # rosters' needs diverge, unlike the unwinnable beat this
+            # docstring's own history is about -- walk it forward the same
+            # way `unwinnable_turn` is walked, via its own timeout.
+            assert S.is_forced_fill_pending(match.snapshot), (
+                f"seed {seed}: active_seat is None mid-match but no forced-fill "
+                "is pending either"
+            )
+            out = td_mode.reduce(
+                ReducerInput(
+                    match=match, seats=seats, open_turn=forced_fill_turn(step),
+                    command=TIMEOUT_CMD, now=NOW,
+                )
+            )
+            assert out.accepted, out.rejection_code
+            if out.status == MATCH_STATUS_COMPLETED:
+                raise AssertionError(f"seed {seed}: match completed before any roster filled solo")
+            match = make_match(snapshot=out.snapshot, seed=seed)
+            continue
         public, private, _ = td_mode.project(match, seats, seat)
         command, payload = td_bot.decide(public, private, rng)
         out = td_mode.reduce(
@@ -1018,20 +1096,37 @@ def _build_parked_snapshot(seed: int, seats=SEATS) -> tuple[dict, str]:
     ]
     open_slots = set(feasibility.open_slots_for(owned))
     assert open_slots, f"seed {seed}: the still-incomplete seat has no legal open slot"
+    # A COMPLETELY EMPTY ROSTER CANNOT CONSTRUCT AN OUTSIDER, EVER -- see
+    # `tests/twenty_dollar/test_phantom_lot_fix.py::_try_build_parked_state`'s
+    # identical guard for why. Signalled as a failed attempt so the wrapper
+    # retries a different seed offset.
+    assert len(open_slots) < ROSTER_SIZE, (
+        f"seed {seed}: the still-incomplete seat owns nothing yet -- no outsider is "
+        "constructible against a fully open roster"
+    )
 
     gone = {
         entry["player_slug"] for s in snapshot["seats"] for entry in s["roster"]
     } | set(snapshot["offered"])
+    # THE AUTHORITATIVE CHECK, NOT THE `open_slots_for(owned)` HEURISTIC --
+    # see `test_phantom_lot_fix.py::_build_parked_state`'s identical fix for
+    # why: a still-flexible roster (one or two multi-position players) can be
+    # legally reassigned to make room for a candidate the naive open-slots
+    # snapshot says should not fit, which `can_seat_acquire` accounts for and
+    # this heuristic does not.
     outsider = next(
         (
             c
             for c in pool.qualified
-            if c.player_slug not in gone and not (set(c.positions) & open_slots)
+            if c.player_slug not in gone
+            and not (set(c.positions) & open_slots)
+            and not S.can_seat_acquire(snapshot, open_index, c, pool)
         ),
         None,
     )
     assert outsider is not None, (
-        f"seed {seed}: no qualified candidate misses every one of {open_slots}"
+        f"seed {seed}: no qualified candidate is both outside {open_slots} and "
+        "unacquirable by can_seat_acquire"
     )
 
     snapshot["current_candidate"] = outsider.player_slug

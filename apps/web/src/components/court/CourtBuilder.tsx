@@ -18,21 +18,16 @@ import {
 import { uiPhaseFromStatus } from "@/lib/court-state";
 import {
   CourtLineupPublicState,
-  CourtSlotPublic,
   CurrentSpin,
   SlotType,
   SLOT_LABELS,
   STARTER_SLOT_TYPES,
   BENCH_SLOT_TYPES,
 } from "@/types/perfect-season";
-import SpinStage from "./SpinStage";
-import EligiblePlayerSearch from "./EligiblePlayerSearch";
-import PeakCardCourt from "./PeakCardCourt";
-import CourtLayout from "./CourtLayout";
-import SeasonResultStub from "./SeasonResultStub";
-import LiveBuildPanel from "./LiveBuildPanel";
 import ActionToast from "./ActionToast";
-import { getTeamColors } from "@/lib/team-colors";
+import PeakV2CourtLive from "@/components/v2/court/PeakV2CourtLive";
+import PeakV2CourtChooser from "@/components/v2/court/PeakV2CourtChooser";
+import PeakV2CourtResult from "@/components/v2/court/PeakV2CourtResult";
 
 interface Props {
   initialGameState: CourtLineupPublicState;
@@ -437,434 +432,126 @@ export default function CourtBuilder({
   const starterSlots = state.slots.filter((s) => STARTER_SLOT_TYPES.includes(s.slot_type));
   const benchSlots = state.slots.filter((s) => BENCH_SLOT_TYPES.includes(s.slot_type));
 
-  function renderSlot(slot: CourtSlotPublic) {
-    const pendingSlotFit = phase === "placing"
-      ? state.pending_selection?.fit_by_open_slot?.[slot.slot_type]
-      : undefined;
-    // While a card is being moved, every OTHER slot (filled or empty) is a
-    // destination -- moving into an empty slot is a plain move, and into a
-    // filled one is an immediate swap (E3). Both go through the same endpoint
-    // and both raise the Undo toast.
-    const isSwapTarget = movingSlot != null && movingSlot !== slot.slot_type;
-    // The card being moved: clicking it again is the third cancel path,
-    // beside Escape and the banner's Cancel control (E3).
-    const isMovingSource = movingSlot === slot.slot_type;
-    // Launch-polish §5, gap 3: a FILLED slot during the active placement
-    // decision is a genuinely illegal destination for the card about to be
-    // placed (see PeakCardCourt's own comment) -- but only when it is not
-    // ALSO the live rearrange target/source, which already has its own,
-    // higher-priority styling.
-    const blockedDuringPlacement = phase === "placing" && slot.filled && movingSlot == null;
-    return (
-      <PeakCardCourt
-        slot={slot}
-        isPendingTarget={phase === "placing" && !slot.filled}
-        onClick={
-          !isSwapTarget && phase === "placing" && !slot.filled && !busy
-            ? () => handlePlace(slot.slot_type)
-            : undefined
-        }
-        pendingFit={pendingSlotFit?.role_fit}
-        pendingFitSeverity={pendingSlotFit?.role_fit_severity}
-        pendingPrimaryPosition={phase === "placing" ? state.pending_selection?.primary_position : undefined}
-        onMove={
-          rearrangeAvailable && slot.filled && movingSlot == null && !busy
-            ? () => setMovingSlot(slot.slot_type)
-            : undefined
-        }
-        onSwapTarget={isSwapTarget && !busy ? () => requestSwap(slot.slot_type) : undefined}
-        onCancelMove={isMovingSource ? cancelRearrange : undefined}
-        movingFromSlotLabel={movingSlot ? SLOT_LABELS[movingSlot] : null}
-        blockedDuringPlacement={blockedDuringPlacement}
-      />
-    );
-  }
-
-  return (
-    <div data-testid="court-builder" className="mx-auto max-w-7xl px-4 py-8 flex flex-col gap-5">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-          82-0 Peak Season
-        </h1>
-        <div className="flex items-center gap-1.5">
-          {/* Gameplay-polish: the run's frozen difficulty -- especially
-              important in Hard mode, where the respin budget below reads
-              "(1 left)" instead of the usual "(3 left)" and this badge is
-              the thing that explains why. */}
-          <span
-            data-testid="difficulty-badge"
-            className="text-[9px] font-bold uppercase tracking-wide rounded px-1.5 py-0.5"
-            style={
-              state.difficulty === "hard"
-                ? { color: "var(--incorrect)", background: "var(--incorrect-bg)" }
-                : { color: "var(--peak-accent-text, #f5c842)", background: "var(--peak-accent-bg)" }
-            }
-            title={
-              state.difficulty === "hard"
-                ? "Hard: 1 team respin + 1 season respin for the whole run, no hint"
-                : "Easy: 3 team respins + 3 season respins for the whole run, plus a one-time hint"
-            }
-          >
-            {state.difficulty === "hard" ? "Hard" : "Easy"}
-          </span>
-          <span
-            className="text-[9px] uppercase tracking-wide rounded px-1.5 py-0.5"
-            style={{ color: "var(--text-muted)" }}
-            title="v0 experimental simulator -- see the data receipt for version details"
-          >
-            Experimental
-          </span>
-        </div>
-      </div>
-      <p className="text-xs -mt-3" style={{ color: "var(--text-muted)" }} data-testid="position-logic-note">
-        Build eight exact player-season cards from real rosters. PEAK3 rewards talent first, then fit.
-      </p>
-
-      <details className="text-[10px] -mt-2" style={{ color: "var(--text-muted)" }} data-testid="board-receipt">
-        <summary className="cursor-pointer select-none" style={{ color: "var(--text-secondary)" }}>
-          Data receipt
-        </summary>
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5 pt-1">
-          <span>Seed {state.board_seed}</span>
-          <span>{state.card_pool_version}</span>
-          <span>{state.board_generator_version}</span>
-          {state.experimental_team_year_data_version && <span>{state.experimental_team_year_data_version}</span>}
-          {state.coverage_mode && <span data-testid="coverage-mode">{state.coverage_mode}</span>}
-          {state.respin_history.length > 0 && (
-            <span data-testid="respin-receipt-count">
-              {state.respin_history.length} respin{state.respin_history.length === 1 ? "" : "s"} used this run
-              {" "}({state.team_respins_used_total} team, {state.season_respins_used_total} season)
-            </span>
-          )}
-        </div>
-      </details>
-
+  // V2's own live court + chooser (Pass 3) — the exact same state/handlers
+  // computed above, no second reducer or API call. `PeakV2CourtChooser`
+  // reuses `SpinStage`/`EligiblePlayerSearch` verbatim (see its own
+  // docstring); only the chrome around them and the court itself are new.
+  const v2View = (
+    <div data-testid="court-builder">
+      {/* A rejected action (a bad respin, a stale placement, …) — same
+          `error` state legacy's own banner reads, previously computed and
+          silently dropped for V2 players (nothing here read it at all). */}
       {error && (
-        <div role="alert" className="rounded-lg px-3 py-2 text-sm" style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}>
+        <div
+          role="alert"
+          className="rounded-lg px-3 py-2 text-sm"
+          style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}
+        >
           {error}
         </div>
       )}
-
+      {/* Mirrors legacy's own `!state.simulation_result` gate exactly: the
+          live, still-editable court is the build surface, and
+          `PeakV2CourtResult` below is the separate, read-only broadcast
+          reveal -- never both mounted at once. Without this gate, once a
+          run completes `state.slots` carries the same now-revealed scores
+          both components read, and the live court's own slot cards (now
+          also revealed) render a SECOND, redundant copy of every
+          `revealed-score-line`/`peak-locked-note` right alongside the
+          result screen's -- exactly the kind of doubled, inconsistent
+          surface CLAUDE.md's "no server-side answer storage" / single
+          source of truth principle warns against, not a deliberate second
+          reveal. */}
       {!state.simulation_result && (
-        /* E1 (polish pass): THE COURT IS THE STABLE PRIMARY CANVAS. The
-           two-column `.arena-shell` — spin/candidates in a main column, the
-           court in a 460px sticky rail — made the object of the game a
-           sidebar and gave the page two competing scroll surfaces. The court
-           now renders centered as the page's one canvas, fully mounted at
-           every phase, and the whole selection step opens in a viewport
-           overlay above it (below in the JSX, above in z-order). */
-        <div className="courtb-stage" data-testid="courtb-stage">
-          {/* THE SELECTION OVERLAY. The WRAPPER stays mounted for the whole
-              round and hides via `hidden` while a selection is being placed —
-              SpinStage replays its reveal ceremony if remounted, and "choose
-              someone else" must return to this round's already-revealed roll,
-              not to a fresh ceremony (see lastSpinRef above). The pieces that
-              are conditional (`respin-controls`, `candidate-panel`) unmount
-              exactly as they always did, so every existing count/visibility
-              contract about them still holds. */}
-          {(phase === "spinning" || phase === "placing") && roundSpin && (
-            <div
-              className="courtb-overlay-scrim"
-              data-testid="selection-overlay-scrim"
-              hidden={phase !== "spinning" || overlayMinimized}
-              // 2.4: clicking the backdrop enters View Court, same as the
-              // explicit button. Guarded on `target === currentTarget` --
-              // this element WRAPS the panel rather than sitting behind it
-              // as a separate layer, so every click inside the panel also
-              // bubbles here, and only a click that landed on the scrim
-              // itself (never on a descendant) should count as "outside".
-              onClick={(e) => {
-                if (e.target === e.currentTarget) setOverlayMinimized(true);
-              }}
-            >
-              <section
-                role="dialog"
-                aria-modal="true"
-                aria-label={`Round ${state.current_round} of ${state.total_rounds} — choose a player`}
-                className="courtb-overlay"
-                data-testid="selection-overlay"
-              >
-                <div className="courtb-overlay-head">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-xs font-bold uppercase tracking-wider shrink-0" style={{ color: "var(--text-muted)" }}>
-                      Round {state.current_round} / {state.total_rounds}
-                    </span>
-                    {displaySpin && displaySpin.spin_type !== "open_pool" && ceremonyRevealed && (
-                      <span className="flex items-center gap-1.5 min-w-0">
-                        <span
-                          aria-hidden="true"
-                          className="w-2.5 h-2.5 rounded-full shrink-0"
-                          style={{ background: getTeamColors(displaySpin.franchise_display_name).primary }}
-                        />
-                        <span
-                          className="text-[12px] font-semibold truncate"
-                          style={{ color: "var(--text-primary)" }}
-                          data-testid="overlay-roll-summary"
-                        >
-                          {displaySpin.franchise_display_name} · {displaySpin.era_label}
-                          <span style={{ color: "var(--text-muted)" }}>
-                            {" "}· {displaySpin.candidates.length} eligible
-                          </span>
-                        </span>
-                      </span>
-                    )}
-                  </div>
-                  {/* RESPINS LIVE IN THE HEADER — visible without scrolling
-                      to the bottom of a long candidate list (E1). Same
-                      run-level budget semantics as always (Phase 7A Part C:
-                      3 team + 3 season for the WHOLE 8-round run). */}
-                  {phase === "spinning" && state.current_spin?.spin_type === "team_year" && ceremonyRevealed && (
-                    <div className="flex items-center gap-2 shrink-0" data-testid="respin-controls">
-                      <button
-                        data-testid="respin-team-btn"
-                        onClick={handleRespinTeam}
-                        disabled={busy || state.team_respins_remaining_total <= 0}
-                        className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
-                        style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
-                      >
-                        Respin Team ({state.team_respins_remaining_total} left)
-                      </button>
-                      <button
-                        data-testid="respin-season-btn"
-                        onClick={handleRespinSeason}
-                        disabled={busy || state.season_respins_remaining_total <= 0}
-                        className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
-                        style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
-                      >
-                        Respin Season ({state.season_respins_remaining_total} left)
-                      </button>
-                    </div>
-                  )}
-                  {/* E1: step aside to work the court (move/swap cards) without
-                      losing the roll. The candidate list, respins and the
-                      round's whole state are exactly as left on resume. */}
-                  <button
-                    type="button"
-                    data-testid="minimize-overlay-btn"
-                    onClick={() => setOverlayMinimized(true)}
-                    className="text-xs font-semibold rounded-full px-3 py-1.5 shrink-0"
-                    style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
-                  >
-                    View court
-                  </button>
-                </div>
-
-                <div
-                  className="courtb-overlay-body"
-                  // Gameplay-polish: the difficulty badge/hint affordance
-                  // added enough header height that this region's content can
-                  // now genuinely overflow and scroll on shorter viewports --
-                  // a scrollable region with no focusable content of its own
-                  // is unreachable by keyboard (axe `scrollable-region-
-                  // focusable`), same defect class `SettledLotTray`'s panel
-                  // already guards against (see its own comment). The
-                  // container itself takes focus so Tab can always reach and
-                  // scroll it, regardless of whether it happens to overflow
-                  // at the current viewport size.
-                  tabIndex={0}
-                >
-                  {/* The round's constraint ceremony (team + era wheel).
-                      Phase 8D contract unchanged: keyed only on
-                      current_round, mounted through spinning AND placing
-                      (the wrapper hides, this never unmounts), so canceling
-                      a selection never replays the ceremony. */}
-                  <SpinStage
-                    key={state.current_round}
-                    spin={roundSpin}
-                    roundNumber={state.current_round}
-                    totalRounds={state.total_rounds}
-                    franchiseNames={franchiseNames}
-                    seasonLabels={seasonLabels}
-                    teamLogoUrls={teamLogoUrls}
-                    onRevealComplete={() => setRevealedRound(state.current_round)}
-                    onRespinSettled={() => setRespinPending(false)}
-                    respinFlashKey={respinFlashKey}
-                    respinKind={respinKind}
-                    respinFrom={lastRespin}
-                    collapsed={phase === "placing"}
-                  />
-
-                  {/* Candidate discovery: search + list, scrolling INSIDE the
-                      overlay body — the page never scrolls to choose. */}
-                  {phase === "spinning" && displaySpin && ceremonyRevealed && (
-                    <div
-                      data-testid="candidate-panel"
-                      className="rounded-2xl border p-4 flex flex-col gap-3"
-                      style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
-                    >
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-                          Step 1 · Choose a player
-                        </div>
-                        {/* Gameplay-polish: Easy mode only, and only while a
-                            candidate offer is actually open -- not during a
-                            respin's reel animation, and never in Hard mode
-                            (which never gets a hint at all). Stays visible
-                            (disabled, relabeled) after use rather than
-                            disappearing, so "already used this run" is
-                            legible on its own, including after a reload. */}
-                        {state.difficulty === "easy" && (
-                          <button
-                            type="button"
-                            data-testid="hint-btn"
-                            onClick={handleHint}
-                            disabled={busy || respinPending || state.hint_used}
-                            className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-50 pk-lift pk-press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-                            style={{
-                              background: state.hint_used ? "var(--bg-surface)" : "var(--peak-accent, #f5c842)",
-                              color: state.hint_used ? "var(--text-muted)" : "var(--text-inverse)",
-                              border: "1px solid var(--border-default)",
-                            }}
-                          >
-                            {state.hint_used ? "Hint used" : "Give me a suggestion"}
-                          </button>
-                        )}
-                      </div>
-                      {hint && (
-                        <p
-                          data-testid="hint-message"
-                          className="text-xs font-semibold -mt-1 pk-reveal"
-                          style={{ color: "var(--peak-accent-text, #f5c842)" }}
-                        >
-                          PEAK3 suggests: {hint.playerName}
-                        </p>
-                      )}
-                      <EligiblePlayerSearch
-                        candidates={displaySpin.candidates}
-                        onSelect={handleSelect}
-                        disabled={busy || respinPending}
-                        highlightSlug={hint?.playerSlug ?? null}
-                      />
-                    </div>
-                  )}
-                </div>
-              </section>
-            </div>
-          )}
-
-          {/* Step 2, ON THE COURT (E1 variant B): selecting a candidate
-              closes the overlay and the court's open slots light up. The
-              banner names the selection and offers the way back. */}
-          {phase === "placing" && state.pending_selection && (
-            <div
-              data-testid="placing-banner"
-              className="rounded-xl p-3 text-sm flex flex-col gap-2"
-              style={{ background: "var(--peak-accent-bg, rgba(245,200,66,0.08))", border: "1px solid var(--peak-accent-dim)", color: "var(--text-primary)" }}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
-                    Selected: {state.pending_selection.player_name}
-                  </div>
-                  Choose any open spot on the court — the fit badge shows how well
-                  they match that spot, but every open spot is a legal placement.
-                </div>
-                {/* "SWITCH SELECTION" (E1): returns to the same round's
-                    already-revealed roll and candidate list — never a respin,
-                    never a lost roll. `action_cancel_selection` server-side. */}
-                <button
-                  data-testid="cancel-selection-btn"
-                  onClick={handleCancel}
-                  disabled={busy}
-                  className="min-h-[44px] shrink-0 rounded px-3 text-xs font-semibold uppercase tracking-wide"
-                  style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
-                >
-                  Switch selection
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* The way back into a minimized selection (E1). 2.5: the "Round X
-              of Y is waiting — rearrange your court, then come back to the
-              roll" line added nothing the button itself doesn't already say
-              — a strong, obvious action is the whole requirement here, not
-              an explanation of what it does. */}
-          {phase === "spinning" && overlayMinimized && (
-            <div
-              className="rounded-xl p-3 flex items-center justify-center"
-              data-testid="resume-selection-banner"
-              style={{ background: "var(--peak-accent-bg, rgba(245,200,66,0.08))", border: "1px solid var(--peak-accent-dim)" }}
-            >
-              <button
-                type="button"
-                data-testid="resume-selection-btn"
-                onClick={() => setOverlayMinimized(false)}
-                className="pk-lift pk-press min-h-[44px] w-full rounded-lg px-4 text-sm font-bold uppercase tracking-wide"
-                style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
-              >
-                Resume selection
-              </button>
-            </div>
-          )}
-
-          {/* The court — the page's one stable canvas. */}
-          <div data-testid="court-grid" className="flex flex-col gap-2.5">
-            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-              Your roster
-            </div>
-
-            {/* Phase 9B: rearranging. Users could see a bad position fit but
-                had no way to act on it short of a respin (which rerolls the
-                team+season and costs a run-level budget) or restarting. This
-                is the missing lever, and the copy is explicit that it is NOT
-                a respin -- that distinction is the whole reason it's safe to
-                offer for free. */}
-            {rearrangeAvailable && movingSlot == null && (
-              <p className="text-[10px] -mt-1" style={{ color: "var(--text-muted)" }} data-testid="rearrange-hint">
-                Move players to improve position fit — this never re-spins.
-              </p>
-            )}
-            {movingSlot != null && (
-              <div
-                data-testid="rearrange-banner"
-                role="status"
-                className="rounded-lg px-2.5 py-2 flex items-center justify-between gap-2 -mt-1"
-                style={{ background: "var(--peak-accent-bg, rgba(245,200,66,0.08))", border: "1px solid var(--peak-accent-dim)" }}
-              >
-                <span className="text-[11px]" style={{ color: "var(--text-primary)" }}>
-                  Moving from <strong>{SLOT_LABELS[movingSlot]}</strong> — pick a destination slot. No re-spin, no cards lost.
-                </span>
-                {/* Launch-polish LP2-1: "Cancel" alone is short enough that
-                    padding-only growth would meet the height floor but not
-                    the width one, so both are pinned explicitly. */}
-                <button
-                  data-testid="rearrange-cancel-btn"
-                  onClick={cancelRearrange}
-                  className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded px-3 text-[10px] font-semibold uppercase tracking-wide"
-                  style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-            {state.live_build && <LiveBuildPanel liveBuild={state.live_build} />}
-            <CourtLayout starterSlots={starterSlots} benchSlots={benchSlots} renderSlot={renderSlot} />
-
-            {phase === "complete" && state.status === "rounds_complete" && (
-              <button
-                data-testid="complete-season-btn"
-                onClick={handleComplete}
-                disabled={busy}
-                className="rounded-lg py-3 font-semibold"
-                style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
-              >
-                {busy ? "Simulating…" : "Lock Roster & Simulate"}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {state.simulation_result && (
-        <div className="mx-auto max-w-2xl w-full">
-          <SeasonResultStub
+        <>
+          <PeakV2CourtLive
             state={state}
-            result={state.simulation_result}
-            onPlayAgain={handlePlayAgain}
-            playAgainBusy={busy}
+            phase={phase}
+            busy={busy}
+            starterSlots={starterSlots}
+            benchSlots={benchSlots}
+            movingSlot={movingSlot}
+            rearrangeAvailable={rearrangeAvailable}
+            onPlace={handlePlace}
+            onStartMove={(slotType) => setMovingSlot(slotType)}
+            onSwapTarget={requestSwap}
+            onCancelMove={cancelRearrange}
+            slotLabel={(slot) => SLOT_LABELS[slot]}
+            onComplete={handleComplete}
+            // Pass 7 (human acceptance testing, §5): the SAME `overlayMinimized`
+            // state that already preserves round/roll/respins/candidates
+            // untouched on close (see the state's own docstring above) -- V2
+            // just never rendered a way back in. `setOverlayMinimized(false)` is
+            // the exact same reopen legacy's "Resume selection" banner already
+            // calls; no new state, no new endpoint.
+            showResumeSelection={phase === "spinning" && overlayMinimized}
+            onResumeSelection={() => setOverlayMinimized(false)}
+            pendingSelectionName={state.pending_selection?.player_name ?? null}
+            // Human acceptance testing, task §8: the "PLACE [player]" banner
+            // gains real TEAM · SEASON · POSITION instrumentation instead of a
+            // bare name -- all three are already on `pending_selection` (no
+            // new fetch), just not previously threaded through.
+            pendingSelectionTeam={state.pending_selection?.team_name ?? null}
+            pendingSelectionSeason={state.pending_selection?.season ?? null}
+            pendingSelectionPosition={state.pending_selection?.primary_position ?? null}
+            onSwitchSelection={handleCancel}
           />
-        </div>
+          {(phase === "spinning" || phase === "placing") && roundSpin && (
+            <PeakV2CourtChooser
+              // Mirrors legacy's own `hidden={phase !== "spinning" || overlayMinimized}`
+              // exactly, inverted for an `open` prop: the panel auto-steps aside
+              // the instant a selection is pending (`phase === "placing"`) so the
+              // now-clickable court slots underneath are reachable, not just
+              // visible — the same real state `renderSlot`'s `onClick` already
+              // gates on. Never a second, drifted copy of that condition.
+              open={phase === "spinning" && !overlayMinimized}
+              onClose={() => setOverlayMinimized(true)}
+              roundNumber={state.current_round}
+              totalRounds={state.total_rounds}
+              spin={roundSpin}
+              franchiseNames={franchiseNames}
+              seasonLabels={seasonLabels}
+              teamLogoUrls={teamLogoUrls}
+              onRevealComplete={() => setRevealedRound(state.current_round)}
+              onRespinSettled={() => setRespinPending(false)}
+              respinFlashKey={respinFlashKey}
+              respinKind={respinKind}
+              respinFrom={lastRespin}
+              collapsed={phase === "placing"}
+              ceremonyRevealed={ceremonyRevealed}
+              displaySpin={displaySpin}
+              candidates={displaySpin?.candidates ?? null}
+              onSelectCandidate={handleSelect}
+              busy={busy}
+              respinPending={respinPending}
+              canRespinTeam={state.team_respins_remaining_total > 0}
+              canRespinSeason={state.season_respins_remaining_total > 0}
+              teamRespinsLeft={state.team_respins_remaining_total}
+              seasonRespinsLeft={state.season_respins_remaining_total}
+              onRespinTeam={handleRespinTeam}
+              onRespinSeason={handleRespinSeason}
+              difficulty={state.difficulty ?? "easy"}
+              hintUsed={!!state.hint_used}
+              hintMessage={hint ? `PEAK3 suggests: ${hint.playerName}` : null}
+              hintSlug={hint?.playerSlug ?? null}
+              onHint={handleHint}
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  return (
+    <>
+      {v2View}
+      {state.simulation_result && (
+        <PeakV2CourtResult
+          state={state}
+          result={state.simulation_result}
+          onPlayAgain={handlePlayAgain}
+          playAgainBusy={busy}
+        />
       )}
 
       {actionToast && (
@@ -875,6 +562,6 @@ export default function CourtBuilder({
           onDismiss={dismissToast}
         />
       )}
-    </div>
+    </>
   );
 }
