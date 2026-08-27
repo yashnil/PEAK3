@@ -47,6 +47,12 @@ export interface PeakV2CourtPanelProps {
    *  to address a specific court instance (e.g. one seat of three). Every
    *  other caller keeps the generic default. */
   testId?: string;
+  /** Suppress the panel's own label/status row. For a caller that already
+   *  states the identity immediately above the court — the Three-Man Weave
+   *  RESULT, where each competitor's ordinal, name and lineup score head the
+   *  block — repeating the name inside the court is the same fact twice, a
+   *  few pixels apart. */
+  hideHeader?: boolean;
 }
 
 export default function PeakV2CourtPanel({
@@ -58,6 +64,7 @@ export default function PeakV2CourtPanel({
   children,
   className,
   testId = "peak-v2-court-panel",
+  hideHeader = false,
 }: PeakV2CourtPanelProps) {
   const dimmed = presentation === "dimmed";
   return (
@@ -83,7 +90,7 @@ export default function PeakV2CourtPanel({
       }}
     >
       {!dimmed && light ? <PeakV2ArenaLight tone={lightTone} y="0%" /> : null}
-      <div className="relative flex items-baseline gap-2">
+      <div className="relative flex items-baseline gap-2" hidden={hideHeader}>
         <span
           style={{
             fontFamily: "var(--v2-font-display)",

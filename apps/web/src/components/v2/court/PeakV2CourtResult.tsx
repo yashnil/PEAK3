@@ -37,7 +37,6 @@ import PeakV2Shell from "../PeakV2Shell";
 import PeakV2CinematicStage from "../PeakV2CinematicStage";
 import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
 import PeakV2Rule from "../PeakV2Rule";
-import PeakV2Score from "../PeakV2Score";
 import PeakV2CourtSlot from "../PeakV2CourtSlot";
 import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
 import CourtLayout from "@/components/court/CourtLayout";
@@ -243,8 +242,19 @@ function ResultSlotCard({ slot }: { slot: CourtSlotPublic }) {
   const scoreLine: ReactNode = isExactSeason ? (
     <span data-testid="exact-season-line">
       {slot.team_name} · {slot.season}
+      {/* THE SCORE IS PRINTED ONCE PER TILE. The aligned `PEAK3 <n>` column
+          to the right of this line is where a reader compares cards, so
+          repeating the same number inline read as two different figures at a
+          glance ("… 1998-99 · 29 pts" beside "PEAK3 29"). The element itself
+          stays — it is the reveal-discipline marker the result tests count
+          (`revealed-score-line` === 8 once every card is scored), and it is
+          the text form that pairs the score with its season for assistive
+          tech — so it keeps the score and drops only the duplicate glyphs a
+          sighted reader was seeing twice. */}
       {revealed ? (
-        <span data-testid="revealed-score-line"> · {Math.round(slot.season_score ?? 0)} pts</span>
+        <span data-testid="revealed-score-line" className="sr-only">
+          {" "}· {Math.round(slot.season_score ?? 0)} pts
+        </span>
       ) : null}
       {!revealed && slot.score_status === "exact_season_unscored" ? (
         <span data-testid="score-unavailable-note"> · No official score</span>
@@ -256,8 +266,11 @@ function ResultSlotCard({ slot }: { slot: CourtSlotPublic }) {
       ) : null}
     </span>
   ) : revealed ? (
-    <span data-testid="revealed-score-line">
-      {slot.anchor_season} · {Math.round(slot.individual_peak_score ?? 0)} pts · #{slot.individual_peak_rank}
+    <span>
+      {slot.anchor_season} · #{slot.individual_peak_rank}
+      <span data-testid="revealed-score-line" className="sr-only">
+        {" "}· {Math.round(slot.individual_peak_score ?? 0)} pts
+      </span>
     </span>
   ) : (
     <span data-testid="peak-locked-note">{slot.anchor_season} · Peak locked</span>
@@ -300,6 +313,31 @@ export default function PeakV2CourtResult({ state, result, onPlayAgain, playAgai
   const weaknessLabel = result.weakness_framing
     ? (result.weakness_framing === "ceiling_limiter" ? "Ceiling limiter" : "Weakness")
     : (result.wins >= 65 ? "Ceiling limiter" : "Weakness");
+
+  // THE SCORES BEHIND THE TWO CLAIMS. "Best pick: Dirk Nowitzki" on its own
+  // asks the reader to take it on faith; the number that makes it true is
+  // already on the roster the server sent, so it is shown next to the name.
+  // Matched by name against the slots because `best_pick`/
+  // `structural_weakness` are the server's own strings, and a lookup that
+  // misses simply omits the number rather than guessing one.
+  function scoreForPlayer(name: string | null): number | null {
+    if (!name) return null;
+    const hit = state.slots.find((slot) => slot.filled && slot.player_name === name);
+    const score = hit?.season_score ?? hit?.individual_peak_score ?? null;
+    return typeof score === "number" ? score : null;
+  }
+  const bestScore = scoreForPlayer(best);
+  const weakestScore = scoreForPlayer(weakness);
+
+  // `identity` is the roster's build phrase, already computed above from the
+  // real slots (`teamIdentityPhrase`) and already shown under the hero.
+  const buildIdentity = identity;
+  // The simulator's own positional-fit component, 0-100 on the same scale as
+  // every other fit number it publishes. Absent boards simply omit the line.
+  const positionalFit =
+    typeof result.fit_components?.positional_fit === "number"
+      ? result.fit_components.positional_fit
+      : null;
 
   const scoredSlotCount = state.slots.filter((s) => s.score_status === "exact_season_scored").length;
   const filledSlotCount = state.slots.filter((s) => s.filled).length;
@@ -394,69 +432,92 @@ export default function PeakV2CourtResult({ state, result, onPlayAgain, playAgai
 
         <PeakV2Rule spacing="md" />
 
-        {/* C. RUN ANALYSIS — score, best pick, weakness, what decided it. */}
-        {best && (
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-baseline sm:justify-between" data-testid="best-and-weakness">
-            <div>
-              <div style={sectionLabelStyle}>Best pick</div>
-              <div className="mt-1" style={{ fontFamily: "var(--v2-font-ui)", fontWeight: 700, fontSize: "0.9375rem", color: "var(--v2-text-primary)" }}>
-                {best}
-              </div>
+        {/* C. RUN ANALYSIS — ONE RECEIPT, not four panels.
+            Every number here is the server's own (`lineup_peak_score`, the
+            slots' `season_score`, `best_pick`, `structural_weakness`,
+            `decisive_factors`). Nothing is computed for display, and no
+            metric is invented to fill a column.
+
+            Laid out as a stat row: the lineup score at result scale, then
+            the two picks that moved it most, each with the real score that
+            makes the claim checkable — "Best pick: Dirk Nowitzki" alone
+            asked the reader to take it on faith. */}
+        <div data-testid="run-analysis">
+          <div style={sectionLabelStyle}>Run analysis</div>
+
+          <div className="v2-run-analysis">
+            <div className="v2-run-stat" data-testid="lineup-peak-score">
+              <span className="v2-run-stat-label">PEAK3 lineup score</span>
+              {result.lineup_score_status === "incomplete" ? (
+                <>
+                  <span
+                    className="v2-run-stat-value v2-run-stat-value--muted"
+                    data-testid="lineup-score-incomplete"
+                  >
+                    Incomplete
+                  </span>
+                  <span className="v2-run-stat-note" data-testid="score-coverage-note">
+                    {scoredSlotCount}/{filledSlotCount} exact season cards scored. One or more
+                    player-seasons has no official PEAK3 score yet (below the model&apos;s minutes
+                    threshold), so the lineup score is withheld rather than estimated — the
+                    projected record above still uses each card&apos;s real games/minutes sample.
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="v2-run-stat-value">{result.lineup_peak_score.toFixed(1)}</span>
+                  <span className="v2-run-stat-note" data-testid="score-coverage-note">
+                    Mean of your {filledSlotCount} cards&apos; real{" "}
+                    {isExactSeasonMode ? "exact season" : "peak"} PEAK3 scores — the number to
+                    compare across runs. {scoredSlotCount}/{filledSlotCount} scored.
+                  </span>
+                </>
+              )}
             </div>
-            <div>
-              <div style={sectionLabelStyle}>{weaknessLabel}</div>
-              <div
-                className="mt-1"
-                style={{ fontFamily: "var(--v2-font-ui)", fontWeight: 700, fontSize: "0.9375rem", color: "var(--v2-text-primary)" }}
-                data-testid="weakness-label"
-              >
-                {weakness}
+
+            {best ? (
+              <div className="v2-run-stat" data-testid="best-and-weakness">
+                <span className="v2-run-stat-label">Best pick</span>
+                <span className="v2-run-stat-name">{best}</span>
+                {bestScore !== null ? (
+                  <span className="v2-run-stat-sub" data-testid="best-pick-score">
+                    {bestScore.toFixed(0)} PEAK3
+                  </span>
+                ) : null}
               </div>
+            ) : null}
+
+            <div className="v2-run-stat">
+              <span className="v2-run-stat-label">{weaknessLabel}</span>
+              <span className="v2-run-stat-name" data-testid="weakness-label">
+                {weakness}
+              </span>
+              {weakestScore !== null ? (
+                <span className="v2-run-stat-sub" data-testid="weakest-pick-score">
+                  {weakestScore.toFixed(0)} PEAK3
+                </span>
+              ) : null}
+            </div>
+
+            <div className="v2-run-stat">
+              <span className="v2-run-stat-label">Build</span>
+              <span className="v2-run-stat-name">{buildIdentity}</span>
+              {positionalFit !== null ? (
+                <span className="v2-run-stat-sub" data-testid="positional-fit">
+                  Positional fit {positionalFit.toFixed(0)}
+                </span>
+              ) : null}
             </div>
           </div>
-        )}
 
-        {/* A bare label like "thin bench depth" reads as a real basketball
-            insult on its own -- this clarifies it's relative to PEAK3's
-            0-100 all-time-peak scale, not an absolute real-world judgment. */}
-        {result.structural_weakness_detail && (
-          <p className="mt-2" style={mutedTextStyle} data-testid="weakness-detail">
-            {result.structural_weakness_detail}
-          </p>
-        )}
-
-        <PeakV2Rule spacing="md" />
-
-        <div data-testid="lineup-peak-score">
-          <div style={sectionLabelStyle}>PEAK3 Lineup Score</div>
-          {result.lineup_score_status === "incomplete" ? (
-            <>
-              <div
-                className="mt-1"
-                style={{ fontFamily: "var(--v2-font-display)", fontWeight: 600, fontSize: "1.5rem", color: "var(--v2-text-muted)" }}
-                data-testid="lineup-score-incomplete"
-              >
-                Score incomplete
-              </div>
-              <p className="mt-1" style={mutedTextStyle} data-testid="score-coverage-note">
-                {scoredSlotCount}/{filledSlotCount} exact season cards scored — one or more selected
-                player-seasons has no official PEAK3 score yet (below the model&apos;s minutes
-                threshold). Projected record above uses conservative provisional impact for those
-                cards, based on each card&apos;s real games/minutes sample; the lineup score itself
-                is not shown rather than estimated.
-              </p>
-            </>
-          ) : (
-            <>
-              <div className="mt-1">
-                <PeakV2Score role="instrument" size="lg" tone="neutral" value={`${result.lineup_peak_score.toFixed(1)} / 100`} />
-              </div>
-              <p className="mt-1" style={mutedTextStyle} data-testid="score-coverage-note">
-                {scoredSlotCount}/{filledSlotCount} exact season cards scored · Mean of your 8 cards&apos;{" "}
-                real {isExactSeasonMode ? "exact season" : "peak"} PEAK3 scores — the number to compare across runs.
-              </p>
-            </>
-          )}
+          {/* A bare label like "thin bench depth" reads as a real basketball
+              insult on its own -- this clarifies it's relative to PEAK3's
+              0-100 all-time-peak scale, not an absolute real-world judgment. */}
+          {result.structural_weakness_detail ? (
+            <p className="v2-run-analysis-detail" data-testid="weakness-detail">
+              {result.structural_weakness_detail}
+            </p>
+          ) : null}
         </div>
 
         <PeakV2Rule spacing="md" />

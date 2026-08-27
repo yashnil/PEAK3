@@ -197,6 +197,59 @@ export default function PeakV2CourtSlotCard({
   // uses for this -- reused here verbatim, not re-derived.
   const fixedHeightClass = "roster-board-slot-card-fixed";
 
+  // DESKTOP DRAG-AND-DROP, ADDED ON TOP OF — NEVER INSTEAD OF — THE EXISTING
+  // WAYS TO MOVE A PLAYER.
+  //
+  // The tile is already a real <button> that picks a player up on click, tap
+  // and Enter/Space, and the court already lights its legal destinations.
+  // Dragging is a fourth route to the same reducer path (`onMove` then
+  // `onSwapTarget`), so a pointer user gets the direct manipulation they
+  // expect while click, tap and keyboard remain fully sufficient. Nothing
+  // here is reachable ONLY by dragging.
+  //
+  // WHY THE NATIVE HTML5 API. It is pointer-only by definition, so it cannot
+  // hijack a touch scroll (mobile keeps the tap flow untouched), and the
+  // browser suppresses the click that would otherwise follow a drag — so a
+  // drop can never also fire the source tile's own `onClick` and immediately
+  // re-pick-up the player it just placed.
+  //
+  // The drag image is the tile itself, captured at its real size, so the
+  // thing under the cursor is the piece being moved rather than a
+  // semi-transparent slice of the page at some arbitrary offset.
+  const dragSourceProps = onMove
+    ? {
+        draggable: true,
+        onDragStart: (event: React.DragEvent<HTMLElement>) => {
+          event.dataTransfer.effectAllowed = "move";
+          // Some browsers refuse to start a drag with no payload set.
+          event.dataTransfer.setData("text/plain", slot.slot_type);
+          if (event.currentTarget instanceof HTMLElement) {
+            const rect = event.currentTarget.getBoundingClientRect();
+            event.dataTransfer.setDragImage(event.currentTarget, rect.width / 2, rect.height / 2);
+          }
+          onMove();
+        },
+      }
+    : {};
+
+  const dropTargetProps = onSwapTarget
+    ? {
+        onDragOver: (event: React.DragEvent<HTMLElement>) => {
+          // Calling preventDefault is what MARKS this element as a legal
+          // drop target; an untouched dragover means "not droppable", which
+          // is exactly the treatment an illegal destination should get —
+          // the browser shows the no-drop cursor and the drop never fires,
+          // so an invalid destination cannot move anything.
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+        },
+        onDrop: (event: React.DragEvent<HTMLElement>) => {
+          event.preventDefault();
+          onSwapTarget();
+        },
+      }
+    : {};
+
   const fitCaption = fit ? (
     <span
       data-testid="role-fit-badge"
@@ -214,6 +267,7 @@ export default function PeakV2CourtSlotCard({
         {...sharedAttrs}
         data-testid="slot-swap-target"
         onClick={onSwapTarget}
+        {...dropTargetProps}
         aria-label={
           movingFromSlotLabel
             ? `Move to ${SLOT_LABELS[slot.slot_type]}${slot.filled ? `, swapping with ${slot.player_name ?? "the player there"}` : ""} (from ${movingFromSlotLabel})`
@@ -390,6 +444,7 @@ export default function PeakV2CourtSlotCard({
         {...sharedAttrs}
         data-pickup="true"
         onClick={onMove}
+        {...dragSourceProps}
         aria-label={`${slot.player_name ?? SLOT_LABELS[slot.slot_type]} at ${SLOT_LABELS[slot.slot_type]} — pick up to move`}
         className={`flex w-full flex-col gap-1 text-left ${fixedHeightClass}`}
       >

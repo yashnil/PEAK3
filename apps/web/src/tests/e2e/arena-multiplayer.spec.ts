@@ -483,7 +483,14 @@ test.describe("Three-Man Weave", () => {
       // Two things prove motion here. A moving reel renders a STRIP of rows,
       // which a static banner has no reason to contain; and the strip's own
       // transform is not the identity while it travels.
-      const strip = page.locator('[data-testid="tmw-roll-franchise"].spin-reel-strip');
+      // `-reel`, not the axis: Three-Man Weave's roll now renders through the
+      // SHARED ceremony (`PeakV2SpinReveal`, the same one 82-0 uses), where
+      // `tmw-roll-franchise` is the axis — label, value window and action
+      // slot — and the moving strip inside it is `tmw-roll-franchise-reel`.
+      // Pointed at the strip so these motion assertions keep RUNNING; left on
+      // the axis they would have found nothing and silently skipped, which is
+      // worse than failing.
+      const strip = page.locator('[data-testid="tmw-roll-franchise-reel"].spin-reel-strip');
       if ((await strip.count()) > 0) {
         await expect(strip).toHaveAttribute("data-stage", /armed|spinning|settling/);
         expect(

@@ -180,24 +180,24 @@ export default function PeakV2TMWCourts({
     state.current_roll && rollRevealed
       ? `${state.current_roll.franchise_display_name} · ${state.current_roll.decade}`
       : null;
-  // Final closure pass, task §1: reserved so the "On the clock" span's own
-  // presence/absence can never change whether this row wraps to a second
-  // line at narrow widths -- a real, measured outer-shell height change at
-  // 390px between the seatless reveal window (`onClockName === null`) and
-  // the instant a real turn starts. `state.current_seat` is the server's own
-  // "who gets the pick turn next" field, valid during the seatless reveal
-  // too (see `ThreeManWeaveGame.tsx`'s `upNextSeat`, which reads the exact
-  // same field for its handoff line) -- so the reserved text is the SAME
-  // real name that will display once the turn actually starts, not a
-  // guessed placeholder of a different length, which is what makes the
-  // reservation exact rather than approximate.
-  const upcomingSeatIndex = currentTurnSeatIndex ?? state.current_seat;
-  const reservedOnClockName =
-    upcomingSeatIndex === null
-      ? ""
-      : upcomingSeatIndex === yourSeatIndex
-        ? "You"
-        : (seats.find((s) => s.seat_index === upcomingSeatIndex)?.display_name ?? `Seat ${upcomingSeatIndex + 1}`);
+  // THE EDGE BAND ONLY EARNS ITS LINE WHEN IT DIFFERENTIATES.
+  //
+  // `edgeBandFor` is real server data — a seat's competitive standing band —
+  // but for most of a draft every seat is in the SAME band, and three courts
+  // each captioned "Level with the field" is one fact stated three times
+  // that distinguishes nobody (design-review/14, /15). It is suppressed
+  // while the bands agree and appears the moment they diverge, which is the
+  // only moment it changes a decision. Nothing is invented and nothing is
+  // permanently hidden.
+  const seatBands = state.rosters.map((r) => edgeBandFor(state, r.seat_index));
+  const distinctBands = new Set(seatBands.filter(Boolean));
+  const bandsDiffer = distinctBands.size > 1;
+
+  // The reserved-width placeholder that used to sit here is gone with the
+  // line it protected: the roll line no longer restates "On the clock — X"
+  // (the instrument strip beside the countdown says it, and the active court
+  // says it on its own header), so there is no longer a span whose presence
+  // or absence could change where that row wraps.
 
   return (
     <PeakV2Shell width="live-wide">
@@ -290,28 +290,19 @@ export default function PeakV2TMWCourts({
           }
         />
 
-        {/* ONE truthful line: what was rolled, and who is picking right now.
-            Stays in this exact spot across every phase -- never jumps. The
-            "On the clock" span is always mounted (task §1): reserved with
-            `reservedOnClockName` (the SAME real name it will show once
-            visible, not a guessed placeholder) and only `visibility`-
-            toggled, so this row's own wrap point never depends on whether a
-            seat is actually on the clock yet. */}
-        {rollLine || onClockName ? (
+        {/* WHAT WAS ROLLED. Nothing else — this line used to end with
+            "On the clock — Glue Guy", which the instrument strip directly
+            above already says beside the actual countdown, and which the
+            active court itself says a third time on its own header. One
+            fact, one home: WHOSE pick it is belongs next to the clock that
+            is running on it. The line keeps its exact position across every
+            phase so it never jumps. */}
+        {rollLine ? (
           <p
-            className="mt-2 flex flex-wrap items-center gap-x-2"
-            style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem" }}
+            className="mt-2"
+            style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}
           >
-            {rollLine ? <span style={{ color: "var(--v2-text-secondary)" }}>{rollLine}</span> : null}
-            <span
-              style={{
-                fontWeight: 700,
-                color: "var(--v2-color-accent)",
-                visibility: onClockName ? "visible" : "hidden",
-              }}
-            >
-              On the clock — {onClockName || reservedOnClockName}
-            </span>
+            {rollLine}
           </p>
         ) : null}
 
@@ -418,7 +409,7 @@ export default function PeakV2TMWCourts({
                 seat={seats.find((s) => s.seat_index === roster.seat_index)}
                 isYou={roster.seat_index === yourSeatIndex}
                 isOnTurn={isOnTurn}
-                edge={edgeBandFor(state, roster.seat_index)}
+                edge={bandsDiffer ? edgeBandFor(state, roster.seat_index) : null}
                 lit={isOnTurn}
                 interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
                 rearrangeEligible={canRearrange && roster.seat_index === yourSeatIndex}
@@ -441,7 +432,7 @@ export default function PeakV2TMWCourts({
                 seat={seats.find((s) => s.seat_index === roster.seat_index)}
                 isYou={roster.seat_index === yourSeatIndex}
                 isOnTurn={!state.is_complete && currentTurnSeatIndex === roster.seat_index}
-                edge={edgeBandFor(state, roster.seat_index)}
+                edge={bandsDiffer ? edgeBandFor(state, roster.seat_index) : null}
                 lit
                 interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
                 rearrangeEligible={canRearrange && roster.seat_index === yourSeatIndex}

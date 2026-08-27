@@ -102,9 +102,15 @@
   will-change: transform;
 }
 
+/* `display: block` with a matching line-height, NOT flex.
+   `text-overflow: ellipsis` has no effect on a flex container, so a value
+   longer than its window was hard-clipped mid-word — "Minnesota
+   Timberwolves" rendered as "Minnesota Timberwolve" with no ellipsis to say
+   it had been cut. A block box with `line-height` equal to the row height
+   centres the single line identically AND lets the ellipsis work. */
 [data-ui-version="v2"] .v2-spin-axis-value .spin-reel-row {
-  display: flex;
-  align-items: center;
+  display: block;
+  line-height: 30px;
   height: 30px;
   font-family: var(--v2-font-ui);
   font-size: 1.0625rem;
@@ -118,8 +124,8 @@
 /* The landed value. UI role, not display serif: this is a team name the
    player reads and acts on, not a cinematic result. */
 [data-ui-version="v2"] .v2-spin-axis-value .tmw-reel-value {
-  display: flex;
-  align-items: center;
+  display: block;
+  line-height: 30px;
   height: 30px;
   font-family: var(--v2-font-ui);
   font-size: 1.0625rem;
@@ -282,4 +288,34 @@
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--v2-text-muted) !important;
+}
+
+/* The armed (pre-spin) value slot: the reel's exact window, empty. Holds the
+   geometry so mounting the real reel at SPINNING moves nothing, and shows a
+   faint idle rule so the axis does not read as broken while it waits. */
+[data-ui-version="v2"] .v2-spin-axis-armed {
+  display: block;
+  height: 30px;
+  position: relative;
+}
+
+[data-ui-version="v2"] .v2-spin-axis-armed::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 2.25rem;
+  height: 1px;
+  background: var(--v2-border);
+}
+
+/* THE CEREMONY CARD, SIZED FOR TWO AXES.
+   `.tmw-ceremony` (three-man-weave.css) caps at 38rem — right when it held
+   two centred display strings, too narrow now that it holds the shared
+   two-axis shell: at that width the franchise axis could not fit the longest
+   real names in the pool ("Portland Trail Blazers", "Oklahoma City Thunder",
+   "Minnesota Timberwolves") without ellipsising a third of the league. V2
+   only; legacy's own ceremony keeps its width. */
+[data-ui-version="v2"] .tmw-ceremony {
+  width: min(46rem, 100%);
 }

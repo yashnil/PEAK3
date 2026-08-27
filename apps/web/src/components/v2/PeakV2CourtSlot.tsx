@@ -175,9 +175,17 @@ export default function PeakV2CourtSlot({
         {position}
       </span>
 
+      {/* `min-w-0` on the identity and `shrink-0` on the value: a flex item
+          will not shrink below its own content width unless told it may, so
+          in a narrow column a long name pushed the PEAK3 score straight out
+          past the tile's right edge. Measured on the Three-Man Weave RESULT,
+          where three courts share one row and each slot is ~160px wide — the
+          third column's scores were being clipped off the composition
+          entirely. The name wraps instead, which the tile has room for. */}
       <div className="flex flex-1 items-center justify-between gap-3">
         {player ? (
           <PeakV2PlayerIdentity
+            className="min-w-0"
             name={player.name}
             meta={showDetail ? player.meta : undefined}
             metaTestId={showDetail ? metaTestId : undefined}
@@ -196,7 +204,9 @@ export default function PeakV2CourtSlot({
           </span>
         )}
         {showDetail && value !== undefined ? (
-          <PeakV2Score value={value} label={valueLabel} size="sm" />
+          <span className="shrink-0">
+            <PeakV2Score value={value} label={valueLabel} size="sm" />
+          </span>
         ) : null}
       </div>
 

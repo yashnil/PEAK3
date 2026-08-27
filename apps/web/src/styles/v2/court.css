@@ -470,10 +470,16 @@
    would put it somewhere less predictable) or shortening its life (which
    would take away undo time the server actually grants).
    ================================================================ */
-@media (max-width: 767px) {
-  [data-ui-version="v2"] [data-testid="court-builder"] {
-    padding-bottom: 5.5rem;
-  }
+/* EVERY viewport, not just mobile. `ActionToast` is `position: fixed;
+   bottom: 1rem`, centred, so it lands over whatever is at the bottom of the
+   page — on a phone that was the "Lock roster & simulate" button, and on
+   desktop it was the court's own bottom row of slots, covering the "Move
+   here" destinations mid-drag. Reserving the toast's height under the
+   builder means the two can never occupy the same place, without moving the
+   toast somewhere less predictable or shortening the undo window the server
+   actually grants. */
+[data-ui-version="v2"] [data-testid="court-builder"] {
+  padding-bottom: 5.5rem;
 }
 
 /* ================================================================
@@ -576,4 +582,375 @@
 [data-ui-version="v2"] [data-testid^="tmw-seat-court-"] > div:last-child {
   position: relative;
   z-index: 1;
+}
+
+/* ================================================================
+   THREE-MAN WEAVE — LIVE GAME FEEL
+   ================================================================
+   The mode said LIVE and ON THE CLOCK and then sat perfectly still
+   (design-review/14, /15). Everything below is driven by REAL server state —
+   whose turn it is, whether that seat is a bot, and a pick actually landing
+   in the snapshot. Nothing here invents a delay, a progress value, or a
+   candidate the bot is "looking at".
+
+   Every animation earns its place under the V2 motion contract: it either
+   communicates that a real turn is in progress, confirms a real state
+   change, or carries continuity between two states. Each one is off under
+   `prefers-reduced-motion`, where the STATE still reads (colour, weight and
+   copy all still differ) without the movement.
+   ================================================================ */
+
+/* ---- 1. BOT DELIBERATION ----
+   The server holds a real, seeded 4-10s think window measured from the
+   turn's stored `opened_at`, so this describes something that is genuinely
+   happening. An animated ellipsis and nothing else: no fabricated progress,
+   no pretending to know which player is under consideration. */
+[data-ui-version="v2"] .tmw-thinking::after {
+  content: "";
+  animation: tmw-ellipsis 1.4s steps(1, end) infinite;
+}
+
+@keyframes tmw-ellipsis {
+  0%   { content: "\00a0\00a0\00a0"; }
+  25%  { content: ".\00a0\00a0"; }
+  50%  { content: "..\00a0"; }
+  75%  { content: "..."; }
+  100% { content: "\00a0\00a0\00a0"; }
+}
+
+/* ---- 2. THE ACTIVE COURT BREATHES ----
+   A very slow, very low-amplitude ambient on the lit court's own border, so
+   "a turn is running here" is legible from across the page without the
+   surface becoming neon. Border only — the floor, the tiles and the text are
+   untouched, so nothing a player is reading moves. */
+[data-ui-version="v2"] .tmw-court-active[data-v2-court-presentation="lit"] {
+  animation: tmw-court-breathe 2.6s ease-in-out infinite;
+}
+
+@keyframes tmw-court-breathe {
+  0%, 100% { border-color: color-mix(in srgb, var(--v2-color-accent) 30%, transparent); }
+  50%      { border-color: color-mix(in srgb, var(--v2-color-accent) 62%, transparent); }
+}
+
+/* ---- 3. PICK LOCK ----
+   A drafted player ARRIVES, LOCKS, SETTLES. 240ms, inside the contract's
+   150-300ms card-lock band. Triggered by an empty->filled diff of the real
+   roster snapshot, never by a timer, and nothing waits on it: the next
+   server action is not gated behind this. */
+[data-ui-version="v2"] [data-locking="true"] > * {
+  animation: tmw-pick-lock 240ms var(--v2-ease-emphasized, ease-out) 1;
+}
+
+@keyframes tmw-pick-lock {
+  0%   { transform: translateY(-5px) scale(0.985); opacity: 0.55; }
+  60%  { transform: translateY(0) scale(1.012); opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* The same beat on the tile's edge, so the lock reads as the slot CLOSING
+   around the player rather than only as the card moving. */
+[data-ui-version="v2"] [data-locking="true"] [data-testid="peak-v2-court-slot"] {
+  animation: tmw-pick-lock-edge 240ms var(--v2-ease-out, ease-out) 1;
+}
+
+@keyframes tmw-pick-lock-edge {
+  0%   { border-color: var(--v2-color-accent); }
+  100% { border-color: inherit; }
+}
+
+/* ---- 4. ROUND TRANSITION ----
+   The ceremony scrim arrives instead of appearing: a short fade so the draft
+   hands over to the roll rather than one set of text being swapped for
+   another. The card inside rises on the same beat, matching the V2 reveal
+   entrance used elsewhere. */
+[data-ui-version="v2"] [data-testid="tmw-ceremony-scrim"] {
+  animation: tmw-scrim-in var(--v2-dur-transition, 210ms) var(--v2-ease-out, ease-out) 1;
+}
+
+@keyframes tmw-scrim-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+[data-ui-version="v2"] [data-testid="tmw-ceremony-scrim"] .tmw-ceremony {
+  animation: v2-reveal-rise var(--v2-dur-reveal, 380ms) var(--v2-ease-out, ease-out) 1;
+}
+
+/* ---- REDUCED MOTION ----
+   Every one of the above is decoration over a state that is ALSO carried by
+   colour, weight and copy ("Thinking", "Your pick", a filled tile). With
+   motion off the game still reads; it simply stops moving. */
+@media (prefers-reduced-motion: reduce) {
+  [data-ui-version="v2"] .tmw-thinking::after,
+  [data-ui-version="v2"] .tmw-court-active[data-v2-court-presentation="lit"],
+  [data-ui-version="v2"] [data-locking="true"] > *,
+  [data-ui-version="v2"] [data-locking="true"] [data-testid="peak-v2-court-slot"],
+  [data-ui-version="v2"] [data-testid="tmw-ceremony-scrim"],
+  [data-ui-version="v2"] [data-testid="tmw-ceremony-scrim"] .tmw-ceremony {
+    animation: none;
+  }
+  /* The ellipsis is the only one whose STATE would be lost without motion,
+     so it resolves to its final frame rather than to nothing. */
+  [data-ui-version="v2"] .tmw-thinking::after {
+    content: "...";
+  }
+}
+
+/* ================================================================
+   THREE-MAN WEAVE — THE ENDING
+   ================================================================
+   Three competitors, abreast, winner first, each on the court the draft was
+   played on. What this replaces: three stacked `<ul>`s of six hairline rows
+   — roughly three thousand pixels of transaction ledger where the conclusion
+   of a competitive game should be (design-review/17).
+
+   Prominence is earned twice and independently: the WINNER's column is lit
+   and gold, and the VIEWER's column is outlined and labelled, so a player who
+   came third can still find themselves at a glance. A winner-only treatment
+   leaves everyone else anonymous in their own result.
+   ================================================================ */
+
+[data-ui-version="v2"] .tmw-result-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--v2-space-4);
+  margin-top: var(--v2-space-4);
+  align-items: start;
+}
+
+[data-ui-version="v2"] .tmw-result-seat {
+  min-width: 0;
+  padding: var(--v2-space-4);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  background: var(--v2-bg-plane);
+}
+
+/* The winner: lit edge and a warm ground, matching the "lit court" language
+   the live draft uses for the seat on the clock. */
+[data-ui-version="v2"] .tmw-result-seat[data-winner="true"] {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 45%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--v2-color-accent) 7%, var(--v2-bg-plane)) 0%,
+      var(--v2-bg-plane) 60%
+    );
+}
+
+/* The viewer, win or lose. A dashed outline reads as "this one is mine"
+   without competing with the winner's solid, filled treatment — and the
+   difference survives without colour vision because the border STYLE
+   differs, not only its hue. */
+[data-ui-version="v2"] .tmw-result-seat[data-yours="true"] {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--v2-color-accent) 55%, transparent);
+}
+
+[data-ui-version="v2"] .tmw-result-seat-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--v2-space-2);
+  min-height: 2.5rem;
+}
+
+[data-ui-version="v2"] .tmw-result-seat-place {
+  font-family: var(--v2-font-ui);
+  font-weight: 700;
+  font-size: 0.9375rem;
+  line-height: 1.3;
+}
+
+[data-ui-version="v2"] .tmw-result-seat-you {
+  display: inline-block;
+  margin-left: 0.4rem;
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-inverse);
+  background: var(--v2-color-accent);
+  border-radius: 999px;
+  padding: 0.1rem 0.4rem;
+  vertical-align: middle;
+}
+
+[data-ui-version="v2"] .tmw-result-seat-note {
+  margin-left: 0.4rem;
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary);
+}
+
+/* Two columns, then one — still winner-first, because the grid follows the
+   podium order it was given. */
+@media (max-width: 1100px) {
+  [data-ui-version="v2"] .tmw-result-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  [data-ui-version="v2"] .tmw-result-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ================================================================
+   82-0 RESULT — RUN ANALYSIS
+   ================================================================
+   Was: a best/weakness row, a paragraph, a rule, and then the lineup score
+   in its own block — four stacked strips of small text where the receipt's
+   actual findings live. Now one stat row: the score that ranks the run at
+   result scale, then the two picks that moved it most and the build, each
+   with the real server number that makes the claim checkable.
+
+   Editorial columns and dividers, not cards: no borders, no fills, no boxes
+   — the hierarchy is carried by type size and one hairline between columns,
+   which is the same grammar the hero above it already uses.
+   ================================================================ */
+
+[data-ui-version="v2"] .v2-run-analysis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--v2-space-6);
+  margin-top: var(--v2-space-4);
+  align-items: start;
+}
+
+[data-ui-version="v2"] .v2-run-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  padding-left: var(--v2-space-5);
+  border-left: 1px solid var(--v2-border-subtle);
+}
+
+[data-ui-version="v2"] .v2-run-stat:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+[data-ui-version="v2"] .v2-run-stat-label {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+
+/* INSTRUMENTATION at result scale — this is the number a player compares
+   across runs, so it is the largest thing in the row. */
+[data-ui-version="v2"] .v2-run-stat-value {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-variant-numeric: tabular-nums;
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--v2-color-accent);
+}
+
+[data-ui-version="v2"] .v2-run-stat-value--muted {
+  font-family: var(--v2-font-display);
+  font-size: 1.75rem;
+  font-weight: 400;
+  color: var(--v2-text-muted);
+}
+
+/* UI role: these are player names and build phrases, not instrumentation. */
+[data-ui-version="v2"] .v2-run-stat-name {
+  font-family: var(--v2-font-ui);
+  font-weight: 700;
+  font-size: 1.0625rem;
+  line-height: 1.25;
+  color: var(--v2-text-primary);
+}
+
+[data-ui-version="v2"] .v2-run-stat-sub {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--v2-text-secondary);
+}
+
+[data-ui-version="v2"] .v2-run-stat-note {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--v2-text-secondary);
+  max-width: 42ch;
+}
+
+/* NO RULE ABOVE THIS. A `border-top` on an element capped at 68ch drew a
+   hairline that stopped two-thirds of the way across the page — a divider
+   that divides part of a row reads as a rendering fault, not as structure.
+   Spacing separates it instead, which is the grammar this pass prefers
+   anyway. */
+[data-ui-version="v2"] .v2-run-analysis-detail {
+  margin-top: var(--v2-space-6);
+  font-family: var(--v2-font-ui);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--v2-text-secondary);
+  max-width: 68ch;
+}
+
+@media (max-width: 900px) {
+  [data-ui-version="v2"] .v2-run-analysis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--v2-space-5);
+  }
+  [data-ui-version="v2"] .v2-run-stat:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  [data-ui-version="v2"] .v2-run-analysis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  [data-ui-version="v2"] .v2-run-stat {
+    padding-left: 0;
+    border-left: 0;
+    padding-top: var(--v2-space-4);
+    border-top: 1px solid var(--v2-border-subtle);
+  }
+  [data-ui-version="v2"] .v2-run-stat:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+}
+
+/* WRAPPING IS AT WORD BOUNDARIES, NOT ANYWHERE.
+   `overflow-wrap: anywhere` stopped the clipping but broke names mid-word —
+   "Shaquill / e O'Neal", "Deandr / e Ayton", "Bojan Bogdan / ovic" — which
+   is destructive truncation wearing a different hat. `break-word` only
+   splits a word when that single word genuinely cannot fit, so a name breaks
+   between its words and stays readable. */
+[data-ui-version="v2"] [data-testid="peak-v2-court-slot"] {
+  overflow-wrap: break-word;
+}
+
+/* THE RESULT'S TILES STACK THEIR SCORE INSTEAD OF SITTING IT ALONGSIDE.
+   Three courts share one row on the result, so a slot is ~150px wide. With
+   the PEAK3 value beside the name, the name was left roughly 74px — which is
+   why every second name wrapped, and some broke mid-word. Stacking the value
+   under the identity gives the name the tile's full width and costs a few
+   pixels of height the result has to spare. The LIVE draft, where one court
+   has the whole width, keeps the side-by-side row. */
+[data-ui-version="v2"] .tmw-result-seat [data-testid="peak-v2-court-slot"] > div:last-child {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
 }

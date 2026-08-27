@@ -43,8 +43,8 @@
  */
 
 import type { CSSProperties } from "react";
-import type { ArenaResultView, TmwPick, TmwRoster, TmwSlotType } from "@/types/three-man-weave";
-import { TMW_SLOT_LABELS, TMW_SLOT_TYPES } from "@/types/three-man-weave";
+import type { ArenaResultView, TmwRoster } from "@/types/three-man-weave";
+import { TMW_SLOT_TYPES } from "@/types/three-man-weave";
 import {
   RANKING_BASIS_LABEL,
   ordinal,
@@ -54,18 +54,17 @@ import {
   resultBand,
   resultLine,
   scoreSourceNote,
-  slotAbbrev,
 } from "@/lib/three-man-weave-state";
 import PeakV2Shell from "../PeakV2Shell";
 import PeakV2CinematicStage from "../PeakV2CinematicStage";
 import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
 import PeakV2Rule from "../PeakV2Rule";
 import PeakV2Score from "../PeakV2Score";
-import PeakV2PlayerIdentity from "../PeakV2PlayerIdentity";
 import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
 import PeakV2SecondaryAction from "../PeakV2SecondaryAction";
 import type { V2Tone } from "../v2-tone";
 import Celebration from "@/components/shared/Celebration";
+import PeakV2TMWCourt from "./PeakV2TMWCourt";
 
 const LABEL_STYLE: CSSProperties = {
   fontFamily: "var(--v2-font-mono)",
@@ -93,56 +92,21 @@ const mutedTextStyle: CSSProperties = {
 type TmwPodiumRow = ReturnType<typeof podium>[number];
 
 /**
- * One drafted-or-open slot inside a seat's final roster. A read-only sibling
- * of `PeakV2ShowdownResult.tsx`'s `RosterRow` — same hairline-row grammar,
- * same `PeakV2PlayerIdentity`, adapted to this mode's slot/score shape
- * (`scoring_card.prime_score`, not a price).
- */
-function TmwRosterRow({ slot, pick }: { slot: TmwSlotType; pick: TmwPick | null }) {
-  return (
-    <li
-      className="flex items-center gap-3 py-2"
-      style={{ borderBottom: "1px solid var(--v2-border-subtle)" }}
-      data-testid={`tmw-result-slot-${slot}`}
-    >
-      <span style={{ ...LABEL_STYLE, width: 30, flexShrink: 0 }}>
-        <span aria-hidden="true">{slotAbbrev(slot)}</span>
-        <span className="sr-only">{TMW_SLOT_LABELS[slot]}</span>
-      </span>
-      <div className="min-w-0 flex-1">
-        {pick ? (
-          <PeakV2PlayerIdentity
-            name={pick.player_name}
-            meta={pick.scoring_card ? `${pick.scoring_card.season} ${pick.scoring_card.team_name}` : "—"}
-            size="sm"
-          />
-        ) : (
-          <span style={mutedTextStyle}>Not filled</span>
-        )}
-      </div>
-      <span
-        className="shrink-0 text-right"
-        style={{
-          fontFamily: "var(--v2-font-mono)",
-          fontVariantNumeric: "tabular-nums",
-          fontSize: "0.8125rem",
-          fontWeight: 700,
-          color: "var(--v2-text-primary)",
-          minWidth: 40,
-        }}
-      >
-        {pick?.scoring_card ? pick.scoring_card.prime_score.toFixed(1) : "—"}
-      </span>
-    </li>
-  );
-}
-
-/**
- * One seat's full result: placement + name + ranking score, then its
- * complete six-slot roster. Hairline-divided from its siblings by the
- * caller (`PeakV2Rule` between entries) rather than a bordered card — the
- * ordinal word, the rank numeral AND the gold tone (first place only) are
- * all present together, so placement is never carried by colour alone.
+ * One competitor's ending: identity, placement, lineup score, and their
+ * finished roster ON THE COMPACT COURT — the same court the draft was played
+ * on, the same floor, the same tiles, the same typography.
+ *
+ * WHAT THIS REPLACES. A flat `<ul>` of six hairline-divided rows per seat,
+ * three of them stacked, which made the conclusion of a competitive game read
+ * as three transaction ledgers roughly three thousand pixels tall
+ * (design-review/17). The data was all there; none of it looked like
+ * basketball.
+ *
+ * PROMINENCE IS EARNED TWICE, INDEPENDENTLY. The WINNER's court is lit and
+ * their ordinal is gold. The VIEWER's court is outlined and explicitly
+ * marked "YOU" whether they won or lost — so a player who came third can
+ * still find themselves instantly, which a winner-only treatment does not
+ * give them.
  */
 function SeatResultBlock({
   row,
@@ -159,26 +123,23 @@ function SeatResultBlock({
       data-testid={`tmw-result-${row.result.seat_index}`}
       data-placement={row.result.placement}
       data-is-you={isYou}
+      className="tmw-result-seat"
+      data-winner={isFirst ? "true" : undefined}
+      data-yours={isYou ? "true" : undefined}
     >
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        {/* ONE ORDINAL PER ROW, same rule as the hero. This printed the
-            numeral "1" immediately before "1st · The Closer"
-            (design-review/17). The ordinal word carries placement on its
-            own — it does not need colour, and it does not need a numeral
-            beside it repeating it. */}
-        <div className="flex items-baseline gap-2">
+      <div className="tmw-result-seat-head">
+        <div className="min-w-0">
+          {/* ONE ORDINAL PER SEAT, same rule as the hero: the ordinal WORD
+              carries placement, so it needs neither a numeral repeating it
+              nor colour to be readable. */}
           <span
-            style={{
-              fontFamily: "var(--v2-font-ui)",
-              fontWeight: 700,
-              fontSize: "1rem",
-              color: isFirst ? "var(--v2-color-accent)" : "var(--v2-text-primary)",
-            }}
+            className="tmw-result-seat-place"
+            style={{ color: isFirst ? "var(--v2-color-accent)" : "var(--v2-text-primary)" }}
           >
             {ordinal(row.result.placement)} · {row.result.display_name}
-            {isYou ? <span style={{ color: "var(--v2-text-secondary)" }}> · you</span> : null}
-            {row.tied ? <span style={{ color: "var(--v2-text-secondary)" }}> · drawn</span> : null}
           </span>
+          {isYou ? <span className="tmw-result-seat-you">You</span> : null}
+          {row.tied ? <span className="tmw-result-seat-note">drawn</span> : null}
         </div>
         {row.score.kind === "scored" ? (
           <PeakV2Score
@@ -195,11 +156,22 @@ function SeatResultBlock({
       </div>
 
       {roster ? (
-        <ul className="mt-3 flex flex-col" data-testid={`tmw-result-${row.result.seat_index}-roster`}>
-          {TMW_SLOT_TYPES.map((slot) => (
-            <TmwRosterRow key={slot} slot={slot} pick={roster.slots[slot] ?? null} />
-          ))}
-        </ul>
+        <div className="mt-3" data-testid={`tmw-result-${row.result.seat_index}-roster`}>
+          {/* The draft's own court, finished and inert. `interactive={false}`
+              and `isOnTurn={false}`: a result is not a turn. Every tile still
+              carries the exact season, the team, the positions and the PEAK3
+              value — bench included, because in this mode the bench counts
+              equally in the score. */}
+          <PeakV2TMWCourt
+            roster={roster}
+            isYou={isYou}
+            isOnTurn={false}
+            edge={null}
+            lit={isFirst || isYou}
+            interactive={false}
+            hideHeader
+          />
+        </div>
       ) : null}
     </div>
   );
@@ -381,19 +353,24 @@ export default function PeakV2TMWResult({
 
         <PeakV2Rule spacing="lg" />
 
-        {/* LIVE: all three complete rosters, hairline-divided — never three
-            bordered cards side by side. */}
+        {/* THREE COMPETITORS, SIDE BY SIDE — winner first, on the court the
+            draft was played on. Stacked vertically these were three ~1000px
+            ledgers; abreast they are one comparable composition that fits a
+            desktop viewport, and they stack (still winner-first) below the
+            breakpoint where three columns would stop being readable. */}
         <div>
           <span style={SECTION_HEAD_STYLE}>Final rosters</span>
-          <div className="mt-4 flex flex-col" data-testid="tmw-result-rows">
-            {rows.map((row, index) => {
+          <div className="tmw-result-grid" data-testid="tmw-result-rows">
+            {rows.map((row) => {
               const roster = rosters.find((entry) => entry.seat_index === row.result.seat_index);
               const isYou = row.result.seat_index === yourSeatIndex;
               return (
-                <div key={row.result.seat_index}>
-                  {index > 0 ? <PeakV2Rule spacing="md" /> : null}
-                  <SeatResultBlock row={row} roster={roster} isYou={isYou} />
-                </div>
+                <SeatResultBlock
+                  key={row.result.seat_index}
+                  row={row}
+                  roster={roster}
+                  isYou={isYou}
+                />
               );
             })}
           </div>

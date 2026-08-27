@@ -212,7 +212,12 @@ describe("PeakV2TMWCourts — current drafter is unmistakable (task §11)", () =
     );
     expect(screen.getByText(/Denver Nuggets/)).toBeInTheDocument();
     expect(screen.getByText(/2020s/)).toBeInTheDocument();
-    expect(screen.getByText(/On the clock — Rim Runner/)).toBeInTheDocument();
+    // WHOSE PICK IT IS now lives beside the countdown in the instrument
+    // strip, and on the active court's own header — not appended to the roll
+    // line as well. It used to be said in all three places at once; the rule
+    // this test protects ("the current drafter is unmistakable") is
+    // unchanged, it just has one home instead of three.
+    expect(screen.getByTestId("tmw-on-the-clock")).toHaveTextContent(/Rim Runner/);
   });
 
   it("says 'You' when it is the viewer's own turn, not their seat's display name", () => {
@@ -227,7 +232,7 @@ describe("PeakV2TMWCourts — current drafter is unmistakable (task §11)", () =
         totalPicks={18}
       />,
     );
-    expect(screen.getByText(/On the clock — You/)).toBeInTheDocument();
+    expect(screen.getByTestId("tmw-on-the-clock")).toHaveTextContent(/Your pick/i);
   });
 
   it("shows no VISIBLE on-the-clock line once the match is complete", () => {
@@ -242,15 +247,12 @@ describe("PeakV2TMWCourts — current drafter is unmistakable (task §11)", () =
         totalPicks={18}
       />,
     );
-    // Final closure pass, task §1: the span is now always mounted (reserved,
-    // `visibility: hidden` when there is no seat to name) so this row's own
-    // wrap point never changes the outer shell's height depending on match
-    // state -- it is no longer absent from the DOM, only invisible. `visibility:
-    // hidden` removes it from the accessibility tree the same way `display:
-    // none` does, so nothing is announced or visually shown; that is what this
-    // now asserts, rather than DOM absence.
-    const el = screen.getByText(/On the clock/);
-    expect(el).toHaveStyle({ visibility: "hidden" });
+    // A finished match has nobody on the clock, so the instrument strip has
+    // nothing to name and renders no on-the-clock element at all. (The
+    // reserved-width placeholder this used to assert on belonged to the roll
+    // line's duplicate copy, which is gone — with it, so is the wrap-point
+    // hazard it existed to neutralise.)
+    expect(screen.queryByTestId("tmw-on-the-clock")).toBeNull();
   });
 });
 
@@ -561,5 +563,62 @@ describe("PeakV2TMWCourts — the bench shows what it is worth", () => {
     renderWithBench();
     expect(screen.queryByText("bench_1")).toBeNull();
     expect(screen.getAllByText(/^Bench$/i).length).toBeGreaterThan(0);
+  });
+});
+
+describe("PeakV2TMWCourts — the live turn is legible, from real state only", () => {
+  const BOT_SEATS = [
+    { seat_index: 0, display_name: "You", is_bot: false },
+    { seat_index: 1, display_name: "Rim Runner", is_bot: true },
+    { seat_index: 2, display_name: "The Closer", is_bot: true },
+  ] as unknown as typeof SEATS;
+
+  function renderCourts(currentTurnSeatIndex: number | null) {
+    render(
+      <PeakV2TMWCourts
+        state={baseTmwState()}
+        seats={BOT_SEATS}
+        yourSeatIndex={0}
+        currentTurnSeatIndex={currentTurnSeatIndex}
+        deadlineAt={null}
+        turnDeadlineAt={deadlineFromSeconds(31)}
+        rollRevealed
+        picksMade={0}
+        totalPicks={18}
+      />,
+    );
+  }
+
+  it("a BOT on the clock is shown as deliberating, on its own court", () => {
+    renderCourts(1);
+    // The seat the SERVER says is on the clock — not a guess, not a timer.
+    const thinking = screen.getAllByTestId("tmw-thinking");
+    expect(thinking.length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId("tmw-seat-status-1")[0]).toHaveTextContent(/Thinking/i);
+  });
+
+  it("only the seat actually on the clock deliberates", () => {
+    renderCourts(1);
+    expect(screen.getAllByTestId("tmw-seat-status-2")[0]).not.toHaveTextContent(/Thinking/i);
+    expect(screen.getAllByTestId("tmw-seat-status-0")[0]).not.toHaveTextContent(/Thinking/i);
+  });
+
+  it("the HUMAN on the clock is told it is their pick, never 'Thinking'", () => {
+    renderCourts(0);
+    expect(screen.getAllByTestId("tmw-seat-status-0")[0]).toHaveTextContent(/Your pick/i);
+    expect(screen.queryAllByTestId("tmw-thinking")).toHaveLength(0);
+  });
+
+  it("nobody deliberates when no seat owns the turn", () => {
+    renderCourts(null);
+    expect(screen.queryAllByTestId("tmw-thinking")).toHaveLength(0);
+  });
+
+  it("does not caption all three courts with the same standing band", () => {
+    // `edgeBandFor` is real data, but for most of a draft every seat shares a
+    // band and three courts each reading "Level with the field" distinguishes
+    // nobody. Suppressed while the bands agree.
+    renderCourts(1);
+    expect(screen.queryAllByText(/Level with the field/i)).toHaveLength(0);
   });
 });
