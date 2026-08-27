@@ -1583,12 +1583,33 @@ export default function RunTheTableGame({
         ) : null
       }
       mobileTray={
-        <MobileTray
-          state={state}
-          primaryLabel={mobilePrimaryLabel}
-          onPrimary={mobilePrimary}
-          primaryDisabled={busy}
-        />
+        // Root cause of a mobile hit-testing regression (Playwright's
+        // elementFromPoint at the boss-intro Skip button's own on-screen
+        // center resolved to `.rtt-mobile-tray`/its row div, not the
+        // button): `mobilePrimaryLabel`/`mobilePrimary` above are derived
+        // from `screen` alone, and `screenForStatus` maps `"boss_ready"` to
+        // `"boss_preview"` -- the SAME status the roster-pairing and
+        // pre-battle intro ceremonies (`showRosterReveal`/`showBossIntro`/
+        // `showBossReveal`) also run under, before the real Boss Preview
+        // briefing is ever shown. The tray was therefore rendering a real,
+        // tappable "Resolve" button for a screen that was not actually on
+        // screen yet, sitting in the same sticky bottom band as the
+        // ceremony's own Skip control. Those three states already get their
+        // own `v2Content`/`v2Layout` override just above (the ceremony is
+        // its own moment, not the briefing) -- suppressing the tray for the
+        // exact same three states removes the stray control (and the
+        // sticky band's own hitbox) rather than papering over the overlap
+        // with a z-index. `screen === "battle"` is untouched: it is a real,
+        // correctly-matched screen with its own legitimate "Continue"
+        // action, not a ceremony masking a different status.
+        showRosterReveal || showBossIntro || showBossReveal ? null : (
+          <MobileTray
+            state={state}
+            primaryLabel={mobilePrimaryLabel}
+            onPrimary={mobilePrimary}
+            primaryDisabled={busy}
+          />
+        )
       }
       errorBanner={
         error && (

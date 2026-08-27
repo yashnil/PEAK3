@@ -110,12 +110,12 @@ export default function PeakV2CourtChooser({
       label={`Round ${roundNumber} of ${totalRounds} — choose a player`}
       data-testid="selection-overlay"
       data-backdrop-testid="selection-overlay-scrim"
-      maxHeightVh={82}
-      // Mobile stays PeakV2DockedPanel's own default: a near-full-height
-      // bottom sheet (82vh, bottom-anchored) -- intentional at 390px, see
-      // the human-acceptance-testing note below. Desktop widths get a
-      // shorter, VERTICALLY CENTERED panel instead of a sheet crowding the
-      // viewport bottom (human acceptance testing, task §7/§Issue-1): a
+      maxHeightVh={96}
+      // Mobile stays PeakV2DockedPanel's own near-full-height bottom sheet
+      // (bottom-anchored) -- intentional at 390px, see the human-
+      // acceptance-testing note below. Desktop widths get a shorter,
+      // VERTICALLY CENTERED panel instead of a sheet crowding the viewport
+      // bottom (human acceptance testing, task §7/§Issue-1): a
       // bottom-anchored sheet at 82vh left only Dialog's own fixed 16px
       // inset between the panel and the true viewport bottom at both
       // 1440x900 and 1280x800 -- "crowding," not "breathing room," and not
@@ -124,7 +124,28 @@ export default function PeakV2CourtChooser({
       // scoped to this one caller's own class -- `PeakV2DockedPanel` itself
       // (its bottom-sheet default, its own contract, its own unit tests)
       // is untouched, so every OTHER docked-panel caller keeps the exact
-      // bottom-sheet behavior it already has.
+      // bottom-sheet behavior it already has, and this prop change is
+      // invisible above 768px.
+      //
+      // 82 -> 96 (mobile hit-testing fix): the fixed header zone below
+      // (round title + up to three wrapped respin/view-court pills +
+      // SpinStage's two-wheel grid) measures ~527px tall at a 390px CI
+      // viewport on a long roll -- real, verified `getBoundingClientRect`
+      // data, not an estimate. At 82vh (596px total, `PeakV2DockedPanel`'s
+      // `min(82vh, 100dvh-32px)`) that left the scrollable candidate body
+      // only 31-47px, with candidate rows rendered below the panel's own
+      // `overflow:hidden` bottom edge -- axe-clean, actionable per
+      // Playwright's own checks, but landing `elementFromPoint` on
+      // `selection-overlay`/`spin-stage` instead, and occasionally racing
+      // the scroll-into-view long enough to blow the 120s CI test budget.
+      // Raising the RESERVED PANEL BUDGET (not capping the header, which a
+      // reverted earlier version of this fix tried -- see the head zone's
+      // own comment for why that broke the roll-stage/chooser containment
+      // check instead) gives both zones real, non-overlapping room without
+      // touching either one's own sizing rule. 96vh is still bounded by
+      // `PeakV2DockedPanel`'s own `calc(100dvh - 32px)` term, so this can
+      // never exceed the sheet's existing hard ceiling -- it only claims
+      // more of the room already available under it.
       className="peak-v2-court-chooser-panel"
       // `SpinStage` below restarts its own reveal ceremony on every mount
       // (see its docstring, and legacy's identical `hidden`-not-unmounted
@@ -136,7 +157,14 @@ export default function PeakV2CourtChooser({
           scroll away — task §6 requires all of these stay visible. Only
           the "choose a player" section below scrolls. `flexShrink: 0`
           keeps this zone's own height stable regardless of the scrollable
-          body's content. */}
+          body's content. See `maxHeightVh` on `PeakV2DockedPanel` below for
+          how the body is guaranteed real room WITHOUT capping this zone's
+          own box -- capping it (an earlier version of this fix) let
+          `SpinStage`'s actual content run past this zone's own bottom edge
+          while the body's rect started right at that (now-too-small) edge,
+          which is precisely the overlap
+          "respin animation stays contained (Bug 4)" already exists to
+          catch, and did, in CI. */}
       <div data-testid="selection-overlay-head" style={{ flexShrink: 0 }}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-0.5">
