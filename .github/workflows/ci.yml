@@ -74,13 +74,26 @@ jobs:
     name: Detect changed scope
     runs-on: ubuntu-latest
     outputs:
+      model: ${{ steps.scope.outputs.model }}
+      api: ${{ steps.scope.outputs.api }}
       backend: ${{ steps.scope.outputs.backend }}
       frontend: ${{ steps.scope.outputs.frontend }}
       e2e: ${{ steps.scope.outputs.e2e }}
       supabase: ${{ steps.scope.outputs.supabase }}
       feature_projects: ${{ steps.scope.outputs.feature_projects }}
     steps:
+      # The ONLY thing this job needs from the repository is the classifier
+      # itself. A cone-mode sparse checkout of scripts/ci (plus the root files
+      # cone mode always includes) skips materialising ~500 apps/web files and
+      # the committed parquet caches into a working tree nothing here reads.
+      # No Node, no Python, no browsers -- see the note above about keeping
+      # this job cheap. ubuntu-latest is retained deliberately: checkout + gh +
+      # bash is guaranteed on it, and no cheaper GitHub-hosted Linux label is
+      # confidently establishable for this repository.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: scripts/ci
 
       - name: Classify changed paths
         id: scope
@@ -164,12 +177,34 @@ jobs:
       - name: Verify v3 metadata artifact exists
         run: test -f data/game/profiles/profile_metadata.v3.json || (echo "MISSING profile_metadata.v3.json" && exit 1)
 
+      # ── The two expensive steps are individually change-gated ───────────
+      #
+      # This job stays ONE runner (see the header); what changed is that its
+      # two costly steps no longer both run whenever either half of the job
+      # has work. Measured on run 33099926334: `Run model tests` = 34.0 min,
+      # `Run API unit tests` = 7.4 min, everything else in this job = 0.4 min
+      # of setup and four sub-minute steps.
+      #
+      # `pytest tests/` cannot be affected by an `apps/api/` change -- nothing
+      # under tests/ imports the API package -- so an API-only, Supabase-only
+      # or CI-script-only PR used to pay 34 minutes for a suite its diff could
+      # not break. scripts/ci/detect-changed-scope.sh's MODEL_PATTERN and
+      # API_PATTERN document exactly what routes into each; every model path
+      # also appears in API_PATTERN, because the dependency runs that way.
+      #
+      # NOT gated on push/workflow_dispatch: the leading `github.event_name !=
+      # 'pull_request'` keeps main and manual runs unconditionally complete,
+      # which is the whole point of main being the release safety net. The
+      # steps carry no status-check function, so the implicit `success()` still
+      # applies and a failure upstream still stops the job.
       - name: Run model tests
         # Same script `make test-model` runs. It re-checks the generated data
         # and refreshes the scored-cache mtime before pytest.
+        if: github.event_name != 'pull_request' || needs.detect-changes.outputs.model == 'true'
         run: scripts/ci/model-tests.sh
 
       - name: Run lineup model tests
+        if: github.event_name != 'pull_request' || needs.detect-changes.outputs.model == 'true'
         run: scripts/ci/lineup-tests.sh
 
       - name: Run API unit tests
@@ -177,8 +212,12 @@ jobs:
         # PEAK3_TEST_REPOSITORY_MODE=memory and deselects every
         # supabase_integration test rather than running-and-skipping it; those
         # run for real in supabase-integration-local below.
+        if: github.event_name != 'pull_request' || needs.detect-changes.outputs.api == 'true'
         run: scripts/ci/api-unit-tests.sh
 
+      # Sub-minute both, and each is the only check of its kind in the
+      # workflow. Left unconditional: gating them would save nothing and could
+      # only lose coverage.
       - name: Board generation smoke check (225 seeds x 3 modes)
         run: python scripts/check_board_generation.py 75
 
@@ -256,7 +295,11 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
-          cache-dependency-path: apps/api/requirements.txt
+          # Both files this job actually installs. Keyed on apps/api's alone,
+          # the cache did not invalidate when the root requirements.txt moved.
+          cache-dependency-path: |
+            requirements.txt
+            apps/api/requirements.txt
 
       - name: Install model + API dependencies
         run: |
