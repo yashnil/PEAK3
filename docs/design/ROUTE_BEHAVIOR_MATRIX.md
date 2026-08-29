@@ -155,9 +155,83 @@ All three: **no `PeakV2Shell`/`PeakV2*` imports**, plain `max-w-{lg,2xl} mx-auto
 - **Tests:** `auth-*.test.ts(x)` (callback, claim, complete, safe-next, session, token-cache, ui), e2e `auth.spec.ts`.
 - **Polish category:** intentionally quiet per CLAUDE.md's own design principles ("Auth/Settings surfaces — deliberately quieter, no need to theme aggressively") — light consistency pass only, do not "gamify."
 
-### `/players/[slug]`
-- **Renders:** bespoke server component, no V2 shell, uses `componentLabel`/`componentColor`/`componentTextColor` (the 6 component-color tokens from CLAUDE.md).
-- **Polish category:** route-family polish — a "player card" surface with real data-viz potential (component color bars) that's currently likely under-composed.
+### `/players/[slug]` — Batch 5 semantic inventory (2026-08-29, pre-implementation)
+
+**Renders:** `apps/web/src/app/(main)/players/[slug]/page.tsx` — an ASYNC SERVER
+COMPONENT (no `"use client"`, no interactivity at all). No V2 shell. No
+`loading.tsx`/`error.tsx` in the route folder. Data fetch is a raw
+`fetch()` in the page itself (not the existing typed `getPlayer()` client
+in `lib/api.ts` — a real but pre-existing inconsistency, left alone this
+batch since it's a data-fetch mechanism change, not presentation).
+
+**No Index/search surface exists.** `searchPlayers()` (`lib/api.ts`) and
+`PlayerSearchResponse` are defined but have **zero callers anywhere in the
+app** — dead code, not a hidden feature to restore. The only real entry
+point into this route is the home page's `NbaFactOfTheDay.tsx` widget
+(`href={`/players/${fact.player_slug}`}`) plus direct/shared URLs.
+`RankingsTable`'s row action opens an in-page analysis drawer
+(`RankingsAnalysis.tsx`), not this route — the two are unrelated surfaces
+that happen to both display PEAK3 component data; `RankingsAnalysis` is
+out of scope (belongs to `/rankings`, not touched this batch).
+
+**Semantic inventory (what exists today — nothing more):**
+- Not-found state: centered card, "Player not found", `No PEAK3 data for
+  "{slug}".`, link back to `/rankings`. **Currently conflates a true 404
+  with any other fetch failure** (`getPlayerData`'s catch-all returns
+  `null` either way) — a real accuracy gap for a page whose whole framing
+  is "authoritative reference," addressed this batch (distinguish 404 from
+  a genuine load failure) since it's a correctness fix, not a new feature.
+- Populated state: breadcrumb link to `/rankings`; header (`player_name`,
+  large display font; subtext "PEAK3 profile · N peak window(s)"); for
+  each duration in `[1,2,3,5]` present in `player.windows`: a card showing
+  kicker "{d}-Year Peak", season range (`start_season`–`end_season` or a
+  single year), "Rank #{win.rank}", `prime_score` (large, bold, accent
+  color), "Prime Score" label, "Index: {prime_index}"; a component
+  breakdown (if `win.components` present) — 5 named components
+  (Statistical Impact/Traditional Production/Individual Recognition/
+  Playoff Rate Impact/Team Result) as label+bar+value rows using the 6
+  frozen `componentColor`/`componentTextColor` tokens, plus a dimmed
+  "Teammate Adj." row (value only, no bar); a footer link "View {d}-year
+  leaderboard →" to `/rankings?years={d}`; a page-level footer sentence
+  with a Methodology link.
+- **Confirmed bug, not touched-up cosmetically — fixed this batch:** the
+  rank line is hardcoded `Rank #{win.rank} (1–year window)` **regardless
+  of `d`** — every window (including 2/3/5-year) currently prints the
+  literal string "(1–year window)". The rank *number* is correct; only the
+  accompanying label text is wrong. This is exactly the kind of thing an
+  "authoritative editorial reference" cannot ship with.
+- No loading state (no `loading.tsx`) — added this batch (standard Next.js
+  App Router convention, no logic/data change).
+- No window selector/toggle, no chart, no season-by-season table, no
+  tooltips — **none of this exists today.** The product blueprint's "Peak
+  Mountain" concept and any career-trajectory chart are NOT implemented
+  here; do not build them in this batch (would require new data/APIs).
+  All present windows render simultaneously, always — there is no
+  "selected window" state to preserve because none exists.
+- Mobile: header row already has `flex-wrap`; not otherwise specially
+  handled.
+- **Existing color precedent to reuse, not invent:** `--apex-coral(-text)`
+  / `--prime-gold(-text)` (= `--peak-accent(-text)`) / `--foundation-blue
+  (-text)` already exist in `globals.css` ("Peak Draft mode colors") and
+  are already used to color-code 1yr/3yr/5yr in `arena/labs/page.tsx`
+  (`apex_1y`/`prime_3y`/`foundation_5y`). This is the same 1/3/5-year
+  identity the product brief asks for — reused directly for this page's
+  per-window kicker color, not a new token set. 2-year windows (which can
+  exist per the model but have no named color anywhere in the app) get no
+  invented color — plain neutral treatment.
+- **Must not change:** `player.windows[d]` data values (`rank`,
+  `prime_score`, `prime_index`, every `components` field), which windows
+  are considered present (`durations` filter), the `/rankings?years={d}`
+  and `/rankings` link targets, `generateMetadata`'s title logic.
+- **Tests:** none exist for this route at all (`player-avatar.test.tsx` is
+  an unrelated component). Zero e2e coverage either (grepped all
+  `*.spec.ts` — no navigation to `/players/`).
+- **Polish category:** route-family polish — a real chance to establish
+  PEAK3's "premium basketball editorial + statistical reference" identity
+  (per the user's Batch 5 brief), using only what's actually implemented:
+  identity → per-window peak figures (now with 1/3/5yr color identity) →
+  existing component-breakdown bars, refined. No chart, no selector, no
+  new visualization — those would be product development, not polish.
 
 ### `/c/[token]` — shared challenge link
 - **Renders:** `DraftScreen` + `ChallengeComparison`.

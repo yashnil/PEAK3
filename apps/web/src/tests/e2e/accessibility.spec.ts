@@ -83,6 +83,16 @@ test.describe("accessibility: Rankings page", () => {
   });
 });
 
+test.describe("accessibility: Player page", () => {
+  test("no critical/serious violations on a populated player page", async ({ page }) => {
+    await page.goto("/players/michael-jordan", { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "Michael Jordan" }).waitFor({ timeout: 15_000 });
+    await expectNoViolations(
+      new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"])
+    );
+  });
+});
+
 test.describe("accessibility: Methodology page", () => {
   test("no critical/serious violations on methodology", async ({ page }) => {
     await page.goto("/methodology", { waitUntil: "networkidle" });

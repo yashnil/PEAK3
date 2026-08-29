@@ -1,7 +1,11 @@
 import { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { componentLabel, componentColor, componentTextColor } from "@/lib/utils";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2Score from "@/components/v2/PeakV2Score";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
+import { ErrorState } from "@/components/ui/ErrorState";
+import type { PlayerProfile } from "@/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -16,15 +20,21 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-async function getPlayerData(slug: string) {
+type PlayerFetchResult =
+  | { status: "ok"; player: PlayerProfile }
+  | { status: "not_found" }
+  | { status: "error" };
+
+async function getPlayerData(slug: string): Promise<PlayerFetchResult> {
   try {
     const res = await fetch(`${API_BASE}/api/v1/players/${slug}`, {
       next: { revalidate: 3600 },
     });
-    if (!res.ok) return null;
-    return res.json();
+    if (res.status === 404) return { status: "not_found" };
+    if (!res.ok) return { status: "error" };
+    return { status: "ok", player: await res.json() };
   } catch {
-    return null;
+    return { status: "error" };
   }
 }
 
@@ -36,157 +46,176 @@ const COMPONENT_KEYS = [
   "team_achievement",
 ] as const;
 
+/** The three PEAK3 durations that already carry a named brand identity
+ *  elsewhere in the app (Ranked's 1Y Apex/3Y Prime/5Y Foundation queues,
+ *  `arena/labs`'s mode colors) — reused here, not reinvented. A 2-year
+ *  window (the model supports one, per CLAUDE.md) has no named color
+ *  anywhere in the app, so it gets the plain neutral treatment rather than
+ *  an invented fourth color. */
+const DURATION_ACCENT: Record<number, string | null> = {
+  1: "var(--apex-coral-text)",
+  2: null,
+  3: "var(--peak-accent-text)",
+  5: "var(--foundation-blue-text)",
+};
+
 export default async function PlayerPage({ params }: Props) {
   const { slug } = await params;
-  const player = await getPlayerData(slug);
+  const result = await getPlayerData(slug);
 
-  if (!player) {
+  if (result.status !== "ok") {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="card-elevated max-w-md p-8 text-center space-y-4">
-          <h1 className="font-display text-xl font-bold">Player not found</h1>
-          <p className="text-sm text-[var(--text-muted)]">
-            No PEAK3 data for &ldquo;{slug}&rdquo;.
-          </p>
-          <Link
-            href="/rankings"
-            className="inline-flex items-center gap-2 text-sm text-[var(--peak-accent-text)] underline"
-          >
-            <ArrowLeft size={14} /> Back to rankings
-          </Link>
+      <PeakV2Shell width="live">
+        <div className="mx-auto flex max-w-md flex-col items-center gap-4 py-16 text-center">
+          {result.status === "not_found" ? (
+            <>
+              <h1 className="v2-page-title" style={{ fontSize: "var(--v2-display-size-line)" }}>
+                Player not found
+              </h1>
+              <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+                No PEAK3 data for &ldquo;{slug}&rdquo;.
+              </p>
+            </>
+          ) : (
+            <ErrorState message="Could not load this player. Try again." />
+          )}
+          <PeakV2SecondaryAction href="/rankings" size="sm">
+            ← Rankings
+          </PeakV2SecondaryAction>
         </div>
-      </div>
+      </PeakV2Shell>
     );
   }
 
+  const player = result.player;
   const durations = [1, 2, 3, 5].filter((d) => player.windows[String(d)]);
 
   return (
-    <div className="min-h-screen px-4 py-8">
-      <div className="mx-auto max-w-3xl space-y-8">
-        {/* Breadcrumb */}
-        <Link
-          href="/rankings"
-          className="inline-flex items-center gap-2 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-        >
-          <ArrowLeft size={14} aria-hidden="true" />
-          Rankings
-        </Link>
-
-        {/* Header */}
-        <div>
-          <h1 className="font-display text-4xl font-extrabold">
-            {player.player_name}
-          </h1>
-          <p className="mt-2 text-sm text-[var(--text-secondary)]">
-            PEAK3 profile · {durations.length} peak window{durations.length !== 1 ? "s" : ""}
-          </p>
+    <PeakV2Shell width="live">
+      <header className="v2-page-header">
+        <p className="v2-page-kicker">PEAK3 Profile</p>
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h1 className="v2-page-title">{player.player_name}</h1>
+          <PeakV2SecondaryAction href="/rankings" size="sm">
+            ← Rankings
+          </PeakV2SecondaryAction>
         </div>
+        <p className="v2-page-lede">
+          {durations.length} peak window{durations.length !== 1 ? "s" : ""}
+        </p>
+      </header>
 
-        {/* Windows */}
-        <div className="space-y-5">
-          {durations.map((d) => {
-            const win = player.windows[String(d)];
-            if (!win) return null;
-            return (
-              <div key={d} className="card-elevated p-6 space-y-5">
-                {/* Window header */}
-                <div className="flex items-start justify-between flex-wrap gap-4">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-[var(--text-muted)] mb-1">
-                      {d}-Year Peak
-                    </p>
-                    <p className="text-lg font-semibold text-[var(--text-primary)]">
-                      {win.start_season === win.end_season
-                        ? win.start_season
-                        : `${win.start_season} – ${win.end_season}`}
-                    </p>
-                    <p className="text-xs text-[var(--text-muted)]">
-                      Rank #{win.rank} (1–year window)
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-4xl font-bold score-number font-display text-[var(--peak-accent-text)]">
-                      {win.prime_score.toFixed(1)}
-                    </p>
-                    <p className="text-xs text-[var(--text-muted)]">Prime Score</p>
-                    <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                      Index: {win.prime_index.toFixed(2)}
-                    </p>
-                  </div>
+      <div className="mx-auto flex w-full max-w-2xl flex-col divide-y" style={{ borderColor: "var(--v2-border-subtle)" }}>
+        {durations.map((d) => {
+          // Non-null: `d` was filtered from `durations` above precisely
+          // because `player.windows[String(d)]` exists.
+          const win = player.windows[String(d)]!;
+          const accent = DURATION_ACCENT[d];
+          return (
+            <div key={d} className="flex flex-col gap-5 py-6 first:pt-0">
+              {/* Window header */}
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p
+                    className="text-xs font-bold uppercase tracking-[0.15em] mb-1"
+                    style={{ color: accent ?? "var(--text-muted)" }}
+                  >
+                    {d}-Year Peak
+                  </p>
+                  <p className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
+                    {win.start_season === win.end_season
+                      ? win.start_season
+                      : `${win.start_season} – ${win.end_season}`}
+                  </p>
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    <span className="score-number">Rank #{win.rank}</span> — {d}-year board
+                  </p>
                 </div>
+                <PeakV2Score
+                  value={win.prime_score.toFixed(1)}
+                  label="Prime Score"
+                  role="moment"
+                  size="lg"
+                  className="items-end text-right"
+                />
+              </div>
+              <p className="-mt-3 text-right text-xs" style={{ color: "var(--text-muted)" }}>
+                Index: <span className="score-number">{win.prime_index.toFixed(2)}</span>
+              </p>
 
-                {/* Component breakdown */}
-                {win.components && (
-                  <div>
-                    <p className="text-xs text-[var(--text-muted)] uppercase tracking-wider mb-3">
-                      Component breakdown
-                    </p>
-                    <div className="space-y-2">
-                      {COMPONENT_KEYS.map((key) => {
-                        const val = win.components[key];
-                        const color = componentColor(key);
-                        const textColor = componentTextColor(key);
-                        const maxVal = 40;
-                        const barPct = Math.max(0, Math.min(100, (val / maxVal) * 100));
-                        return (
-                          <div key={key} className="flex items-center gap-3">
-                            <p
-                              className="text-xs w-36 shrink-0 text-right"
-                              style={{ color: textColor }}
-                            >
-                              {componentLabel(key)}
-                            </p>
-                            <div className="flex-1 h-1.5 rounded-full bg-[var(--border-subtle)] overflow-hidden">
-                              <div
-                                className="h-full rounded-full"
-                                style={{
-                                  width: `${barPct}%`,
-                                  backgroundColor: color,
-                                }}
-                              />
-                            </div>
-                            <p className="text-xs font-mono text-[var(--text-secondary)] w-10 text-right score-number">
-                              {val.toFixed(1)}
-                            </p>
+              {/* Component breakdown */}
+              {win.components && (
+                <div>
+                  <p className="mb-3 text-xs uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+                    Component breakdown
+                  </p>
+                  <div className="space-y-2">
+                    {COMPONENT_KEYS.map((key) => {
+                      const val = win.components![key];
+                      const color = componentColor(key);
+                      const textColor = componentTextColor(key);
+                      const maxVal = 40;
+                      const barPct = Math.max(0, Math.min(100, (val / maxVal) * 100));
+                      return (
+                        <div key={key} className="flex items-center gap-3">
+                          <p className="w-36 shrink-0 text-right text-xs" style={{ color: textColor }}>
+                            {componentLabel(key)}
+                          </p>
+                          <div
+                            className="h-1.5 flex-1 overflow-hidden rounded-full"
+                            style={{ background: "var(--v2-border-subtle)" }}
+                          >
+                            <div
+                              className="h-full rounded-full"
+                              style={{ width: `${barPct}%`, backgroundColor: color }}
+                            />
                           </div>
-                        );
-                      })}
-                      {/* Teammate adjustment */}
-                      <div className="flex items-center gap-3 opacity-60">
-                        <p className="text-xs w-36 shrink-0 text-right text-[var(--text-muted)]">
-                          Teammate Adj.
-                        </p>
-                        <div className="flex-1" />
-                        <p className="text-xs font-mono text-[var(--text-muted)] w-10 text-right score-number">
-                          {win.components.teammate_adjustment.toFixed(2)}
-                        </p>
-                      </div>
+                          <p className="score-number w-10 text-right text-xs" style={{ color: "var(--text-secondary)" }}>
+                            {val.toFixed(1)}
+                          </p>
+                        </div>
+                      );
+                    })}
+                    {/* Teammate adjustment — de-emphasized via --text-muted alone
+                        (a secondary/adjustment figure, not one of the 5 weighted
+                        components). NOT also `opacity-*`: stacking opacity on an
+                        already-muted color pushed effective contrast below WCAG
+                        AA (caught by this route's first-ever axe pass — a real,
+                        pre-existing bug, not introduced by this change). */}
+                    <div className="flex items-center gap-3">
+                      <p className="w-36 shrink-0 text-right text-xs" style={{ color: "var(--text-muted)" }}>
+                        Teammate Adj.
+                      </p>
+                      <div className="flex-1" />
+                      <p className="score-number w-10 text-right text-xs" style={{ color: "var(--text-muted)" }}>
+                        {win.components.teammate_adjustment.toFixed(2)}
+                      </p>
                     </div>
                   </div>
-                )}
-
-                {/* Duration rank link */}
-                <div className="pt-2 border-t border-[var(--border-subtle)]">
-                  <Link
-                    href={`/rankings?years=${d}`}
-                    className="text-xs text-[var(--peak-accent-text)] underline"
-                  >
-                    View {d}-year leaderboard →
-                  </Link>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              )}
 
-        <p className="text-xs text-[var(--text-muted)]">
-          Rankings reflect the PEAK3 formula. Not a claim of objective historical truth.{" "}
-          <Link href="/methodology" className="text-[var(--peak-accent-text)] underline">
-            Methodology
-          </Link>
-        </p>
+              {/* Duration rank link */}
+              <div>
+                <Link
+                  href={`/rankings?years=${d}`}
+                  className="text-xs underline"
+                  style={{ color: "var(--peak-accent-text)" }}
+                >
+                  View {d}-year leaderboard →
+                </Link>
+              </div>
+            </div>
+          );
+        })}
       </div>
-    </div>
+
+      <p className="mx-auto mt-6 max-w-2xl text-xs" style={{ color: "var(--text-muted)" }}>
+        Rankings reflect the PEAK3 formula. Not a claim of objective historical truth.{" "}
+        <Link href="/methodology" className="underline" style={{ color: "var(--peak-accent-text)" }}>
+          Methodology
+        </Link>
+      </p>
+    </PeakV2Shell>
   );
 }
