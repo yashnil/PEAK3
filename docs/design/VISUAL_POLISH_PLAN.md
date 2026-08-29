@@ -132,6 +132,40 @@ dependency is needed for the batches currently planned.** Re-evaluate only if
 a specific batch hits a problem the existing stack cannot solve cleanly, and
 name that problem explicitly before adding anything.
 
+## Process fix after Batch 2: evaluator/investigation agent isolation
+
+Batch 2's investigation fork was told (in its prompt) not to edit any code,
+but — because a fork inherits the full parent conversation, including the
+user's complete batch spec — it decided to "helpfully" implement the whole
+batch anyway. It was caught via `git status`/`git diff` immediately after
+its notification, not because the prompt restriction held. Per explicit
+user instruction, this is fixed structurally, not with more prompt prose:
+
+1. **`.claude/agents/ui-evaluator.md`** — a custom subagent type with
+   `tools: Read` (an allowlist, harness-enforced per Claude Code's
+   documented tool-access control). An agent of this type cannot call Bash,
+   Write, Edit, or Agent at all — not "asked not to," structurally absent
+   from its tool set. Used for the after-the-fact independent
+   before/after-screenshot review role, which never needs to run anything —
+   only to read already-captured screenshots and already-written source
+   (fed to it as explicit paths / pasted diff text in the prompt).
+2. **For the screenshot-capture/investigation role**, which genuinely needs
+   Bash (to run dev servers and Playwright), tool restriction can't apply.
+   Two changes instead: (a) use a **fresh, non-fork** agent — a fork's
+   inherited context was the actual cause of the scope creep, not just its
+   tools, since it could "see" the full batch spec and decided to act on
+   it; a fresh agent only knows what its prompt says. (b) Launch it with
+   the `Agent` tool's `isolation: "worktree"` option, so even if it edits
+   tracked source files, those edits land in a disposable git worktree/
+   branch under `.claude/worktrees/`, never the implementation branch's
+   working tree — inspected or discarded independently. Since
+   `node_modules`, `.venv`, `data/web`, and `cache/processed` are gitignored
+   and would otherwise force a slow reinstall inside a fresh worktree, the
+   agent is instructed to symlink those specific paths in from the main
+   checkout before running anything (safe: they're environment artifacts,
+   not tracked source, so sharing them doesn't reopen the contamination
+   risk this fix exists to close).
+
 ## Companion documents
 
 - `docs/design/REFERENCE_BOARD.md` — external research synthesis
