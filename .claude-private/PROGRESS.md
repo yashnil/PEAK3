@@ -32,6 +32,8 @@ verified; do not treat "the program" as done until
 | `6635f35` | **Batch 4**: profile + progress + history (see below) |
 | `bd704a7` | **Batch 5**: `/players/[slug]` PEAK3-native identity (see below) |
 | `0441872` | **Batch 6**: H2H challenge family (see below) |
+| `0b50745` | **Batch 7**: legacy Peak Draft family — Daily/Practice/Labs (see below) |
+| `939f8b2` | Batch 7 fix — completion-screen dead space (evaluator finding) |
 
 ## Baseline (Phase 3, all green before any UI edit — see VISUAL_POLISH_PLAN.md for full detail)
 
@@ -485,31 +487,156 @@ files, +11 tests), production build (hub 189kB, match 189kB, invite
 188kB — no prior baseline existed for these routes), `accessibility.spec.ts`
 15/15 + `play-routing.spec.ts` 35/35 + `head-to-head.spec.ts` 5/5.
 
-## What's next — the user's explicit requested sequence for the "legacy surface" batches
+## Batch 7 — legacy Peak Draft family: Daily/Practice/Labs + DraftScreen (DONE, verified, committed as `0b50745` + fix `939f8b2`)
 
-All of these are confirmed zero-`PeakV2*`-composition by the route matrix.
-Per the user's explicit instruction: **"legacy surface" is not permission to
-modernize product behavior** — preserve exactly what each does first, then
-improve how clearly/consistently it presents that, same as batches 1-6.
-Take an actual screenshot before assuming a gap's size in any of these —
-the ranked/daily-grid batch already proved the "0 imports" grep signal
-alone overstates severity (it can mean "sparse but fine" as easily as
-"actually broken").
+**This was the last route-family batch** — per the user's explicit
+instruction, the program now moves to a whole-app convergence/release-
+candidate audit rather than another route-family pass (see "What's next"
+below).
 
-1. **Old draft-game routes** (`/arena/daily/*`, `/arena/practice/*`,
-   `/arena/labs` — `DraftScreen`) — the last item in the user's original
-   requested sequence.
+**Scope, confirmed by reading every file and the actual import graph, not
+assumed:** `/arena/daily`, `/arena/daily/[mode]`, `/arena/practice/[mode]`,
+`/arena/labs`, `/arena/results/[id]`, and every component `DraftScreen`
+imports (`DraftCard`, `RoleSelector`, `LineupBoard`, `DraftToolbar`,
+`DraftReceipt`, `DecisionReplay`, `ShareChallenge`, `ChallengeComparison`,
+`PracticeDraftLoader`). `DNARadar.tsx` was confirmed out of scope (imported
+by `twenty-dollar/ComponentSilhouette.tsx`, a different game family) and
+left untouched. Full semantic inventory recorded in
+`docs/design/ROUTE_BEHAVIOR_MATRIX.md`.
 
-The user said to adjust this ordering if the actual route matrix/dependency
-graph makes another grouping safer — re-check `ROUTE_BEHAVIOR_MATRIX.md`'s
-shared-component notes before starting each group in case something makes
-a different order lower-risk.
+**State machine mapped before any edit:** `lib/draft-state.ts`'s
+`DraftUIPhase` — `loading → selecting ⇄ role_select → submitting →
+selecting | complete`, plus `tool_confirm` (Hold's pre-selection prompt).
+**Found and left alone, not "cleaned up":** `state.phase === "error"` in
+`DraftScreen`'s render is dead code — no reducer action ever produces it
+(`GAME_LOADED` maps every non-`draft_complete` status, including
+`"expired"`, straight to `"selecting"`; `SUBMIT_ERROR`/`SET_ERROR` only
+ever land on `"selecting"`/`"complete"`). Documented in the route matrix
+rather than silently fixed or removed, per the batch's explicit
+preservation rule.
 
-After these: everything in `ROUTE_BEHAVIOR_MATRIX.md`'s "already strong /
-refinement only" category (Home, Peak Duel result, Rankings) — light touch
-only. Then full Phase 12/13 accessibility + performance passes (axe scan
-beyond what e2e already covers, Lighthouse) once route coverage is further
-along.
+**What changed:** `DraftScreen`, `DraftCard`, `RoleSelector`, `LineupBoard`,
+`DraftToolbar`, `PracticeDraftLoader`, and the daily-hub/daily-mode/labs
+pages moved onto `PeakV2Shell`/`StatusChip`/`PeakV2PrimaryAction`/
+`SecondaryAction` and the existing `.pk-depth`/`.pk-crown`/`.pk-lift`/
+`.pk-press`/`.pk-reveal` house motion vocabulary that `DraftReceipt` and
+`ChallengeComparison` already carried in from an earlier pass (those two
+plus `ShareChallenge`/`DecisionReplay` needed only light consistency
+touch-ups, not a rebuild). `DraftScreen` gained a desktop-only (`lg:`)
+persistent roster/DNA sidebar during active play — CSS-repositioned from
+the same single `LineupBoard`/`DNABar` instance via `lg:hidden`/`hidden
+lg:flex` (no duplicate DOM, no state change) — so wide viewports get
+roster context alongside the decision instead of just a wider single
+column. Mobile's one-decision-at-a-time layout and every phase gate are
+byte-for-byte unchanged. Every existing `data-testid`, accessible name, and
+pinned copy string (`offer-card`/`role-btn`/`lock-in`, "Peak Draft"
+heading, Hold/Reframe/Holding text, mode labels, Legacy Labs banner/back-
+link, already-completed heading regex, etc.) is preserved exactly.
+
+**Tests:** this family had **zero component-level tests before this
+batch** — only e2e (`gameplay.spec.ts`, `daily-challenge.spec.ts`,
+`accessibility.spec.ts`, `play-routing.spec.ts`) and unrelated unit tests
+(`game-state.test.ts` covers Peak Duel's different reducer;
+`component-labels.test.ts` covers shared label renames; `daily-time.test.ts`
+covers the shared daily-key module) actually protected it. Added
+`draft-screen.test.tsx` (6 tests: header/offers render, select→role_select,
+cancel returns to selecting, lock-in submits and advances the round, a
+failed submission surfaces `role="alert"` without crashing, Hold-with-no-
+selection opens the prompt without submitting, and the completed state
+renders the receipt/lineup/decision-replay/challenge-button),
+`daily-hub-page.test.tsx` (3), `legacy-labs-page.test.tsx` (2) — 11 new
+tests, all against real component behavior, not snapshots.
+
+**A real regression this process caught and fixed before shipping:**
+the independent evaluator flagged genuine dead space on the completion
+screen at 1024/1440 (the in-progress two-column grid was still in effect
+with an empty second track, since the roster/DNA rail intentionally
+doesn't apply once the draft is done). First attempt filled the rail with
+a second `DecisionReplay` instance; the QA agent's e2e re-run immediately
+caught it duplicating "ROUND 1 · ..." into the DOM and breaking
+`gameplay.spec.ts`'s existing unscoped
+`getByText(/round 1|pick 1|your picks/i)` assertion. Reverted that and
+instead widened the completed state's own single column (`max-w-2xl`,
+grid dropped) — same fix, no duplicate DOM node, committed separately as
+`939f8b2` after a full re-verify (2292/2292 vitest, clean build, 88/88
+targeted e2e). **Lesson for next time:** the `lg:hidden`/`hidden lg:flex`
+duplicate-DOM pattern used for the roster/DNA sidebar is fine for content
+no existing test bare-queries, but is NOT safe to reuse casually for any
+component whose text an existing test asserts on without `.first()`/scoping
+— check for that before mounting a second copy of anything.
+
+**Independent evaluator verdict:** ship with minor notes (the one note was
+the dead-space finding above, now fixed). All 10 evaluator questions
+answered affirmatively with screenshot evidence at 390/768/1024/1440,
+both themes spot-checked. No visual bugs, no false affordances, no
+settings-page/casino feel found.
+
+**Independent QA verdict:** no regressions from this batch across a full
+Practice game, a full Daily game (including reload-resumption via matched
+`game_id`, and the already-completed revisit state), Labs navigation, and
+a keyboard-access spot check. **Two pre-existing bugs surfaced, confirmed
+via `git diff` against the parent commit to be unrelated to this batch's
+changes, NOT fixed (out of scope for a visual-only pass):**
+1. `/arena/labs`'s "Practice" links (and any other seedless
+   `/arena/practice/{mode}` visit) send no `seed`, and the API requires
+   one for a practice board (`board_error`: "Board config must have either
+   a date (daily) or a seed"), so every Practice link from Labs currently
+   404s into "Could not create practice board." `PracticeDraftLoader`
+   needs a default/random seed when none is supplied, or Labs needs to
+   generate one — a real, pre-existing product bug, worth a dedicated fix.
+2. After a keyboard-driven card selection, forward-Tab skips past the
+   just-opened `RoleSelector` straight to the page footer (the selected
+   card becomes `disabled` and auto-blurs; `RoleSelector` renders before
+   the offer-card list in the JSX, so the next Tab stop in DOM order is
+   past both). Shift+Tab reaches it fine. Pre-existing DOM-order issue,
+   not introduced here.
+
+**Verification:** typecheck clean, lint 0 warnings, 2292/2292 vitest (101
+→ 104 files, +11 tests), production build clean (bundle deltas below),
+88/88 targeted e2e (gameplay/daily-challenge/accessibility/play-routing)
++ 11/11 `@mobile` overflow checks, all re-run clean after the dead-space
+fix.
+
+**Bundle deltas** (First Load JS, candidate vs. parent `e817abb`):
+`/arena/daily` 109→119 kB, `/arena/daily/[mode]` 132→133 kB, `/arena/labs`
+106→106 kB (flat), `/arena/practice/[mode]` 129→130 kB, `/arena/results/[id]`
+128→130 kB — modest, consistent with the rest of the app's V2-component
+cost.
+
+## What's next — the program's final stage
+
+**Per the user's explicit instruction, do not start another route-family
+visual-polish batch.** Batch 7 was the last one in the requested sequence.
+The next stage is a proposed (not yet started) **Global Arena Archive
+Convergence + Release Candidate Audit** — reviewing the entire app as one
+product rather than another route family. Proposed scope for that stage,
+pending the user's go-ahead:
+
+1. **Cross-batch consistency sweep** — now that 7 route families have each
+   had an independent pass (RTT/82-0, Ranked/Daily-Grid, Ranked leaderboard,
+   Profile/Progress/History, Player detail, H2H, Peak Draft), check they
+   actually feel like one product side by side: token usage, `PeakV2Shell`
+   width choices, `StatusChip` tone conventions, motion vocabulary
+   (`.pk-*`) coverage gaps, and any surface still outside the `PeakV2*`
+   system entirely (Home, Peak Duel result, Rankings were flagged in the
+   route matrix as "already strong / refinement only" and never got a
+   dedicated batch — worth a real look, not an assumption).
+2. **The two pre-existing bugs this batch surfaced** (Labs practice-link
+   missing seed; keyboard forward-Tab skip after card selection) — small,
+   isolated, good candidates for the audit's fix list.
+3. **Full accessibility pass** — axe beyond what e2e specs already cover
+   (a dedicated sweep of every route, not just the ones with an
+   `accessibility.spec.ts` entry), plus manual keyboard-only playthroughs
+   of every game mode.
+4. **Performance pass** — Core Web Vitals / Lighthouse per route, now that
+   bundle deltas have been tracked per-batch but never looked at as an
+   aggregate; identify any route whose First Load JS grew disproportionately
+   across the whole program.
+5. **A final, single visual-rubric pass over the release candidate as a
+   whole** — not per-component, but "does this read as one shipped
+   product" — using `docs/design/VISUAL_RUBRIC.md` end to end.
+
+This is a proposal for the user to confirm/adjust scope on, not started.
 
 ## Process notes for whoever continues this (same session or a future one)
 
