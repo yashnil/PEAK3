@@ -30,6 +30,7 @@ verified; do not treat "the program" as done until
 | `b04c979` | Process fix — evaluator/investigation agent isolation (see below) |
 | `49ad3ff` | **Batch 3**: RankedScreen + ranked leaderboard (see below) |
 | `6635f35` | **Batch 4**: profile + progress + history (see below) |
+| `bd704a7` | **Batch 5**: `/players/[slug]` PEAK3-native identity (see below) |
 
 ## Baseline (Phase 3, all green before any UI edit — see VISUAL_POLISH_PLAN.md for full detail)
 
@@ -307,21 +308,122 @@ flagged to Anthropic via feedback. Until/unless this starts working,
 `general-purpose` + a manually-constructed worktree (see above) is the
 working substitute for both the evaluator and investigator roles.
 
+## PERMANENT PROCESS CHANGE (from Batch 5 on) — commit before evaluating
+
+Per explicit user instruction, this is now the mandatory sequence for every
+batch, not just a Batch-5-specific fix:
+
+1. Implement a cohesive candidate.
+2. Run builder-side targeted checks (typecheck/lint/unit/build/relevant e2e).
+3. **Commit a checkpoint** — this is the candidate SHA.
+4. Record that SHA.
+5. Launch evaluator/QA agents **against that exact committed SHA**, not
+   uncommitted working-tree state.
+6. Inside each agent's environment, explicitly verify `git rev-parse HEAD`
+   equals the candidate SHA **before trusting any screenshot or finding**.
+7. Fix whatever findings survive.
+8. Commit again (if anything changed) / run final verification.
+9. Push, verify local HEAD == remote HEAD.
+
+This closes both worktree-isolation failure modes found in batches 3-4 at
+the root: an agent can never be pointed at the wrong ref or at not-yet-
+committed work if the work is committed first and the SHA is pinned
+explicitly in its prompt. Batch 5 used this end to end (manually built two
+`git worktree add --detach <path> HEAD` worktrees off the candidate commit,
+symlinked deps, verified `git rev-parse HEAD` before dispatch, both agents
+re-verified it themselves on arrival) and both came back clean on the first
+try — no wrong-ref incidents this batch, for the first time since the
+process fix started. The custom `ui-evaluator` agent type is STILL not
+recognized (retried once more this batch, in yet another fresh session, per
+the user's instruction not to spend further time on it) — `general-purpose`
++ manual worktree pinning remains the working substitute.
+
+## Batch 5 — `/players/[slug]` (DONE, verified, committed as `bd704a7`)
+
+**Scope, confirmed by the actual import graph before touching anything:**
+`/players/[slug]` is the ONLY real route in this family. `searchPlayers()`/
+`PlayerSearchResponse` in `lib/api.ts` are dead code (zero callers anywhere)
+— there is no player Index/search surface to find or touch, and none was
+invented. `RankingsAnalysis.tsx` (the Rankings page's "unified player
+analysis" drawer) is a separate, unrelated surface that happens to show
+similar component data differently — correctly left alone.
+
+**Ground truth: no chart, no window selector, no season table exists on
+this page, and none was built.** The page was (and remains) a purely
+static list of however many peak-duration windows a player has, rendered
+simultaneously — there was never a "selected window" state to preserve.
+The user's brief's richer visualization language ("Peak Mountain," chart
+axes/tooltips/selected-state) was explicitly conditional on such a thing
+already existing; it doesn't, so none of that was built — recorded as a
+future product opportunity, not attempted here.
+
+**What changed:** `PeakV2Shell` + kicker/serif-title header; windows now
+flow as one continuously-divided list (`divide-y`) instead of stacked
+bordered cards; each window's kicker is now color-coded using the app's
+**pre-existing** 1yr/3yr/5yr brand identity (`--apex-coral(-text)` /
+`--prime-gold(-text)` == `--peak-accent(-text)` / `--foundation-blue
+(-text)`, already used for these exact three durations in
+`arena/labs/page.tsx`) — no new tokens invented, and 2-year windows
+(no named color anywhere in the app) stay neutral rather than getting an
+invented fourth color; Prime Score now uses `PeakV2Score role="moment"`
+(serif — "the number the screen is actually about," per that component's
+own docstring); rank and prime index now get `.score-number` tabular
+treatment (previously only the prime score itself did).
+
+**Two real bugs found and fixed, not cosmetic tune-ups:**
+1. The rank line was hardcoded `(1-year window)` for literally every
+   duration — a 3-year or 5-year window's rank was correct as a NUMBER but
+   mislabeled every single time. Now reads `— {d}-year board` correctly.
+2. This route's first-ever axe accessibility pass (added this batch)
+   caught a serious `color-contrast` violation: the Teammate Adj. row
+   stacked `opacity-60` on top of already-muted `--text-muted` text,
+   pushing effective contrast below WCAG AA. Fixed by dropping the
+   opacity and letting `--text-muted` alone carry the de-emphasis.
+
+Also distinguished a genuine 404 ("Player not found") from any other load
+failure (network/5xx) — these used to collapse into the same "no PEAK3
+data for X" message, which is a real accuracy problem for a page framed as
+an authoritative reference. Added a standard `loading.tsx` (no data/logic
+change — the route previously showed nothing at all while the RSC
+resolved).
+
+**New pattern for this repo, useful for future server-component pages:**
+tested the async Server Component by awaiting it directly
+(`await PlayerPage({params: Promise.resolve({slug})})`) and rendering the
+resolved JSX, rather than via `use()`/Suspense (confirmed in Batch 4 to
+have no working harness here). Worked cleanly first try — prefer this
+pattern over `use()` for any future page-level Server Component test.
+
+**Verification:** typecheck clean, lint 0 warnings, 2270/2270 vitest (101
+files, +6 new page tests), production build (`/players/[slug]` 115kB First
+Load JS — first baseline recorded for this route), `accessibility.spec.ts`
+15/15 (including the new player-page entry that caught bug #2 above on its
+first run) + `play-routing.spec.ts` 35/35. Screenshots reviewed directly at
+390/768/1024/1440 for a 4-window player (Michael Jordan), a 1-window
+player (Chet Holmgren), a long name (Shai Gilgeous-Alexander — wraps
+cleanly, no overflow at any width), and the not-found state. Independent
+visual evaluator: ship-as-is, HEAD verified. Independent functionality/
+data-integrity QA: all 8 checks pass, with real number-for-number proof
+against the raw API response (not just "looked right") — confirmed
+rounding is genuine round-to-nearest (e.g. raw `95.16` → displayed `95.2`,
+which truncation would have shown as `95.1`), confirmed all 4 windows'
+board-labels are now individually correct, confirmed leaderboard links,
+back link, not-found state, keyboard focus, and zero console errors.
+
 ## What's next — the user's explicit requested sequence for the "legacy surface" batches
 
 All of these are confirmed zero-`PeakV2*`-composition by the route matrix.
 Per the user's explicit instruction: **"legacy surface" is not permission to
 modernize product behavior** — preserve exactly what each does first, then
-improve how clearly/consistently it presents that, same as batches 1-4.
+improve how clearly/consistently it presents that, same as batches 1-5.
 Take an actual screenshot before assuming a gap's size in any of these —
 the ranked/daily-grid batch already proved the "0 imports" grep signal
 alone overstates severity (it can mean "sparse but fine" as easily as
 "actually broken").
 
-1. **`/players/[slug]` and related Index/player-detail surfaces**
-2. **H2H family** (`MatchScreen`, `ChallengeCreator`, `HeadToHeadHistory`,
+1. **H2H family** (`MatchScreen`, `ChallengeCreator`, `HeadToHeadHistory`,
    `InviteLanding`)
-3. **Old draft-game routes** (`/arena/daily/*`, `/arena/practice/*`,
+2. **Old draft-game routes** (`/arena/daily/*`, `/arena/practice/*`,
    `/arena/labs` — `DraftScreen`)
 
 The user said to adjust this ordering if the actual route matrix/dependency
