@@ -407,3 +407,123 @@ describe("no auto-advance — every round waits for a manual press", () => {
     expect(screen.queryByText("See results")).toBeNull();
   });
 });
+
+describe("the result screen burns none of the next matchup's clock", () => {
+  /**
+   * REGRESSION (product UX recovery pass). The decision clock is a MONOTONIC
+   * DEADLINE held in `GameEngine` and handed down to the question's
+   * `ArenaTimer`. It used to be re-armed by an effect keyed on
+   * `[phase, current_index]` while the PREVIOUS duel's (long-expired)
+   * deadline stayed in state in the meantime.
+   *
+   * React runs a child's mount effect BEFORE its parent's update effect, so
+   * pressing "Next Matchup" mounted the new question's `ArenaTimer` with the
+   * stale deadline still in place; `ArenaTimer` ticks once synchronously on
+   * mount, saw `remaining <= 0`, and fired `onExpire` -> `handleTimeout` ->
+   * a null-pick submission. The player never got to see the matchup, and the
+   * longer they read the previous result, the more certain the instant loss.
+   *
+   * The clock must therefore be null for every phase that is not an ACTIVE
+   * question, and a deadline must only ever belong to the question index it
+   * was armed for.
+   */
+  it("does not time out the next matchup after a long read of the previous result", async () => {
+    const duels = [mockDuel("d1"), mockDuel("d2")];
+    submitAnswer.mockResolvedValue(
+      mockAnswer({
+        correct: true,
+        winningPeakId: duels[0].left.peak_id,
+        winnerSlug: "left-player",
+        loserSlug: "right-player",
+      })
+    );
+
+    render(
+      <GameEngine
+        mode="daily"
+        years={3}
+        duels={duels}
+        session_token="token"
+        date="2026-08-16"
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("duel-card-left"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText("Correct!")).toBeInTheDocument();
+    expect(submitAnswer).toHaveBeenCalledTimes(1);
+
+    // Read the result for six times the decision clock. Nothing may be
+    // counting down behind this screen.
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(screen.getByText("Correct!")).toBeInTheDocument();
+    expect(submitAnswer).toHaveBeenCalledTimes(1);
+
+    // Now open the next matchup. It must OPEN -- not resolve instantly.
+    fireEvent.click(screen.getByRole("button", { name: /next matchup/i }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("2 of 2")).toBeInTheDocument();
+    // Still exactly one submission: the new duel has NOT been auto-answered.
+    expect(submitAnswer).toHaveBeenCalledTimes(1);
+    // And it opens on a full clock, not a burnt one.
+    expect(screen.getByTestId("peak-duel-v2-clock")).toHaveTextContent("10");
+  });
+
+  it("gives the next matchup the full decision clock, measured by when it expires", async () => {
+    const duels = [mockDuel("d1"), mockDuel("d2")];
+    submitAnswer.mockResolvedValue(
+      mockAnswer({
+        correct: true,
+        winningPeakId: duels[0].left.peak_id,
+        winnerSlug: "left-player",
+        loserSlug: "right-player",
+      })
+    );
+
+    render(
+      <GameEngine
+        mode="daily"
+        years={3}
+        duels={duels}
+        session_token="token"
+        date="2026-08-16"
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("duel-card-left"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(45_000);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /next matchup/i }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(submitAnswer).toHaveBeenCalledTimes(1);
+
+    // Nine seconds in, the second duel is still live and unanswered.
+    await act(async () => {
+      vi.advanceTimersByTime(9_000);
+    });
+    expect(submitAnswer).toHaveBeenCalledTimes(1);
+
+    // Past ten, it expires on its own terms -- a full clock, not a residue.
+    await act(async () => {
+      vi.advanceTimersByTime(1_500);
+    });
+    expect(submitAnswer).toHaveBeenCalledTimes(2);
+    expect(submitAnswer).toHaveBeenLastCalledWith(
+      expect.objectContaining({ duel_id: "d2", selected_peak_id: null })
+    );
+  });
+});

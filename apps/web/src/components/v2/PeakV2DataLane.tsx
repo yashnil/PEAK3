@@ -10,20 +10,26 @@
  * dot for one side and a HOLLOW neutral dot for the other, both
  * positioned along the rule proportional to their actual magnitude (a
  * real dot-plot, not two dots at fixed ends) — exact numeric values stay
- * printed at both ends regardless. WHICH side is filled is controlled by
- * `pickedSide` (`"left" | "right" | "none"`) and is a ROLE marker, never
- * an outcome marker: fill never means "winner" or "higher value" — it
- * means "this is the side the caller designates as primary" (in Peak
- * Duel, literally whichever side the player clicked, threaded down from
- * the reducer's `selected_peak_id`, never from `winnerIsLeft`).
- * `pickedSide` defaults to `"left"` so every caller that predates this
- * prop (RTT's boss result, Showdown's result, homepage previews — none of
- * which resort by outcome) keeps its exact original rendering. Pass
- * `pickedSide="none"` for the neutral, non-lateralized treatment — both
- * dots hollow — for a state where no side has actually been chosen yet
- * (e.g. a duel round the player timed out on with no pick). The optional
- * `leftCaption`/`rightCaption` text is what states the outcome ("Lane won
- * +5.1", "Wall +4.4"); fill never does.
+ * printed at both ends regardless.
+ *
+ * WHAT A FILLED DOT MEANS is chosen by `fill`, because the two surfaces
+ * that use this row genuinely mean different things by it:
+ *
+ *   `fill="role"` (default) — fill follows `pickedSide`, a ROLE marker:
+ *   "the side the caller designates as primary". RTT's boss result, the
+ *   Showdown result and the homepage proof lanes all read this way, and
+ *   the `"left"` default keeps every pre-existing caller pixel-identical.
+ *
+ *   `fill="higher"` — fill follows the DATA: on each lane independently,
+ *   the greater value is filled and the lesser is hollow. This is Peak
+ *   Duel's component comparison, where the question a reader is actually
+ *   asking of a lane is "who was better at THIS?" — an answer that must
+ *   not change with which player they clicked, who won overall, or which
+ *   side a name was dealt to. A lane whose two values are equal at the
+ *   precision actually displayed is a TIE and renders neutral.
+ *
+ * The optional `leftCaption`/`rightCaption` text states an outcome in
+ * words; under `fill="role"` the dot never does.
  *
  * `variant="paired"` — the original Pass 2 paired-bold-number treatment.
  * Kept, not removed: nothing in production consumed it yet at the time of
@@ -50,13 +56,41 @@ export interface PeakV2DataLaneProps {
   /** `"left"` / `"right"` highlights that side's value in the tone color
    *  (`variant="paired"`); `"tie"` / `undefined` renders both neutral. */
   winner?: "left" | "right" | "tie";
-  /** `variant="line"` only — which side's dot renders FILLED (a role
-   *  marker — "primary"/"the side the caller designates", e.g. the side
-   *  the player actually clicked — never an outcome marker). `"none"`
-   *  renders both dots hollow, for use before any side has been chosen.
-   *  Defaults to `"left"`, matching this component's original fixed
-   *  behavior, so existing callers are unaffected. */
+  /** `variant="line"` only — which side's dot renders FILLED when
+   *  `fill="role"` (the default): a role marker — "primary"/"the side the
+   *  caller designates" — never an outcome marker. `"none"` renders both
+   *  dots hollow, for use before any side has been chosen. Defaults to
+   *  `"left"`, matching this component's original fixed behavior, so
+   *  existing callers are unaffected. Ignored when `fill="higher"`.
+   *
+   *  "The side the caller designates" can legitimately be an outcome, as long
+   *  as it is a CONSTANT one — Peak Duel's reveal passes the overall matchup
+   *  winner here, the same side on all five lanes. What it must never be is a
+   *  PER-LANE outcome; that is what `fill="higher"` is for, and why the two
+   *  are separate props. */
   pickedSide?: "left" | "right" | "none";
+  /** `variant="line"` only — WHAT a filled dot means on this lane.
+   *
+   *  `"role"` (default): fill follows `pickedSide`. Kept as the default so
+   *  the lanes that genuinely mark a role rather than an outcome (RTT's
+   *  boss result, the Showdown result, the homepage proof lanes) keep
+   *  their exact existing rendering.
+   *
+   *  `"higher"`: fill follows the DATA — the side with the greater value
+   *  on THIS lane is filled and the other is hollow, computed per-lane and
+   *  independent of selection, of the overall winner, and of which side a
+   *  value happens to be printed on. Values that are equal at the
+   *  precision actually shown to the reader are a TIE and render neutral
+   *  (both hollow) rather than silently promoting one side.
+   *
+   *  NO CURRENT PRODUCT CALLER, and that is deliberate rather than an
+   *  oversight. Peak Duel's reveal used to be the one caller and has moved
+   *  back to `"role"`: dot POSITION on these lanes already encodes magnitude,
+   *  so filling by magnitude too made the two channels redundant and, on a
+   *  lane the overall winner lost, actively misleading — the loser's larger
+   *  value sat further right AND filled, reading as "that side won". Keep this
+   *  mode only for a surface where the dot's position is NOT magnitude. */
+  fill?: "role" | "higher";
   /** `variant="line"` only — secondary outcome text under each side, e.g.
    *  "Lane won +5.1" / "Wall +4.4" / "Closest". Never affects which dot is
    *  filled — that is controlled by `pickedSide`, not outcome. */
@@ -143,21 +177,21 @@ function LineRule({
   toneColor,
   leftPct,
   rightPct,
-  pickedSide,
+  leftFilled,
+  rightFilled,
 }: {
   toneColor: string;
   leftPct: number | null;
   rightPct: number | null;
-  pickedSide: "left" | "right" | "none";
+  leftFilled: boolean;
+  rightFilled: boolean;
 }) {
-  const leftFilled = pickedSide === "left";
-  const rightFilled = pickedSide === "right";
   // Render the hollow dot first and the filled one last (on top) so two
   // dots landing at (near-)identical positions still read as "filled wins
   // the overlap" — matches the original left-always-filled stacking order
-  // when `pickedSide` is left, mirrors it when right, and order is moot
-  // when neither is filled ("none").
-  const renderRightFirst = pickedSide !== "right";
+  // when the left dot is filled, mirrors it when the right one is, and
+  // order is moot when neither is (a tie, or no side chosen).
+  const renderRightFirst = !rightFilled;
   const leftDot = leftPct !== null ? <Dot key="left" pct={leftPct} filled={leftFilled} toneColor={toneColor} /> : null;
   const rightDot = rightPct !== null ? <Dot key="right" pct={rightPct} filled={rightFilled} toneColor={toneColor} /> : null;
   return (
@@ -191,6 +225,7 @@ export default function PeakV2DataLane({
   rightValue,
   winner,
   pickedSide = "left",
+  fill = "role",
   leftCaption,
   rightCaption,
   scaleMin = 0,
@@ -239,6 +274,29 @@ export default function PeakV2DataLane({
   const leftPct = dotPercent(leftRaw, scaleMin, scaleMax);
   const rightPct = rightRaw === undefined ? null : dotPercent(rightRaw, scaleMin, scaleMax);
 
+  // WHICH DOT IS FILLED.
+  //
+  // Under `fill="higher"` the comparison is made at the precision the
+  // reader can actually SEE. Comparing the underlying floats instead would
+  // fill one dot of two lanes both printed "5.7" purely on a difference
+  // that is not on screen — the reader would have no way to tell a real
+  // lane win from a rounding artifact, and the lane would be claiming
+  // something the numbers beside it do not support. So when both sides
+  // render as the same string, this is a tie: both dots stay hollow and
+  // neither side is promoted.
+  let leftFilled: boolean;
+  let rightFilled: boolean;
+  if (fill === "higher") {
+    const comparable =
+      rightRaw !== undefined && !Number.isNaN(leftRaw) && !Number.isNaN(rightRaw);
+    const displayedEqual = String(leftValue) === String(rightValue);
+    leftFilled = comparable && !displayedEqual && leftRaw > (rightRaw as number);
+    rightFilled = comparable && !displayedEqual && (rightRaw as number) > leftRaw;
+  } else {
+    leftFilled = pickedSide === "left";
+    rightFilled = pickedSide === "right";
+  }
+
   return (
     <div className={className}>
       {/* Mobile: values above, line below — brief's explicit mobile grammar. */}
@@ -261,7 +319,7 @@ export default function PeakV2DataLane({
         >
           {label}
         </span>
-        <LineRule toneColor={toneColor} leftPct={leftPct} rightPct={rightPct} pickedSide={pickedSide} />
+        <LineRule toneColor={toneColor} leftPct={leftPct} rightPct={rightPct} leftFilled={leftFilled} rightFilled={rightFilled} />
       </div>
 
       {/* Desktop: values flank the line, per the reference. */}
@@ -280,7 +338,7 @@ export default function PeakV2DataLane({
           >
             {label}
           </span>
-          <LineRule toneColor={toneColor} leftPct={leftPct} rightPct={rightPct} pickedSide={pickedSide} />
+          <LineRule toneColor={toneColor} leftPct={leftPct} rightPct={rightPct} leftFilled={leftFilled} rightFilled={rightFilled} />
         </div>
         {rightValue !== undefined ? (
           <ValueBlock label={rightLabel ?? ""} value={rightValue} caption={rightCaption} align="end" color="var(--v2-text-primary)" />

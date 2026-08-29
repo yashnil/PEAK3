@@ -16,8 +16,14 @@
 import PeakV2CourtPanel from "../PeakV2CourtPanel";
 import PeakV2CourtSlot from "../PeakV2CourtSlot";
 import type { ArenaSeatPublic, TmwEdgeBand, TmwRoster, TmwSlotType } from "@/types/three-man-weave";
-import { TMW_STARTER_SLOTS, TMW_SLOT_LABELS } from "@/types/three-man-weave";
+import { TMW_STARTER_SLOTS, TMW_SLOT_LABELS, TMW_SLOT_TYPES } from "@/types/three-man-weave";
+import { useEffect, useRef, useState } from "react";
 import { TMW_EDGE_LABELS, benchSlots, positionsLine } from "@/lib/three-man-weave-state";
+
+/** The pick-lock beat, inside the V2 motion contract's card-lock band
+ *  (150-300ms). Purely presentational: nothing waits on it, and the next
+ *  server action is never gated behind it. */
+const PICK_LOCK_MS = 240;
 
 const AREA: Record<(typeof TMW_STARTER_SLOTS)[number], string> = {
   PG: "pg",
@@ -29,7 +35,9 @@ const AREA: Record<(typeof TMW_STARTER_SLOTS)[number], string> = {
 
 export interface PeakV2TMWCourtProps {
   roster: TmwRoster;
-  seat: ArenaSeatPublic | undefined;
+  /** Optional: the result screen renders this court headerless and
+   *  states the identity itself, so it has no seat to pass. */
+  seat?: ArenaSeatPublic | undefined;
   isYou: boolean;
   isOnTurn: boolean;
   edge?: TmwEdgeBand | null;
@@ -59,6 +67,9 @@ export interface PeakV2TMWCourtProps {
   legalTargets?: readonly TmwSlotType[];
   onPickUp?: (slot: TmwSlotType) => void;
   onDropOn?: (slot: TmwSlotType) => void;
+  /** Hide the court's own name/status row — for the result screen, which
+   *  already heads each competitor with their ordinal, name and score. */
+  hideHeader?: boolean;
 }
 
 export default function PeakV2TMWCourt({
@@ -74,9 +85,41 @@ export default function PeakV2TMWCourt({
   legalTargets = [],
   onPickUp,
   onDropOn,
+  hideHeader = false,
 }: PeakV2TMWCourtProps) {
   const name = seat?.display_name ?? `Seat ${roster.seat_index + 1}`;
   const filled = Object.values(roster.slots).filter(Boolean).length;
+
+  // PICK LOCK: which slot just became occupied, for one short beat.
+  //
+  // Derived by diffing the roster this render against the roster last
+  // render — so it fires on a REAL state change (the server's pick landing
+  // in the snapshot) and never on a timer. `justLocked` clears itself after
+  // the beat, so a re-render for any other reason cannot replay it, and a
+  // slot that merely changed occupant during a rearrange is not a new pick.
+  const previousSlots = useRef<Record<string, string | null>>({});
+  const [justLocked, setJustLocked] = useState<TmwSlotType | null>(null);
+  const currentKeys = TMW_SLOT_TYPES.map((t) => `${t}:${roster.slots[t]?.player_slug ?? ""}`).join("|");
+
+  useEffect(() => {
+    const prev = previousSlots.current;
+    const next: Record<string, string | null> = {};
+    let arrived: TmwSlotType | null = null;
+    for (const slotType of TMW_SLOT_TYPES) {
+      const slug = roster.slots[slotType]?.player_slug ?? null;
+      next[slotType] = slug;
+      // Only an EMPTY -> FILLED transition is a pick arriving. A swap
+      // between two occupied slots is a rearrangement, not a draft.
+      if (slug && prev[slotType] === null) arrived = slotType;
+    }
+    const isFirstRender = Object.keys(prev).length === 0;
+    previousSlots.current = next;
+    if (isFirstRender || !arrived) return;
+    setJustLocked(arrived);
+    const id = window.setTimeout(() => setJustLocked(null), PICK_LOCK_MS);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentKeys]);
   const bench = benchSlots(roster);
   const moving = pickedUpSlot !== null;
   const legal = new Set(legalTargets);
@@ -97,24 +140,55 @@ export default function PeakV2TMWCourt({
     return pick ? `Rearrange ${pick.player_name}, currently at ${TMW_SLOT_LABELS[slotType]}` : undefined;
   }
 
+  // WHOSE TURN THIS IS, FROM REAL STATE ONLY. `isOnTurn` is the server's own
+  // `current_turn_seat_index`; `is_bot` is the seat's own flag. Nothing here
+  // is timed, guessed or simulated — this only chooses how the turn that IS
+  // happening gets said.
+  const turnOwner = !isOnTurn ? "none" : isYou ? "you" : seat?.is_bot ? "bot" : "rival";
+
   return (
     <PeakV2CourtPanel
       testId={`tmw-seat-court-${roster.seat_index}`}
       label={name}
       status={
         <span
+          data-testid={`tmw-seat-status-${roster.seat_index}`}
           style={{
             fontFamily: "var(--v2-font-mono)",
             fontSize: "0.6875rem",
             fontWeight: 700,
-            color: isYou ? "var(--v2-color-accent)" : "var(--v2-text-muted)",
+            color: isOnTurn ? "var(--v2-color-accent)" : isYou ? "var(--v2-color-accent)" : "var(--v2-text-muted)",
           }}
         >
           {isYou ? "You" : seat?.is_bot ? "Bot" : "Drafter"} · {filled}/6
-          {isOnTurn ? " · On the clock" : ""}
+          {/* THE TURN, SAID AS WHAT IT IS.
+              A bot on the clock is genuinely deliberating — the server holds
+              a real, seeded 4–10s think window measured from the turn's
+              stored `opened_at` (`nba_peak/three_man_weave/config.py`), so
+              "Thinking" describes something actually happening rather than a
+              client-invented pause. The ellipsis animates in CSS, which is
+              the whole treatment: no fabricated progress bar, no pretending
+              to know which player is under consideration, and no candidate
+              cards animated as though they were being read. */}
+          {turnOwner === "bot" ? (
+            <>
+              {" · "}
+              <span className="tmw-thinking" data-testid="tmw-thinking">
+                Thinking
+              </span>
+            </>
+          ) : turnOwner === "you" ? (
+            " · Your pick"
+          ) : turnOwner === "rival" ? (
+            " · On the clock"
+          ) : (
+            ""
+          )}
         </span>
       }
       presentation={lit ? "lit" : "dimmed"}
+      hideHeader={hideHeader}
+      className={`tmw-court-seat${isOnTurn ? " tmw-court-active" : ""}`}
     >
       {edge ? (
         <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.6875rem", color: "var(--v2-text-secondary)" }}>
@@ -132,7 +206,7 @@ export default function PeakV2TMWCourt({
         {TMW_STARTER_SLOTS.map((slot) => {
           const pick = roster.slots[slot] ?? null;
           return (
-            <div key={slot} style={{ gridArea: AREA[slot] }}>
+            <div key={slot} style={{ gridArea: AREA[slot] }} data-locking={justLocked === slot ? "true" : undefined}>
               <PeakV2CourtSlot
                 position={slot}
                 player={pick ? { name: pick.player_name, meta: `${pick.scoring_card ? `${pick.scoring_card.season} ${pick.scoring_card.team_id}` : "—"} · ${positionsLine(pick)}` } : undefined}
@@ -156,12 +230,32 @@ export default function PeakV2TMWCourt({
           BENCH
         </span>
         <div className="mt-1 grid grid-cols-1 gap-2">
+          {/* THE BENCH CARRIES THE SAME INFORMATION AS A STARTER, because it
+              carries the same weight in the score. Three-Man Weave's
+              `lineup_score` is a FLAT, equally-weighted mean over all six
+              cards (`nba_peak/three_man_weave/evaluation.py::_tmw_talent_core`)
+              — unlike 82-0, there is no 0.8/0.2 starters-to-bench split. A
+              bench pick therefore moves the final number exactly as much as
+              the point guard does, and this slot used to render a bare name
+              with no season, no team, no positions and no PEAK3 value
+              (design-review/14), which made the single most under-rated
+              decision in the draft look like an afterthought. */}
           {bench.map(({ slotType, pick }) => (
+            <div key={slotType} data-locking={justLocked === slotType ? "true" : undefined}>
             <PeakV2CourtSlot
-              key={slotType}
               position={TMW_SLOT_LABELS[slotType]}
               bench
-              player={pick ? { name: pick.player_name } : undefined}
+              benchDetail
+              player={
+                pick
+                  ? {
+                      name: pick.player_name,
+                      meta: `${pick.scoring_card ? `${pick.scoring_card.season} ${pick.scoring_card.team_id}` : "—"} · ${positionsLine(pick)}`,
+                    }
+                  : undefined
+              }
+              metaTestId={pick ? `tmw-slot-season-${slotType}` : undefined}
+              value={pick?.scoring_card ? pick.scoring_card.prime_score.toFixed(1) : undefined}
               emptyHint="Open"
               state={slotState(slotType)}
               interactive={interactive}
@@ -170,6 +264,7 @@ export default function PeakV2TMWCourt({
               onDropOn={interactive ? () => onDropOn?.(slotType) : undefined}
               activateLabel={activateLabelFor(slotType, pick)}
             />
+            </div>
           ))}
         </div>
       </div>
@@ -186,10 +281,18 @@ export default function PeakV2TMWCourt({
             // visibility toggles across a transient `!interactive` window
             // (e.g. `busy` while a request is in flight) -- never popping
             // in/out, which is what previously moved the outer shell.
-            visibility: interactive ? "visible" : "hidden",
+            // Reserved height is kept (see above) but the IDLE copy is gone:
+            // "Select a card to rearrange your roster — this never costs a
+            // turn." sat permanently under the viewer's own court as 11px
+            // muted text explaining an affordance the tiles already carry
+            // (they are real buttons, with hover and focus states). It did
+            // not help anyone make a pick. What survives is the line that
+            // genuinely does — the one naming the escape hatch while a card
+            // is actually in hand.
+            visibility: interactive && moving ? "visible" : "hidden",
           }}
         >
-          {moving ? "Choose a highlighted slot, or press Escape to cancel." : "Select a card to rearrange your roster — this never costs a turn."}
+          {moving ? "Choose a highlighted slot, or press Escape to cancel." : "\u00a0"}
         </p>
       ) : null}
     </PeakV2CourtPanel>

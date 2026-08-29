@@ -62,6 +62,12 @@ not as a claim about objective historical truth.
 - Two boards: *Peak Windows* (one row per player at their best consecutive
   1-, 3-, or 5-year stretch) and *Single Seasons*.
 - Sortable by total score or by any individual component.
+- Position filter (All / PG / SG / SF / PF / C), deep-linkable as
+  `?position=PG`. A player matches **every** position they are eligible at, so
+  a PG/SG appears under both. Eligibility comes from the model's own
+  minutes-gated `career_positions()` set — the same canonical positions 82-0
+  and Three-Man Weave enforce placements with — and is served as a structured
+  `positions` array, never parsed out of a display string.
 - Per-row explanation panel: each component's raw contribution, its official
   weight, its all-time percentile, what the component measures, and what raises
   or lowers it.
@@ -354,6 +360,45 @@ apps/api/             FastAPI — read-only, serves pre-generated data
 apps/web/             Next.js App Router — game and analytics UI
 docs/                 Architecture, model, game design, implementation reports
 ```
+
+## Design system
+
+The web app renders through a V2 presentation layer gated on
+`data-ui-version="v2"`, with its tokens in `apps/web/src/styles/v2/tokens.css`.
+Three typographic roles carry everything, and each has one job:
+
+| Role | Token | Used for |
+| --- | --- | --- |
+| Display | `--v2-font-display` | Result headlines, records, ordinals, hero statements |
+| UI | `--v2-font-ui` | Player names, controls, navigation, body copy |
+| Instrumentation | `--v2-font-mono` | Clocks, round/pick counters, scores, technical labels |
+
+Colour is deliberately narrow. PEAK3 gold (`--peak-accent`) marks the primary
+action, the live/active surface and the important result. The five component
+colours (`--comp-si`, `--comp-tp`, `--comp-rec`, `--comp-po`, `--comp-team`)
+are reserved for surfaces that encode real per-component PEAK3 data and are
+never decorative — a trivia category or a mode badge does not get one.
+
+Three shared primitives exist so the games read as one product rather than
+several:
+
+- **Roll ceremony** — `PeakV2SpinReveal` (`components/v2/`) over the shared
+  `SpinReel`, with the state machine `IDLE → SPINNING → LOCKING → REVEALED`.
+  Its invariant: the final value is never on screen before the spin, even
+  though the server decided it first. Three-Man Weave's franchise × decade
+  rolls through it; 82-0's `SpinStage` keeps its own reconnect-safe state
+  machine but renders in the same grammar and proportions.
+- **Roster court** — one floor, slot and player-piece language in
+  `styles/v2/court.css`, in a full footprint (82-0: five starters plus three
+  bench) and a compact one (Three-Man Weave: five plus one). Every slot has the
+  same footprint by construction, so a grid of them cannot produce uneven rows.
+- **Live status** — `PeakV2LiveHeader` + `PeakV2GameStatus` + `PeakV2Timer`,
+  fed by a server-published deadline. Clocks are always converted from the
+  server's duration into a local monotonic deadline (`ArenaTimer`), never held
+  as a ticking number, and a countdown belongs to the match rather than to the
+  seat watching it.
+
+---
 
 ## Conventions and safety notes
 

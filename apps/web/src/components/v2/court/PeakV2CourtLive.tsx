@@ -259,19 +259,18 @@ export default function PeakV2CourtLive({
                 size="sm"
               />
             </div>
+            {/* NO "Any open spot — the fit badge shows how well they match
+                it." The court answers this directly now: every open slot
+                lights during placement, with a stronger treatment on a
+                natural fit and a distinct, quieter one on a stretch, and
+                occupied slots recede. A sentence of 12px grey text was
+                explaining a thing the player was already looking at. */}
             <div className="flex items-center gap-3 flex-wrap">
-              <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
-                Any open spot — the fit badge shows how well they match it.
-              </span>
               <PeakV2SecondaryAction data-testid="cancel-selection-btn" size="sm" onClick={onSwitchSelection} disabled={busy}>
                 Switch selection
               </PeakV2SecondaryAction>
             </div>
           </div>
-        ) : rearrangeAvailable ? (
-          <p className="mt-3" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
-            Move players to improve position fit — this never re-spins.
-          </p>
         ) : null}
 
         {state.live_build ? (

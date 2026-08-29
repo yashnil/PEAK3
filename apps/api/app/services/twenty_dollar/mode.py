@@ -73,6 +73,7 @@ from nba_peak.twenty_dollar.config import (
     RULESET_VERSION,
     SEAT_COUNT,
     TURN_SECONDS,
+    bot_think_seconds,
 )
 
 #: Warm the committed candidate pool at import. See the module docstring's
@@ -210,6 +211,28 @@ class TwentyDollarMode:
         is opened by `_finish` with `turn_seconds`.
         """
         return INTRO_SECONDS if phase == PHASE_INTRO else self.turn_seconds
+
+    def bot_think_seconds(self, seed: int, seat_index: int, turn_seq: int) -> float:
+        """How long the bot seat appears to deliberate before its bid lands.
+
+        WITHOUT THIS HOOK the platform fell back to `arena.bots.
+        BOT_THINK_SECONDS` (1.2s), which is BELOW this room's 2000ms poll
+        interval -- so the bot's raise routinely arrived in the same poll that
+        opened its turn and the player never saw an opponent thinking. The
+        opponent read as a synchronous function call rather than as another
+        bidder at the table.
+
+        The range lives in `nba_peak.twenty_dollar.config` beside the rest of
+        this mode's timing, and is deliberately far shorter than Three-Man
+        Weave's -- see that constant's docstring for why an auction cannot
+        borrow a draft's pacing.
+
+        Presentation only: the bid itself is already decided by the policy, and
+        the foundation enforces this against the turn's stored `opened_at`, so
+        nothing here delays an action the server has already committed and no
+        client can hurry it along.
+        """
+        return bot_think_seconds(seed, seat_index, turn_seq)
 
     def phase_accepts_action(self, phase: str) -> bool:
         """Whether a seat -- human or bot -- may play on a turn in this phase.

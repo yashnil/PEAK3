@@ -1,0 +1,321 @@
+/* ================================================================
+   PEAK3 · SHARED ROLL CEREMONY (PeakV2SpinReveal)
+   ================================================================
+   The shell 82-0 and Three-Man Weave were both missing. Its whole job is
+   to be the SAME object in both modes, so the two rolls read as one game's
+   ceremony with different constraints rather than two mini-sites.
+
+   GEOMETRY IS FIXED, NOT FLUID. Every axis reserves the reel window's own
+   height at every stage, and the value slot is a fixed-height clipping
+   window whatever the string inside it. "Utah Jazz" and "Portland Trail
+   Blazers" therefore produce the identical box, and a reel that is
+   spinning produces the identical box to one that has landed. A ceremony
+   whose container grows as it resolves reads as a layout bug rather than
+   as a reveal, which is exactly what the old TMW reel did.
+
+   COMPACT BY DEFAULT. In 82-0 this sits above a candidate list that is the
+   actual task; the previous roll panel took ~46% of the sheet and left two
+   candidate rows visible (design-review/07). The reveal is the premise,
+   not the work, and it is sized accordingly.
+   ================================================================ */
+
+[data-ui-version="v2"] .v2-spin {
+  display: flex;
+  flex-direction: column;
+  gap: var(--v2-space-3);
+}
+
+[data-ui-version="v2"] .v2-spin-status {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+
+[data-ui-version="v2"] .v2-spin-axes {
+  display: grid;
+  grid-template-columns: repeat(var(--v2-spin-cols, 2), minmax(0, 1fr));
+  gap: 1px;
+  background: var(--v2-border-subtle);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  overflow: hidden;
+}
+
+[data-ui-version="v2"] .v2-spin-axes[data-axis-count="1"] { --v2-spin-cols: 1; }
+
+/* One axis row: label / value / action, on a fixed height. */
+[data-ui-version="v2"] .v2-spin-axis {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "label  action"
+    "value  action";
+  align-items: center;
+  column-gap: var(--v2-space-3);
+  padding: var(--v2-space-3) var(--v2-space-4);
+  background: var(--v2-bg-plane);
+  transition: background-color var(--v2-dur-transition) var(--v2-ease-standard);
+}
+
+/* The lock beat: a restrained accent wash arriving with the value, not a
+   flash, not a geometry change. */
+[data-ui-version="v2"] .v2-spin[data-stage="locking"] .v2-spin-axis {
+  background: var(--v2-color-accent-bg);
+}
+
+[data-ui-version="v2"] .v2-spin-axis-label {
+  grid-area: label;
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+
+/* THE WIDTH-STABLE, HEIGHT-STABLE VALUE WINDOW. 30px is `SpinReel`'s own
+   ROW_H — the reel's window is three rows tall and clipped to one here, so
+   the strip scrolls behind a slot the same size as the settled value. */
+[data-ui-version="v2"] .v2-spin-axis-value {
+  grid-area: value;
+  display: block;
+  position: relative;
+  height: 30px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+[data-ui-version="v2"] .v2-spin-axis-value .spin-reel-strip {
+  display: block;
+  height: 90px;              /* SpinReel WINDOW_H: 3 rows */
+  margin-top: -30px;         /* clip to the centre row */
+  overflow: hidden;
+}
+
+[data-ui-version="v2"] .v2-spin-axis-value .spin-reel-track {
+  display: block;
+  will-change: transform;
+}
+
+/* `display: block` with a matching line-height, NOT flex.
+   `text-overflow: ellipsis` has no effect on a flex container, so a value
+   longer than its window was hard-clipped mid-word — "Minnesota
+   Timberwolves" rendered as "Minnesota Timberwolve" with no ellipsis to say
+   it had been cut. A block box with `line-height` equal to the row height
+   centres the single line identically AND lets the ellipsis work. */
+[data-ui-version="v2"] .v2-spin-axis-value .spin-reel-row {
+  display: block;
+  line-height: 30px;
+  height: 30px;
+  font-family: var(--v2-font-ui);
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--v2-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The landed value. UI role, not display serif: this is a team name the
+   player reads and acts on, not a cinematic result. */
+[data-ui-version="v2"] .v2-spin-axis-value .tmw-reel-value {
+  display: block;
+  line-height: 30px;
+  height: 30px;
+  font-family: var(--v2-font-ui);
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: 0.005em;
+  color: var(--v2-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-ui-version="v2"] .v2-spin-axis[data-revealed="true"] .tmw-reel-value {
+  color: var(--v2-color-accent);
+}
+
+/* The action slot always exists so the row never reflows when a control
+   appears at reveal. */
+[data-ui-version="v2"] .v2-spin-axis-action {
+  grid-area: action;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+@media (max-width: 599px) {
+  [data-ui-version="v2"] .v2-spin-axes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ui-version="v2"] .v2-spin-axis {
+    transition: none;
+  }
+}
+
+/* ================================================================
+   82-0's SpinStage, rendered in the shared ceremony's proportions
+   ================================================================
+   WHY SpinStage IS NOT REPLACED. `PeakV2SpinReveal` above is the shared
+   shell, and Three-Man Weave rolls through it. 82-0 keeps its own state
+   machine (`components/court/SpinStage.tsx`) because that machine is not
+   just a wheel: it carries reconnect safety, per-axis respin flash, a
+   collapsed in-place summary, locked badges, a crest that must NOT leak the
+   landed identity mid-flight, and a live region — behavior bought over
+   several passes and pinned by ~25 assertions in `courtbuilder.spec.ts`
+   (reel containment, `data-was-locked`, respin-settled ordering, and a
+   cross-check that the roll summary names the same team-season as every
+   candidate row). Rebuilding that against the new shell would have meant
+   rewriting those guards to make an abstraction tidy, which is how real
+   behavior gets lost. Both rolls therefore share the REEL primitive
+   (`SpinReel`/`SpinStage`'s identical mechanics), the typography, the
+   proportions and the status vocabulary; 82-0 additionally keeps a state
+   machine TMW has no use for.
+
+   WHAT THIS BLOCK FIXES. Measured on the real page at 1440x900 before this
+   pass: the chooser sheet was 648px tall and its fixed head took 342px of
+   it — 53% — leaving 268px of candidate area, i.e. two and a bit rows of
+   the list the player is actually there to read (design-review/07). The
+   roll is the premise; the candidates are the task. Every value below
+   trims chrome, not information: nothing here removes a fact, it stops the
+   facts being set in a panel three times larger than they need.
+   ================================================================ */
+
+/* Outer ceremony padding and inter-block rhythm. */
+[data-ui-version="v2"] .spin-reel {
+  padding: var(--v2-space-3);
+  gap: var(--v2-space-2);
+}
+
+/* The two wheel boxes: the single biggest block in the head. */
+[data-ui-version="v2"] .spin-wheel-box {
+  padding: var(--v2-space-3);
+  gap: 0.4rem;
+  border-radius: var(--v2-radius-control);
+}
+
+/* The crest. Kept (it is the axis's identity and it is deliberately
+   identity-free until the reel lands — see SpinStage's own comment) but at
+   a size proportionate to a compact roll module rather than a hero. */
+[data-ui-version="v2"] [data-testid="team-badge"] {
+  width: 34px !important;
+  height: 34px !important;
+  font-size: 0.8125rem !important;
+}
+
+[data-ui-version="v2"] .spin-lockup-grid {
+  gap: var(--v2-space-2);
+}
+
+/* The landed team/season lockup: UI role, one line, no wrap. */
+[data-ui-version="v2"] [data-testid="eligible-count-reveal"] {
+  font-family: var(--v2-font-ui);
+}
+
+[data-ui-version="v2"] [data-testid="roll-summary"] {
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  margin-bottom: 0;
+}
+
+/* Axis labels ("Team", "Season") take the INSTRUMENTATION role, matching
+   `.v2-spin-axis-label` in the shared shell exactly. */
+[data-ui-version="v2"] .spin-wheel-box .text-\[10px\] {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  letter-spacing: 0.1em;
+}
+
+/* THE AXIS IS A ROW, NOT A STACK. `SpinStage` stacks crest / label / reel
+   vertically and centres them, which is why each wheel box was 128px tall
+   and the pair alone accounted for more than the entire candidate list's
+   visible height. Laid out as a row — crest, then label over value, then
+   the axis's own respin — it carries the identical information in ~60px
+   and matches `.v2-spin-axis`'s grammar in the shared shell exactly. */
+[data-ui-version="v2"] .spin-wheel-box {
+  flex-direction: row !important;
+  align-items: center;
+  justify-content: flex-start !important;
+  text-align: left !important;
+  min-height: 0 !important;
+  gap: var(--v2-space-3);
+}
+
+[data-ui-version="v2"] .spin-wheel-box > .min-w-0 {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+[data-ui-version="v2"] .spin-wheel-action {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+/* The value itself: one line, ellipsised rather than wrapped, so a long
+   franchise never changes the axis's height. */
+[data-ui-version="v2"] [data-testid="spin-team-reel-center"],
+[data-ui-version="v2"] [data-testid="spin-season-reel-center"] {
+  font-size: 1.0625rem !important;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* THE ROUND DOTS GO. Eight dots restated "Round 1 of 8", which the panel's
+   own title says and the instrument line beside the dots says again. */
+[data-ui-version="v2"] .round-progress-dots {
+  display: none;
+}
+
+/* The text lockup under the reels is now SECONDARY: the two axes above it
+   state the roll at full size, and this line's remaining job is to be the
+   selectable/extractable text form of it. (It is also what
+   `courtbuilder.spec.ts` cross-checks against every candidate row's own
+   team-season, so it stays present and visible rather than being folded
+   away.) Sized as the caption it now is. */
+[data-ui-version="v2"] [data-testid="roll-summary"] {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--v2-text-muted) !important;
+}
+
+/* The armed (pre-spin) value slot: the reel's exact window, empty. Holds the
+   geometry so mounting the real reel at SPINNING moves nothing, and shows a
+   faint idle rule so the axis does not read as broken while it waits. */
+[data-ui-version="v2"] .v2-spin-axis-armed {
+  display: block;
+  height: 30px;
+  position: relative;
+}
+
+[data-ui-version="v2"] .v2-spin-axis-armed::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 2.25rem;
+  height: 1px;
+  background: var(--v2-border);
+}
+
+/* THE CEREMONY CARD, SIZED FOR TWO AXES.
+   `.tmw-ceremony` (three-man-weave.css) caps at 38rem — right when it held
+   two centred display strings, too narrow now that it holds the shared
+   two-axis shell: at that width the franchise axis could not fit the longest
+   real names in the pool ("Portland Trail Blazers", "Oklahoma City Thunder",
+   "Minnesota Timberwolves") without ellipsising a third of the league. V2
+   only; legacy's own ceremony keeps its width. */
+[data-ui-version="v2"] .tmw-ceremony {
+  width: min(46rem, 100%);
+}

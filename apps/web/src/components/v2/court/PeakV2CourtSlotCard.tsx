@@ -197,6 +197,59 @@ export default function PeakV2CourtSlotCard({
   // uses for this -- reused here verbatim, not re-derived.
   const fixedHeightClass = "roster-board-slot-card-fixed";
 
+  // DESKTOP DRAG-AND-DROP, ADDED ON TOP OF — NEVER INSTEAD OF — THE EXISTING
+  // WAYS TO MOVE A PLAYER.
+  //
+  // The tile is already a real <button> that picks a player up on click, tap
+  // and Enter/Space, and the court already lights its legal destinations.
+  // Dragging is a fourth route to the same reducer path (`onMove` then
+  // `onSwapTarget`), so a pointer user gets the direct manipulation they
+  // expect while click, tap and keyboard remain fully sufficient. Nothing
+  // here is reachable ONLY by dragging.
+  //
+  // WHY THE NATIVE HTML5 API. It is pointer-only by definition, so it cannot
+  // hijack a touch scroll (mobile keeps the tap flow untouched), and the
+  // browser suppresses the click that would otherwise follow a drag — so a
+  // drop can never also fire the source tile's own `onClick` and immediately
+  // re-pick-up the player it just placed.
+  //
+  // The drag image is the tile itself, captured at its real size, so the
+  // thing under the cursor is the piece being moved rather than a
+  // semi-transparent slice of the page at some arbitrary offset.
+  const dragSourceProps = onMove
+    ? {
+        draggable: true,
+        onDragStart: (event: React.DragEvent<HTMLElement>) => {
+          event.dataTransfer.effectAllowed = "move";
+          // Some browsers refuse to start a drag with no payload set.
+          event.dataTransfer.setData("text/plain", slot.slot_type);
+          if (event.currentTarget instanceof HTMLElement) {
+            const rect = event.currentTarget.getBoundingClientRect();
+            event.dataTransfer.setDragImage(event.currentTarget, rect.width / 2, rect.height / 2);
+          }
+          onMove();
+        },
+      }
+    : {};
+
+  const dropTargetProps = onSwapTarget
+    ? {
+        onDragOver: (event: React.DragEvent<HTMLElement>) => {
+          // Calling preventDefault is what MARKS this element as a legal
+          // drop target; an untouched dragover means "not droppable", which
+          // is exactly the treatment an illegal destination should get —
+          // the browser shows the no-drop cursor and the drop never fires,
+          // so an invalid destination cannot move anything.
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+        },
+        onDrop: (event: React.DragEvent<HTMLElement>) => {
+          event.preventDefault();
+          onSwapTarget();
+        },
+      }
+    : {};
+
   const fitCaption = fit ? (
     <span
       data-testid="role-fit-badge"
@@ -214,6 +267,7 @@ export default function PeakV2CourtSlotCard({
         {...sharedAttrs}
         data-testid="slot-swap-target"
         onClick={onSwapTarget}
+        {...dropTargetProps}
         aria-label={
           movingFromSlotLabel
             ? `Move to ${SLOT_LABELS[slot.slot_type]}${slot.filled ? `, swapping with ${slot.player_name ?? "the player there"}` : ""} (from ${movingFromSlotLabel})`
@@ -259,7 +313,18 @@ export default function PeakV2CourtSlotCard({
 
   const clickable = !!onClick;
   const tier = isPendingTarget ? pendingFitTier(pendingFit, pendingFitSeverity) : "neutral";
-  const pendingHint = tier === "weak" ? "Off-position" : tier === "stretch" ? "Playable stretch" : "Place here";
+  // ONE VOCABULARY FOR FIT, NOT TWO. This line used to say "Off-position" /
+  // "Playable stretch" / "Place here" — a second set of words for exactly the
+  // axis `pending-fit-badge` already names authoritatively, in the server's own
+  // wording ("Flex fit" / "Role stretch" / "Structural mismatch", mirrored from
+  // `nba_peak/perfect_season/positions.py::fit_label`). A placement board that
+  // says "Playable stretch" here and "Role stretch" two lines below is asking
+  // the player to work out whether those are the same thing.
+  //
+  // So the hint is now purely the ACTION, and fit is carried by the two
+  // channels that already exist and do not need reading: the slot's own border
+  // tier (`court-slot-pending-{strong,stretch,weak}`) and the single badge.
+  const pendingHint = "Place here";
   const body = (
     <PeakV2CourtSlot
       position={SLOT_LABELS[slot.slot_type] ?? slot.slot_type}
@@ -268,9 +333,6 @@ export default function PeakV2CourtSlotCard({
       valueLabel={slot.filled ? "PEAK3" : undefined}
       state={isPendingTarget ? "staged" : slot.filled ? "filled" : "empty"}
       emptyHint={isPendingTarget ? pendingHint : blockedDuringPlacement ? "Occupied" : "Open"}
-      onMove={onMove}
-      moveLabel="Move"
-      moveTestId="slot-move-btn"
       className={isPendingTarget ? `court-slot-pending-${tier}` : undefined}
     />
   );
@@ -286,7 +348,14 @@ export default function PeakV2CourtSlotCard({
           fontWeight: 700,
           textTransform: "uppercase",
           letterSpacing: "0.04em",
-          color: fitColor(pendingFit, pendingFitSeverity),
+          // THE SLOT ALREADY SAID THIS IN COLOUR. The border tier
+          // (`court-slot-pending-{strong,stretch,weak}`) carries fit as
+          // colour AND border-style; painting the caption in the same fit
+          // colour underneath said it twice and put a second gold object on
+          // the floor per destination. The caption is now a quiet label that
+          // NAMES what the border already showed, so gold is left to mean
+          // "the destination", not "there is a destination somewhere here".
+          color: "var(--v2-text-muted)",
         }}
       >
         {pendingFitPill}
@@ -297,11 +366,30 @@ export default function PeakV2CourtSlotCard({
     const reason = `${SLOT_LABELS[slot.slot_type]} is already filled by ${
       slot.player_name ?? "a player"
     }. Place your new pick in an open slot instead.`;
-    const fullNote = (
+    // ONE WORD, NOT A SENTENCE. This used to read "Full — place in an open
+    // slot": a 10px uppercase grey instruction stamped on EVERY occupied
+    // slot during placement — five copies of the same sentence, and because
+    // the tile's height is fixed it pushed the fit caption underneath it
+    // out of the box and clipped it in half (design-review/10).
+    //
+    // The instruction half is now carried by the COURT (open slots
+    // illuminate, occupied ones recede) and, for assistive tech, by
+    // `aria-label={reason}` on the container below. What stays is the
+    // one-word STATE, in the same caption slot the fit label occupies on
+    // every other tile — so it is sized for, and cannot clip.
+    const blockedNote = (
       <span
-        style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.625rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--v2-text-muted)" }}
+        data-testid="slot-blocked-note"
+        style={{
+          fontFamily: "var(--v2-font-mono)",
+          fontSize: "0.5625rem",
+          fontWeight: 700,
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          color: "var(--v2-text-muted)",
+        }}
       >
-        Full — place in an open slot
+        Occupied
       </span>
     );
     // `action_swap_slots` allows rearranging even mid-placement, so `onMove`
@@ -310,6 +398,19 @@ export default function PeakV2CourtSlotCard({
     // `role="group"` container, never a `<button disabled>` wrapping a real
     // live one) is the one this actually reaches from the player's second
     // pick onward.
+    // A FILLED SLOT IS INERT WHILE A PICK IS IN HAND. The tile is the
+    // pickup control everywhere else (see the `onMove` branch further
+    // down), but NOT here: the player already has a card selected and
+    // waiting for a home, and letting them pick a second one up mid
+    // placement is a state with no sensible meaning. Selection and
+    // placement never overlap — the same rule that closes the candidate
+    // panel the instant a pick is pending.
+    //
+    // Rendered as a `role="group"`/`aria-disabled` container rather than a
+    // `<button disabled>` for the reason the original branch already
+    // documented, and still carrying `aria-label={reason}` so a screen
+    // reader is told WHY this is not a target rather than meeting an
+    // unlabeled dead element.
     if (onMove) {
       return (
         <div
@@ -319,11 +420,9 @@ export default function PeakV2CourtSlotCard({
           aria-disabled="true"
           aria-label={reason}
           className={`flex flex-col gap-1 ${fixedHeightClass}`}
-          style={{ opacity: 0.85 }}
         >
           {body}
-          {fullNote}
-          {fitCaption}
+          {blockedNote}
         </div>
       );
     }
@@ -339,8 +438,7 @@ export default function PeakV2CourtSlotCard({
         style={{ opacity: 0.55, cursor: "not-allowed" }}
       >
         {body}
-        {fullNote}
-        {fitCaption}
+        {blockedNote}
       </button>
     );
   }
@@ -348,6 +446,26 @@ export default function PeakV2CourtSlotCard({
   if (clickable) {
     return (
       <button type="button" {...sharedAttrs} onClick={onClick} className={`flex w-full flex-col gap-1 text-left ${fixedHeightClass}`}>
+        {body}
+        {fitCaption}
+        {pendingBadge}
+      </button>
+    );
+  }
+
+  // A placed player, court idle: the TILE is the pickup control. See the
+  // note on the blocked branch above for why the Move button is gone.
+  if (onMove) {
+    return (
+      <button
+        type="button"
+        {...sharedAttrs}
+        data-pickup="true"
+        onClick={onMove}
+        {...dragSourceProps}
+        aria-label={`${slot.player_name ?? SLOT_LABELS[slot.slot_type]} at ${SLOT_LABELS[slot.slot_type]} — pick up to move`}
+        className={`flex w-full flex-col gap-1 text-left ${fixedHeightClass}`}
+      >
         {body}
         {fitCaption}
         {pendingBadge}

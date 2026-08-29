@@ -12,6 +12,7 @@ import "@/styles/v2/home.css";
 import "@/styles/v2/discovery.css";
 import "@/styles/v2/rtt.css";
 import "@/styles/v2/court.css";
+import "@/styles/v2/spin.css";
 import "@/styles/v2/rtt-result.css";
 import "@/styles/v2/game-intro.css";
 import "@/styles/v2/arena-lobby.css";

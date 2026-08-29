@@ -165,6 +165,18 @@ export default function CourtBuilder({
   // not mutate, so the server rejects a swap once status is "result_ready"
   // (code "rearrange_after_result") and the UI hides the controls to match.
   const canRearrange = state.status !== "result_ready";
+
+  // THE UNDO TOAST MUST NOT SURVIVE THE RUN. It is an undo affordance for a
+  // placement, bounded by the server's own `expires_at`; once the roster is
+  // locked and simulated the server rejects any mutation
+  // ("rearrange_after_result"), so the toast is offering an action that
+  // cannot succeed. It also sits fixed over the page, so on the result
+  // screen it covered the revealed roster and clipped a player's team and
+  // season behind it (design-review/11, and reproduced in this pass's own
+  // C05 capture before this fix). Dismissed the moment the result exists.
+  useEffect(() => {
+    if (state.status === "result_ready") dismissToast();
+  }, [state.status, dismissToast]);
   const filledSlotCount = state.slots.filter((s) => s.filled).length;
   const rearrangeAvailable = canRearrange && filledSlotCount >= 1;
 

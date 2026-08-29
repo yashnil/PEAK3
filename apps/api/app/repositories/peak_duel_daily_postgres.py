@@ -132,17 +132,22 @@ class PostgresPeakDuelDailyResultRepository:
             return _row_to_result(row) if row is not None else None
 
     async def list_results_for_owner(
-        self, owner_sub: str, limit: int = 30
+        self, owner_sub: str, limit: int = 30, mode: Optional[str] = None
     ) -> list[PeakDuelDailyResult]:
+        # `mode IS NULL OR mode = $3` rather than two separate statements:
+        # one query text, one plan, and the unfiltered behavior stays
+        # byte-identical for callers that pass no mode. The
+        # `(owner_sub, daily_key DESC)` index still drives the scan.
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 """
                 SELECT * FROM peak_duel_daily_results
                 WHERE owner_sub = $1
+                  AND ($3::text IS NULL OR mode = $3::text)
                 ORDER BY daily_key DESC, created_at DESC
                 LIMIT $2
                 """,
-                owner_sub, limit,
+                owner_sub, limit, mode,
             )
             return [_row_to_result(row) for row in rows]
 

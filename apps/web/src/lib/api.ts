@@ -185,6 +185,13 @@ export function normalizeRankingRow(raw: RankingRowPayload): RankingRow {
     data_completeness: strOrNull(raw.data_completeness) ?? strOrNull(raw.data_status),
     headshot_url: strOrNull(raw.headshot_url),
     season_in_progress: raw.season_in_progress === true,
+    // Defended against an API that predates the field: absent becomes an
+    // empty array, which downstream reads as "no information".
+    positions: Array.isArray(raw.positions) ? raw.positions.filter((p) => typeof p === "string") : [],
+    // Same defence, and the same meaning: absent/null is "the model could not
+    // say", which the position tabs treat as unclassified rather than
+    // guessing the player into a tab.
+    primary_position: typeof raw.primary_position === "string" ? raw.primary_position : null,
   };
 }
 

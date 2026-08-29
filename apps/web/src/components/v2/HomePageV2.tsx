@@ -62,6 +62,12 @@ export interface HomePageV2Mode {
   description: string;
   /** Short instrument-role tag, e.g. "5 QUESTIONS", "3 COURTS", "24 LOTS". Real, never fabricated. */
   tag?: string;
+  /** The AUTHORED menu-sized one-liner (`ModeCopy.blurb`, <= 8 words), used
+   *  by the compact mode tiles. Authored rather than derived on purpose:
+   *  `description` is a full multi-sentence pitch written for a card with
+   *  room to breathe, and ellipsising it would cut mid-clause. Falls back to
+   *  `description` when a mode has no blurb. */
+  blurb?: string;
   /** Stable catalogue id (e.g. "three_man_weave"), when the mode came from
    *  one — drives this cell's `data-testid` for e2e navigation coverage. */
   id?: string;
@@ -117,36 +123,83 @@ const COMPONENT_ORDER: RankingComponentKey[] = [
   "team_achievement",
 ];
 
-/** One cell of the horizontal game slate. Shared shape for every mode,
- *  including the RTT resume cell (`HomeV2ResumeRow` renders this same
- *  markup so the strip never has one visually different cell). */
+/** One SECONDARY mode in "Your Arena" — the third rank, below the featured
+ *  panel. Compact and scannable on purpose: the previous slate gave every
+ *  mode a 168px cell and a four-line pitch, so a reader scanning for
+ *  "what do I play" had to read seven paragraphs of equal weight.
+ *
+ *  One title, one short line, and — for a mode with live opponents — one
+ *  badge. Nothing else earns a chip here, and the "Play →" affordance is
+ *  dropped: the whole tile is the link, and seven identical gold "Play"
+ *  labels were repetition, not guidance. */
+/**
+ * ONE MODE CELL, SHARED BY THE HOMEPAGE AND `/arena`.
+ *
+ * Exported and reused rather than reimplemented, because the two pages had
+ * drifted into different design systems answering the same question. The
+ * homepage showed modes as bordered cells with a display-serif flagship;
+ * `/arena` showed the same six modes as hairline-separated rows of small text
+ * with a right-aligned link — so pressing "Start a run" on a page full of
+ * cards landed the player on what read as a documentation index. Same content,
+ * two visual languages, and the destination was the weaker one.
+ *
+ * The two pages still ASK different questions — the homepage answers "what
+ * should I play now?", `/arena` answers "what games exist?" — so they differ
+ * in grouping, ordering and density, not in what a mode looks like.
+ */
 export function ModeSlateCell({
   mode,
-  badge,
+  live,
   testId,
+  featured,
+  cta,
+  descriptionSource = "blurb",
 }: {
   mode: HomePageV2Mode;
-  badge?: string;
+  /** Marks a mode with live opponents — a real, changing property. */
+  live?: boolean;
   /** Overrides the auto-derived `home-${mode.id}-card` testid — for a mode
    *  whose e2e-observable id predates `MODE_COPY`'s id (e.g. Peak Duel
    *  Daily's card kept its long-standing `home-daily-duel-card` name). */
   testId?: string;
+  /** The one gold flagship treatment on a page: `data-featured="true"` plus a
+   *  player-facing "Flagship" badge. Styling alone is deliberately not enough
+   *  — `play-routing.spec.ts`'s `assertSoleFeaturedCard` requires the badge to
+   *  exist and to be the ONLY one on the page, so a second featured cell is a
+   *  test failure rather than a quiet visual tie. */
+  featured?: boolean;
+  /** Names the destination in the link's own text ("Build a Perfect Season").
+   *  Real link content, not decoration: it is what a screen-reader user hears
+   *  and what the routing specs match on by accessible name. */
+  cta?: string;
+  /** `/arena` is a catalogue, so it wants the fuller `description`; the
+   *  homepage is a launcher and wants the one-line `blurb`. */
+  descriptionSource?: "blurb" | "description";
 }) {
   return (
     <Link
       href={mode.href}
-      className="v2-slate-cell group"
+      className="v2-arena-mode"
       data-testid={testId ?? (mode.id ? `home-${mode.id}-card` : undefined)}
+      data-featured={featured ? "true" : undefined}
     >
-      <span className="v2-slate-cell-head">
-        {mode.tag ? <span className="v2-slate-cell-tag">{mode.tag}</span> : null}
-        {badge ? <span className="v2-slate-cell-badge">{badge}</span> : null}
+      <span className="v2-arena-mode-head">
+        {featured ? (
+          <span className="v2-arena-mode-flagship" data-testid="flagship-badge">
+            Flagship
+          </span>
+        ) : null}
+        <span className="v2-arena-mode-title">{mode.title}</span>
+        {live ? <span className="v2-arena-mode-live">Live</span> : null}
       </span>
-      <span className="v2-slate-cell-title">{mode.title}</span>
-      <span className="v2-slate-cell-desc">{mode.description}</span>
-      <span className="v2-slate-cell-action" aria-hidden="true">
-        Play <span className="v2-slate-cell-arrow">→</span>
+      <span className="v2-arena-mode-desc">
+        {descriptionSource === "description" ? mode.description : mode.blurb ?? mode.description}
       </span>
+      {cta ? (
+        <span className="v2-arena-mode-cta">
+          {cta} <span aria-hidden="true">→</span>
+        </span>
+      ) : null}
     </Link>
   );
 }
@@ -180,6 +233,9 @@ export default function HomePageV2({
     href: "/arena/court/leaderboard",
     title: "82-0 Leaderboard",
     description: "The best submitted 82-0 PEAK Season runs — measure your roster against them.",
+    // This entry is built here rather than sourced from MODE_COPY (it is a
+    // board, not a game), so its menu-sized line is authored here too.
+    blurb: "The best submitted 82-0 runs",
   };
 
   const laneDescriptions: Record<string, string> = {};
@@ -268,29 +324,40 @@ export default function HomePageV2({
           docstring). Server-rendered, zero client JavaScript. ---- */}
       <NbaFactOfTheDay fact={nbaFact} />
 
-      {/* ---- 2. GAME SLATE — one instrument strip, full content width ---- */}
-      <section aria-labelledby="modes-heading" className="v2-slate-section">
-        <div className="v2-slate-heading-row">
-          <span className="v2-live-dot" aria-hidden="true" />
-          <h2 id="modes-heading" className="v2-slate-heading">
-            Choose a game
-          </h2>
-        </div>
-        <div className="v2-slate-grid">
-          <HomeV2ResumeRow mode={runTheTable} />
+      {/* ---- 2. YOUR ARENA — ONE section answering one question:
+           "what should I play or continue right now?"
+
+           This replaces two sections ("Choose a game" and "Your Arena")
+           that asked the same question in the same grammar, one directly
+           above the other, and between them offered Run the Table three
+           times on a single page. Three ranks now, not one:
+
+             STATUS   — HomeV2YourArena: a few real dynamic lines
+             FEATURED — HomeV2ResumeRow: the flagship, at flagship size
+             MODES    — everything else, compact
+
+           No green section dot: the section is not live, and the positive
+           token is not decoration. ---- */}
+      <section aria-labelledby="v2-arena-heading" className="v2-arena-section">
+        <h2 id="v2-arena-heading" className="v2-arena-heading">
+          Your Arena
+        </h2>
+
+        <HomeV2YourArena multiplayerModes={multiplayerModes} />
+
+        <HomeV2ResumeRow mode={runTheTable} />
+
+        <div className="v2-arena-modes">
           {daily1 ? <ModeSlateCell mode={daily1} /> : null}
           {/* `home-daily-duel-card` predates `MODE_COPY["peak-duel"].id` and
               stays literal — an e2e-observable identity, not presentation. */}
           {daily2 ? <ModeSlateCell mode={daily2} testId="home-daily-duel-card" /> : null}
           {peakSeason ? <ModeSlateCell mode={peakSeason} /> : null}
+          {mp1 ? <ModeSlateCell mode={mp1} live /> : null}
+          {mp2 ? <ModeSlateCell mode={mp2} live /> : null}
           <ModeSlateCell mode={leaderboardMode} />
-          {mp1 ? <ModeSlateCell mode={mp1} badge="Live" /> : null}
-          {mp2 ? <ModeSlateCell mode={mp2} badge="Live" /> : null}
         </div>
       </section>
-
-      {/* ---- 3. YOUR ARENA — real personalized/current-state strip ---- */}
-      <HomeV2YourArena multiplayerModes={multiplayerModes} />
 
       <PeakV2Rule spacing="lg" />
 

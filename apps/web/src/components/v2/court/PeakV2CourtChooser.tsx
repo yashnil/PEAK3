@@ -182,6 +182,21 @@ export default function PeakV2CourtChooser({
                 className="truncate"
                 style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 600, color: "var(--v2-text-secondary)" }}
               >
+                {/* THE LEAK-SAFE STATEMENT OF THE ROLL.
+                    This line reads `displaySpin`, not `spin` — the "keep
+                    showing the PREVIOUS roll while a respin is still
+                    visually landing" guard — which makes it the one piece
+                    of text on this panel that provably cannot leak a new
+                    team or season before the reel lands. Two regression
+                    tests depend on exactly that
+                    (`courtbuilder.spec.ts` 2.6, team and season respins).
+                    An earlier version of this pass trimmed it to just the
+                    eligible count to remove a third statement of the same
+                    facts, which silently disarmed both guards — so it
+                    stays, small and secondary, and the redundancy that was
+                    actually removed is elsewhere (the "You rolled:"
+                    sentence and the eligible-count sentence under the
+                    reels). */}
                 {displaySpin.franchise_display_name} · {displaySpin.era_label}
                 <span style={{ color: "var(--v2-text-muted)" }}> · {displaySpin.candidates.length} eligible</span>
               </span>
@@ -191,22 +206,25 @@ export default function PeakV2CourtChooser({
               390px three pills plus the headline cannot share one line, so
               the GROUP wraps to its own row — a label like "Respin team (3)"
               must never wrap inside its own pill. */}
+          {/* THE RESPINS ARE NOT HERE ANY MORE. They used to sit in this row
+              as two detached rectangles next to "View court" — three pills
+              that looked alike, only one of which had anything to do with
+              the roll, and neither of which said WHICH axis it acted on.
+              They are now rendered inside their own axis in `SpinStage`
+              below (`teamAction`/`seasonAction`), where "Respin team (3
+              left)" sits beside the team it would respin. The remaining
+              count travels with the control, so it stays visible.
+
+              What is left in this row is the one control that genuinely
+              belongs to the PANEL rather than to the roll — the way out to
+              the court — plus the round's one-time hint, moved up from the
+              candidate list's own header where it occupied a full 38px row
+              of the list's height for a single button. */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* Gated on `!collapsed` (== `phase === "spinning"`), matching
-                legacy's own `phase === "spinning" && ...` gate exactly: the
-                panel stays mounted (`keepMounted`) through "placing" too, so
-                without this the respin controls would stay in the DOM
-                (merely hidden behind the collapsed panel) instead of
-                genuinely disappearing the instant a player is selected. */}
-            {!collapsed && ceremonyRevealed && spin.spin_type === "team_year" ? (
-              <div data-testid="respin-controls" className="flex flex-wrap items-center gap-2">
-                <PeakV2SecondaryAction data-testid="respin-team-btn" size="sm" className="whitespace-nowrap" disabled={busy || !canRespinTeam} onClick={onRespinTeam}>
-                  Respin team ({teamRespinsLeft} left)
-                </PeakV2SecondaryAction>
-                <PeakV2SecondaryAction data-testid="respin-season-btn" size="sm" className="whitespace-nowrap" disabled={busy || !canRespinSeason} onClick={onRespinSeason}>
-                  Respin season ({seasonRespinsLeft} left)
-                </PeakV2SecondaryAction>
-              </div>
+            {difficulty === "easy" && !collapsed && ceremonyRevealed ? (
+              <PeakV2SecondaryAction data-testid="hint-btn" size="sm" className="whitespace-nowrap" onClick={onHint} disabled={busy || respinPending || hintUsed}>
+                {hintUsed ? "Hint used" : "Give me a suggestion"}
+              </PeakV2SecondaryAction>
             ) : null}
             <PeakV2SecondaryAction data-testid="minimize-overlay-btn" size="sm" className="whitespace-nowrap" onClick={onClose}>
               View court
@@ -229,6 +247,20 @@ export default function PeakV2CourtChooser({
             respinKind={respinKind}
             respinFrom={respinFrom}
             collapsed={collapsed}
+            teamAction={
+              !collapsed && ceremonyRevealed && spin.spin_type === "team_year" ? (
+                <PeakV2SecondaryAction data-testid="respin-team-btn" size="sm" className="whitespace-nowrap" disabled={busy || !canRespinTeam} onClick={onRespinTeam}>
+                  Respin team ({teamRespinsLeft} left)
+                </PeakV2SecondaryAction>
+              ) : null
+            }
+            seasonAction={
+              !collapsed && ceremonyRevealed && spin.spin_type === "team_year" ? (
+                <PeakV2SecondaryAction data-testid="respin-season-btn" size="sm" className="whitespace-nowrap" disabled={busy || !canRespinSeason} onClick={onRespinSeason}>
+                  Respin season ({seasonRespinsLeft} left)
+                </PeakV2SecondaryAction>
+              ) : null
+            }
           />
         </div>
       </div>
@@ -253,38 +285,17 @@ export default function PeakV2CourtChooser({
                 "N ELIGIBLE" across two lines mid-row against a vertically
                 centered button) is worse than letting the button drop to its
                 own row. */}
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span
-                style={{
-                  fontFamily: "var(--v2-font-mono)",
-                  fontSize: "0.6875rem",
-                  fontWeight: 700,
-                  letterSpacing: "0.06em",
-                  textTransform: "uppercase",
-                  color: "var(--v2-text-muted)",
-                }}
-              >
-                Step 1 · Choose a player · {candidates.length} eligible
-              </span>
-              {/* Secondary, not primary: the candidate list below already
-                  carries its own gold "Choose" affordance on every single
-                  row (`EligiblePlayerSearch`'s "CHOOSE" pill) -- a second,
-                  filled-gold CTA sitting directly above a dozen more gold
-                  pills competed with them and diluted gold's "one primary
-                  action" scarcity (brief §Color/§Button). The hint is a
-                  helper for the actual decision, not the decision itself. */}
-              {difficulty === "easy" ? (
-                <PeakV2SecondaryAction data-testid="hint-btn" size="sm" onClick={onHint} disabled={busy || respinPending || hintUsed}>
-                  {hintUsed ? "Hint used" : "Give me a suggestion"}
-                </PeakV2SecondaryAction>
-              ) : null}
-            </div>
+            {/* NO HEADER ROW. It held a "Step 1 · Choose a player · N
+                eligible" label (the third statement of two facts already on
+                this panel) and the hint button, which has moved to the panel
+                header. Both cost the candidate list ~50px — nearly a whole
+                row — to say nothing new. */}
             {hintMessage ? (
-              <p data-testid="hint-message" className="mt-1" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 700, color: "var(--v2-color-accent)" }}>
+              <p data-testid="hint-message" className="mb-2" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 700, color: "var(--v2-color-accent)" }}>
                 {hintMessage}
               </p>
             ) : null}
-            <div className="mt-3">
+            <div>
               <EligiblePlayerSearch candidates={candidates} onSelect={onSelectCandidate} disabled={busy || respinPending} highlightSlug={hintSlug} />
             </div>
           </div>

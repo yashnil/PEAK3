@@ -12,6 +12,7 @@
  * `arenaCatalogue.available` is real (never a card that would 403).
  */
 
+import { ModeSlateCell } from "./HomePageV2";
 import PeakV2Shell from "./PeakV2Shell";
 import PeakV2Rule from "./PeakV2Rule";
 import PeakV2LiveHeader from "./PeakV2LiveHeader";
@@ -36,69 +37,6 @@ function InlineLink({ href, testId, children }: { href: string; testId?: string;
   );
 }
 
-function ModeGroupRow({
-  title,
-  description,
-  href,
-  cta,
-  testId,
-  featured,
-}: {
-  title: string;
-  description: string;
-  href: string;
-  cta: string;
-  testId?: string;
-  /** Marks this row as the hub's one gold flagship treatment
-   *  (`data-featured="true"` + an explicit "Flagship" badge) — the same
-   *  signal `assertSoleFeaturedCard` requires: styling alone is never
-   *  enough, there must be a player-facing badge too. */
-  featured?: boolean;
-}) {
-  return (
-    <a
-      href={href}
-      data-testid={testId}
-      data-featured={featured ? "true" : undefined}
-      className="flex items-center justify-between gap-4 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-      style={{ borderBottom: "1px solid var(--v2-border-subtle)" }}
-    >
-      <div className="min-w-0">
-        <div style={{ fontFamily: "var(--v2-font-ui)", fontWeight: 700, fontSize: "0.9375rem", color: "var(--v2-text-primary)" }}>
-          {featured ? (
-            <span
-              data-testid="flagship-badge"
-              style={{
-                display: "inline-block",
-                marginRight: "0.5rem",
-                fontSize: "0.6875rem",
-                fontWeight: 800,
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
-                color: "var(--v2-color-accent)",
-              }}
-            >
-              Flagship
-            </span>
-          ) : null}
-          {title}
-        </div>
-        <div style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-secondary)" }}>
-          {description}
-        </div>
-      </div>
-      {/* Only the decorative arrow glyph is `aria-hidden` -- the CTA text
-          itself ("Build a Perfect Season", "Play", …) is real, meaningful
-          link content (it's what names the destination for a screen-reader
-          user, and what courtbuilder.spec.ts's "Build a Perfect Season"
-          link-name assertions read), not decoration. */}
-      <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 700, color: "var(--v2-color-accent)", whiteSpace: "nowrap" }}>
-        {cta} <span aria-hidden="true">→</span>
-      </span>
-    </a>
-  );
-}
-
 export default function ArenaPageV2({
   courtBuilderEnabled,
   arenaCatalogue,
@@ -111,13 +49,34 @@ export default function ArenaPageV2({
   const dailyGrid = MODE_COPY["daily-grid"];
   const peakDuel = MODE_COPY["peak-duel"];
 
+  // ONE CELL COMPONENT, SHARED WITH THE HOMEPAGE (`ModeSlateCell`). The
+  // catalogue's job is "what games exist, and which do I want" rather than the
+  // homepage's "what should I play now", so it differs in GROUPING and
+  // ordering — flagship, daily, full season, multiplayer, competitive — and
+  // not in what a mode looks like. Before this, the same six modes were cards
+  // on one page and hairline text rows on the other.
+  const cellsFor = (
+    entries: { mode: Parameters<typeof ModeSlateCell>[0]["mode"]; testId?: string; live?: boolean; cta: string; featured?: boolean }[],
+  ) =>
+    entries.map((e) => (
+      <ModeSlateCell
+        key={e.testId ?? e.mode.id}
+        mode={e.mode}
+        testId={e.testId}
+        live={e.live}
+        cta={e.cta}
+        featured={e.featured}
+        descriptionSource="description"
+      />
+    ));
+
   return (
     <PeakV2Shell width="live">
       {/* Client-only. Always renders a real cinematic hero — either resume
           state or the plain no-run entry statement — so this page never
           shows a second, competing `<h1>` beneath it. */}
       <ArenaV2ResumeHero />
-      <PeakV2Rule spacing="lg" />
+      <PeakV2Rule spacing="md" />
 
       <section aria-labelledby="v2-arena-flagship">
         <PeakV2LiveHeader
@@ -126,17 +85,20 @@ export default function ArenaPageV2({
           subtitle="One branching run, five boss battles, roughly a quarter of an hour."
           status={<PeakV2GameStatus label="Live" state="active" />}
         />
-        <div className="mt-1 flex flex-col">
-          <ModeGroupRow
-            testId="arena-flagship-card"
-            featured
-            title={rtt.title}
-            description={rtt.description}
-            href={rtt.href}
-            cta="Start a run"
-          />
+        {/* A one-cell grid rather than a full-width slab: the flagship is
+            marked by its badge and its ground, not by being a different SHAPE
+            from every other mode (rule 13's "no giant marketing slabs"). */}
+        <div className="v2-arena-modes v2-arena-modes--single">
+          {cellsFor([
+            {
+              mode: { id: "run-the-table", href: rtt.href, title: rtt.title, description: rtt.description },
+              testId: "arena-flagship-card",
+              cta: "Start a run",
+              featured: true,
+            },
+          ])}
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-4">
+        <div className="mt-3 flex flex-wrap items-center gap-4">
           <InlineLink href="/arena/run-the-table?start=standard" testId="arena-rtt-start-link">
             Start a standard run
           </InlineLink>
@@ -146,59 +108,66 @@ export default function ArenaPageV2({
         </div>
       </section>
 
+      <PeakV2Rule spacing="md" />
+
+      <section aria-labelledby="v2-arena-daily">
+        <PeakV2LiveHeader as="h2" title="Daily · quick play" subtitle="One board a day, identical for everyone, a few minutes each." rule={false} />
+        <div className="v2-arena-modes v2-arena-modes--pair">
+          {cellsFor([
+            { mode: { id: dailyGrid.id, href: dailyGrid.href, title: dailyGrid.title, description: dailyGrid.description }, testId: "arena-daily-grid-card", cta: "Play" },
+            { mode: { id: peakDuel.id, href: peakDuel.href, title: peakDuel.title, description: peakDuel.description }, testId: "arena-daily-duel-card", cta: "Play" },
+          ])}
+        </div>
+      </section>
+
       {courtBuilderEnabled ? (
         <>
           <PeakV2Rule spacing="md" />
           <section aria-labelledby="v2-arena-season">
             <PeakV2LiveHeader as="h2" title="Full season" subtitle="Spin a real franchise and era, then draft a position-aware roster." rule={false} />
-            <div className="mt-1 flex flex-col" data-testid="courtbuilder-hero">
-              <ModeGroupRow title={peakSeason.title} description={peakSeason.description} href={peakSeason.href} cta="Build a Perfect Season" />
-              <ModeGroupRow
-                testId="daily-peak-season-cta"
-                title="82-0 · Today's Daily"
-                description="Everyone gets the same spin sequence each day."
-                href="/arena/court/daily/apex_1y"
-                cta="Play"
-              />
-              <div className="mt-2 flex flex-wrap items-center gap-4">
-                <InlineLink href="/arena/court/history" testId="court-history-link">
-                  Your saved seasons
-                </InlineLink>
-                <InlineLink href="/arena/court/leaderboard" testId="arena-leaderboard-link">
-                  82-0 Leaderboard
-                </InlineLink>
-              </div>
+            <div className="v2-arena-modes v2-arena-modes--pair" data-testid="courtbuilder-hero">
+              {cellsFor([
+                { mode: { id: "peak-season", href: peakSeason.href, title: peakSeason.title, description: peakSeason.description }, cta: "Build a Perfect Season" },
+                {
+                  mode: {
+                    id: "peak-season-daily",
+                    href: "/arena/court/daily/apex_1y",
+                    title: "82-0 · Today's Daily",
+                    description: "Everyone gets the same spin sequence each day.",
+                  },
+                  testId: "daily-peak-season-cta",
+                  cta: "Play",
+                },
+              ])}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-4">
+              <InlineLink href="/arena/court/history" testId="court-history-link">
+                Your saved seasons
+              </InlineLink>
+              <InlineLink href="/arena/court/leaderboard" testId="arena-leaderboard-link">
+                82-0 Leaderboard
+              </InlineLink>
             </div>
           </section>
         </>
       ) : null}
-
-      <PeakV2Rule spacing="md" />
-
-      <section aria-labelledby="v2-arena-daily">
-        <PeakV2LiveHeader as="h2" title="Daily · quick play" subtitle="One board a day, identical for everyone, a few minutes each." rule={false} />
-        <div className="mt-1 flex flex-col">
-          <ModeGroupRow testId="arena-daily-grid-card" title={dailyGrid.title} description={dailyGrid.description} href={dailyGrid.href} cta="Play" />
-          <ModeGroupRow testId="arena-daily-duel-card" title={peakDuel.title} description={peakDuel.description} href={peakDuel.href} cta="Play" />
-        </div>
-      </section>
 
       {arenaCatalogue.available && arenaCatalogue.modes.length > 0 ? (
         <>
           <PeakV2Rule spacing="md" />
           <section aria-labelledby="v2-arena-multiplayer">
             <PeakV2LiveHeader as="h2" title="Multiplayer · live games" subtitle="Play other people in real time. Bots fill any empty seat." rule={false} />
-            <div className="mt-1 flex flex-col" data-testid="arena-multiplayer-grid">
-              {arenaCatalogue.modes.map((mode) => (
-                <ModeGroupRow
-                  key={mode.id}
-                  testId={`arena-${mode.id}-card`}
-                  title={mode.name}
-                  description={mode.description}
-                  href={mode.href}
-                  cta="Find a game"
-                />
-              ))}
+            <div className="v2-arena-modes v2-arena-modes--pair" data-testid="arena-multiplayer-grid">
+              {/* `live` is set from the real catalogue, not from a decorative
+                  chip on every row — rule 13's "no repetitive LIVE dots". */}
+              {cellsFor(
+                arenaCatalogue.modes.map((mode) => ({
+                  mode: { id: mode.id, href: mode.href, title: mode.name, description: mode.description },
+                  testId: `arena-${mode.id}-card`,
+                  live: true,
+                  cta: "Find a game",
+                })),
+              )}
             </div>
           </section>
         </>
@@ -208,19 +177,27 @@ export default function ArenaPageV2({
 
       <section aria-labelledby="v2-arena-competitive" className="pb-10">
         <PeakV2LiveHeader as="h2" title="Competitive" subtitle="Measure a roster against other players, or against the model itself." rule={false} />
-        <div className="mt-1 flex flex-col">
-          <ModeGroupRow
-            title="The PEAK Index"
-            description="All-time peak windows and single seasons, with a full component breakdown."
-            href="/rankings"
-            cta="See rankings"
-          />
-          <ModeGroupRow
-            title="Formula Explorer"
-            description="The five components, their official weights and how a score is assembled."
-            href="/methodology"
-            cta="Read methodology"
-          />
+        <div className="v2-arena-modes v2-arena-modes--pair">
+          {cellsFor([
+            {
+              mode: {
+                id: "peak-index",
+                href: "/rankings",
+                title: "The PEAK Index",
+                description: "All-time peak windows and single seasons, with a full component breakdown.",
+              },
+              cta: "See rankings",
+            },
+            {
+              mode: {
+                id: "formula-explorer",
+                href: "/methodology",
+                title: "Formula Explorer",
+                description: "The five components, their official weights and how a score is assembled.",
+              },
+              cta: "Read methodology",
+            },
+          ])}
         </div>
       </section>
     </PeakV2Shell>

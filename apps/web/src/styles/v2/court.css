@@ -27,6 +27,44 @@
   background: var(--v2-border-emphasis);
 }
 
+/* THE FIT CAPTION IS PART OF THE PIECE, NOT AN OVERFLOW. Legacy's
+   `.roster-board-slot-card-fixed` is `height: 100%; overflow: hidden`, and
+   the tile inside it stretched to that full height — so the fit line
+   ("Primary fit", "Role stretch") rendered underneath was cut in half at
+   the tile's own bottom edge, which is the clipped text in
+   design-review/10 and /12. The tile now sizes to its own content and the
+   caption keeps the remainder. */
+[data-ui-version="v2"] .roster-board-slot-card-fixed {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+[data-ui-version="v2"] .roster-board-slot-card-fixed > [data-testid="court-slot"] {
+  /* `min-height: 0` is what actually lets this shrink: the tile carries an
+     inline `min-height` of --v2-court-slot-min-height, and a flex item
+     cannot shrink below its own min-height, so it kept filling the whole
+     fixed wrapper and left the caption nothing but the clip. */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+[data-ui-version="v2"] [data-testid="role-fit-badge"],
+[data-ui-version="v2"] [data-testid="pending-fit-badge"] {
+  flex: 0 0 auto;
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.4;
+  padding-left: var(--v2-space-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 [data-ui-version="v2"] .court-panel-wrapper {
   box-shadow: var(--v2-elev-plane);
   border-radius: var(--v2-radius-control);
@@ -120,4 +158,959 @@
   border: 1px dashed var(--v2-border) !important;
   background: var(--v2-bg-plane) !important;
   opacity: 0.68;
+}
+
+/* ================================================================
+   THE PEAK3 COURT — floor, geometry, and player pieces
+   ================================================================
+   WHAT WAS WRONG (design-review/08, /10, /12). The markings were real —
+   paint, free-throw circle, arc, rim, spatially correct positions — but
+   they were thin gold hairlines drawn BEHIND five opaque rectangles that
+   covered most of them, on a panel barely distinguishable from the page.
+   The result read as a form with a faint diagram behind it.
+
+   Three specific structural faults, all fixed here:
+
+   1. THE TILES WERE DIFFERENT SIZES. `.roster-board-starters` was a
+      4-column grid with the areas ". pg pg ." / "sf . . sg" / ". pf c ." —
+      so PG spanned two columns and rendered ~600px wide while SF and SG
+      spanned one and rendered ~296px. Five slots of the same kind had no
+      business being three different widths. Now it is a SIX-column grid
+      where every slot spans exactly two, so all five are identical by
+      construction while keeping the same spatial arrangement: point at the
+      top, wings out wide, big men in the paint.
+
+   2. THE FLOOR HAD NO PRESENCE. It is now a real surface — a deep charcoal
+      hardwood with a subtle vertical grain, a warm arena wash from above,
+      and a defined boundary — so the pieces sit ON something. The grain is
+      a repeating-linear-gradient, not an image: no asset, no request.
+
+   3. THE BENCH WAS A SEPARATE OBJECT. It now reads as the sideline of the
+      same court: attached, same floor, same slot language, just outside
+      the boundary.
+
+   ORIGINAL, NOT BORROWED. This is charcoal + PEAK3 gold with lane-colored
+   fit accents. design-review/09 is an external product and was used only
+   as evidence that a court game can be spatial and immediately readable;
+   nothing of its blue floor, its palette, its composition or its branding
+   is reproduced here.
+   ================================================================ */
+
+/* ---- The floor ---- */
+[data-ui-version="v2"] .roster-board {
+  position: relative;
+  padding: var(--v2-space-6) var(--v2-space-5) var(--v2-space-5);
+  border: 1px solid color-mix(in srgb, var(--v2-color-accent) 18%, var(--v2-border));
+  border-bottom: none;
+  border-radius: var(--v2-radius-control) var(--v2-radius-control) 0 0;
+  background:
+    /* Arena light from above the baseline. Kept low: at 9% over a warm
+       brown base the whole floor went olive and read as one big highlighted
+       block rather than as a lit surface. */
+    radial-gradient(120% 70% at 50% -8%, color-mix(in srgb, var(--v2-color-accent) 5.5%, transparent), transparent 58%),
+    /* Perimeter falloff, soft and gradual — lighting, not a border. */
+    radial-gradient(115% 95% at 50% 42%, transparent 0%, color-mix(in srgb, #05060a 45%, transparent) 100%),
+    /* Hardwood grain: fine vertical boards, very low contrast, CSS-only. */
+    repeating-linear-gradient(
+      90deg,
+      color-mix(in srgb, #ffffff 1.5%, transparent) 0 1px,
+      transparent 1px 7px
+    ),
+    /* DEEP CHARCOAL, NOT LIGHT WOOD. The floor must sit DARKER than the
+       pieces standing on it — the first attempt used #17150f, which was
+       lighter than the tiles, so the players read as holes cut in the floor
+       instead of pieces resting on it. */
+    linear-gradient(180deg, #131218 0%, #0b0a0e 100%);
+}
+
+/* The baseline: where the floor meets the bench. */
+[data-ui-version="v2"] .roster-board::after {
+  opacity: 1;
+  background: color-mix(in srgb, var(--v2-color-accent) 42%, transparent);
+}
+
+/* ---- Court markings: present, not hairline ghosts ---- */
+[data-ui-version="v2"] .roster-board-court-markings {
+  opacity: 1;
+}
+
+[data-ui-version="v2"] .roster-board-court-markings .roster-board-paint {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 34%, transparent);
+  background: color-mix(in srgb, var(--v2-color-accent) 5%, transparent);
+}
+
+[data-ui-version="v2"] .roster-board-court-markings .roster-board-arc,
+[data-ui-version="v2"] .roster-board-court-markings .roster-board-ft-circle {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 30%, transparent);
+}
+
+[data-ui-version="v2"] .roster-board-court-markings .roster-board-rim {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 70%, transparent);
+}
+
+/* The sideline is an inset BORDER box (4% on every side), not a line — so
+   it takes a border colour. Filling its background instead painted a
+   22%-gold rectangle across almost the entire floor, which is what turned
+   the court olive and flattened every marking under it. */
+[data-ui-version="v2"] .roster-board-sideline {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 26%, transparent);
+}
+
+/* ---- Geometry: five identical pieces, spatially placed ---- */
+[data-ui-version="v2"] .roster-board-starters {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-areas:
+    ".   .   pg  pg  .   ."
+    "sf  sf  .   .   sg  sg"
+    ".   pf  pf  c   c   .";
+  gap: var(--v2-space-3);
+  padding-bottom: var(--v2-space-2);
+}
+
+/* Container-driven collapse, matching legacy's own breakpoints in spirit:
+   two columns in a narrow rail, one on a phone. Every slot still spans the
+   full track, so they stay identical at every width. */
+@container court-panel (max-width: 620px) {
+  [data-ui-version="v2"] .roster-board-starters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "pg  pg"
+      "sf  sg"
+      "pf  c";
+  }
+}
+
+@container court-panel (max-width: 400px) {
+  [data-ui-version="v2"] .roster-board-starters {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "pg" "sf" "sg" "pf" "c";
+  }
+}
+
+/* ---- The player piece ----
+   NOTE ON STRUCTURE. `data-testid="court-slot"` is the outer BUTTON that
+   `PeakV2CourtSlotCard` renders; the actual tile is `PeakV2CourtSlot`'s own
+   root inside it, which already carries the padding, radius, min-height and
+   the state-aware border (empty / filled / staged / current). Styling the
+   outer element as if it were the tile produced a box drawn around a box —
+   the very card-nesting this pass exists to remove — and its padding pushed
+   the tile plus its fit caption past the fixed cell height, clipping the
+   caption. So: the wrapper stays purely structural, and the floor treatment
+   goes on the tile itself. ---- */
+
+[data-ui-version="v2"] .roster-board [data-testid="court-slot"],
+[data-ui-version="v2"] .roster-board-bench [data-testid="court-slot"] {
+  padding: 0;
+  border: 0;
+  background: none;
+  overflow: hidden;
+}
+
+/* The tile fills its cell (minus the fit caption) and lifts off the floor.
+   Its COLOURS come from `PeakV2CourtSlot`'s own state tokens — empty /
+   filled / staged / current — rather than being overridden here: the
+   component already resolves those correctly per theme, and a stylesheet
+   fighting it with `!important` is exactly the local visual language this
+   pass is removing. */
+[data-ui-version="v2"] .roster-board [data-testid="court-slot"] > div,
+[data-ui-version="v2"] .roster-board-bench [data-testid="court-slot"] > div {
+  flex: 1 1 auto;
+  box-shadow: 0 2px 10px -5px rgba(0, 0, 0, 0.9);
+  transition:
+    border-color var(--v2-dur-control) var(--v2-ease-standard),
+    transform var(--v2-dur-control) var(--v2-ease-standard);
+}
+
+/* An empty slot is a marked spot ON the floor, not a card: dashed and
+   unlifted, so the court markings under it stay readable. */
+[data-ui-version="v2"] .roster-board [data-testid="court-slot"][data-filled="false"] > div,
+[data-ui-version="v2"] .roster-board-bench [data-testid="court-slot"][data-filled="false"] > div {
+  border-style: dashed;
+  box-shadow: none;
+}
+
+/* PICKING A PLAYER UP. The whole tile is the control now, so it has to look
+   like one on hover and on keyboard focus. */
+[data-ui-version="v2"] [data-pickup="true"]:hover > div,
+[data-ui-version="v2"] [data-pickup="true"]:focus-visible > div {
+  border-color: var(--v2-color-accent);
+  transform: translateY(-1px);
+}
+
+/* THE COURT COMMUNICATES DESTINATIONS. This is what replaced the sentence
+   "Any open spot — the fit badge shows how well they match it." A natural
+   fit is lit; a stretch is offered but visibly quieter; a mismatch is
+   dotted and dim. Border STYLE carries it as well as colour, so the
+   distinction survives without colour vision. */
+[data-ui-version="v2"] .court-slot-pending-strong {
+  border-style: solid;
+  border-color: var(--v2-color-accent);
+  background: color-mix(in srgb, var(--v2-color-accent) 10%, var(--v2-bg-plane));
+}
+
+[data-ui-version="v2"] .court-slot-pending-stretch {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--v2-color-accent) 55%, transparent);
+}
+
+[data-ui-version="v2"] .court-slot-pending-weak {
+  border-style: dotted;
+  border-color: color-mix(in srgb, var(--v2-text-muted) 60%, transparent);
+}
+
+[data-ui-version="v2"] [data-testid="slot-moving-source"] > div {
+  border-color: var(--v2-color-accent);
+  background: var(--v2-color-accent-bg);
+}
+
+[data-ui-version="v2"] [data-blocked="true"][data-filled="true"] > div {
+  opacity: 0.45;
+}
+
+/* THE FIT CAPTION IS PART OF THE PIECE, NOT AN OVERFLOW. Legacy's
+   `.roster-board-slot-card-fixed` is `height: 100%; overflow: hidden`, so a
+   tile that filled it left the fit line ("Primary fit", "Role stretch")
+   rendered underneath to be cut in half at the tile's bottom edge — the
+   clipped text in design-review/10 and /12. Shrinking the tile's own floor
+   inside the court panel gives the caption real room in the same cell. */
+[data-ui-version="v2"] .court-panel-wrapper {
+  --v2-court-slot-min-height: 0px;
+  --v2-court-bench-min-height: 0px;
+  container-type: inline-size;
+  container-name: court-panel;
+}
+
+[data-ui-version="v2"] [data-testid="role-fit-badge"],
+[data-ui-version="v2"] [data-testid="pending-fit-badge"] {
+  flex: 0 0 auto;
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.5;
+  padding-left: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- The bench is the sideline of the same court ---- */
+[data-ui-version="v2"] .roster-board-bench-row {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      color-mix(in srgb, #ffffff 1.2%, transparent) 0 1px,
+      transparent 1px 7px
+    ),
+    linear-gradient(180deg, #100e09 0%, #0c0a07 100%);
+  border: 1px solid color-mix(in srgb, var(--v2-color-accent) 18%, var(--v2-border));
+  border-top: none;
+  border-radius: 0 0 var(--v2-radius-control) var(--v2-radius-control);
+  padding: var(--v2-space-4) var(--v2-space-5) var(--v2-space-5);
+}
+
+[data-ui-version="v2"] .roster-board-bench-label {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+  margin-bottom: var(--v2-space-2);
+}
+
+[data-ui-version="v2"] .court-panel-wrapper {
+  container-type: inline-size;
+  container-name: court-panel;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ui-version="v2"] [data-testid="court-slot"] {
+    transition: none;
+  }
+  [data-ui-version="v2"] [data-pickup="true"]:hover,
+  [data-ui-version="v2"] [data-pickup="true"]:focus-visible {
+    transform: none;
+  }
+}
+
+/* ================================================================
+   82-0 RESULT — the actions, de-slabbed
+   ================================================================
+   `SaveRunPanel` and `PlayAgainPanel` each draw a filled, bordered,
+   rounded box. Stacked directly under the 62-20 hero (where they used to
+   sit) they were the first thing the result said — two grey slabs
+   interrupting a cinematic moment to offer housekeeping (design-review/11).
+   They have MOVED to the end of the receipt in the component; this makes
+   the two of them read there as one integrated action block rather than
+   two competing panels. The controls inside them are untouched.
+   ================================================================ */
+
+[data-ui-version="v2"] [data-testid="season-result"] [data-testid="save-run-panel"],
+[data-ui-version="v2"] [data-testid="season-result"] [data-testid="play-again-panel"] {
+  border-radius: 0;
+  border: 0;
+  border-top: 1px solid var(--v2-border-subtle);
+  background: none;
+  padding: var(--v2-space-4) 0;
+}
+
+/* ================================================================
+   The undo toast must not sit on top of the primary action
+   ================================================================
+   `ActionToast` is `position: fixed; bottom: 1rem`, centred. On a phone the
+   82-0 court's own primary control ("Lock roster & simulate") is a
+   full-width button at the end of the page, so once the player scrolls to
+   the bottom the toast lands directly on it and covers the action they are
+   reaching for. Reserving the toast's own height under the court means the
+   two can never occupy the same place, without moving the toast (which
+   would put it somewhere less predictable) or shortening its life (which
+   would take away undo time the server actually grants).
+   ================================================================ */
+/* EVERY viewport, not just mobile. `ActionToast` is `position: fixed;
+   bottom: 1rem`, centred, so it lands over whatever is at the bottom of the
+   page — on a phone that was the "Lock roster & simulate" button, and on
+   desktop it was the court's own bottom row of slots, covering the "Move
+   here" destinations mid-drag. Reserving the toast's height under the
+   builder means the two can never occupy the same place, without moving the
+   toast somewhere less predictable or shortening the undo window the server
+   actually grants. */
+[data-ui-version="v2"] [data-testid="court-builder"] {
+  padding-bottom: 5.5rem;
+}
+
+/* ================================================================
+   THREE-MAN WEAVE — the compact variant of the same court
+   ================================================================
+   Three seats rendered as three vertical stacks of grey form fields, with
+   no floor and no basketball geometry at all (design-review/14, /15). The
+   slots were already arranged spatially (`"pg pg" / "sg sf" / "pf c"` in
+   `PeakV2TMWCourt`) — what was missing was the surface they stand on.
+
+   This is deliberately the SAME floor as 82-0's full court: same hardwood
+   grain, same arena wash, same gold court lines, same piece treatment,
+   scaled down for five starters and one bench in a third of the width.
+   FULL and COMPACT are one visual foundation with two footprints, which is
+   the point — a player moving between the two modes should recognise the
+   court, not learn a second one.
+
+   Court MARKINGS are drawn on the compact variant with a single pseudo-
+   element rather than 82-0's four-element markings block: at this size an
+   arc plus the paint reads as a half-court, and more geometry would just
+   be noise behind six tiles.
+   ================================================================ */
+
+[data-ui-version="v2"] [data-testid^="tmw-seat-court-"] {
+  border-radius: var(--v2-radius-control);
+  padding: var(--v2-space-4) var(--v2-space-3) var(--v2-space-3);
+  overflow: hidden;
+  background:
+    radial-gradient(120% 60% at 50% -10%, color-mix(in srgb, var(--v2-color-accent) 4%, transparent), transparent 60%),
+    repeating-linear-gradient(
+      90deg,
+      color-mix(in srgb, #ffffff 1.5%, transparent) 0 1px,
+      transparent 1px 7px
+    ),
+    linear-gradient(180deg, #131218 0%, #0b0a0e 100%);
+}
+
+/* The lit (on-the-clock) court gets a warmer floor and a real edge, so
+   "whose turn is it" is answered by the surface, not only by a 2px rule. */
+[data-ui-version="v2"] [data-testid^="tmw-seat-court-"][data-v2-court-presentation="lit"] {
+  border: 1px solid color-mix(in srgb, var(--v2-color-accent) 30%, transparent);
+  border-left-width: 2px;
+  background:
+    radial-gradient(120% 65% at 50% -10%, color-mix(in srgb, var(--v2-color-accent) 9%, transparent), transparent 62%),
+    repeating-linear-gradient(
+      90deg,
+      color-mix(in srgb, #ffffff 1.8%, transparent) 0 1px,
+      transparent 1px 7px
+    ),
+    linear-gradient(180deg, #17161d 0%, #0d0c11 100%);
+}
+
+[data-ui-version="v2"] [data-testid^="tmw-seat-court-"][data-v2-court-presentation="dimmed"] {
+  border: 1px solid var(--v2-border-subtle);
+}
+
+/* THE HALF-COURT, behind the tiles: the paint (a key rising from the
+   baseline, where PF and C stand) and the three-point arc bulging up over
+   it. Drawn on ONE pseudo-element each, decorative and non-interactive,
+   exactly like 82-0's markings block.
+
+   Sized and placed against the real slot grid rather than by eye: the
+   baseline is the bottom of the starters area, so both shapes are anchored
+   there. A first attempt floated the arc at `bottom: 12%` of the whole
+   panel, which put it across the gap between the wing row and the big-man
+   row — a curve with no relationship to anything, reading as a stray line
+   rather than as a court. */
+[data-ui-version="v2"] [data-testid^="tmw-seat-court-"]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 22%;
+  width: 78%;
+  aspect-ratio: 1.6;
+  transform: translateX(-50%);
+  border-top: 1px solid color-mix(in srgb, var(--v2-color-accent) 26%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--v2-color-accent) 16%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--v2-color-accent) 16%, transparent);
+  border-radius: 100% 100% 0 0 / 100% 100% 0 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* NO KEY ON THE COMPACT COURT. A paint rectangle was tried here and
+   removed: anchored to the starters grid it hung below its own container,
+   crossing the bench and escaping the court's right edge, and at this width
+   the arc alone already reads as a half-court. More geometry behind six
+   tiles is noise, not basketball. 82-0's full court, which has the room for
+   it, keeps its paint / free-throw-circle / rim markings. */
+
+/* The pieces sit above the markings, on the same elevated plane 82-0 uses. */
+[data-ui-version="v2"] [data-testid^="tmw-seat-court-"] [data-testid="peak-v2-court-slot"] {
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 2px 8px -5px rgba(0, 0, 0, 0.9);
+}
+
+/* THE BENCH IS THE SIDELINE, not a detached list — same relationship the
+   full court has, so the six cards read as one roster. */
+[data-ui-version="v2"] [data-testid^="tmw-seat-court-"] > div:last-child {
+  position: relative;
+  z-index: 1;
+}
+
+/* ================================================================
+   THREE-MAN WEAVE — LIVE GAME FEEL
+   ================================================================
+   The mode said LIVE and ON THE CLOCK and then sat perfectly still
+   (design-review/14, /15). Everything below is driven by REAL server state —
+   whose turn it is, whether that seat is a bot, and a pick actually landing
+   in the snapshot. Nothing here invents a delay, a progress value, or a
+   candidate the bot is "looking at".
+
+   Every animation earns its place under the V2 motion contract: it either
+   communicates that a real turn is in progress, confirms a real state
+   change, or carries continuity between two states. Each one is off under
+   `prefers-reduced-motion`, where the STATE still reads (colour, weight and
+   copy all still differ) without the movement.
+   ================================================================ */
+
+/* ---- 1. BOT DELIBERATION ----
+   The server holds a real, seeded 4-10s think window measured from the
+   turn's stored `opened_at`, so this describes something that is genuinely
+   happening. An animated ellipsis and nothing else: no fabricated progress,
+   no pretending to know which player is under consideration. */
+[data-ui-version="v2"] .tmw-thinking::after {
+  content: "";
+  animation: tmw-ellipsis 1.4s steps(1, end) infinite;
+}
+
+@keyframes tmw-ellipsis {
+  0%   { content: "\00a0\00a0\00a0"; }
+  25%  { content: ".\00a0\00a0"; }
+  50%  { content: "..\00a0"; }
+  75%  { content: "..."; }
+  100% { content: "\00a0\00a0\00a0"; }
+}
+
+/* ---- 2. THE ACTIVE COURT BREATHES ----
+   A very slow, very low-amplitude ambient on the lit court's own border, so
+   "a turn is running here" is legible from across the page without the
+   surface becoming neon. Border only — the floor, the tiles and the text are
+   untouched, so nothing a player is reading moves. */
+[data-ui-version="v2"] .tmw-court-active[data-v2-court-presentation="lit"] {
+  animation: tmw-court-breathe 2.6s ease-in-out infinite;
+}
+
+@keyframes tmw-court-breathe {
+  0%, 100% { border-color: color-mix(in srgb, var(--v2-color-accent) 30%, transparent); }
+  50%      { border-color: color-mix(in srgb, var(--v2-color-accent) 62%, transparent); }
+}
+
+/* ---- 3. PICK LOCK ----
+   A drafted player ARRIVES, LOCKS, SETTLES. 240ms, inside the contract's
+   150-300ms card-lock band. Triggered by an empty->filled diff of the real
+   roster snapshot, never by a timer, and nothing waits on it: the next
+   server action is not gated behind this. */
+[data-ui-version="v2"] [data-locking="true"] > * {
+  animation: tmw-pick-lock 240ms var(--v2-ease-emphasized, ease-out) 1;
+}
+
+@keyframes tmw-pick-lock {
+  0%   { transform: translateY(-5px) scale(0.985); opacity: 0.55; }
+  60%  { transform: translateY(0) scale(1.012); opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* The same beat on the tile's edge, so the lock reads as the slot CLOSING
+   around the player rather than only as the card moving. */
+[data-ui-version="v2"] [data-locking="true"] [data-testid="peak-v2-court-slot"] {
+  animation: tmw-pick-lock-edge 240ms var(--v2-ease-out, ease-out) 1;
+}
+
+@keyframes tmw-pick-lock-edge {
+  0%   { border-color: var(--v2-color-accent); }
+  100% { border-color: inherit; }
+}
+
+/* ---- 4. ROUND TRANSITION ----
+   The ceremony scrim arrives instead of appearing: a short fade so the draft
+   hands over to the roll rather than one set of text being swapped for
+   another. The card inside rises on the same beat, matching the V2 reveal
+   entrance used elsewhere. */
+[data-ui-version="v2"] [data-testid="tmw-ceremony-scrim"] {
+  animation: tmw-scrim-in var(--v2-dur-transition, 210ms) var(--v2-ease-out, ease-out) 1;
+}
+
+@keyframes tmw-scrim-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+[data-ui-version="v2"] [data-testid="tmw-ceremony-scrim"] .tmw-ceremony {
+  animation: v2-reveal-rise var(--v2-dur-reveal, 380ms) var(--v2-ease-out, ease-out) 1;
+}
+
+/* ---- REDUCED MOTION ----
+   Every one of the above is decoration over a state that is ALSO carried by
+   colour, weight and copy ("Thinking", "Your pick", a filled tile). With
+   motion off the game still reads; it simply stops moving. */
+@media (prefers-reduced-motion: reduce) {
+  [data-ui-version="v2"] .tmw-thinking::after,
+  [data-ui-version="v2"] .tmw-court-active[data-v2-court-presentation="lit"],
+  [data-ui-version="v2"] [data-locking="true"] > *,
+  [data-ui-version="v2"] [data-locking="true"] [data-testid="peak-v2-court-slot"],
+  [data-ui-version="v2"] [data-testid="tmw-ceremony-scrim"],
+  [data-ui-version="v2"] [data-testid="tmw-ceremony-scrim"] .tmw-ceremony {
+    animation: none;
+  }
+  /* The ellipsis is the only one whose STATE would be lost without motion,
+     so it resolves to its final frame rather than to nothing. */
+  [data-ui-version="v2"] .tmw-thinking::after {
+    content: "...";
+  }
+}
+
+/* ================================================================
+   THREE-MAN WEAVE — THE ENDING
+   ================================================================
+   Three competitors, abreast, winner first, each on the court the draft was
+   played on. What this replaces: three stacked `<ul>`s of six hairline rows
+   — roughly three thousand pixels of transaction ledger where the conclusion
+   of a competitive game should be (design-review/17).
+
+   Prominence is earned twice and independently: the WINNER's column is lit
+   and gold, and the VIEWER's column is outlined and labelled, so a player who
+   came third can still find themselves at a glance. A winner-only treatment
+   leaves everyone else anonymous in their own result.
+   ================================================================ */
+
+[data-ui-version="v2"] .tmw-result-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--v2-space-4);
+  margin-top: var(--v2-space-4);
+  align-items: start;
+}
+
+[data-ui-version="v2"] .tmw-result-seat {
+  min-width: 0;
+  padding: var(--v2-space-4);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  background: var(--v2-bg-plane);
+}
+
+/* The winner: lit edge and a warm ground, matching the "lit court" language
+   the live draft uses for the seat on the clock. */
+[data-ui-version="v2"] .tmw-result-seat[data-winner="true"] {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 45%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--v2-color-accent) 7%, var(--v2-bg-plane)) 0%,
+      var(--v2-bg-plane) 60%
+    );
+}
+
+/* The viewer, win or lose. A dashed outline reads as "this one is mine"
+   without competing with the winner's solid, filled treatment — and the
+   difference survives without colour vision because the border STYLE
+   differs, not only its hue. */
+[data-ui-version="v2"] .tmw-result-seat[data-yours="true"] {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--v2-color-accent) 55%, transparent);
+}
+
+[data-ui-version="v2"] .tmw-result-seat-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--v2-space-2);
+  min-height: 2.5rem;
+}
+
+[data-ui-version="v2"] .tmw-result-seat-place {
+  font-family: var(--v2-font-ui);
+  font-weight: 700;
+  font-size: 0.9375rem;
+  line-height: 1.3;
+}
+
+[data-ui-version="v2"] .tmw-result-seat-you {
+  display: inline-block;
+  margin-left: 0.4rem;
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-inverse);
+  background: var(--v2-color-accent);
+  border-radius: 999px;
+  padding: 0.1rem 0.4rem;
+  vertical-align: middle;
+}
+
+[data-ui-version="v2"] .tmw-result-seat-note {
+  margin-left: 0.4rem;
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary);
+}
+
+/* Two columns, then one — still winner-first, because the grid follows the
+   podium order it was given. */
+@media (max-width: 1100px) {
+  [data-ui-version="v2"] .tmw-result-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  [data-ui-version="v2"] .tmw-result-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ================================================================
+   82-0 RESULT — RUN ANALYSIS
+   ================================================================
+   Was: a best/weakness row, a paragraph, a rule, and then the lineup score
+   in its own block — four stacked strips of small text where the receipt's
+   actual findings live. Now one stat row: the score that ranks the run at
+   result scale, then the two picks that moved it most and the build, each
+   with the real server number that makes the claim checkable.
+
+   Editorial columns and dividers, not cards: no borders, no fills, no boxes
+   — the hierarchy is carried by type size and one hairline between columns,
+   which is the same grammar the hero above it already uses.
+   ================================================================ */
+
+[data-ui-version="v2"] .v2-run-analysis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--v2-space-6);
+  margin-top: var(--v2-space-4);
+  align-items: start;
+}
+
+[data-ui-version="v2"] .v2-run-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  padding-left: var(--v2-space-5);
+  border-left: 1px solid var(--v2-border-subtle);
+}
+
+[data-ui-version="v2"] .v2-run-stat:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+[data-ui-version="v2"] .v2-run-stat-label {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+
+/* INSTRUMENTATION at result scale — this is the number a player compares
+   across runs, so it is the largest thing in the row. */
+[data-ui-version="v2"] .v2-run-stat-value {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-variant-numeric: tabular-nums;
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--v2-color-accent);
+}
+
+[data-ui-version="v2"] .v2-run-stat-value--muted {
+  font-family: var(--v2-font-display);
+  font-size: 1.75rem;
+  font-weight: 400;
+  color: var(--v2-text-muted);
+}
+
+/* UI role: these are player names and build phrases, not instrumentation. */
+[data-ui-version="v2"] .v2-run-stat-name {
+  font-family: var(--v2-font-ui);
+  font-weight: 700;
+  font-size: 1.0625rem;
+  line-height: 1.25;
+  color: var(--v2-text-primary);
+}
+
+[data-ui-version="v2"] .v2-run-stat-sub {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--v2-text-secondary);
+}
+
+[data-ui-version="v2"] .v2-run-stat-note {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--v2-text-secondary);
+  max-width: 42ch;
+}
+
+/* NO RULE ABOVE THIS. A `border-top` on an element capped at 68ch drew a
+   hairline that stopped two-thirds of the way across the page — a divider
+   that divides part of a row reads as a rendering fault, not as structure.
+   Spacing separates it instead, which is the grammar this pass prefers
+   anyway. */
+[data-ui-version="v2"] .v2-run-analysis-detail {
+  margin-top: var(--v2-space-6);
+  font-family: var(--v2-font-ui);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--v2-text-secondary);
+  max-width: 68ch;
+}
+
+@media (max-width: 900px) {
+  [data-ui-version="v2"] .v2-run-analysis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--v2-space-5);
+  }
+  [data-ui-version="v2"] .v2-run-stat:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  [data-ui-version="v2"] .v2-run-analysis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  [data-ui-version="v2"] .v2-run-stat {
+    padding-left: 0;
+    border-left: 0;
+    padding-top: var(--v2-space-4);
+    border-top: 1px solid var(--v2-border-subtle);
+  }
+  [data-ui-version="v2"] .v2-run-stat:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+}
+
+/* WRAPPING IS AT WORD BOUNDARIES, NOT ANYWHERE.
+   `overflow-wrap: anywhere` stopped the clipping but broke names mid-word —
+   "Shaquill / e O'Neal", "Deandr / e Ayton", "Bojan Bogdan / ovic" — which
+   is destructive truncation wearing a different hat. `break-word` only
+   splits a word when that single word genuinely cannot fit, so a name breaks
+   between its words and stays readable. */
+[data-ui-version="v2"] [data-testid="peak-v2-court-slot"] {
+  overflow-wrap: break-word;
+}
+
+/* THE RESULT'S TILES STACK THEIR SCORE INSTEAD OF SITTING IT ALONGSIDE.
+   Three courts share one row on the result, so a slot is ~150px wide. With
+   the PEAK3 value beside the name, the name was left roughly 74px — which is
+   why every second name wrapped, and some broke mid-word. Stacking the value
+   under the identity gives the name the tile's full width and costs a few
+   pixels of height the result has to spare. The LIVE draft, where one court
+   has the whole width, keeps the side-by-side row. */
+[data-ui-version="v2"] .tmw-result-seat [data-testid="peak-v2-court-slot"] > div:last-child {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+/* ================================================================
+   82-0 PLACEMENT — the floor should own the composition
+   ================================================================
+   VISUAL ONLY. Nothing below changes placement state, legality, candidate
+   selection, drag/drop, keyboard movement, scoring or the result — the whole
+   pass is weight, size and colour on surfaces that already existed.
+
+   Measured baseline at 1440x900: each of the five starter slots was a
+   339x132 filled card, the five of them tiling 1084x695 while the court's
+   own arc, paint and rim sat behind them at low contrast. The board read as
+   a form with five large input fields on a decorative background, and the
+   power-forward and centre cards overlapped the paint.
+   ================================================================ */
+
+/* 1. LIGHTER PIECES, SO THE FLOOR SHOWS THROUGH.
+      The cards keep every dimension that matters for readability (the name,
+      the season, the score all sit in the same type sizes) — what goes is the
+      opaque ground and the heavy border that made each one a panel. A filled
+      slot now reads as a piece resting ON the court rather than a box drawn
+      over it. */
+[data-ui-version="v2"] .roster-board-starters [data-testid="court-slot"] > div {
+  background: color-mix(in srgb, var(--v2-bg-plane) 72%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+/* 2. AN EMPTY SLOT IS A GAP IN A LINEUP, NOT AN INPUT FIELD.
+      A dashed outline over the bare floor, so five unfilled positions read as
+      space still to fill instead of five grey form controls. */
+[data-ui-version="v2"] .roster-board-starters [data-testid="court-slot"][data-filled="false"] > div {
+  background: color-mix(in srgb, var(--v2-bg-plane) 30%, transparent);
+  border-style: dashed;
+  /* NEUTRAL, NOT ACCENT. Dashing five empty slots in gold was self-defeating:
+     it made an empty slot the same colour as the SELECTED one, and a measured
+     re-count showed total gold elements going UP (13 -> 17) on the very pass
+     meant to make gold scarce. An empty slot is an absence; it does not need
+     the accent to say so, and the dash already says it. */
+  border-color: var(--v2-border-subtle);
+}
+
+/* 3. THE COURT ITSELF, BROUGHT FORWARD.
+      The markings were already drawn; they were simply quieter than the cards
+      on top of them. Raising the line contrast (and only the lines) is what
+      makes the geometry the frame rather than the wallpaper — no new shapes,
+      no fill, so the floor never competes with a player's name. */
+[data-ui-version="v2"] .roster-board-court-markings .roster-board-paint {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 48%, transparent);
+}
+
+[data-ui-version="v2"] .roster-board-court-markings .roster-board-arc,
+[data-ui-version="v2"] .roster-board-court-markings .roster-board-ft-circle {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 44%, transparent);
+}
+
+[data-ui-version="v2"] .roster-board-sideline {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 38%, transparent);
+}
+
+/* 4. YELLOW, MADE SCARCE AGAIN.
+      Gold was simultaneously the brand mark, the LIVE dot, the selected
+      player's name, the selected slot's border, the "needs a guard" chips, a
+      fit caption, the court lines and the undo button — so selection, the one
+      state that must be unmistakable while a card is in hand, had no colour of
+      its own. The eligibility chips and the fit caption step down to muted
+      type; they are still legible, they just stop competing with the thing the
+      player is currently holding. */
+[data-ui-version="v2"] [data-testid="court-builder"] [data-testid="eligibility-notice"] {
+  color: var(--v2-text-muted);
+}
+
+[data-ui-version="v2"] [data-testid="pending-fit-badge"] {
+  color: var(--v2-text-secondary);
+}
+
+/* 5. THE SELECTED DESTINATION KEEPS THE ACCENT — alone.
+      Now that the surrounding gold has stepped back, the strongest valid
+      target is the brightest thing on the floor, which is what the accent is
+      for. */
+[data-ui-version="v2"] .court-slot-pending-strong > div {
+  border-color: var(--v2-color-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--v2-color-accent) 45%, transparent);
+}
+
+/* 6. SLOT HEIGHT — DELIBERATELY NOT CHANGED.
+      132px per card is what pushes the bench to y=925, below the fold at
+      1440x900, and trimming it is the obvious way to bring the 5+3 roster into
+      one composition (requirement 19). It is left alone anyway: `globals.css`
+      sets `--court-slot-h` on `.court-panel-wrapper` with a comment recording
+      that the height was RAISED to stop the narrow SG/SF/PF/C columns reading
+      as compressed against the wider PG card. Lowering it blind would trade
+      this pass's problem for that one, and requirement 14 puts regression risk
+      above visual gain on a mode that finally works. The bench's relationship
+      to the floor wants a layout answer, not a smaller number, and that is a
+      bigger change than this pass should make. */
+
+/* ================================================================
+   YELLOW MEANS "THE DESTINATION", NOT "A LEGAL SPOT"
+   ================================================================
+   VISUAL ONLY — no legality, no reducer, no hit-testing changes.
+
+   `pendingFitTier` returns "strong" for a bench slot, correctly: bench has no
+   position restriction, so any player is a fine bench fit. But the strong tier
+   is the accent treatment, and a five-slot court has THREE bench slots — so
+   selecting a player lit four large gold rectangles at once (the one natural
+   court destination plus all three bench slots), and gold stopped meaning
+   "this is where this player goes" and started meaning "this is somewhere they
+   are allowed to go". Measured on the before-state: SF, PF and Bench 1/2/3 all
+   rendered accent borders simultaneously.
+
+   The tier logic is untouched — a bench slot is still `strong`, still fully
+   clickable, still keyboard-reachable, still announced the same way. Only the
+   PAINT is scoped: on the court, strong keeps the accent; on the bench rail,
+   strong reads as "open and available" in neutral. Border STYLE still carries
+   availability without colour (solid = open destination), so this survives
+   without colour vision exactly as the tier grammar above does.
+   ================================================================ */
+/* `!important` here only because the strong tier further up already declares
+   `border-color`/`background` with `!important`; this is the narrower, later
+   rule of the two and has to be able to win. */
+[data-ui-version="v2"] .roster-board-bench .court-slot-pending-strong {
+  border-style: solid !important;
+  border-color: color-mix(in srgb, var(--v2-text-muted) 75%, transparent) !important;
+  background: color-mix(in srgb, var(--v2-bg-plane) 60%, transparent) !important;
+  box-shadow: none !important;
+}
+
+/* The court's own best destination, now that it is the only accent object on
+   the floor, can afford to be unmistakable by WEIGHT as well as colour — which
+   is what keeps selection legible without relying on colour alone. */
+[data-ui-version="v2"] .roster-board-starters .court-slot-pending-strong {
+  border-width: 2px !important;
+}
+
+/* ================================================================
+   BENCH PRESENCE — recovered from the SEAM, not from the starters
+   ================================================================
+   Measured at 1440x900 (idle): the board runs 230-731 and the bench 770-902,
+   so the bench is already 130px above the fold with nothing selected. What
+   pushes it under is the placement chrome — the "PLACE <player>" banner and
+   the LIVE BUILD panel add ~155px the moment a card is in hand, and the bench
+   lands at y=925.
+
+   So the space is taken back from the JOIN between the starters and the bench,
+   where three paddings stack for 44px of nothing (board pb 20 + starters pb 8
+   + bench-row pt 16), rather than from `--court-slot-h`. Requirement 3 is
+   explicit that the starter height exists for a real reason, and nothing here
+   makes a starter tile smaller, narrower or tighter.
+   ================================================================ */
+[data-ui-version="v2"] .roster-board {
+  padding-bottom: var(--v2-space-2);
+}
+
+[data-ui-version="v2"] .roster-board-starters {
+  padding-bottom: 0;
+}
+
+[data-ui-version="v2"] .roster-board-bench-row {
+  padding-top: var(--v2-space-2);
+  padding-bottom: var(--v2-space-4);
 }

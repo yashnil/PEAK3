@@ -608,7 +608,17 @@ test.describe("Homepage", () => {
     await expect(h1).toContainText("Five lanes.");
     await expect(h1).toContainText("One point each.");
     // The retired hero line must be gone, not merely pushed down the page.
-    await expect(page.getByText("Chase 82-0", { exact: false })).toHaveCount(0);
+    //
+    // Scoped to the HERO, which is what this guard is about. It used to be a
+    // page-wide substring search for "Chase 82-0", and that became wrong
+    // (not merely inconvenient) when the mode tiles started rendering
+    // `ModeCopy.blurb` instead of the long `description`: 82-0's authored
+    // one-liner is "Draft a full-season roster, chase 82-0" — a correct
+    // description of the mode, in a mode tile, matching a search that was
+    // only ever meant to catch the retired H1. Asserting on the hero keeps
+    // the real rule ("the homepage no longer LEADS with 82-0") and stops the
+    // catalogue being forbidden from naming the game it links to.
+    await expect(h1).not.toContainText(/chase 82-0/i);
     await assertSoleFeaturedCard(page, "home-flagship-card");
     await expect(page.locator('[data-testid="home-flagship-card"]')).toHaveAttribute(
       "href",

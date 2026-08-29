@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   bidBlockedLabel,
   formatDollars,
+  isWaitingBlockedReason,
   passActionCost,
   passActionLabel,
   type TwentyDollarPrivateState,
@@ -197,7 +198,16 @@ export default function PeakV2ShowdownBidControls({
       <p
         data-testid={blocked ? "td-bid-blocked" : "td-bid-hint"}
         className="mt-2"
-        style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: blocked || expired ? "var(--v2-color-negative)" : "var(--v2-text-muted)" }}
+        style={{
+          fontFamily: "var(--v2-font-ui)",
+          fontSize: "0.75rem",
+          // Red is reserved for a refusal or a timeout. Waiting for the other
+          // seat is not either — see `isWaitingBlockedReason`.
+          color:
+            (blocked && !isWaitingBlockedReason(privateState.bid_blocked_reason)) || expired
+              ? "var(--v2-color-negative)"
+              : "var(--v2-text-muted)",
+        }}
       >
         {blocked
           ? blocked

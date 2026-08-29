@@ -39,6 +39,7 @@ if str(_repo_root) not in sys.path:
 from app.core.config import settings  # noqa: E402
 from nba_peak import formula_version  # noqa: E402
 from nba_peak.perfect_season.assets import get_player_headshot_url  # noqa: E402
+from nba_peak.perfect_season.career_positions import career_positions, primary_position
 
 router = APIRouter()
 
@@ -140,6 +141,42 @@ class PeakRow(BaseModel):
     # state the gate as a generic footnote instead of showing the row's actual
     # minutes. Optional because an older generated artifact won't carry it.
     anchor_season_mpg: Optional[float] = None
+    # ------------------------------------------------------- positions ---
+    # The player's CANONICAL positions, as a structured list ("PG", "SG",
+    # …), sorted. Not parsed out of any human-readable display string --
+    # there isn't one on this board, and deriving eligibility from prose is
+    # how a "PG" filter ends up matching "PG-SG" by substring and missing
+    # "G". This is `career_positions()`, the same minutes-gated career
+    # position set 82-0 and Three-Man Weave already enforce placements
+    # with, so a player who is eligible at PF on a court is eligible under
+    # the PF filter here by construction rather than by coincidence.
+    #
+    # An empty list means NO INFORMATION (an unknown slug, or a checkout
+    # without the optional minutes parquet) -- never "played nowhere".
+    #
+    # THIS IS ELIGIBILITY, AND IT IS NO LONGER WHAT THE RANKINGS TABS FILTER
+    # ON. It stays on the row because it is genuinely useful (the explain
+    # modal, and any consumer asking "where could this player line up"), and
+    # because 82-0 / Three-Man Weave placement legality is defined by exactly
+    # this set. See `primary_position` below for what the tabs use and why.
+    positions: list[str] = []
+    # ------------------------------------------------- primary position ---
+    # The ONE position this player spent the most career minutes at, from
+    # `nba_peak.perfect_season.career_positions.primary_position()`.
+    #
+    # The position tabs used to filter on `positions` above, i.e. on
+    # eligibility, and a player matched every tab they were eligible for.
+    # That is correct for a court and wrong for a leaderboard: it produced a
+    # "PG" board led by Michael Jordan, LeBron James second and Giannis
+    # Antetokounmpo fifth. Each is a true eligibility statement and none of
+    # them is a point guard.
+    #
+    # Exactly one value per player, so the five tabs PARTITION the board:
+    # every row appears under precisely one of them, and their union is "All".
+    # `None` only when the committed source cannot answer (measured: 0 of the
+    # 250 ranked players, but the field stays Optional so an incomplete
+    # checkout degrades to "unfiltered" rather than 500ing).
+    primary_position: Optional[str] = None
     # ------------------------------------------------------------------ 9C ---
     # The shared two-board rankings contract. Every field is Optional with a
     # default so an OLDER generated artifact (one built before
@@ -244,6 +281,22 @@ async def get_peaks(
         rows = [r for r in rows if q in r["player_name"].lower()]
     total_available = len(rows)
     rows = rows[:limit]
+
+    # CANONICAL POSITIONS, joined at serve time rather than baked into the
+    # artifact. `career_positions` reads committed sources and memoises its
+    # whole index on first call, so this is a dict lookup per row (measured:
+    # 893 rows in 0.58s INCLUDING the one-time index build, and effectively
+    # free after that) -- cheap enough not to justify regenerating and
+    # re-committing every rankings artifact to carry a field the model can
+    # already answer for.
+    rows = [
+        dict(
+            r,
+            positions=sorted(career_positions(r["player_slug"])),
+            primary_position=primary_position(r["player_slug"]),
+        )
+        for r in rows
+    ]
 
     # Phase 6F Part C: real headshot URLs only behind the explicit,
     # default-off flag -- see nba_peak.perfect_season.assets module

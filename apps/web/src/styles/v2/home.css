@@ -352,12 +352,15 @@
   flex-shrink: 0;
 }
 
+/* NO PANEL. This was a bordered, filled, rounded slab whose entire content
+   was one or two lines of explanatory text (design-review/03) — a rectangle
+   drawn around a sentence. The reserved height is what actually mattered
+   (it stops the section reflowing as the reader moves between lanes), so
+   that is kept and the box is not. */
 .v2-lanes-detail {
   min-height: 4.5rem;
-  padding: var(--v2-space-4) var(--v2-space-5);
-  background: var(--v2-bg-plane);
-  border: 1px solid var(--v2-border-subtle);
-  border-radius: var(--v2-radius-control);
+  padding: var(--v2-space-4) 0 0;
+  border-top: 1px solid var(--v2-border-subtle);
 }
 
 .v2-lanes-detail-head {
@@ -383,7 +386,7 @@
   margin: 0.375rem 0 0;
   max-width: 62ch;
   font-family: var(--v2-font-ui);
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   line-height: 1.6;
   color: var(--v2-text-secondary);
 }
@@ -544,5 +547,553 @@
   .v2-lanes-segment,
   .v2-faq-chevron {
     transition: none;
+  }
+}
+
+/* ================================================================
+   NBA FACT OF THE DAY — V2 editorial stat strip
+   ================================================================
+   WHAT WAS WRONG. In V2 this rendered as a rounded, shadowed, wash-filled
+   panel with a 3px colored spine, containing a SECOND bordered panel around
+   the featured value, topped with three pill tags. Beside a hero whose whole
+   argument is restraint it read as a notification widget bolted to the page
+   (design-review/02).
+
+   THE COLOR WAS ALSO A CONTRACT VIOLATION, not just a taste problem. The
+   card's `data-accent` groups map trivia CATEGORIES onto the five PEAK3
+   component hues — a "records" fact took `--comp-tp`, the violet reserved
+   for Traditional Production. tokens.css is explicit that the component
+   colors carry "STRICT semantics: only where a surface encodes real
+   per-component PEAK3 data. Never decorative." A trivia category is not
+   component data, so the violet was claiming a meaning it did not have.
+   Every accent group is therefore collapsed to one restrained pair here.
+
+   WHAT IT IS NOW. An editorial insert: hairline above, no box, no shadow,
+   no radius, no wash. The featured value carries the DISPLAY role (this is
+   the one cinematic number in the strip), the eyebrow and metadata carry
+   INSTRUMENTATION, and the fact itself carries UI — the same three-role
+   split the hero above it already uses.
+
+   Scoped to `[data-ui-version="v2"]`; legacy's card is untouched.
+   ================================================================ */
+
+[data-ui-version="v2"] .fotd {
+  padding: 0;
+  margin-top: var(--v2-space-12);
+  /* ONE pair for every category. `--fotd-ink` stays a real text-safe token
+     so the contrast the original fill/ink split protected is preserved. */
+  --fotd-accent: var(--v2-color-accent);
+  --fotd-ink: var(--v2-color-accent-text);
+}
+
+/* The six category overrides are decorative uses of reserved component
+   colors — neutralized in V2 rather than deleted, so legacy keeps them. */
+[data-ui-version="v2"] .fotd[data-accent="rules"],
+[data-ui-version="v2"] .fotd[data-accent="records"],
+[data-ui-version="v2"] .fotd[data-accent="playoffs"],
+[data-ui-version="v2"] .fotd[data-accent="global"],
+[data-ui-version="v2"] .fotd[data-accent="people"],
+[data-ui-version="v2"] .fotd[data-accent="history"] {
+  --fotd-accent: var(--v2-color-accent);
+  --fotd-ink: var(--v2-color-accent-text);
+}
+
+[data-ui-version="v2"] .fotd-inner {
+  max-width: none;
+  margin-inline: 0;
+  grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--v2-space-8);
+  padding: var(--v2-space-6) 0 0;
+  border: 0;
+  border-top: 1px solid var(--v2-border-subtle);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+/* The decorative crown hairline belonged to the panel that no longer exists. */
+[data-ui-version="v2"] .fotd-inner::before {
+  content: none;
+}
+
+[data-ui-version="v2"] .fotd-figure {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  padding: 0;
+  min-height: 0;
+  display: block;
+  position: relative;
+}
+
+/* MOTIF OFF. It was drawn absolutely, sized and positioned for the framed
+   figure panel that no longer exists here, so in the strip it surfaced as a
+   clipped fragment beside the featured value rather than a watermark behind
+   it. A decorative drawing that renders as an artifact is worse than no
+   drawing, and the brief's "small visual/stat glyph" is optional — the
+   featured value in display serif is already the strip's mark. Legacy's
+   card, where the frame still exists, keeps it. */
+[data-ui-version="v2"] .fotd-motif,
+[data-ui-version="v2"] .fotd-glyph {
+  display: none;
+}
+
+[data-ui-version="v2"] .fotd-feature {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  align-items: flex-start;
+  text-align: left;
+}
+
+/* DISPLAY role: the one cinematic number in the strip. */
+[data-ui-version="v2"] .fotd-feature-value {
+  font-family: var(--v2-font-display);
+  font-weight: 400;
+  letter-spacing: var(--v2-display-track);
+  line-height: 1.02;
+  color: var(--v2-color-accent);
+  font-size: clamp(2rem, 1.5rem + 1.9vw, 3rem);
+}
+
+/* Long features ("31 October 1950", "Every barangay") keep the measured
+   length bands the component computes — they just resolve to this scale. */
+[data-ui-version="v2"] .fotd-feature-value[data-length="long"],
+[data-ui-version="v2"] .fotd-feature[data-length="long"] .fotd-feature-value {
+  font-size: clamp(1.25rem, 1.05rem + 0.8vw, 1.625rem);
+}
+
+[data-ui-version="v2"] .fotd-feature[data-length="medium"] .fotd-feature-value {
+  font-size: clamp(1.625rem, 1.3rem + 1.2vw, 2.25rem);
+}
+
+/* INSTRUMENTATION role. */
+[data-ui-version="v2"] .fotd-feature-label {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: var(--v2-mono-track);
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+
+[data-ui-version="v2"] .fotd-eyebrow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--v2-space-3);
+  flex-wrap: wrap;
+}
+
+[data-ui-version="v2"] .fotd-title {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+
+[data-ui-version="v2"] .fotd-rule {
+  display: none;
+}
+
+/* PILLS OFF. Three bordered chips for category/era/place was badge clutter
+   on a strip whose job is one fact — they become one quiet mono metadata
+   line, which is what they always were semantically. */
+[data-ui-version="v2"] .fotd-tag,
+[data-ui-version="v2"] .fotd-tag-category {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: var(--v2-mono-track);
+  text-transform: uppercase;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: 0;
+  color: var(--v2-text-muted);
+}
+
+[data-ui-version="v2"] .fotd-tag-category {
+  color: var(--fotd-ink);
+}
+
+/* UI role: the fact itself. */
+[data-ui-version="v2"] .fotd-headline {
+  font-family: var(--v2-font-ui);
+  font-weight: 700;
+  font-size: clamp(1.0625rem, 0.98rem + 0.4vw, 1.3125rem);
+  line-height: 1.32;
+  color: var(--v2-text-primary);
+  margin-top: var(--v2-space-3);
+  max-width: 56ch;
+}
+
+[data-ui-version="v2"] .fotd-support {
+  font-family: var(--v2-font-ui);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--v2-text-secondary);
+  margin-top: var(--v2-space-2);
+  max-width: 62ch;
+}
+
+[data-ui-version="v2"] .fotd-cta {
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--v2-color-accent-text);
+}
+
+/* Mobile: the number leads, then the fact. No 13rem column to honour. */
+@media (max-width: 767px) {
+  [data-ui-version="v2"] .fotd-inner {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--v2-space-4);
+  }
+}
+
+/* ================================================================
+   YOUR ARENA — one section: what's mine, then what to play
+   ================================================================
+   WHAT WAS WRONG. The lower homepage asked the same question twice.
+   "Choose a game" was a five-column strip of equal text-heavy cells (plus
+   two orphans on a second row, leaving a large dead region), and "Your
+   Arena" below it was four more cells in the same grammar. Run the Table
+   appeared THREE times on one page: the hero CTA, the slate's resume cell,
+   and an "In progress / Continue" tile. Every mode looked equally
+   important, so nothing was (design-review/02, /03).
+
+   THE FIX IS HIERARCHY, NOT DELETION. The modular-box idea is kept — it is
+   the right shape for a game directory. What changes is that the section
+   now has three ranks instead of one:
+
+     1. STATUS   — a few real, dynamic lines. Not cards: a strip of rows,
+                   because "today's board is done" is a sentence, not an
+                   object you browse.
+     2. FEATURED — Run the Table, given actual size and a serif title.
+     3. MODES    — everything else, compact and scannable.
+
+   The featured panel is the ONLY Run the Table entry point in this section
+   (it resumes when a run exists), so the duplication is structural, not
+   suppressed by a conditional.
+
+   THE GREEN DOTS ARE GONE. `.v2-live-dot` beside a section heading meant
+   nothing — the section is not live, and green is the positive/correct
+   token, spent here on decoration.
+   ================================================================ */
+
+.v2-arena-section {
+  margin-top: var(--v2-space-12);
+}
+
+.v2-arena-heading {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+  margin: 0;
+}
+
+/* ---- 1. STATUS STRIP — rows, hairline-separated, no boxes ---- */
+.v2-arena-status {
+  margin-top: var(--v2-space-3);
+  border-top: 1px solid var(--v2-border-subtle);
+}
+
+.v2-arena-status-row {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--v2-space-4);
+  padding: var(--v2-space-3) 0;
+  border-bottom: 1px solid var(--v2-border-subtle);
+  text-decoration: none;
+  transition: background-color var(--v2-dur-control) var(--v2-ease-standard);
+}
+
+.v2-arena-status-row:hover,
+.v2-arena-status-row:focus-visible {
+  background: var(--v2-bg-surface);
+  outline: none;
+}
+
+.v2-arena-status-eyebrow {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: var(--v2-mono-track);
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+
+.v2-arena-status-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.6rem;
+  min-width: 0;
+}
+
+.v2-arena-status-title {
+  font-family: var(--v2-font-ui);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--v2-text-primary);
+}
+
+.v2-arena-status-detail {
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  color: var(--v2-text-secondary);
+}
+
+.v2-arena-status-cta {
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--v2-color-accent-text);
+  white-space: nowrap;
+}
+
+.v2-arena-status-arrow {
+  display: inline-block;
+  transition: transform var(--v2-dur-control) var(--v2-ease-standard);
+}
+
+.v2-arena-status-row:hover .v2-arena-status-arrow {
+  transform: translateX(2px);
+}
+
+/* ---- 2. FEATURED — real size, display typography ---- */
+.v2-arena-featured {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--v2-space-6);
+  margin-top: var(--v2-space-6);
+  padding: var(--v2-space-8);
+  border: 1px solid color-mix(in srgb, var(--v2-color-accent) 26%, transparent);
+  border-radius: var(--v2-radius-control);
+  background:
+    linear-gradient(
+      112deg,
+      color-mix(in srgb, var(--v2-color-accent) 9%, var(--v2-bg-plane)) 0%,
+      var(--v2-bg-plane) 62%
+    );
+  text-decoration: none;
+  transition: border-color var(--v2-dur-transition) var(--v2-ease-standard);
+}
+
+.v2-arena-featured:hover,
+.v2-arena-featured:focus-visible {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 48%, transparent);
+  outline: none;
+}
+
+.v2-arena-featured-tag {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-color-accent-text);
+}
+
+.v2-arena-featured-title {
+  display: block;
+  font-family: var(--v2-font-display);
+  font-weight: 400;
+  font-size: clamp(1.875rem, 1.5rem + 1.5vw, 2.75rem);
+  line-height: 1.04;
+  letter-spacing: var(--v2-display-track);
+  color: var(--v2-text-primary);
+  margin-top: var(--v2-space-2);
+}
+
+.v2-arena-featured-desc {
+  display: block;
+  font-family: var(--v2-font-ui);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--v2-text-secondary);
+  margin-top: var(--v2-space-3);
+  max-width: 52ch;
+}
+
+/* A real button shape, not a text link with an arrow. */
+.v2-arena-featured-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--v2-font-ui);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--v2-text-inverse);
+  background: var(--v2-color-accent);
+  border-radius: var(--v2-radius-control);
+  padding: 0.8rem 1.4rem;
+  white-space: nowrap;
+}
+
+/* ---- 3. MODES — compact, scannable, distinct from the featured rank ---- */
+.v2-arena-modes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: var(--v2-space-6);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  overflow: hidden;
+  background: var(--v2-border-subtle);
+}
+
+.v2-arena-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: var(--v2-space-5);
+  background: var(--v2-bg-plane);
+  text-decoration: none;
+  transition: background-color var(--v2-dur-transition) var(--v2-ease-standard);
+}
+
+.v2-arena-mode:hover,
+.v2-arena-mode:focus-visible {
+  background: var(--v2-bg-surface);
+  outline: none;
+}
+
+.v2-arena-mode-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.v2-arena-mode-title {
+  font-family: var(--v2-font-ui);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--v2-text-primary);
+  line-height: 1.2;
+}
+
+/* The ONLY badge left. It marks a mode with live opponents — a real,
+   changing property — and nothing else earns a chip. */
+.v2-arena-mode-live {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-color-positive);
+}
+
+.v2-arena-mode-desc {
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--v2-text-secondary);
+}
+
+@media (max-width: 900px) {
+  .v2-arena-modes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .v2-arena-featured {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+@media (max-width: 599px) {
+  .v2-arena-modes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .v2-arena-status-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 0.2rem;
+  }
+  .v2-arena-status-eyebrow {
+    grid-column: 1 / -1;
+  }
+  .v2-arena-featured {
+    padding: var(--v2-space-6);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v2-arena-status-row,
+  .v2-arena-status-arrow,
+  .v2-arena-featured,
+  .v2-arena-mode {
+    transition: none;
+  }
+}
+
+/* ---- Shared mode cell: the two additions `/arena` needs ------------------
+   The catalogue reuses `.v2-arena-mode` verbatim (see `ModeSlateCell`); these
+   are the only two parts the homepage never needed. Both are deliberately
+   type-only — no second border, no nested panel — because the cell already
+   carries the card, and rule 22 rules out stacking rectangles inside it. */
+
+/* The ONE flagship marker on a page. Gold is scarce here on purpose: it is the
+   same accent the primary action uses, and giving it to a second cell would
+   make neither read as the flagship. */
+.v2-arena-mode-flagship {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-color-accent);
+}
+
+/* Names the destination inside the cell rather than as a right-aligned link
+   far from the mode it belongs to — which is how the old catalogue rows put
+   "Start a run" at the opposite edge of the screen from "RUN THE TABLE". */
+.v2-arena-mode-cta {
+  margin-top: auto;
+  padding-top: 0.6rem;
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--v2-color-accent);
+}
+
+/* A featured cell is lifted by GROUND, not by a heavier border. */
+.v2-arena-mode[data-featured="true"] {
+  background: var(--v2-bg-surface);
+}
+
+/* `/arena` groups modes in ones and twos rather than the homepage's three-up
+   slate, so the shared grid takes a column count from the group instead of
+   hard-coding 3. Without this a two-mode group stretched each cell across a
+   third of the page and left a third of the row empty. */
+.v2-arena-modes--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.v2-arena-modes--pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 640px) {
+  .v2-arena-modes--pair {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

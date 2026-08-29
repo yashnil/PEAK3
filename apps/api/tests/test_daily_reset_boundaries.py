@@ -55,6 +55,42 @@ def yesterday() -> str:
     ).strftime("%Y-%m-%d")
 
 
+#: A FIXED archive date for the tests that have to PLAY a daily board to
+#: completion. Read this before changing it back to `yesterday()`.
+#:
+#: Those tests assert challenge-vs-daily invariants (same board, not the
+#: recipient's daily, never consumes the recipient's daily). Every one of them
+#: is date-INDEPENDENT: they need "some archive board", not yesterday's. But
+#: keyed to `yesterday()` they inherited a property of whichever board the
+#: calendar happened to serve, and that made the suite a time bomb.
+#:
+#: MEASURED, not guessed. `_play_to_completion` fills the five roles with a
+#: single greedy pass (most-constrained CARD first) and one reframe. Some
+#: boards defeat that: on 2026-08-28 it spends round 3 on
+#: `tom-chambers -> forward_big` and strands `anchor`, whose only two eligible
+#: cards (Divac, Daugherty) were on offer in that same round -- round 4 then
+#: offers nothing anchor-eligible and the game cannot be rewound. Playing the
+#: identical board in plain offer order completes it in five rounds with no
+#: reframe, and an exhaustive search confirms the board is winnable, so this is
+#: a limitation of the test's fill strategy and NOT an unwinnable daily.
+#:
+#: Across a 120-day window that strategy dead-ends on 9 boards (~8%). A
+#: most-constrained-ROLE ordering was tried and is worse (11). Neither is a
+#: fix: with one reframe per game (`reframe_used` is a bool) and no way to
+#: rewind, no single greedy pass can be guaranteed on an arbitrary board.
+#:
+#: So the board is pinned instead, exactly as
+#: `test_a_practice_challenge_still_reproduces_its_seeded_board` pins
+#: `seed=4242`. A daily board is a pure function of its date, so this one is
+#: reproducible forever, and it completes with NO reframe needed -- the reframe
+#: stays as headroom if the committed player pool ever shifts underneath it.
+#:
+#: IF THIS EVER FAILS with an empty-pairs dead end, the pool changed: pick
+#: another archive date that still completes rather than reverting to
+#: `yesterday()`, which only restores the coin flip.
+ARCHIVE_DATE = "2026-01-15"
+
+
 def assert_live_window(block: dict, expected_key: str) -> None:
     """The frozen contract (plan §2.1), for a board that is still today's."""
     assert set(block) == WINDOW_KEYS, block
@@ -282,7 +318,13 @@ def _play_to_completion(client: TestClient, game_id: str) -> dict:
                 for r in o["eligible_roles"]
                 if r in state["open_roles"]
             ]
-            assert _try_pairs(client, game_id, retry), state
+            assert _try_pairs(client, game_id, retry), (
+                "the greedy fill stranded an open role on this board and the "
+                "reframe did not reopen it -- see ARCHIVE_DATE's note. "
+                f"open_roles={state['open_roles']} "
+                f"offers={[(o['peak_window_id'], o['eligible_roles']) for o in state['current_offers']]} "
+                f"retry_pairs={retry}"
+            )
 
     return client.get(f"/api/v1/draft/games/{game_id}").json()
 
@@ -317,7 +359,7 @@ def test_a_daily_minted_challenge_reproduces_the_board_but_is_not_a_daily(
       - the recipient's GAME must not be a daily, or finishing it writes their
         official daily completion for a day someone else chose.
     """
-    date = yesterday()
+    date = ARCHIVE_DATE
     daily = client.get(f"/api/v1/draft/daily?mode=apex_1y&date={date}").json()
     assert daily["board_type"] == "daily"
     board_id = daily["board_metadata"]["board_id"]
@@ -340,7 +382,7 @@ def test_a_challenge_board_is_identical_to_the_daily_it_was_minted_from(
     client: TestClient,
 ):
     """`reproduce_as` must not perturb generation: same offers, same order."""
-    date = yesterday()
+    date = ARCHIVE_DATE
     daily = client.get(f"/api/v1/draft/daily?mode=apex_1y&date={date}").json()
     original_offers = [o["peak_window_id"] for o in daily["current_offers"]]
     _play_to_completion(client, daily["game_id"])
@@ -366,7 +408,7 @@ def test_a_challenge_never_consumes_or_overwrites_the_recipients_daily(client: T
     from app.core.dependencies import _memory_daily_completion_repo
     from app.main import app
 
-    date = yesterday()
+    date = ARCHIVE_DATE
 
     # The sender: their own client, so their own anon subject.
     with TestClient(app) as sender:

@@ -228,6 +228,111 @@ def career_positions(player_slug: str | None) -> frozenset[str]:
     return frozenset()
 
 
+#: Tie-break order for a primary position, most perimeter first. Only ever
+#: consulted when two positions carry EXACTLY equal career minutes, which is
+#: rare enough to be a coin flip -- but it must be a DETERMINISTIC coin flip,
+#: or a rankings tab's membership would change between processes.
+_PRIMARY_TIE_BREAK = ("PG", "SG", "SF", "PF", "C")
+
+_PRIMARY_CACHE: Optional[dict[str, str]] = None
+
+
+def _build_primary() -> dict[str, str]:
+    """Derive slug -> the ONE position the player logged the most career
+    minutes at.
+
+    THE SAME ROWS AND THE SAME GATE as `_build`, weighted instead of unioned.
+    A season contributes its own minutes to its listed position, so the answer
+    is "where did this player actually spend their career", not "where were
+    they listed once".
+
+    Seasons that pass the games gate but have no parquet minutes (a checkout
+    without `cache/processed/`) contribute `MIN_SEASON_MINUTES` each, which
+    degrades the weighting to a plain season count rather than dropping the
+    player -- the same graceful-degradation rule the rest of this module uses.
+
+    DELIBERATELY DOES NOT UNION IN POSITION_OVERRIDES / FLEXIBLE_FORWARD_SLUGS.
+    Those are additive *eligibility* statements ("this player could also play
+    here"), and eligibility is the wrong grain for a primary position: folding
+    them in is exactly what would put a curated "Jordan +PG" back into a point
+    guard list. They keep applying, unchanged, to `career_positions()`.
+    """
+    weights: dict[str, dict[str, float]] = {}
+
+    if ALL_SEASONS_PATH.exists():
+        try:
+            rows = json.loads(ALL_SEASONS_PATH.read_text()).get("rows", [])
+        except (OSError, ValueError):
+            rows = []
+        minutes = _load_season_minutes()
+        for row in rows:
+            position = row.get("position")
+            if position not in _POSITION_TOKENS:
+                continue
+            games = row.get("games_played")
+            if games is None or float(games) < MIN_GAMES_PLAYED:
+                continue
+            row_slug = _normalize_slug(row.get("player_slug") or "")
+            if not row_slug:
+                continue
+            mp = minutes.get((row_slug, str(row.get("season"))))
+            if mp is not None and mp < MIN_SEASON_MINUTES:
+                continue
+            bucket = weights.setdefault(row_slug, {})
+            bucket[position] = bucket.get(position, 0.0) + (
+                float(mp) if mp is not None else float(MIN_SEASON_MINUTES)
+            )
+
+    resolved: dict[str, str] = {}
+    for slug, bucket in weights.items():
+        top = max(bucket.values())
+        tied = [p for p, value in bucket.items() if value == top]
+        resolved[slug] = min(tied, key=_PRIMARY_TIE_BREAK.index)
+
+    # Index under every alias spelling, exactly as `_build` does, so a lookup
+    # in either slug convention resolves (this is what carries
+    # "shaquille-oneal" -> the data stored under "shaquille-o-neal").
+    index: dict[str, str] = {}
+    for slug, position in resolved.items():
+        for variant in slug_variants(slug):
+            index.setdefault(variant, position)
+    return index
+
+
+def primary_position(player_slug: str | None) -> Optional[str]:
+    """The ONE position this player spent the most career minutes at, or None
+    when the committed source data cannot answer.
+
+    WHY THIS EXISTS SEPARATELY FROM `career_positions`. They answer different
+    questions and must not be conflated:
+
+    * `career_positions()` -> "where is this player ELIGIBLE to be placed"
+      (a set, unioned with the curated supplement). 82-0 and Three-Man Weave
+      enforce placement legality with it, and it is deliberately generous --
+      LeBron really has logged real minutes at PG and at C.
+    * `primary_position()` -> "what position IS this player" (exactly one).
+
+    The Rankings position tabs need the second. Filtering them on eligibility
+    produced a "PG" board led by Michael Jordan, with LeBron James second and
+    Giannis Antetokounmpo fifth: all true statements about eligibility, and
+    nonsense as a ranking of point guards.
+
+    Nothing here is hand-keyed to a player name. The answer is minutes,
+    counted from the same committed sources and behind the same games/minutes
+    gate as the rest of this module.
+    """
+    global _PRIMARY_CACHE
+    if _PRIMARY_CACHE is None:
+        _PRIMARY_CACHE = _build_primary()
+    if not player_slug:
+        return None
+    for variant in slug_variants(player_slug):
+        found = _PRIMARY_CACHE.get(variant)
+        if found:
+            return found
+    return None
+
+
 def _build_season_index() -> dict[tuple[str, str], str]:
     """(slug_variant, season) -> that season's listed position.
 

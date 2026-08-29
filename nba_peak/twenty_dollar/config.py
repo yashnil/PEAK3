@@ -8,6 +8,7 @@ reinterpreted if they have moved -- the same discipline
 """
 from __future__ import annotations
 
+import random
 from typing import Final
 
 # ---------------------------------------------------------------------------
@@ -119,6 +120,53 @@ MIN_RAISE: Final[int] = 1
 #: created. The foundation stores it on `arena_turns.deadline_at` and enforces
 #: it; this mode never computes a deadline itself.
 TURN_SECONDS: Final[float] = 25.0
+
+#: HOW LONG A BOT APPEARS TO DELIBERATE, in seconds — the range a per-turn
+#: value is drawn from.
+#:
+#: THE FLOOR IS ABOVE THE ROOM'S POLL INTERVAL, and that is the whole point.
+#: `TwentyDollarGame.tsx` polls every 2000ms. The platform default
+#: (`arena.bots.BOT_THINK_SECONDS`, 1.2s) sits BELOW that, so the bot's move
+#: routinely landed in the same poll that opened its turn: the client rendered
+#: the settled raise without ever rendering the opponent on the clock, and an
+#: ascending auction against an opponent who never visibly thinks reads as a
+#: function call rather than as another bidder. Three-Man Weave hit the
+#: identical bug and recorded the identical fix (see that mode's
+#: `bot_think_seconds`); this is the same rule applied to a faster loop.
+#:
+#: DELIBERATELY MUCH SHORTER THAN THREE-MAN WEAVE'S 4-10s. A weave is six
+#: rounds of one pick each; an auction is up to 36 lots of alternating raises,
+#: so a bot turn here is a far more frequent event. Copying the weave's range
+#: would add minutes of watching to a single match. This range is long enough
+#: that at least one poll always renders "on the clock", and short enough that
+#: the bidding loop keeps its pace.
+#:
+#: PRESENTATION ONLY. It never touches what the bot decides — the same policy
+#: computes the same bid either way. The foundation enforces it against the
+#: turn's stored `opened_at`, so two clients polling at different rates agree
+#: on when the move lands and a fast poller cannot hurry it along.
+BOT_THINK_SECONDS_MIN: Final[float] = 2.6
+BOT_THINK_SECONDS_MAX: Final[float] = 4.2
+
+
+def bot_think_seconds(seed: int | str, seat_index: int, turn_seq: int) -> float:
+    """How long THIS bot takes on THIS turn. Deterministic, never a sleep.
+
+    Keyed by turn as well as seat so successive raises feel variable rather
+    than metronomic — a constant delay is still a machine, just a slower one —
+    and derived from the match seed so a replay of the same match produces the
+    same rhythm.
+
+    Its own named RNG stream (`arena:{seed}:bot-think:...`), per this package's
+    convention, so adding it cannot shift the draw sequence of the opening,
+    candidate or autofill streams and silently reinterpret already-recorded
+    matches.
+    """
+    draw = random.Random(f"arena:{seed}:bot-think:{seat_index}:{turn_seq}").random()
+    return round(
+        BOT_THINK_SECONDS_MIN + draw * (BOT_THINK_SECONDS_MAX - BOT_THINK_SECONDS_MIN), 2
+    )
+
 
 #: What an expired turn does: the ACTIVE seat passes, and nothing else moves.
 #: Never a forfeit, and never applied to the seat that was not on the clock --

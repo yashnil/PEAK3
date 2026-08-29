@@ -32,6 +32,19 @@ export interface PeakV2ScoreProps {
   tone?: V2Tone;
   size?: "sm" | "md" | "lg";
   role?: PeakV2ScoreRole;
+  /**
+   * Cross-axis alignment of the label over the value. `"start"` (default)
+   * keeps every existing caller pixel-identical — a score sitting in a
+   * left-aligned row, a stat column or a seat header reads left.
+   *
+   * `"center"` is for a score that IS the centred cinematic moment: inside
+   * `PeakV2CinematicStage` the block itself is centred, but its internals
+   * are not, so a short value under a longer label hung visibly left of the
+   * axis everything else on the stage is centred on (measured on the
+   * Three-Man Weave result: label centred at 570px, "15.3" centred at
+   * 513px).
+   */
+  align?: "start" | "center";
   className?: string;
   /** Optional passthrough for a caller that needs to address this specific
    *  instance (e.g. a game's own HUD test contract) — never set internally.
@@ -57,6 +70,7 @@ export default function PeakV2Score({
   tone = "neutral",
   size = "md",
   role = "instrument",
+  align = "start",
   className,
   "data-testid": dataTestId,
   valueTestId,
@@ -64,7 +78,10 @@ export default function PeakV2Score({
   const color = v2ToneVar(tone) ?? "var(--v2-text-primary)";
   const moment = role === "moment";
   return (
-    <div className={`inline-flex flex-col items-start ${className ?? ""}`} data-testid={dataTestId}>
+    <div
+      className={`inline-flex flex-col ${align === "center" ? "items-center" : "items-start"} ${className ?? ""}`}
+      data-testid={dataTestId}
+    >
       {label ? (
         <span
           style={{

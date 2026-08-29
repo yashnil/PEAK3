@@ -13,19 +13,42 @@
  * ADVANCE) action legacy's `RevealPanel` already uses. There is no auto-
  * advance timer anywhere in Peak Duel — removed entirely, not hidden.
  *
- * DOT-FILL / "YOUR PICK" SEMANTICS (corrected): `selectedPeakId` — the
- * reducer's own `selected_peak_id`, still populated in the `revealing`
- * phase until `ADVANCE` clears it — is the ONLY source of "which side is
- * the player's". It is never derived from `winnerIsLeft`/`answer.correct`.
- * The five component lanes below pass `pickedSide` computed from it, so the
- * FILLED dot always marks the side the player actually clicked, regardless
- * of position, winner/loser, or which side has the higher value in that
- * lane. A genuine no-pick (decision clock expired, see `game-engine.tsx`'s
- * `handleTimeout`) leaves `selectedPeakId` null; `pickedSide` resolves to
- * `"none"` and both dots render hollow — the neutral treatment for "no side
- * was ever the player's" rather than defaulting to either.
+ * "YOUR PICK" SEMANTICS: `selectedPeakId` — the reducer's own
+ * `selected_peak_id`, still populated in the `revealing` phase until
+ * `ADVANCE` clears it — is the ONLY source of "which side is the player's",
+ * never derived from `winnerIsLeft`/`answer.correct`. It drives the per-side
+ * TAG ("Your pick · correct" / "Not selected"), and nothing else.
+ *
+ * DOT-FILL SEMANTICS. The filled/coloured dot marks the OVERALL MATCHUP
+ * WINNER, and it marks the same side on all five lanes. The hollow dot is the
+ * overall loser. Horizontal position still encodes that side's value on the
+ * lane's own scale, so the two channels say different things on purpose:
+ *
+ *     colour    = who won the matchup      (constant across the five lanes)
+ *     position  = who was stronger here    (varies lane by lane)
+ *
+ * A reader can therefore see "this colour is the winner" once, and then read
+ * each lane for magnitude without re-deriving ownership.
+ *
+ * TWO SUPERSEDED RULES, both recorded because each was a real regression:
+ *
+ *   1. Fill once followed the side the player CLICKED. That blanked the whole
+ *      comparison on a timeout (no pick -> nothing filled) and told the reader
+ *      about their own input rather than about the model.
+ *   2. Fill then followed the per-lane higher value (`fill="higher"`). That is
+ *      the rule this pass removes. It was self-consistent but unreadable,
+ *      because dot POSITION already encodes magnitude: on a lane the overall
+ *      winner loses, the loser's larger value put their dot further right AND
+ *      filled it, so the chart read "the right-hand player won this component"
+ *      when the right-hand player was the one who lost the matchup. Measured on
+ *      a real reveal (Adebayo 58.2 vs Sabonis 64.6): Adebayo led Playoff Rate
+ *      Impact 1.2 to -0.3 and Team Result 1.0 to 0.0, yet all five filled dots
+ *      rendered on Sabonis's side of the rule, contradicting the explanation
+ *      sentence printed directly beneath them.
+ *
+ * An exact overall tie (`score_gap === 0`) owns nothing: both dots render
+ * hollow rather than promoting a side the model did not separate.
  */
-
 import { useEffect, useRef } from "react";
 import PeakV2LiveHeader from "../PeakV2LiveHeader";
 import PeakV2GameStatus from "../PeakV2GameStatus";
@@ -87,9 +110,15 @@ export default function PeakDuelV2Reveal({
   const leftIsWinner = winnerIsLeft;
   const rightIsWinner = !winnerIsLeft;
 
+  // WHICH SIDE OWNS THE COLOURED DOT ON EVERY LANE — the overall matchup
+  // winner. `score_gap === 0` is an exact tie: the model separated nothing, so
+  // neither side is promoted and both dots render hollow.
+  const ownerSide: "left" | "right" | "none" =
+    answer.score_gap === 0 ? "none" : winnerIsLeft ? "left" : "right";
+
   // WHICH side is the player's — from the actual click, never from the
-  // outcome. `pickedSide="none"` (both dots hollow, no "Your pick" tag
-  // anywhere) is the genuine-no-pick case.
+  // outcome. Drives the per-side tag ONLY. It is deliberately NOT what fills
+  // the lane dots: see rule 1 in this file's header.
   const pickedSide: "left" | "right" | "none" =
     selectedPeakId === null ? "none" : selectedPeakId === duel.left.peak_id ? "left" : "right";
   const leftPicked = pickedSide === "left";
@@ -236,6 +265,19 @@ export default function PeakDuelV2Reveal({
         }}
       >
         Component comparison
+        {/* THE KEY FOR THE DOT GRAMMAR, stated once rather than inferred.
+            Colour marks the matchup winner on every lane and position marks
+            magnitude, so on a lane the winner lost the filled dot sits BEHIND
+            the hollow one. That is correct and still needs saying: without
+            this the reader has to reverse-engineer the rule from five lanes,
+            which is how the previous grammar went unnoticed. Same muted
+            type, on the same line — a key, not a second heading. */}
+        {ownerSide !== "none" ? (
+          <span style={{ color: "var(--v2-text-muted)", fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>
+            {"  ·  filled = "}
+            {(ownerSide === "left" ? leftWindow : rightWindow).player_name}
+          </span>
+        ) : null}
       </p>
       <div className="mt-2 flex flex-col gap-3">
         {RANKING_COMPONENT_ORDER.map((key) => {
@@ -255,7 +297,12 @@ export default function PeakDuelV2Reveal({
               rightValue={rightValue.toFixed(1)}
               scaleMin={0}
               scaleMax={max}
-              pickedSide={pickedSide}
+              // OWNERSHIP, not per-lane outcome: the same side is filled on
+              // every lane, because it answers "who won the matchup", which
+              // does not change from lane to lane. `fill` stays at its
+              // default `"role"` — this IS a role marker in the lane's own
+              // terms, constant for the whole comparison.
+              pickedSide={ownerSide}
             />
           );
         })}

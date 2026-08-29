@@ -44,6 +44,7 @@ if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
 from nba_peak import formula_version  # noqa: E402
+from nba_peak.perfect_season.career_positions import career_positions
 
 router = APIRouter()
 
@@ -127,6 +128,11 @@ class SeasonRow(BaseModel):
     season: str
     team: Optional[str] = None
     is_multi_team_season: bool = False
+    # CANONICAL positions, structured and sorted -- see the identical field
+    # on `PeakRow` (api/v1/peaks.py) for why this is `career_positions()`
+    # rather than anything parsed out of a display string, and why an empty
+    # list means "no information" rather than "played nowhere".
+    positions: list[str] = []
     prime_score: Optional[float] = None
     prime_index: Optional[float] = None
     # Present on every served row so the minutes floor is verifiable per row,
@@ -220,6 +226,7 @@ async def get_seasons(
 
     total_available = len(rows)
     rows = rows[offset : offset + limit]
+    rows = [dict(r, positions=sorted(career_positions(r["player_slug"]))) for r in rows]
 
     return SeasonsResponse(
         dataset_version=data["dataset_version"],

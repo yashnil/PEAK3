@@ -65,6 +65,15 @@ interface Props {
    * materially different from the round's first roll instead of a faster
    * repeat of it. null when no respin has happened this round. */
   respinFrom?: { team: string | null; season: string | null } | null;
+  /** A control belonging to THIS axis — 82-0's per-axis respin. Rendered
+   *  inside the axis's own wheel box, not as a detached pill above the
+   *  ceremony: a respin is an operation on the value beside it, and two
+   *  free-floating rectangles in the panel header never said which axis
+   *  each applied to (design-review/07). Only rendered once the axis has
+   *  actually revealed — offering "respin this" over a still-spinning reel
+   *  asks about something the player cannot read yet. */
+  teamAction?: React.ReactNode;
+  seasonAction?: React.ReactNode;
 }
 
 type CeremonyPhase = "spinning" | "locked" | "revealed";
@@ -436,6 +445,8 @@ export default function SpinStage({
   collapsed = false,
   teamLogoUrls = {},
   respinFrom = null,
+  teamAction = null,
+  seasonAction = null,
 }: Props) {
   // Phase 8C: explicit gate for every new `motion.*` animation added this
   // pass -- the project's existing global CSS `prefers-reduced-motion`
@@ -902,6 +913,12 @@ export default function SpinStage({
           className="grid grid-cols-2 gap-3 spin-lockup-grid"
           role="group"
           aria-label="Franchise and season roll"
+          // The respin controls now live INSIDE the two axes below, so the
+          // region that contains them is this lockup rather than a separate
+          // button row. The testid moves with them and still names exactly
+          // what it always named: "the respin controls, on screen and
+          // usable". Absent when the mode offers no respins, as before.
+          data-testid={teamAction || seasonAction ? "respin-controls" : undefined}
         >
           {/* W5: the Franchise x Season lockup joint. Sits between the two
               reels and seals with a single scale/opacity beat once BOTH have
@@ -1033,6 +1050,9 @@ export default function SpinStage({
                 </motion.div>
               )}
             </div>
+            {phase === "revealed" && !respinning && teamAction ? (
+              <div className="spin-wheel-action">{teamAction}</div>
+            ) : null}
           </div>
           <div
             data-testid="era-wheel"
@@ -1092,6 +1112,9 @@ export default function SpinStage({
                 {secondDisplay}
               </motion.div>
             )}
+            {phase === "revealed" && !respinning && seasonAction ? (
+              <div className="spin-wheel-action">{seasonAction}</div>
+            ) : null}
           </div>
         </div>
       ) : (
@@ -1133,19 +1156,27 @@ export default function SpinStage({
                   silently swap in another team-season's roster).
                   The visible \u00d7 is unchanged; only the text layer gains a
                   real separator. */}
-              You rolled: <strong>{spin.franchise_display_name}</strong>
+              {/* NO "You rolled:" PREFIX. The two reels directly above have
+                  just stopped on these two values; a sentence restating them
+                  in the past tense was the same fact a third time on one
+                  panel (the chooser header states it too). The lockup itself
+                  stays, unchanged in structure and still carrying a real
+                  text separator -- `courtbuilder.spec.ts` cross-checks this
+                  string against every candidate row's own team-season line so
+                  an alphabetical re-sort can never silently swap in another
+                  roster, and that guard is load-bearing. */}
+              <strong>{spin.franchise_display_name}</strong>
               <span className="spin-lockup-text-sep" aria-hidden="true" />
               <span className="sr-only"> · </span>
               <strong>{spin.era_label}</strong>
             </div>
           )}
-          <span>
-            {spin.candidates.length} eligible player{spin.candidates.length === 1 ? "" : "s"} found
-            {spin.spin_type === "team_decade" && " for this team and era — pick one to start."}
-            {spin.spin_type === "exact_team_season" && " on this exact roster — pick one to start."}
-            {spin.spin_type === "team_year" && " on this exact roster — pick one to start."}
-            {spin.spin_type === "open_pool" && " — pick one to start."}
-          </span>
+          {/* NO ELIGIBLE-COUNT SENTENCE. "26 eligible players found on this
+              exact roster — pick one to start." explained a list the player
+              is already looking at, and the count is still shown once (the
+              chooser header's roll summary) and still ANNOUNCED once, in
+              `spin-live-region` above, which is where a screen-reader user
+              actually needs it. */}
         </div>
       )}
     </div>

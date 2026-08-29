@@ -73,6 +73,12 @@ export interface PeakV2CourtSlotProps {
    *  "rearrange"/"move here"/"not a legal destination" sentence, since
    *  only they hold the player names on both ends of a prospective move. */
   activateLabel?: string;
+  /** For a `bench` slot: render its season/team meta and its PEAK3 value,
+   *  the same way a starter's are rendered. Off by default so 82-0's
+   *  compact bench row is unchanged; Three-Man Weave turns it on because
+   *  its bench counts equally in the score. Ignored for a starter, which
+   *  always shows both. */
+  benchDetail?: boolean;
 }
 
 const STATE_BORDER: Record<PeakV2CourtSlotState, string> = {
@@ -100,12 +106,18 @@ export default function PeakV2CourtSlot({
   onDropOn,
   activateLabel,
   metaTestId,
+  benchDetail = false,
 }: PeakV2CourtSlotProps) {
   // Same gate as legacy `SlotCard`: an empty, non-moving slot has nothing to
   // pick up and stays inert. Everything else — a filled slot, or ANY slot
   // while a card is already in hand — is a real target.
   const activatable = interactive && (!!player || moving);
   const containerStyle: CSSProperties = {
+    // `minHeight`, not `height`: ONE floor for every slot so a grid of them
+    // never produces uneven rows by position. A caller that lays these out
+    // inside its own fixed-height cell (82-0's court) overrides this to 0 in
+    // CSS so the tile can yield space to the fit caption beneath it rather
+    // than clipping it — see styles/v2/court.css.
     minHeight: bench ? "var(--v2-court-bench-min-height, 76px)" : "var(--v2-court-slot-min-height, 104px)",
     padding: "var(--v2-space-3)",
     borderRadius: "var(--v2-radius-control)",
@@ -125,8 +137,29 @@ export default function PeakV2CourtSlot({
           ? "var(--v2-bg-plane)"
           : state === "empty"
             ? "color-mix(in srgb, var(--v2-bg-page) 55%, transparent)"
-            : "transparent",
+            // A FILLED slot used to be `transparent`, which was right when
+            // the court behind it was a flat panel and wrong once the floor
+            // became a real lit surface: a placed player then read as a
+            // hole cut in the hardwood rather than a piece standing on it.
+            // The elevated plane is the same token every other resting
+            // surface in V2 uses.
+            : "var(--v2-bg-plane)",
   };
+
+  // WHETHER A BENCH SLOT SHOWS ITS DETAIL IS THE CALLER'S CALL, NOT THIS
+  // COMPONENT'S ASSUMPTION.
+  //
+  // `bench` used to mean two things at once: "use the compact footprint" AND
+  // "hide the season, the team and the score". That is right for 82-0, whose
+  // bench is a supporting row and whose scores stay hidden until the run is
+  // simulated. It is wrong for Three-Man Weave, whose `lineup_score` is a
+  // flat, equally-weighted mean over all six cards — the bench pick moves
+  // the final number exactly as much as the point guard does, and hiding its
+  // value made the most under-rated decision in the draft look irrelevant
+  // (design-review/14). So the footprint stays tied to `bench` and the
+  // detail becomes explicit, defaulting to the previous behaviour so 82-0 is
+  // untouched.
+  const showDetail = !bench || benchDetail;
 
   const body = (
     <>
@@ -142,12 +175,20 @@ export default function PeakV2CourtSlot({
         {position}
       </span>
 
+      {/* `min-w-0` on the identity and `shrink-0` on the value: a flex item
+          will not shrink below its own content width unless told it may, so
+          in a narrow column a long name pushed the PEAK3 score straight out
+          past the tile's right edge. Measured on the Three-Man Weave RESULT,
+          where three courts share one row and each slot is ~160px wide — the
+          third column's scores were being clipped off the composition
+          entirely. The name wraps instead, which the tile has room for. */}
       <div className="flex flex-1 items-center justify-between gap-3">
         {player ? (
           <PeakV2PlayerIdentity
+            className="min-w-0"
             name={player.name}
-            meta={bench ? undefined : player.meta}
-            metaTestId={bench ? undefined : metaTestId}
+            meta={showDetail ? player.meta : undefined}
+            metaTestId={showDetail ? metaTestId : undefined}
             size={bench ? "sm" : "md"}
             state={state === "current" ? "current" : state === "staged" ? "selected" : "default"}
           />
@@ -162,8 +203,10 @@ export default function PeakV2CourtSlot({
             {emptyHint ?? "Open"}
           </span>
         )}
-        {!bench && value !== undefined ? (
-          <PeakV2Score value={value} label={valueLabel} size="sm" />
+        {showDetail && value !== undefined ? (
+          <span className="shrink-0">
+            <PeakV2Score value={value} label={valueLabel} size="sm" />
+          </span>
         ) : null}
       </div>
 

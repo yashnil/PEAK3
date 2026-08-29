@@ -21,6 +21,7 @@ function row(overrides: Partial<RankingRow> = {}): RankingRow {
     row_id: "michael-jordan-1yr-199091",
     player_slug: "michael-jordan",
     player_name: "Michael Jordan",
+    positions: ["PG", "SF", "SG"],
     label: "1990-91",
     team: "CHI",
     prime_score: 97.53,

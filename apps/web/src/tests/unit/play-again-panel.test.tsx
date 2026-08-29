@@ -84,6 +84,32 @@ describe("PlayAgainPanel", () => {
     expect(decodeURIComponent(href.split("returnTo=")[1])).toMatch(/^\//);
   });
 
+  it("hides its sign-in prompt when the caller already shows one directly above", async () => {
+    // The 82-0 result stacks SaveRunPanel immediately on top of this panel
+    // (product-UX-recovery pass), and the leaderboard panel sits below it —
+    // so without this opt-out the receipt ended in three near-identical
+    // "sign in" rows. The panel keeps its own prompt by DEFAULT, because
+    // standing alone it still has to explain what signing in buys.
+    mockUser.mockReturnValue(null);
+    mockGetLeaderboard.mockResolvedValue({ leaderboard_enabled: true, runs: [] });
+    render(
+      <PlayAgainPanel
+        mode="apex_1y"
+        wins={70}
+        losses={12}
+        lineupPeakScore={80}
+        onPlayAgain={vi.fn()}
+        busy={false}
+        signInPromptShownAbove
+      />,
+    );
+
+    await screen.findByTestId("play-again-btn");
+    expect(screen.queryByTestId("play-again-signin-prompt")).not.toBeInTheDocument();
+    // The panel's actual job is untouched: Play Again is still offered.
+    expect(screen.getByTestId("play-again-btn")).toBeEnabled();
+  });
+
   it("hides the sign-in prompt when the leaderboard feature is off, even signed out", async () => {
     mockUser.mockReturnValue(null);
     mockGetLeaderboard.mockResolvedValue({ leaderboard_enabled: false, runs: [] });

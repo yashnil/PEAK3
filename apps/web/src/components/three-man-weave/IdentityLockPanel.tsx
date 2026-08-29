@@ -46,7 +46,14 @@ export default function IdentityLockPanel({
         <h2 id="tmw-lock-heading" className="tmw-ledger-title">
           Recent picks
         </h2>
-        <span data-testid="tmw-lock-count" className="tmw-ledger-count pk-numeral">
+        {/* "0 off the board" beside a panel whose own empty state already
+            says "Nobody has drafted yet" is a counter counting nothing.
+            It appears once there is something to count. */}
+        <span
+          data-testid="tmw-lock-count"
+          className="tmw-ledger-count pk-numeral"
+          style={{ visibility: entries.length > 0 ? "visible" : "hidden" }}
+        >
           {entries.length} off the board
         </span>
       </header>
