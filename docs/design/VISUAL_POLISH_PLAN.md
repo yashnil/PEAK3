@@ -119,6 +119,19 @@ Shared JS: 102 kB. Heaviest routes by First Load JS: `/arena/run-the-table`
 91.3 kB. Any batch touching these routes should re-check First Load JS in the
 same build output and flag a regression instead of shipping it silently.
 
+## Phase 5 — dependency audit (2026-08-29)
+
+`apps/web/package.json` is already lean and correctly chosen for this
+program's needs: `motion` (meaningful animation), `lucide-react` (single
+icon language), `@axe-core/playwright` + `lighthouse` (already-present a11y/
+perf tooling), Tailwind v4 + CSS custom properties (no competing token
+system). No Radix/React Aria (Dialog.tsx is a working custom focus-trap
+implementation per the route matrix) and no D3/Observable Plot (no route
+currently needs a bespoke chart beyond what exists). **Conclusion: no new
+dependency is needed for the batches currently planned.** Re-evaluate only if
+a specific batch hits a problem the existing stack cannot solve cleanly, and
+name that problem explicitly before adding anything.
+
 ## Companion documents
 
 - `docs/design/REFERENCE_BOARD.md` — external research synthesis
