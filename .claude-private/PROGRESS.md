@@ -29,6 +29,7 @@ verified; do not treat "the program" as done until
 | `bb936c6` | **Batch 2**: Ranked-mode + Daily Grid 1440px density (see below) |
 | `b04c979` | Process fix — evaluator/investigation agent isolation (see below) |
 | `49ad3ff` | **Batch 3**: RankedScreen + ranked leaderboard (see below) |
+| `6635f35` | **Batch 4**: profile + progress + history (see below) |
 
 ## Baseline (Phase 3, all green before any UI edit — see VISUAL_POLISH_PLAN.md for full detail)
 
@@ -201,22 +202,126 @@ rating needs 7 real placement matches per player — judged not worth the e2e
 fixture cost given `ranked-leaderboard.test.tsx` already covers the
 populated-table render path directly).
 
+## Batch 4 — profile + progress + history (DONE, verified, committed as `6635f35`)
+
+**Scope, per the user's explicit instruction:** these three authenticated
+personal pages as one coherent family, establishing a shared identity/
+progression grammar without forcing them into one interchangeable
+template. Not `/players/[slug]`, H2H, or old draft routes this batch.
+
+**Product framing preserved, not invented:** `/profile` = "who am I"
+(identity + competitive status), `/progress` = "how am I developing"
+(participation, explicitly not the same as skill/rating — the existing
+"XP measures your exploration, not your skill" copy was kept verbatim),
+`/history` = "what have I done" (chronological record). Semantic inventory
+recorded in `ROUTE_BEHAVIOR_MATRIX.md` before any edit, per instruction.
+
+**What changed:** all three moved from a plain `max-w mx-auto` div + plain
+`<h1>` to the shared `PeakV2Shell` + kicker/title header (kickers: "Player"
+/ "Progression" / "Record" — deliberately different per page, not a copy-
+paste). `/profile` restructured into three tiers (identity dominant →
+`RankedRatingCards` competitive status → a visibly quieter "Account
+settings" section for the edit form, behind a muted heading + divider).
+`/progress` and `/history` kept everything internal untouched (Level/XP/
+Streak/tabs; empty-state/error-state swapped to the shared `EmptyState`/
+`ErrorState` components). A new shared `PersonalPageLoading` replaced a
+byte-identical spinner duplicated exactly 3x across these three pages
+(deliberately left untouched in 3 unrelated pages that happen to share the
+same inline pattern — out of scope). Numbers touched with `.score-number`
+for tabular treatment (Progress StatCards, History's Lineup Peak Rating).
+
+**Real pre-existing bug found and fixed while writing tests, not part of
+the original ask:** `/profile`'s Handle/Display Name/Bio `<label>`s had no
+`htmlFor`/`id` association with their inputs at all — a genuine
+accessibility gap (screen readers and label-click-to-focus both broken).
+Fixed with matching `id`/`htmlFor` pairs; zero behavior change.
+
+**Tests:** zero page-level coverage existed before for any of the three
+(existing `profile-api.test.ts`/`progression-components.test.tsx`/
+`progress.test.ts` only cover the API client and sub-components in
+isolation). Added `profile-page.test.tsx` (7), `history-page.test.tsx` (5),
+`progress-page.test.tsx` (4) — 16 new tests total, all mocking at the API-
+client boundary the same way `ranked-leaderboard.test.tsx` did in Batch 3.
+
+**A real test-authoring trap worth remembering for future page-level
+tests:** a `useRouter` mock that returns a fresh object literal every call
+(`() => ({ push: mockPush })`) is NOT equivalent to Next's real stable
+reference — if a page's `useEffect` depends on `router`, an unstable mock
+makes that effect re-fire on every re-render (e.g. every keystroke in a
+form), silently resetting component state. Symptom looked like "typing
+into a field does nothing" when it was actually "typing works, then gets
+immediately wiped by a spurious effect re-run." Fix: `const mockRouter =
+{push: mockPush}` at module scope, return that same reference every call.
+
+**Verification:** typecheck clean, lint 0 warnings, 2264/2264 vitest (100
+files), production build (`/profile` 189kB, `/progress` 191kB, `/history`
+187kB — consistent with sibling `PeakV2Shell` pages, no prior baseline
+existed for these three specifically since they were never touched
+before), `progression.spec.ts` + `accessibility.spec.ts` +
+`play-routing.spec.ts` + `auth.spec.ts` 91/91 passed. Independent visual
+evaluator (fresh context) returned ship-as-is for all three with one
+disclosed non-blocking note (fresh account shows raw email twice — a
+data-state artifact). Independent functionality QA (fresh context, see
+process note below on how its worktree was set up correctly) manually
+verified all 7 requested interactions (auth gate, identity display + nav,
+save round-trip with actual reload-persistence proof, tab switching,
+empty state, keyboard/focus order, browser back) — all pass.
+
+## Process note from Batch 4 — worktree isolation has TWO distinct failure modes, not one
+
+Batch 3 found that `Agent`'s `isolation: "worktree"` defaults to branching
+from `origin/<default-branch>` (stale `main`), not the caller's current
+branch. Batch 4 found a **second, different** failure mode on top of that:
+even when you think you've worked around it, **a worktree can only see
+committed state** — if your own changes are still sitting uncommitted in
+the main checkout's working tree, no worktree-isolated agent (regardless of
+which branch/ref it's based on) can see them at all, because they were
+never committed to any ref. The functionality-QA agent for this batch
+correctly caught this itself (`git diff` between its worktree and
+`feature/arena-archive-visual-polish` showed zero output for the profile/
+progress/history paths, i.e. "these pages are identical on both refs") and
+stopped rather than silently QA-ing unrelated unchanged code — exactly the
+right behavior, worth replicating: **an agent that discovers its premise
+doesn't match reality should say so and stop, not proceed anyway.**
+
+**The fix that actually worked:** commit the batch's work first (fully
+verified via typecheck/lint/unit/e2e/visual-evaluator, all green), THEN
+create the worktree yourself with plain git (`git worktree add --detach
+<path> HEAD`), verify its `git rev-parse HEAD` matches, symlink in
+`node_modules`/`.venv`/`data/web`/`cache`, and hand the QA agent that exact
+fixed path directly in its prompt rather than using the `Agent` tool's
+`isolation` parameter at all. This gives full control over the ref AND
+guarantees the work under test is actually committed and visible. Used this
+for Batch 4's functionality-QA redo and it worked correctly on the first
+try — worth using as the default pattern going forward rather than
+`isolation: "worktree"`, which has now caused two different silent-wrong-
+ref failures in two consecutive batches.
+
+**Also confirmed this batch:** the custom `.claude/agents/ui-evaluator.md`
+(from Batch 3's process fix, `tools: Read` allowlist) is still not
+recognized by `Agent({subagent_type: "ui-evaluator"})` — tried again in a
+genuinely fresh session per the user's instruction, still got "Agent type
+'ui-evaluator' not found." This looks like a real harness limitation, not
+a mistake in the file (frontmatter matches the documented format) —
+flagged to Anthropic via feedback. Until/unless this starts working,
+`general-purpose` + a manually-constructed worktree (see above) is the
+working substitute for both the evaluator and investigator roles.
+
 ## What's next — the user's explicit requested sequence for the "legacy surface" batches
 
 All of these are confirmed zero-`PeakV2*`-composition by the route matrix.
 Per the user's explicit instruction: **"legacy surface" is not permission to
 modernize product behavior** — preserve exactly what each does first, then
-improve how clearly/consistently it presents that, same as batches 1-3.
+improve how clearly/consistently it presents that, same as batches 1-4.
 Take an actual screenshot before assuming a gap's size in any of these —
 the ranked/daily-grid batch already proved the "0 imports" grep signal
 alone overstates severity (it can mean "sparse but fine" as easily as
 "actually broken").
 
-1. **`/history`, `/profile`, `/progress`**
-2. **`/players/[slug]` and related Index/player-detail surfaces**
-3. **H2H family** (`MatchScreen`, `ChallengeCreator`, `HeadToHeadHistory`,
+1. **`/players/[slug]` and related Index/player-detail surfaces**
+2. **H2H family** (`MatchScreen`, `ChallengeCreator`, `HeadToHeadHistory`,
    `InviteLanding`)
-4. **Old draft-game routes** (`/arena/daily/*`, `/arena/practice/*`,
+3. **Old draft-game routes** (`/arena/daily/*`, `/arena/practice/*`,
    `/arena/labs` — `DraftScreen`)
 
 The user said to adjust this ordering if the actual route matrix/dependency
