@@ -97,6 +97,19 @@ the test/QA gates in `VISUAL_RUBRIC.md`, and is committed independently
 before the next batch starts. Progress across sessions is tracked in
 `.claude-private/PROGRESS.md`.
 
+## Phase 3 — baseline test results (2026-08-29, on `4534534` before any UI change)
+
+| Suite | Command | Result |
+|---|---|---|
+| Model tests | `scripts/ci/model-tests.sh` | 1859 passed, 1 xfailed, 4 warnings (939.96s) |
+| API unit tests | `scripts/ci/api-unit-tests.sh` | 1804 passed, 2 skipped, 15 deselected (244.05s) |
+| Frontend verify | `scripts/ci/frontend-verify.sh` | typecheck clean; lint 0 warnings; 2240/2240 vitest (96 files); production build succeeded |
+| Playwright e2e + axe | `scripts/ci/e2e-tests.sh` | 448 passed, 1 skipped, 0 failed (27.8 min) |
+
+All four gates are green on the baseline. Any of these regressing during the
+polish program is a stop-the-line signal, not something to patch around by
+loosening the assertion.
+
 ## Companion documents
 
 - `docs/design/REFERENCE_BOARD.md` — external research synthesis
