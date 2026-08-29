@@ -34,22 +34,27 @@ export default function RoleSelector({
 
   return (
     <div
-      className="flex flex-col gap-4 rounded-xl p-4 border"
+      className="pk-depth pk-crown-accent flex flex-col gap-4 rounded-xl p-4 border"
       style={{
-        background: "var(--bg-elevated)",
-        borderColor: "var(--border-default)",
+        borderColor: "var(--peak-accent-edge)",
       }}
     >
       <div className="flex items-start justify-between">
         <div>
           <div
-            className="font-semibold"
-            style={{ color: "var(--text-primary)" }}
+            className="text-xs font-semibold uppercase tracking-wider"
+            style={{ color: "var(--text-secondary)" }}
           >
-            Assign role for {card.player_name}
+            Assign role
           </div>
           <div
-            className="text-xs mt-0.5"
+            className="font-semibold mt-0.5"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {card.player_name}
+          </div>
+          <div
+            className="score-number text-xs mt-0.5"
             style={{ color: "var(--text-secondary)" }}
           >
             PEAK {Math.round(card.individual_peak_score)} · {card.anchor_season}
@@ -57,8 +62,12 @@ export default function RoleSelector({
         </div>
         <button
           onClick={onCancel}
-          className="text-xs px-2 py-1 rounded"
-          style={{ color: "var(--text-muted)", background: "var(--bg-surface)" }}
+          className="pk-lift pk-press text-xs px-2 py-1 rounded-lg border"
+          style={{
+            color: "var(--text-secondary)",
+            background: "var(--bg-surface)",
+            borderColor: "var(--border-subtle)",
+          }}
         >
           ✕ Cancel
         </button>
@@ -81,6 +90,7 @@ export default function RoleSelector({
               className={[
                 "flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-[background-color,border-color,opacity]",
                 "border",
+                eligible ? "pk-lift pk-press" : "",
                 !isOpen
                   ? "opacity-25 cursor-not-allowed"
                   : !eligible
@@ -132,7 +142,7 @@ export default function RoleSelector({
         data-testid="lock-in"
         onClick={onConfirm}
         disabled={!selectedRole || submitting}
-        className="py-2 rounded-lg text-sm font-semibold transition-colors"
+        className="pk-lift pk-press py-2 rounded-lg text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
         style={{
           background: selectedRole && !submitting ? "var(--peak-accent)" : "var(--border-default)",
           color: selectedRole && !submitting ? "var(--text-inverse)" : "var(--text-muted)",

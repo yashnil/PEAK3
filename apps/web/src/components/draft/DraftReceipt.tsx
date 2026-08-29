@@ -2,6 +2,7 @@
 import { LineupEvaluation, ReceiptItem, SynergyItem } from "@/types/draft";
 // See its own docstring for why a result number is not `AnimatedNumber`.
 import { ResultNumber } from "@/components/game/result-number";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
 
 /** The receipt's own display format, kept in one place so the counting number
  *  and the value it lands on are formatted by the same function. One decimal
@@ -201,17 +202,9 @@ export default function DraftReceipt({ evaluation, onShare }: Props) {
 
       {/* Share */}
       {onShare && (
-        <button
-          type="button"
-          onClick={onShare}
-          className="pk-lift pk-press py-2.5 rounded-lg text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-          style={{
-            background: "var(--border-default)",
-            color: "var(--text-primary)",
-          }}
-        >
+        <PeakV2SecondaryAction type="button" onClick={onShare} className="w-full">
           Create Challenge Link
-        </button>
+        </PeakV2SecondaryAction>
       )}
     </div>
   );

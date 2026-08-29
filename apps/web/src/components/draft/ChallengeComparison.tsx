@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useRef, useCallback } from "react";
-import Link from "next/link";
 import {
   ChallengeComparisonResponse,
   ComparisonPlayer,
@@ -8,6 +7,8 @@ import {
   ROLE_LABELS,
 } from "@/types/draft";
 import DNABar from "./DNABar";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
 
 interface Props {
   comparison: ChallengeComparisonResponse;
@@ -324,43 +325,20 @@ export default function ChallengeComparison({
 
       {/* ── Actions ── */}
       <div className="flex flex-col gap-2">
-        <Link
-          href="/arena/daily"
-          className="block w-full text-center py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
-          style={{
-            background: "var(--peak-accent)",
-            color: "var(--text-inverse)",
-          }}
-        >
+        <PeakV2PrimaryAction href="/arena/daily" className="w-full">
           Play Today&apos;s Daily
-        </Link>
+        </PeakV2PrimaryAction>
 
         {onPlayAgain && (
-          <button
-            onClick={onPlayAgain}
-            className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
-            style={{
-              background: "var(--bg-elevated)",
-              border: "1px solid var(--border-default)",
-              color: "var(--text-primary)",
-            }}
-          >
+          <PeakV2SecondaryAction type="button" onClick={onPlayAgain} className="w-full">
             Play Again
-          </button>
+          </PeakV2SecondaryAction>
         )}
 
         {challengeUrl && (
-          <button
-            onClick={handleShareResult}
-            className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
-            style={{
-              background: "var(--bg-elevated)",
-              border: "1px solid var(--border-default)",
-              color: "var(--text-secondary)",
-            }}
-          >
+          <PeakV2SecondaryAction type="button" onClick={handleShareResult} className="w-full">
             Share Result
-          </button>
+          </PeakV2SecondaryAction>
         )}
       </div>
     </div>

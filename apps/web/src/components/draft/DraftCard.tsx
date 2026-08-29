@@ -39,6 +39,8 @@ interface Props {
   showRole?: DraftRole | null;
   compact?: boolean;
   eligible?: boolean;
+  /** Stagger index for the shared `.pk-reveal` entrance (offers arriving). */
+  revealIndex?: number;
 }
 
 export default function DraftCard({
@@ -49,6 +51,7 @@ export default function DraftCard({
   showRole,
   compact = false,
   eligible,
+  revealIndex,
 }: Props) {
   const primaryRole = showRole ?? card.primary_role;
   const roleColor = primaryRole ? ROLE_COLORS[primaryRole] : "var(--text-secondary)";
@@ -77,11 +80,15 @@ export default function DraftCard({
         // `color-mix`, not a hex-alpha suffix -- `roleColor` is now a
         // `var(--accent-*)` reference (P3-G2), and appending a hex pair to
         // a var() reference is invalid CSS.
-        boxShadow: selected ? `0 0 0 2px color-mix(in srgb, ${roleColor} 40%, transparent)` : undefined,
+        boxShadow: selected
+          ? `0 0 0 2px color-mix(in srgb, ${roleColor} 40%, transparent), var(--pk-rim), var(--pk-elev-3)`
+          : undefined,
+        ...(revealIndex !== undefined ? ({ "--pk-reveal-index": revealIndex } as React.CSSProperties) : null),
       }}
       className={[
-        "relative flex flex-col text-left w-full rounded-xl border transition-[background-color,border-color,box-shadow,opacity] duration-150",
-        "bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)]",
+        "pk-depth pk-lift pk-press relative flex flex-col text-left w-full rounded-xl border transition-[background-color,border-color,box-shadow,opacity] duration-150",
+        "hover:bg-[var(--bg-surface-hover)]",
+        revealIndex !== undefined ? "pk-reveal" : "",
         compact ? "p-3 gap-1" : "p-4 gap-2",
         onClick ? "cursor-pointer" : "cursor-default",
         selected ? "ring-2" : "",
@@ -90,7 +97,7 @@ export default function DraftCard({
       {/* Score badge */}
       <div className="flex items-start justify-between gap-2">
         <div
-          className="text-2xl font-bold tabular-nums leading-none"
+          className="score-number text-2xl font-bold leading-none"
           style={{ color: "var(--text-primary)" }}
         >
           {scoreDisplay}

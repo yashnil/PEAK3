@@ -15,6 +15,10 @@ import { boardIdDate, draftProgress } from "@/lib/draft-progress";
 import { type DailyWindowPayload, extractDailyWindow } from "@/lib/daily-time";
 import { useDailyReset } from "@/lib/use-daily-reset";
 import { analytics } from "@/lib/analytics";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
+import { StatusChip } from "@/components/ui/StatusChip";
 
 const VALID_MODES: DraftMode[] = ["apex_1y", "prime_3y", "foundation_5y"];
 
@@ -164,50 +168,47 @@ export default function DailyDraftPage({ params }: Props) {
   // ── Loading ────────────────────────────────────────────────────────────────
   if (pageState.status === "loading") {
     return (
-      <div className="flex items-center justify-center min-h-[50vh]">
-        <div
-          role="status"
-          aria-label="Loading today's board…"
-          className="text-center"
-        >
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-[var(--border-default)] border-t-[var(--peak-accent)] mx-auto mb-3" />
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            Loading today&apos;s board…
-          </p>
+      <PeakV2Shell width="live">
+        <div className="flex items-center justify-center min-h-[50vh]">
+          <div
+            role="status"
+            aria-label="Loading today's board…"
+            className="text-center"
+          >
+            <div className="animate-spin rounded-full h-8 w-8 border-2 border-[var(--border-default)] border-t-[var(--peak-accent)] mx-auto mb-3" />
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+              Loading today&apos;s board…
+            </p>
+          </div>
         </div>
-      </div>
+      </PeakV2Shell>
     );
   }
 
   // ── Error ──────────────────────────────────────────────────────────────────
   if (pageState.status === "error") {
     return (
-      <div className="mx-auto max-w-md px-4 py-16 text-center">
-        <div className="card-elevated p-6 rounded-xl space-y-4">
-          <p className="text-sm" style={{ color: "var(--incorrect)" }}>
-            {pageState.message}
-          </p>
-          <button
-            onClick={loadGame}
-            className="px-4 py-2 rounded-lg text-sm font-semibold"
-            style={{
-              background: "var(--peak-accent)",
-              color: "var(--text-inverse)",
-            }}
-          >
-            Try Again
-          </button>
-          <div>
-            <Link
-              href="/arena"
-              className="text-sm underline"
-              style={{ color: "var(--text-muted)" }}
-            >
-              Back to Arena
-            </Link>
+      <PeakV2Shell width="live">
+        <div className="mx-auto max-w-md px-4 py-16 text-center">
+          <div className="pk-depth pk-crown p-6 rounded-xl space-y-4" role="alert">
+            <p className="text-sm" style={{ color: "var(--incorrect)" }}>
+              {pageState.message}
+            </p>
+            <PeakV2PrimaryAction onClick={loadGame} className="w-full">
+              Try Again
+            </PeakV2PrimaryAction>
+            <div>
+              <Link
+                href="/arena"
+                className="text-sm underline"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Back to Arena
+              </Link>
+            </div>
           </div>
         </div>
-      </div>
+      </PeakV2Shell>
     );
   }
 
@@ -215,70 +216,71 @@ export default function DailyDraftPage({ params }: Props) {
   if (pageState.status === "already_completed") {
     const { summary, date } = pageState;
     return (
-      <div className="mx-auto max-w-md px-4 py-16 text-center">
-        <div className="card-elevated p-6 rounded-xl space-y-4">
-          <h1
-            className="text-xl font-bold"
-            style={{ color: "var(--text-primary)" }}
-          >
-            ✓ Today&apos;s {modeLabel} Complete
-          </h1>
+      <PeakV2Shell width="live">
+        <div className="mx-auto max-w-md px-4 py-16 text-center">
+          <div className="pk-depth pk-crown-accent p-6 rounded-xl space-y-4">
+            <StatusChip tone="positive" size="sm">
+              ✓ Complete
+            </StatusChip>
+            <h1
+              className="text-xl font-bold"
+              style={{ color: "var(--text-primary)" }}
+            >
+              Today&apos;s {modeLabel} Complete
+            </h1>
 
-          <div className="space-y-1">
-            <span
-              className="text-3xl font-bold score-number"
+            <div className="space-y-1">
+              <span
+                className="text-3xl font-bold score-number"
+                style={{ color: "var(--peak-accent-text)" }}
+              >
+                {summary.lineup_peak_rating.toFixed(1)}
+              </span>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                Lineup Peak Rating
+              </p>
+              {summary.draft_efficiency !== null && (
+                <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                  Efficiency:{" "}
+                  {(summary.draft_efficiency * 100).toFixed(0)}%
+                </p>
+              )}
+              {summary.board_percentile !== null && (
+                <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                  Top {(100 - summary.board_percentile * 100).toFixed(0)}%
+                </p>
+              )}
+            </div>
+
+            <PeakV2SecondaryAction
+              onClick={() => handleViewResult(summary, date)}
+              className="w-full"
+            >
+              View Result
+            </PeakV2SecondaryAction>
+
+            <div
+              className="text-xs px-3 py-2 rounded-lg border"
+              style={{
+                background: "var(--warning-bg)",
+                borderColor: "color-mix(in srgb, var(--warning) 40%, transparent)",
+                color: "var(--warning)",
+              }}
+            >
+              Replaying this board is for practice only and won&apos;t update
+              your result.
+            </div>
+
+            <Link
+              href="/arena/daily"
+              className="block text-sm"
               style={{ color: "var(--peak-accent-text)" }}
             >
-              {summary.lineup_peak_rating.toFixed(1)}
-            </span>
-            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Lineup Peak Rating
-            </p>
-            {summary.draft_efficiency !== null && (
-              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                Efficiency:{" "}
-                {(summary.draft_efficiency * 100).toFixed(0)}%
-              </p>
-            )}
-            {summary.board_percentile !== null && (
-              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                Top {(100 - summary.board_percentile * 100).toFixed(0)}%
-              </p>
-            )}
+              Play Other Modes
+            </Link>
           </div>
-
-          <button
-            onClick={() => handleViewResult(summary, date)}
-            className="w-full py-2 rounded-lg text-sm font-medium border transition-colors hover:bg-[var(--bg-surface)]"
-            style={{
-              borderColor: "var(--border-default)",
-              color: "var(--text-primary)",
-            }}
-          >
-            View Result
-          </button>
-
-          <div
-            className="text-xs px-3 py-2 rounded-lg border"
-            style={{
-              background: "var(--warning-bg)",
-              borderColor: "color-mix(in srgb, var(--warning) 40%, transparent)",
-              color: "var(--warning)",
-            }}
-          >
-            Replaying this board is for practice only and won&apos;t update
-            your result.
-          </div>
-
-          <Link
-            href="/arena/daily"
-            className="block text-sm"
-            style={{ color: "var(--peak-accent-text)" }}
-          >
-            Play Other Modes
-          </Link>
         </div>
-      </div>
+      </PeakV2Shell>
     );
   }
 
