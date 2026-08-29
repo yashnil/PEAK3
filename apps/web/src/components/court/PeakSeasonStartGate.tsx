@@ -160,41 +160,47 @@ export default function PeakSeasonStartGate({
           </p>
 
           {/* The four things a first-time player needs to know before
-              committing to a run -- ported from the pre-V2 gate's own
-              numbered steps (the V2-only rewrite condensed this to just the
-              lede above and dropped it entirely, not a deliberate product
-              simplification: nothing documents removing it, and it's the
-              same real detail the lede's own sentence already promises). */}
-          <ol className="flex flex-col gap-2" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}>
-            <li className="flex gap-2.5">
-              <StepMarker n={1} />
-              <span>
-                The wheel rolls a <strong>real NBA team and an exact season</strong> — eight times, once per
-                roster spot.
+              committing to a run, in the same node-grid grammar as Run the
+              Table's start gate (shared "roster-deal" grammar rather than a
+              numbered rules list — see docs/design/VISUAL_RUBRIC.md). */}
+          <div className="v2-rtt-gate-nodes">
+            <div className="v2-rtt-gate-node" style={{ borderTopColor: "var(--v2-color-accent)" }}>
+              <span className="v2-rtt-gate-node-label" style={{ color: "var(--v2-color-accent)" }}>
+                Spin
               </span>
-            </li>
-            <li className="flex gap-2.5">
-              <StepMarker n={2} />
-              <span>
-                Pick one player from that exact team-season and <strong>place them on the court</strong> — five
+              <span className="v2-rtt-gate-node-purpose">
+                The wheel rolls a real NBA team and an exact season — eight times, once per roster
+                spot.
+              </span>
+            </div>
+            <div className="v2-rtt-gate-node" style={{ borderTopColor: "var(--v2-color-accent)" }}>
+              <span className="v2-rtt-gate-node-label" style={{ color: "var(--v2-color-accent)" }}>
+                Draft
+              </span>
+              <span className="v2-rtt-gate-node-purpose">
+                Pick one player from that exact team-season and place them on the court — five
                 starters by position, three on the bench.
               </span>
-            </li>
-            <li className="flex gap-2.5">
-              <StepMarker n={3} />
-              <span>
-                Ratings stay hidden until the end. Then PEAK3 simulates your lineup and you{" "}
-                <strong>chase 82-0</strong>.
+            </div>
+            <div className="v2-rtt-gate-node" style={{ borderTopColor: "var(--v2-color-accent)" }}>
+              <span className="v2-rtt-gate-node-label" style={{ color: "var(--v2-color-accent)" }}>
+                Simulate
               </span>
-            </li>
-            <li className="flex gap-2.5">
-              <StepMarker n={4} />
-              <span>
-                Get a full receipt — including what PEAK3 itself would have picked — then{" "}
-                <strong>save, share, or beat your personal best</strong>.
+              <span className="v2-rtt-gate-node-purpose">
+                Ratings stay hidden until the end. Then PEAK3 simulates your lineup and you chase
+                82-0.
               </span>
-            </li>
-          </ol>
+            </div>
+            <div className="v2-rtt-gate-node" style={{ borderTopColor: "var(--v2-color-accent)" }}>
+              <span className="v2-rtt-gate-node-label" style={{ color: "var(--v2-color-accent)" }}>
+                Receipt
+              </span>
+              <span className="v2-rtt-gate-node-purpose">
+                Get a full receipt — including what PEAK3 itself would have picked — then save,
+                share, or beat your personal best.
+              </span>
+            </div>
+          </div>
 
           {isDaily && (
             <p className="v2-rtt-gate-notice" data-testid="start-gate-daily-note">
@@ -267,26 +273,5 @@ export default function PeakSeasonStartGate({
           </p>
         </div>
       </PeakV2Shell>
-  );
-}
-
-function StepMarker({ n }: { n: number }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="shrink-0 flex items-center justify-center mt-0.5"
-      style={{
-        width: 20,
-        height: 20,
-        borderRadius: "50%",
-        fontFamily: "var(--v2-font-mono)",
-        fontSize: "0.625rem",
-        fontWeight: 700,
-        background: "var(--v2-bg-plane)",
-        color: "var(--v2-color-accent)",
-      }}
-    >
-      {n}
-    </span>
   );
 }
