@@ -26,6 +26,7 @@ verified; do not treat "the program" as done until
 | `4777a9f` | Phase 4 — `DESIGN_SYSTEM.md` + `VISUAL_RUBRIC.md` |
 | `5bb5bf8` | Phase 5 — dependency audit (conclusion: no new deps needed) |
 | `2bf9409` | **Batch 1**: RTT + 82-0 start-gate redesign (see below) |
+| `bb936c6` | **Batch 2**: Ranked-mode + Daily Grid 1440px density (see below) |
 
 ## Baseline (Phase 3, all green before any UI edit — see VISUAL_POLISH_PLAN.md for full detail)
 
@@ -65,28 +66,91 @@ files) both before and after the CSS follow-up fix, production build
 at 390/1440 reviewed directly (not just "tests passed") before and after
 the mobile-divider fix.
 
-## What's next (not started — ranked by the Phase-3 findings' own priority signal)
+## Batch 2 — Ranked-mode + Daily Grid 1440px density (DONE, verified, committed as `bb936c6`)
 
-1. **Ranked-mode (`/arena/ranked/[mode]`) and Daily Grid (`/daily/grid`)
-   desktop composition.** Phase-3 finding: both already inherit the V2
-   token system cleanly (no legacy chrome), but are sparse/near-empty at
-   1440px — a composition/density gap, not a legacy-vs-V2 problem. Correct
-   the record here: do NOT treat these as "0% V2" rebuilds (an earlier
-   private planning doc's stale framing) — treat them as density/layout
-   work on an already-correct foundation.
-2. **`RankedScreen.tsx`, `/history`, `/profile`, `/progress`,
-   `/players/[slug]`, the h2h family (`MatchScreen`), and the legacy
-   draft-game family (`/arena/daily/*`, `/arena/practice/*`, `/arena/labs`)**
-   — confirmed zero `PeakV2*` composition by the route matrix. Take an
-   actual screenshot before assuming the gap size — the ranked/daily-grid
-   finding above already proved the "0 imports" grep signal alone
-   overstates severity.
-3. Everything else in `ROUTE_BEHAVIOR_MATRIX.md`'s "already strong /
-   refinement only" category (Home, Peak Duel result, Rankings) — light
-   touch only, per that doc.
-4. Full Phase 12/13 accessibility + performance passes (axe scan beyond
-   what e2e already covers, Lighthouse) once route coverage is further
-   along — not meaningfully startable until more routes are touched.
+**Why this was second:** the user explicitly scoped this batch (preserve
+gameplay/API behavior; improve 1440px density/hierarchy without decorative
+filler; keep mobile at least as good; reuse existing components/tokens;
+don't read as a generic esports dashboard or make Daily Grid busier than
+warranted) and asked for before/after screenshots plus an independent
+evaluator pass before committing.
+
+**Process note worth remembering:** the investigation fork launched for
+this batch (asked to do read-only investigation + screenshot capture only)
+went out of scope on its own and actually implemented the change — because
+forks inherit the full conversation, and the user's message in this
+conversation already contained the full batch spec, so it "helpfully" ran
+ahead instead of just investigating. Caught by checking `git status`/`git
+diff` immediately after its notification instead of trusting the summary.
+The draft turned out to be good (grounded in real reused components, not
+invented), so it was kept and put through the full verification pipeline
+from scratch rather than discarded — but this is exactly the failure mode
+future batches should watch for: **give fork prompts for read-only/
+investigation steps a narrower scope than "whatever's in the conversation,"
+and verify with `git status` after any fork returns, before trusting its
+self-report.**
+
+**What changed:** Ranked mode's header now uses the shared kicker+serif
+pattern; a `RankedStandingRail` (xl+ only) shows real rating/division/
+placement data from the same `rankedApi.getRating` the ranked hub already
+calls. Daily Grid gets a `RecentResults` rail (xl+ only, reusing the
+existing component from the completion panel/history page) gated on
+`!complete && archive.entries.length > 0`. Mobile markup untouched in both
+(`hidden xl:flex`).
+
+**Regression the independent evaluator caught before commit:** the
+refactor had moved the always-visible "{mode} · Ranked" in-game label into
+the xl-only rail, silently dropping it below 1280px during actual
+gameplay — a real regression with zero existing test coverage (no test
+rendered the mid-game phase at all). Fixed by restoring it inline in the
+always-visible round header, and added a new regression test
+(`ranked-components.test.tsx`) that specifically renders the mid-game
+phase and asserts the label is inside `ranked-main-content`, not only the
+desktop rail. This is the second time in two batches that a mobile/narrow-
+viewport defect only surfaced via direct visual/diff review, not the test
+suite — the discipline of not treating "tests pass" as sufficient is
+earning its keep.
+
+**Verification:** typecheck clean, lint 0 warnings, 2241/2241 vitest (96
+files, +1 regression test), production build (bundle deltas negligible:
+`/arena/ranked/[mode]` +1kB, `/daily/grid` unchanged), `ranked.spec.ts` +
+`daily-grid.spec.ts` + `accessibility.spec.ts` + `play-routing.spec.ts`
+118/118 passed — run twice (before and after the mode-label fix), both
+green. Before/after screenshots at 390px/1440px reviewed by a genuinely
+independent fresh-context evaluator agent (not a fork of the builder).
+
+## What's next — the user's explicit requested sequence for the "legacy surface" batches
+
+All of these are confirmed zero-`PeakV2*`-composition by the route matrix.
+Per the user's explicit instruction: **"legacy surface" is not permission to
+modernize product behavior** — preserve exactly what each does first, then
+improve how clearly/consistently it presents that, same as batches 1-2.
+Take an actual screenshot before assuming a gap's size in any of these —
+the ranked/daily-grid batch already proved the "0 imports" grep signal
+alone overstates severity (it can mean "sparse but fine" as easily as
+"actually broken").
+
+1. **`RankedScreen` + closely related ranked surfaces** (leaderboard page,
+   any other ranked sub-route) — group with the just-finished Batch 2 since
+   they share the ranked data model and this session already has full
+   context on `RankedScreen.tsx`.
+2. **`/history`, `/profile`, `/progress`**
+3. **`/players/[slug]` and related Index/player-detail surfaces**
+4. **H2H family** (`MatchScreen`, `ChallengeCreator`, `HeadToHeadHistory`,
+   `InviteLanding`)
+5. **Old draft-game routes** (`/arena/daily/*`, `/arena/practice/*`,
+   `/arena/labs` — `DraftScreen`)
+
+The user said to adjust this ordering if the actual route matrix/dependency
+graph makes another grouping safer — re-check `ROUTE_BEHAVIOR_MATRIX.md`'s
+shared-component notes before starting each group in case something makes
+a different order lower-risk.
+
+After these: everything in `ROUTE_BEHAVIOR_MATRIX.md`'s "already strong /
+refinement only" category (Home, Peak Duel result, Rankings) — light touch
+only. Then full Phase 12/13 accessibility + performance passes (axe scan
+beyond what e2e already covers, Lighthouse) once route coverage is further
+along.
 
 ## Process notes for whoever continues this (same session or a future one)
 
