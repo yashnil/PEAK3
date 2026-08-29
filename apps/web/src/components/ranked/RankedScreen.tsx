@@ -13,6 +13,9 @@ import { analytics } from "@/lib/analytics";
 
 import DraftCard from "@/components/draft/DraftCard";
 import RoleSelector from "@/components/draft/RoleSelector";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
+import PeakV2ResultHeadline from "@/components/v2/PeakV2ResultHeadline";
 
 interface Props {
   mode: RankedMode;
@@ -240,29 +243,21 @@ export default function RankedScreen({ mode }: Props) {
           Ranked pairs you with another PEAK3 player on the exact same hidden board. Neither
           side sees the other&apos;s picks until both are done.
         </p>
-        <button
-          onClick={joinQueue}
-          className="px-6 py-3 rounded-lg font-semibold"
-          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
-        >
+        <PeakV2PrimaryAction onClick={joinQueue}>
           Join {RANKED_MODE_LABELS[mode]} queue
-        </button>
+        </PeakV2PrimaryAction>
       </div>
     );
   } else if (state.phase === "queue_waiting") {
     mainContent = (
       <div className="flex flex-col items-center gap-4 py-12 text-center" aria-live="polite">
         <p style={{ color: "var(--text-primary)" }}>Waiting for an opponent…</p>
-        <p className="text-sm tabular-nums" style={{ color: "var(--text-muted)" }}>
-          {Math.floor(state.waitedSeconds)}s elapsed
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          <span className="score-number">{Math.floor(state.waitedSeconds)}</span>s elapsed
         </p>
-        <button
-          onClick={cancelQueue}
-          className="text-sm px-4 py-2 rounded-lg"
-          style={{ color: "var(--text-secondary)", background: "var(--bg-elevated)" }}
-        >
+        <PeakV2SecondaryAction onClick={cancelQueue} size="sm">
           Cancel
-        </button>
+        </PeakV2SecondaryAction>
       </div>
     );
   } else if (state.phase === "matched" || (state.phase === "playing" && !gs)) {
@@ -288,13 +283,9 @@ export default function RankedScreen({ mode }: Props) {
     mainContent = (
       <div className="flex flex-col items-center gap-3 py-12 text-center">
         <p style={{ color: "var(--text-primary)" }}>{state.errorMessage}</p>
-        <button
-          onClick={() => dispatch({ type: "RESET" })}
-          className="text-sm px-4 py-2 rounded-lg"
-          style={{ color: "var(--text-secondary)", background: "var(--bg-elevated)" }}
-        >
+        <PeakV2SecondaryAction onClick={() => dispatch({ type: "RESET" })} size="sm">
           Back to queue
-        </button>
+        </PeakV2SecondaryAction>
       </div>
     );
   } else if (gs) {
@@ -424,17 +415,18 @@ function RankedResultView({
     : `${delta >= 0 ? "+" : ""}${delta.toFixed(0)}`;
 
   return (
-    <div className="flex flex-col gap-6 py-6">
+    <div className="mx-auto flex w-full max-w-md flex-col gap-6 py-6">
       {/* Tier 1: outcome + scores — always visible first */}
       <div className="text-center">
         <div className="text-xs uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
           {RANKED_MODE_LABELS[mode]} · Ranked
         </div>
-        <div className="text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
+        <PeakV2ResultHeadline scale="moment" as="p" style={{ marginTop: "0.25rem" }}>
           {outcomeLabel}
-        </div>
+        </PeakV2ResultHeadline>
         <div className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
-          You {settlement.your_score.toFixed(2)} · Opponent {settlement.opponent_score.toFixed(2)}
+          You <span className="score-number">{settlement.your_score.toFixed(2)}</span> · Opponent{" "}
+          <span className="score-number">{settlement.opponent_score.toFixed(2)}</span>
           {settlement.tie_break_used && settlement.tie_break_used !== "none" && (
             <span> · decided by {settlement.tie_break_used.replace("_", " ")}</span>
           )}
@@ -447,8 +439,11 @@ function RankedResultView({
           <div style={{ color: "var(--text-primary)" }}>{settlement.placement_progress}</div>
         ) : (
           <div style={{ color: "var(--text-primary)" }}>
-            Rating: {settlement.rating_change.prior_rating.toFixed(0)} → {settlement.rating_change.new_rating.toFixed(0)}{" "}
-            <span style={{ color: delta >= 0 ? "var(--correct)" : "var(--incorrect)" }}>({deltaLabel})</span>
+            Rating: <span className="score-number">{settlement.rating_change.prior_rating.toFixed(0)}</span> →{" "}
+            <span className="score-number">{settlement.rating_change.new_rating.toFixed(0)}</span>{" "}
+            <span className="score-number" style={{ color: delta >= 0 ? "var(--correct)" : "var(--incorrect)" }}>
+              ({deltaLabel})
+            </span>
           </div>
         )}
         {settlement.division_change && (
@@ -457,13 +452,7 @@ function RankedResultView({
       </div>
 
       <div className="flex justify-center gap-3">
-        <button
-          onClick={onDone}
-          className="px-5 py-2.5 rounded-lg font-semibold"
-          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
-        >
-          Queue again
-        </button>
+        <PeakV2PrimaryAction onClick={onDone}>Queue again</PeakV2PrimaryAction>
       </div>
     </div>
   );

@@ -39,11 +39,11 @@ async function parseErrorDetail(res: Response): Promise<{ message: string; code?
     const detail = body?.detail;
     if (typeof detail === "string") return { message: detail };
     if (detail && typeof detail === "object") {
-      return { message: detail.message ?? "Request failed", code: detail.error_code };
+      return { message: detail.message ?? "Something went wrong. Try again.", code: detail.error_code };
     }
-    return { message: "Request failed" };
+    return { message: "Something went wrong. Try again." };
   } catch {
-    return { message: "Unknown error" };
+    return { message: "Something went wrong. Try again." };
   }
 }
 
