@@ -6,6 +6,11 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { getAccessToken } from "@/lib/auth";
 import { signInHref } from "@/lib/supabase/safe-next";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
+import { PersonalPageLoading } from "@/components/ui/PersonalPageLoading";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -85,46 +90,35 @@ export default function HistoryPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-[var(--border-default)] border-t-[var(--peak-accent)]" />
-      </div>
-    );
+    return <PersonalPageLoading />;
   }
 
   if (!user) return null;
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-          Match History
-        </h1>
-        <Link
-          href="/profile"
-          className="text-sm"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          ← Profile
-        </Link>
-      </div>
+    <PeakV2Shell width="live">
+      <header className="v2-page-header">
+        <p className="v2-page-kicker">Record</p>
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h1 className="v2-page-title">Match History</h1>
+          <PeakV2SecondaryAction href="/profile" size="sm">
+            ← Profile
+          </PeakV2SecondaryAction>
+        </div>
+      </header>
 
-      {error && (
-        <p role="alert" className="text-sm rounded-lg px-3 py-2" style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}>
-          {error}
-        </p>
-      )}
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 py-2">
+      {error && <ErrorState message={error} />}
 
       {!fetching && history.length === 0 && (
-        <div
-          className="text-center py-16 text-sm"
-          style={{ color: "var(--text-muted)" }}
-        >
-          No completed games yet.{" "}
-          <Link href="/arena/daily" className="underline" style={{ color: "var(--peak-accent-text)" }}>
-            Play today&apos;s Daily
-          </Link>
-        </div>
+        <EmptyState
+          title="No completed games yet"
+          action={
+            <Link href="/arena/daily" className="text-sm underline" style={{ color: "var(--peak-accent-text)" }}>
+              Play today&apos;s Daily
+            </Link>
+          }
+        />
       )}
 
       <div className="flex flex-col gap-3">
@@ -163,7 +157,7 @@ export default function HistoryPage() {
                   Lineup Peak Rating
                 </div>
                 <div
-                  className="text-2xl font-bold tabular-nums"
+                  className="score-number text-2xl font-bold"
                   style={{ color: "var(--peak-accent-text)" }}
                 >
                   {(Math.round(item.lineup_peak_rating * 10) / 10).toFixed(1)}
@@ -226,6 +220,7 @@ export default function HistoryPage() {
           {fetching ? "Loading…" : "Load more"}
         </button>
       )}
-    </div>
+      </div>
+    </PeakV2Shell>
   );
 }

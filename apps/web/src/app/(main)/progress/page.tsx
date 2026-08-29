@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { getAccessToken } from "@/lib/auth";
 import {
@@ -16,6 +15,10 @@ import { XpProgress } from "@/components/progression/XpProgress";
 import { StreakCard } from "@/components/progression/StreakCard";
 import { AchievementCard } from "@/components/progression/AchievementCard";
 import { PersonalRecords } from "@/components/progression/PersonalRecords";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
+import { PersonalPageLoading } from "@/components/ui/PersonalPageLoading";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 type Tab = "overview" | "achievements" | "records";
 
@@ -65,11 +68,7 @@ export default function ProgressPage() {
   }
 
   if (loading || fetching) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-[var(--border-default)] border-t-[var(--peak-accent)]" />
-      </div>
-    );
+    return <PersonalPageLoading />;
   }
 
   if (!user) return null;
@@ -78,22 +77,19 @@ export default function ProgressPage() {
   const unearnedAchievements = achievements.filter((a) => !a.earned);
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8 space-y-6" data-testid="progress-page">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-          My Progress
-        </h1>
-        <Link href="/profile" className="text-sm" style={{ color: "var(--text-secondary)" }}>
-          ← Profile
-        </Link>
-      </div>
+    <PeakV2Shell width="live">
+      <header className="v2-page-header">
+        <p className="v2-page-kicker">Progression</p>
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h1 className="v2-page-title">My Progress</h1>
+          <PeakV2SecondaryAction href="/profile" size="sm">
+            ← Profile
+          </PeakV2SecondaryAction>
+        </div>
+      </header>
 
-      {error && (
-        <p role="alert" className="text-sm rounded-lg px-3 py-2" style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}>
-          {error}
-        </p>
-      )}
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 py-2" data-testid="progress-page">
+      {error && <ErrorState message={error} />}
 
       {/* Level + XP */}
       {summary && (
@@ -203,7 +199,8 @@ export default function ProgressPage() {
           </p>
         </div>
       )}
-    </div>
+      </div>
+    </PeakV2Shell>
   );
 }
 
@@ -213,7 +210,7 @@ function StatCard({ label, value }: { label: string; value: number }) {
       className="rounded-lg border p-3 text-center"
       style={{ background: "var(--bg-surface)", borderColor: "var(--border-subtle)" }}
     >
-      <div className="text-xl font-bold tabular-nums" style={{ color: "var(--peak-accent-text)" }}>
+      <div className="score-number text-xl font-bold" style={{ color: "var(--peak-accent-text)" }}>
         {value}
       </div>
       <div className="text-xs" style={{ color: "var(--text-muted)" }}>

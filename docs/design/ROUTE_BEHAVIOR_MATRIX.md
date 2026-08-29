@@ -115,11 +115,39 @@ loaded). **What "polish this route" means varies a lot by route**:
 - **Renders:** static content pages; `styles/v2/info-pages.css` loaded globally suggests these already have *some* v2 treatment.
 - **Polish category:** low-risk, likely typography/spacing-only — verify against `info-pages.css` before assuming a gap exists.
 
-### `/history`, `/profile`, `/progress`, `/u/[handle]`
-- **Renders:** all bespoke, **no `PeakV2Shell`/`PeakV2*` imports found**. `/profile` uses `RankedRatingCards`; `/progress` uses `XpProgress`, `StreakCard`, `AchievementCard`, `PersonalRecords`.
-- **Must not change:** auth-gated data fetching (`useAuth`/`getAccessToken`), `signInHref` redirect-with-`returnTo` pattern, XP/streak/achievement data contracts.
-- **Tests:** `progression-components.test.tsx`, `progress.test.ts`, `profile-api.test.ts`, `perfect-season-auth.test.ts`.
-- **Polish category:** genuine route-family polish target — these are exactly the "profile/progression" surfaces CLAUDE.md's product brief calls out for milestone-grouped, uncluttered treatment, and they currently have no V2 composition at all.
+### `/profile`, `/progress`, `/history` — Batch 4 semantic inventory (2026-08-29, pre-implementation)
+
+All three: **no `PeakV2Shell`/`PeakV2*` imports**, plain `max-w-{lg,2xl} mx-auto px-4 py-8` + `<h1 className="text-xl font-bold">`. All three share a byte-identical ad hoc loading spinner (`animate-spin` div) — also used by 3 unrelated pages outside this batch's scope (`auth/complete`, `arena/daily/[mode]`, `c/[token]`; left untouched, noted for a future pass). All three have an ad hoc `role="alert"` error box that duplicates what `ErrorState` (introduced batch 3) already does.
+
+**`/profile`** — auth-gated (`signInHref("/profile")` redirect if `!user`; separate `!supabaseEnabled` state renders "Authentication is not configured" + a link home, distinct from the auth-gate redirect).
+- Identity: `InitialsAvatar`, "Signed in as {email}", "· Joined {date}" if `profile.joined_at` present
+- Competitive status: `RankedRatingCards` — one card per queue (1Y/3Y/5Y), each showing established rating+division+uncertainty label, or "Placement N of 7", or omitted entirely if that queue has no data yet; a footnote once fewer than 2 queues are established
+- Account settings form: Handle (text, 3–20 chars, helper copy on public visibility), Display Name, Bio (textarea), "Make profile public" checkbox, Save button, `role="alert"` error / `role="status"` "Profile saved."
+- Navigation: links to `/progress`, `/history`, "Sign Out" button (`data-testid="profile-signout"`)
+- **Does NOT currently show:** achievements/trophies (that data lives only on `/progress`) — Batch 4 will not invent an achievements fetch here; the existing `/progress` link is the "obvious navigation into deeper progression" the product brief asks for, restyled but not duplicated.
+- **Tests:** `profile-api.test.ts`. **No component test file for the page itself found** — a gap.
+
+**`/progress`** — auth-gated (`/signin?returnTo=/progress` redirect if `!user`). `data-testid="progress-page"`.
+- Header: "My Progress" + "← Profile" link
+- Level/XP (`data-testid="level-summary"`): current level, total XP, `XpProgress` bar (`role="progressbar"`, `aria-valuenow`), explicit copy **"XP measures your exploration, not your skill. Level is a participation indicator."** — this sentence is the existing product-principle statement the batch must preserve verbatim in spirit (skill vs. participation are visually and textually distinct)
+- `StreakCard`: current streak, longest streak, reserve-day badge if available, contextual copy per state (0 streak / building toward reserve / has reserve)
+- Tabs (`role="tablist"`/`role="tab"`/`aria-selected`): Overview (3 `StatCard`s — Achievements/Records/Best Streak counts, plus a "Recent achievements" list), Achievements (Earned (N) / Not yet earned (N), `AchievementCard` per entry — icon, title, category badge, description/requirement copy, earned date), Records (`PersonalRecords` — grouped by record type, one card per mode with formatted value + achieved date, or an empty-state sentence)
+- **Tests:** `progression-components.test.tsx`, `progress.test.ts`.
+
+**`/history`** — auth-gated (`signInHref("/history")` redirect if `!user`).
+- Header: "Match History" + "← Profile" link
+- Empty state: "No completed games yet." + "Play today's Daily" link (`/arena/daily`)
+- Per-item card: board-type badge (Daily/Practice/Challenge), mode label (1Y Apex/3Y Prime/5Y Foundation), completed date, Lineup Peak Rating (large number, `tabular-nums` but not yet `.score-number` mono), optional draft-efficiency %, optional board-percentile, optional Hold/Reframe badges
+- **Items are NOT currently clickable/linked anywhere** — no detail-page click-through exists today. Batch 4 must not invent one; "easy re-entry into a result/detail page where supported" does not apply here since none is supported.
+- Cursor-based "Load more" pagination (disabled while fetching)
+- **Tests:** none found specifically for this page — a gap, same as `/profile`.
+
+**Must not change (all three):** `useAuth`/`getAccessToken` gating, `signInHref`/`returnTo` redirect pattern, XP/streak/achievement/rating/history data contracts and API calls, tab state machine, pagination cursor logic, achievement earned/not-earned partitioning, `RankedRatingCards`'s "no composite rank until 2+ queues established" rule.
+
+**Polish category:** genuine route-family polish target — these are exactly the "profile/progression" surfaces CLAUDE.md's product brief calls out for milestone-grouped, uncluttered treatment. Product intent per the user's Batch 4 brief: `/profile` = "who am I," `/progress` = "how am I developing" (participation, not skill), `/history` = "what have I done" (chronological record) — hierarchy should reflect that distinction, not force all three into one interchangeable dashboard template.
+
+### `/u/[handle]` (public profile view — NOT in Batch 4 scope, untouched)
+- Separate route from `/profile`; not investigated this batch.
 
 ### `/signin`, `/signup`, `/auth/complete`, `/auth/auth-code-error`
 - **Renders:** `AuthShell` + `SignInPanel`, no V2 shell.
