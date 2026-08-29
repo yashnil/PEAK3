@@ -238,8 +238,18 @@ export default function DraftScreen({ initialGameState, boardDate, challengeToke
   // decision that matters (brief: "one obvious decision at a time" on
   // mobile). It shows the SAME data the in-flow LineupBoard would — full
   // roster, single held card, empty/all-open board on round one included —
-  // never a duplicate DOM node: each is `lg:hidden` / `hidden lg:block` so
+  // never a duplicate DOM node: each is `lg:hidden` / `hidden lg:flex` so
   // exactly one of the two renders at any viewport width.
+  //
+  // Once the draft is complete there is nothing left to hold a decision
+  // over, so no rail renders. Rather than leave the reserved 320px column
+  // empty beside a receipt that was never widened to use it (a real gap an
+  // independent visual pass over this exact commit caught, at 1024/1440),
+  // the completed state drops the grid and widens its own single column
+  // instead — simpler than mounting a second copy of `DecisionReplay` to
+  // fill the rail, which would have put two "ROUND 1 · ..." nodes in the
+  // DOM at once and broken `gameplay.spec.ts`'s existing, unscoped
+  // `getByText(/round 1|pick 1|your picks/i)` assertion.
   const sidebar = !isDone ? (
     <div className="hidden lg:flex lg:flex-col gap-4 lg:sticky lg:top-6">
       <LineupBoard
@@ -261,7 +271,13 @@ export default function DraftScreen({ initialGameState, boardDate, challengeToke
   return (
     <PeakV2Shell width="live">
       <div className="py-6 lg:py-8">
-        <div className="mx-auto max-w-lg lg:max-w-none lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-8 lg:items-start">
+        <div
+          className={
+            sidebar
+              ? "mx-auto max-w-lg lg:max-w-none lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-8 lg:items-start"
+              : "mx-auto max-w-lg lg:max-w-2xl"
+          }
+        >
           <div className="flex flex-col gap-5 px-4 lg:px-0">
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
