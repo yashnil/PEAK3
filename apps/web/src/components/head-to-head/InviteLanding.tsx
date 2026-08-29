@@ -1,7 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 
 import { useAuth } from "@/lib/auth-context";
 import { getAccessToken } from "@/lib/auth";
@@ -10,6 +9,10 @@ import {
   HeadToHeadAPIError,
   type InviteDescriptor,
 } from "@/lib/head-to-head-api";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
+import { StatusChip, type StatusChipTone } from "@/components/ui/StatusChip";
 
 /**
  * The invite landing page (spec §6, "Experience").
@@ -71,116 +74,129 @@ export default function InviteLanding({ token }: { token: string }) {
 
   if (error && !invite) {
     return (
-      <section className="mx-auto max-w-xl px-4 py-16 text-center">
-        <h1 className="text-2xl font-semibold">This challenge link did not work</h1>
-        <p className="mt-3 text-sm opacity-80">{error.message}</p>
-        <Link
-          href="/arena/run-the-table"
-          className="mt-6 inline-block rounded border border-current px-4 py-2 text-sm"
-        >
-          Play RUN THE TABLE
-        </Link>
-      </section>
+      <PeakV2Shell width="live">
+        <div className="mx-auto flex max-w-xl flex-col items-center gap-4 py-16 text-center">
+          <h1 className="v2-page-title" style={{ fontSize: "var(--v2-display-size-line)" }}>
+            This challenge link did not work
+          </h1>
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            {error.message}
+          </p>
+          <PeakV2SecondaryAction href="/arena/run-the-table">Play RUN THE TABLE</PeakV2SecondaryAction>
+        </div>
+      </PeakV2Shell>
     );
   }
 
   if (!invite) {
     return (
-      <section className="mx-auto max-w-xl px-4 py-16 text-center" aria-busy="true">
-        <p className="text-sm opacity-70">Loading challenge…</p>
-      </section>
+      <PeakV2Shell width="live">
+        <div className="mx-auto max-w-xl py-16 text-center" aria-busy="true">
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+            Loading challenge…
+          </p>
+        </div>
+      </PeakV2Shell>
     );
   }
 
   const full = invite.seats_taken >= 2;
   const staleRules = !invite.expired && !full && !invite.playable;
+  const [label, tone] = statusLabelAndTone(invite.status, full);
 
   return (
-    <section className="mx-auto max-w-xl px-4 py-12">
-      <p className="text-xs uppercase tracking-widest opacity-60">Head-to-Head</p>
-      <h1 className="mt-2 text-3xl font-semibold">
-        {invite.creator_display_name} challenged you to RUN THE TABLE
-      </h1>
+    <PeakV2Shell width="live">
+      <div className="mx-auto flex max-w-xl flex-col gap-6">
+        <header className="v2-page-header">
+          <p className="v2-page-kicker">Head-to-Head</p>
+          <h1 className="v2-page-title" style={{ fontSize: "var(--v2-display-size-line)" }}>
+            {invite.creator_display_name} challenged you to RUN THE TABLE
+          </h1>
+        </header>
 
-      <p className="mt-4 text-sm opacity-80">
-        You will both play the <strong>same board</strong> — the same starting roster, the
-        same perk offers, the same node map and the same five bosses, each one scaled
-        to the team you build. Only your choices differ.
-      </p>
-      <p className="mt-2 text-sm opacity-80">
-        Neither of you sees the other&apos;s result until you have both finished.
-      </p>
-      <p className="mt-2 text-sm opacity-70">
-        This does not use your daily attempt.
-      </p>
-
-      <dl className="mt-6 grid grid-cols-2 gap-3 text-sm">
-        <div>
-          <dt className="opacity-60">Status</dt>
-          <dd data-testid="invite-status">{statusLabel(invite.status, full)}</dd>
-        </div>
-        <div>
-          <dt className="opacity-60">Expires</dt>
-          <dd>{new Date(invite.expires_at).toLocaleDateString()}</dd>
-        </div>
-      </dl>
-
-      {invite.expired && (
-        <p className="mt-6 text-sm" role="status">
-          This challenge has expired. Ask {invite.creator_display_name} for a new link.
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+          You will both play the <strong style={{ color: "var(--text-primary)" }}>same board</strong> — the
+          same starting roster, the same perk offers, the same node map and the same five
+          bosses, each one scaled to the team you build. Only your choices differ.
         </p>
-      )}
-      {full && !invite.expired && (
-        <p className="mt-6 text-sm" role="status">
-          This challenge has already been accepted by someone else.
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+          Neither of you sees the other&apos;s result until you have both finished.
         </p>
-      )}
-      {staleRules && (
-        <p className="mt-6 text-sm" role="status">
-          This link was made under an older ruleset, so the same seed no longer
-          produces the same board. Ask for a new link.
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          This does not use your daily attempt.
         </p>
-      )}
 
-      {invite.playable && !user && (
-        <div className="mt-8">
-          <p className="text-sm opacity-80">
-            Head-to-head is account-backed, so a result cannot be lost with a cleared
-            cookie. Sign in to accept.
+        <dl className="grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <dt className="text-xs uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+              Status
+            </dt>
+            <dd className="mt-1" data-testid="invite-status">
+              <StatusChip tone={tone}>{label}</StatusChip>
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+              Expires
+            </dt>
+            <dd className="score-number mt-1" style={{ color: "var(--text-primary)" }}>
+              {new Date(invite.expires_at).toLocaleDateString()}
+            </dd>
+          </div>
+        </dl>
+
+        {invite.expired && (
+          <p className="text-sm" role="status" style={{ color: "var(--text-secondary)" }}>
+            This challenge has expired. Ask {invite.creator_display_name} for a new link.
           </p>
-          <Link
-            href={`/signin?next=${encodeURIComponent(
-              `/arena/run-the-table/h2h/invite/${token}`,
-            )}`}
-            className="mt-3 inline-block rounded bg-[var(--peak-accent)] px-5 py-2.5 text-sm font-semibold text-black"
-          >
-            Sign in to accept
-          </Link>
-        </div>
-      )}
+        )}
+        {full && !invite.expired && (
+          <p className="text-sm" role="status" style={{ color: "var(--text-secondary)" }}>
+            This challenge has already been accepted by someone else.
+          </p>
+        )}
+        {staleRules && (
+          <p className="text-sm" role="status" style={{ color: "var(--text-secondary)" }}>
+            This link was made under an older ruleset, so the same seed no longer
+            produces the same board. Ask for a new link.
+          </p>
+        )}
 
-      {invite.playable && user && (
-        <button
-          type="button"
-          onClick={onAccept}
-          disabled={accepting}
-          className="mt-8 rounded bg-[var(--peak-accent)] px-5 py-2.5 text-sm font-semibold text-black disabled:opacity-60"
-        >
-          {accepting ? "Setting up your board…" : "Accept challenge"}
-        </button>
-      )}
+        {invite.playable && !user && (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+              Head-to-head is account-backed, so a result cannot be lost with a cleared
+              cookie. Sign in to accept.
+            </p>
+            <PeakV2PrimaryAction
+              href={`/signin?next=${encodeURIComponent(
+                `/arena/run-the-table/h2h/invite/${token}`,
+              )}`}
+              className="self-start"
+            >
+              Sign in to accept
+            </PeakV2PrimaryAction>
+          </div>
+        )}
 
-      {error && (
-        <p className="mt-4 text-sm" role="alert">
-          {error.message}
-        </p>
-      )}
-    </section>
+        {invite.playable && user && (
+          <PeakV2PrimaryAction onClick={onAccept} disabled={accepting} busy={accepting} className="self-start">
+            {accepting ? "Setting up your board…" : "Accept challenge"}
+          </PeakV2PrimaryAction>
+        )}
+
+        {error && (
+          <p className="text-sm" role="alert" style={{ color: "var(--incorrect)" }}>
+            {error.message}
+          </p>
+        )}
+      </div>
+    </PeakV2Shell>
   );
 }
 
-function statusLabel(status: string, full: boolean): string {
-  if (status === "complete") return "Finished";
-  if (full || status === "in_progress") return "Both players in";
-  return "Waiting for an opponent";
+function statusLabelAndTone(status: string, full: boolean): [string, StatusChipTone] {
+  if (status === "complete") return ["Finished", "neutral"];
+  if (full || status === "in_progress") return ["Both players in", "accent"];
+  return ["Waiting for an opponent", "muted"];
 }

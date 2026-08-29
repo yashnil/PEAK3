@@ -68,12 +68,89 @@ loaded). **What "polish this route" means varies a lot by route**:
 - **Tests:** `peak-season-difficulty.test.tsx`, `peak-season-leaderboard.test.tsx`, `court-builder-hint.test.tsx`, `court-state.test.ts`, `court-mode-labels.test.ts`, e2e `courtbuilder.spec.ts`.
 - **Polish category:** start-gate has partial V2 (verify quality); history/leaderboard/results are route-family polish candidates, currently plain data pages.
 
-### `/arena/run-the-table` (+ `/h2h`, `/h2h/[matchId]`, `/h2h/invite/[token]`)
-- **Renders:** `RunTheTableGame` — **13 internal v2 imports**, the most V2-composed game surface in the app.
-- **h2h routes** render `MatchScreen`, `ChallengeCreator`, `HeadToHeadHistory`, `InviteLanding` — **0 v2 imports found**, likely still legacy composition **(unverified at runtime)**.
-- **Must not change:** run-state machine, timers/deadlines, invite-token flow, match persistence.
-- **Tests:** `run-the-table-state.test.ts`, `run-the-table-components.test.tsx`, `run-the-table-reveal.test.tsx`, `run-the-table-v3.test.tsx`, `head-to-head.test.tsx`, e2e `run-the-table.spec.ts`.
-- **Polish category:** main RTT flow is system-consistency polish; h2h sub-flows are route-family polish (likely bigger gap).
+### `/arena/run-the-table`
+- **Renders:** `RunTheTableGame` — **13 internal v2 imports**, the most V2-composed game surface in the app. Not touched this batch.
+
+### `/arena/run-the-table/h2h`, `/h2h/[matchId]`, `/h2h/invite/[token]` — Batch 6 semantic inventory (2026-08-29, pre-implementation)
+
+**Renders:** `HeadToHeadHubPage` (hub) → `ChallengeCreator` + `HeadToHeadHistory`;
+`HeadToHeadMatchPage` → `MatchScreen` (→ `SideBySideReceipt` once settled);
+`HeadToHeadInvitePage` → `InviteLanding`. **0 `PeakV2*` imports anywhere in
+the family** — confirmed by reading every file, not just grep. All three
+pages are thin server-component wrappers; all 5 components are client
+components. `SideBySideReceipt` already went through a prior polish pass
+(visible in its own code comments — "WAS opacity-75," "used to be text-lg
+in body ink") and is meaningfully more considered than its siblings; the
+other four still use raw Tailwind `opacity-*` utilities throughout instead
+of the app's `--text-secondary`/`--text-muted` tokens.
+
+**The actual state machine (from `lib/head-to-head-api.ts` + the
+components — not inferred from names):**
+
+- **ChallengeCreator:** no-active-run (no RTT run in localStorage — shows a
+  prompt to go play RTT first, not an error) → signed-out (shows a sign-in
+  link, no create button rendered at all) → ready-to-create (signed in,
+  has a run) → creating (`busy`) → created (shows the invite URL as
+  literal text, a copy-link button, and a link to open the match) → error
+  (`role="alert"`, server error message verbatim). **The active run is
+  read from a localStorage breadcrumb as a convenience only — the server
+  independently re-checks ownership (`assert_owns`), so this can never be
+  spoofed into challenging with someone else's run.**
+- **InviteLanding:** loading (`aria-busy`) → error-with-no-invite (broken/
+  invalid token, distinct render path from a loaded-but-unplayable invite)
+  → loaded, one of: expired, already-full (someone else accepted), stale-
+  ruleset (old seed no longer reproducible), playable-signed-out (shows
+  the acceptance requirement copy BEFORE the button, deliberately, per the
+  component's own doc comment), playable-signed-in (Accept button) →
+  accepting (`busy`) → navigates to the match on success, or shows an
+  error inline on failure. **Deliberately spoiler-free by what the server
+  sends, not by client logic** — `InviteDescriptor` has no seed/roster/
+  boss/score fields at all; the component could not leak them if it tried.
+- **MatchScreen:** error-with-no-match (signed out or genuine failure) →
+  loading → loaded: `waiting` (no opponent yet) → opponent joined, your
+  run not yet submitted (shows "Continue your run" + "Submit my finished
+  run") → submitted, opponent not yet (`both_complete` false — shows a
+  spoiler-safety reassurance sentence, tested verbatim) → `both_complete`
+  (renders `SideBySideReceipt`) → optionally, a rematch sub-state
+  (no-rematch-yet → "Offer a rematch" button → rematch created, shows a
+  new invite link + copy button). **`opponent_status` is the literal
+  string `"hidden"` until both sides finish — there is no client-side
+  "don't reveal yet" flag to bypass, the spoiler data is simply absent
+  from the response.**
+- **HeadToHeadHistory:** loading → signed-out (shown as a plain sentence,
+  not an auth redirect — this component renders standalone, e.g. embedded
+  elsewhere) → error → empty (`data-testid="h2h-history-empty"`) →
+  populated list, each row's outcome independently one of: "In progress"
+  (unsettled, spoiler-safe), "Won", "Lost", "Draw". Optional `limit` prop
+  truncates the list (used when embedded elsewhere, not from the hub).
+- **SideBySideReceipt** (only rendered once `both_complete`): a fixed
+  8-level tie-breaker table in the server's own published order, each row
+  showing the "decided by" level in bold, every level after it marked
+  "Not consulted" (never a lower level shown as "winning" — server-
+  computed only), a verdict per level (creator/opponent/tied/tied_within_
+  margin/not_consulted), plus an outcome sentence naming both players
+  ("X beat Y." / "X and Y finished level."). **No PEAK3 score of any kind
+  is computed client-side — every number is `receipt.settlement.levels`,
+  read and formatted, never derived.**
+
+**Must not change:** every API call/shape above, the localStorage
+breadcrumb key (`RUN_THE_TABLE_STORAGE_KEY`), invite-token URL structure
+(`inviteUrl()`), the 8-level tie-breaker order and "not consulted" logic,
+`your_outcome`/`opponent_status` spoiler-safety semantics, the rematch
+flow, `noindex` on match/invite pages, auth redirect targets
+(`?next=/arena/run-the-table/h2h...`).
+
+**Tests:** `head-to-head.test.tsx` covers `SideBySideReceipt`, value
+formatting, `HeadToHeadHistory`, `InviteLanding`, and the `headToHeadApi`
+client directly. **Zero coverage for `MatchScreen` or `ChallengeCreator`**
+— confirmed by reading every `describe` block in the file — these are the
+two components the user's brief independently flags as highest-risk.
+**Zero e2e coverage for the entire family** (no spec file, no
+`run-the-table/h2h` string anywhere in `tests/e2e/`).
+
+**Polish category:** route-family polish, high interaction-risk — visual
+system is the easy part; the hard part is not silently touching any of
+the state transitions above.
 
 ### `/arena/three-man-weave`, `/arena/three-man-weave/[matchId]`
 - **Renders:** `ThreeManWeaveLoader` → `ThreeManWeaveGame` (3 v2 imports — partial).

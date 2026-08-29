@@ -11,6 +11,9 @@ import {
   inviteUrl,
   type HeadToHeadCreated,
 } from "@/lib/head-to-head-api";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 /**
  * "Challenge someone to this board" — the creation half of head-to-head.
@@ -62,10 +65,10 @@ export default function ChallengeCreator() {
 
   if (!runId) {
     return (
-      <p className="text-sm opacity-80" data-testid="h2h-create-no-run">
+      <p className="text-sm" style={{ color: "var(--text-secondary)" }} data-testid="h2h-create-no-run">
         Start a RUN THE TABLE run first — then you can challenge someone to the exact
         same board.{" "}
-        <Link href="/arena/run-the-table" className="underline">
+        <Link href="/arena/run-the-table" className="underline" style={{ color: "var(--peak-accent-text)" }}>
           Play RUN THE TABLE
         </Link>
       </p>
@@ -75,63 +78,52 @@ export default function ChallengeCreator() {
   if (created) {
     const url = inviteUrl(created.invite_url_path);
     return (
-      <div data-testid="h2h-created">
-        <p className="text-sm">
+      <div data-testid="h2h-created" className="flex flex-col gap-3">
+        <p className="text-sm" style={{ color: "var(--text-primary)" }}>
           Challenge created. Send this link — whoever opens it plays your exact board.
         </p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <code className="break-all rounded bg-black/20 px-2 py-1 text-xs">{url}</code>
-          <button
-            type="button"
-            className="rounded border border-current px-3 py-1 text-xs"
+        <div
+          className="flex flex-wrap items-center gap-2 rounded-lg border p-3"
+          style={{ background: "var(--bg-surface)", borderColor: "var(--border-subtle)" }}
+        >
+          <code className="score-number break-all text-xs" style={{ color: "var(--text-secondary)" }}>
+            {url}
+          </code>
+          <PeakV2SecondaryAction
+            size="sm"
             onClick={() => {
               void navigator.clipboard?.writeText(url);
               setCopied(true);
             }}
           >
             {copied ? "Copied" : "Copy link"}
-          </button>
+          </PeakV2SecondaryAction>
         </div>
-        <Link
-          href={`/arena/run-the-table/h2h/${created.match_id}`}
-          className="mt-3 inline-block text-sm underline"
-        >
+        <PeakV2SecondaryAction href={`/arena/run-the-table/h2h/${created.match_id}`} size="sm" className="self-start">
           Open the match
-        </Link>
+        </PeakV2SecondaryAction>
       </div>
     );
   }
 
   return (
-    <div>
-      <p className="text-sm opacity-80">
+    <div className="flex flex-col gap-3">
+      <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
         Challenge someone to your current board. They get the same starting roster,
         the same perk offers, the same node map and the same five bosses — each one
         scaled to the team you build — and neither of you sees the other&apos;s
         result until you have both finished.
       </p>
       {user ? (
-        <button
-          type="button"
-          onClick={onCreate}
-          disabled={busy}
-          className="mt-3 rounded bg-[var(--peak-accent)] px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
-        >
+        <PeakV2PrimaryAction onClick={onCreate} disabled={busy} busy={busy} className="self-start">
           {busy ? "Creating…" : "Create a head-to-head"}
-        </button>
+        </PeakV2PrimaryAction>
       ) : (
-        <Link
-          href="/signin?next=/arena/run-the-table/h2h"
-          className="mt-3 inline-block rounded border border-current px-4 py-2 text-sm"
-        >
+        <PeakV2SecondaryAction href="/signin?next=/arena/run-the-table/h2h" className="self-start">
           Sign in to challenge someone
-        </Link>
+        </PeakV2SecondaryAction>
       )}
-      {error && (
-        <p className="mt-3 text-sm" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorState message={error} />}
     </div>
   );
 }

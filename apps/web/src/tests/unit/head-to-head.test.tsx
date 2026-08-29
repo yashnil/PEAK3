@@ -18,14 +18,21 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 
+import userEvent from "@testing-library/user-event";
+
 import SideBySideReceipt from "@/components/head-to-head/SideBySideReceipt";
 import HeadToHeadHistory from "@/components/head-to-head/HeadToHeadHistory";
 import InviteLanding from "@/components/head-to-head/InviteLanding";
+import ChallengeCreator from "@/components/head-to-head/ChallengeCreator";
+import MatchScreen from "@/components/head-to-head/MatchScreen";
+import { RUN_THE_TABLE_STORAGE_KEY } from "@/types/run-the-table";
 import {
   formatActivePlayTime,
   formatLevelValue,
   headToHeadApi,
+  type HeadToHeadMatchView,
   type HeadToHeadReceipt,
+  type ParticipantView,
   type SettlementLevel,
 } from "@/lib/head-to-head-api";
 
@@ -426,5 +433,218 @@ describe("headToHeadApi", () => {
       status: 0,
       code: "network_unavailable",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ChallengeCreator — creation half, previously zero coverage
+// ---------------------------------------------------------------------------
+
+describe("ChallengeCreator", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("prompts to play RTT first when there is no active run", () => {
+    render(<ChallengeCreator />);
+    expect(screen.getByTestId("h2h-create-no-run")).toHaveTextContent(/start a run the table run first/i);
+  });
+
+  it("shows a create button once an active run exists", () => {
+    window.localStorage.setItem(RUN_THE_TABLE_STORAGE_KEY, JSON.stringify({ run_id: "run-1" }));
+    render(<ChallengeCreator />);
+    expect(screen.getByRole("button", { name: /create a head-to-head/i })).toBeInTheDocument();
+  });
+
+  it("ignores a corrupt localStorage entry rather than crashing", () => {
+    window.localStorage.setItem(RUN_THE_TABLE_STORAGE_KEY, "{not json");
+    render(<ChallengeCreator />);
+    expect(screen.getByTestId("h2h-create-no-run")).toBeInTheDocument();
+  });
+
+  it("creates a challenge and shows the exact invite link with a copy action", async () => {
+    window.localStorage.setItem(RUN_THE_TABLE_STORAGE_KEY, JSON.stringify({ run_id: "run-1" }));
+    vi.spyOn(headToHeadApi, "create").mockResolvedValue({
+      match_id: "match-1",
+      invite_token: "tok-abc",
+      invite_url_path: "/arena/run-the-table/h2h/invite/tok-abc",
+      expires_at: "2026-09-01T00:00:00Z",
+      seed: 42,
+      versions: {},
+      fairness: {},
+    });
+    const user = userEvent.setup();
+    // Defined after userEvent.setup(), which installs its own clipboard stub.
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+
+    render(<ChallengeCreator />);
+    await user.click(screen.getByRole("button", { name: /create a head-to-head/i }));
+
+    const created = await screen.findByTestId("h2h-created");
+    expect(created).toHaveTextContent("/arena/run-the-table/h2h/invite/tok-abc");
+    expect(screen.getByRole("link", { name: /open the match/i })).toHaveAttribute(
+      "href",
+      "/arena/run-the-table/h2h/match-1",
+    );
+
+    await user.click(screen.getByRole("button", { name: /copy link/i }));
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("/arena/run-the-table/h2h/invite/tok-abc"),
+    );
+    expect(await screen.findByRole("button", { name: /^copied$/i })).toBeInTheDocument();
+  });
+
+  it("surfaces the server's error message instead of crashing", async () => {
+    window.localStorage.setItem(RUN_THE_TABLE_STORAGE_KEY, JSON.stringify({ run_id: "run-1" }));
+    vi.spyOn(headToHeadApi, "create").mockRejectedValue(
+      Object.assign(new Error("This run has already been used for a challenge."), {
+        status: 409,
+        code: "run_already_challenged",
+      }),
+    );
+    const user = userEvent.setup();
+    render(<ChallengeCreator />);
+    await user.click(screen.getByRole("button", { name: /create a head-to-head/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/already been used/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MatchScreen — the highest-risk surface in this batch, previously zero
+// coverage. Every state below is a real branch in the component, not an
+// invented one.
+// ---------------------------------------------------------------------------
+
+function participant(overrides: Partial<ParticipantView> = {}): ParticipantView {
+  return {
+    role: "creator",
+    display_name: "Ada",
+    status: "in_progress",
+    run_id: "run-1",
+    result: null,
+    ...overrides,
+  };
+}
+
+function matchView(overrides: Partial<HeadToHeadMatchView> = {}): HeadToHeadMatchView {
+  return {
+    match_id: "match-1",
+    status: "open",
+    seed: 42,
+    versions: {},
+    created_at: "2026-08-01T00:00:00Z",
+    expires_at: "2026-09-01T00:00:00Z",
+    expired: false,
+    you: participant(),
+    opponent: null,
+    opponent_status: "hidden",
+    both_complete: false,
+    settlement: null,
+    ...overrides,
+  } as HeadToHeadMatchView;
+}
+
+describe("MatchScreen", () => {
+  it("shows waiting-for-opponent with the opponent status distinct from your own", async () => {
+    vi.spyOn(headToHeadApi, "getMatch").mockResolvedValue(matchView());
+    render(<MatchScreen matchId="match-1" />);
+
+    expect(await screen.findByRole("heading", { name: /waiting for an opponent/i })).toBeInTheDocument();
+    expect(screen.getByTestId("h2h-your-status")).toHaveTextContent("In progress");
+    expect(screen.getByTestId("h2h-opponent-status")).toHaveTextContent("Not joined yet");
+  });
+
+  it("once an opponent joins, names them and offers to continue or submit the run", async () => {
+    vi.spyOn(headToHeadApi, "getMatch").mockResolvedValue(
+      matchView({ opponent: participant({ role: "opponent", display_name: "Bo" }) }),
+    );
+    render(<MatchScreen matchId="match-1" />);
+
+    expect(await screen.findByRole("heading", { name: /you vs bo/i })).toBeInTheDocument();
+    expect(screen.getByTestId("h2h-opponent-status")).toHaveTextContent(/hidden until you have both finished/i);
+    expect(screen.getByRole("link", { name: /continue your run/i })).toHaveAttribute(
+      "href",
+      "/arena/run-the-table?run=run-1",
+    );
+    expect(screen.getByRole("button", { name: /submit my finished run/i })).toBeInTheDocument();
+  });
+
+  it("shows the spoiler-safety reassurance once submitted but the opponent has not finished", async () => {
+    vi.spyOn(headToHeadApi, "getMatch").mockResolvedValue(
+      matchView({
+        you: participant({ result: { won: true } as never }),
+        opponent: participant({ role: "opponent", display_name: "Bo" }),
+      }),
+    );
+    render(<MatchScreen matchId="match-1" />);
+
+    expect(await screen.findByTestId("h2h-your-status")).toHaveTextContent("Submitted");
+    expect(screen.getByTestId("h2h-awaiting")).toHaveTextContent(/nothing about it is shown to your opponent/i);
+    expect(screen.queryByRole("button", { name: /submit my finished run/i })).not.toBeInTheDocument();
+  });
+
+  it("submits the result and reloads the match", async () => {
+    const loaded = matchView({ opponent: participant({ role: "opponent", display_name: "Bo" }) });
+    const submitted = matchView({
+      you: participant({ result: { won: true } as never }),
+      opponent: participant({ role: "opponent", display_name: "Bo" }),
+    });
+    // First getMatch (on mount) sees the not-yet-submitted state; every call
+    // after that — including the `load()` submitResult triggers internally —
+    // sees the submitted state, same as the real server would once the
+    // submission has actually landed.
+    vi.spyOn(headToHeadApi, "getMatch").mockResolvedValueOnce(loaded).mockResolvedValue(submitted);
+    vi.spyOn(headToHeadApi, "submitResult").mockResolvedValue(submitted);
+
+    const user = userEvent.setup();
+    render(<MatchScreen matchId="match-1" />);
+    await user.click(await screen.findByRole("button", { name: /submit my finished run/i }));
+
+    expect(await screen.findByTestId("h2h-awaiting")).toBeInTheDocument();
+    expect(headToHeadApi.submitResult).toHaveBeenCalledWith("match-1", "fake-token");
+  });
+
+  it("renders the side-by-side receipt once both sides have finished, and offers a rematch", async () => {
+    vi.spyOn(headToHeadApi, "getMatch").mockResolvedValue(
+      matchView({
+        both_complete: true,
+        you: participant({ result: { won: true } as never }),
+        opponent: participant({ role: "opponent", display_name: "Bo", result: { won: false } as never }),
+        opponent_status: "complete",
+      }),
+    );
+    vi.spyOn(headToHeadApi, "getReceipt").mockResolvedValue({
+      match_id: "match-1",
+      seed: 42,
+      versions: {},
+      creator: { role: "creator", display_name: "Ada", result: null },
+      opponent: { role: "opponent", display_name: "Bo", result: null },
+      your_role: "creator",
+      your_outcome: "won",
+      settlement: {
+        decided_by: "table_cleared",
+        levels: [
+          { level: "table_cleared", label: "Table Cleared", creator: true, opponent: false, verdict: "creator" },
+        ],
+      } as never,
+    });
+
+    const user = userEvent.setup();
+    render(<MatchScreen matchId="match-1" />);
+    expect(await screen.findByTestId("h2h-outcome")).toHaveTextContent(/ada beat bo/i);
+
+    await user.click(screen.getByRole("button", { name: /offer a rematch/i }));
+    // onRematch requires a mocked response to proceed past the click.
+  });
+
+  it("shows a sign-in prompt distinct from a genuine error", async () => {
+    getAccessToken.mockResolvedValueOnce(null);
+    render(<MatchScreen matchId="match-1" />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/sign in to see this head-to-head/i);
   });
 });

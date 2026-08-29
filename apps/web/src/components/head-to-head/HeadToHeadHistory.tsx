@@ -8,6 +8,8 @@ import {
   HeadToHeadAPIError,
   type HeadToHeadHistoryEntry,
 } from "@/lib/head-to-head-api";
+import { StatusChip, type StatusChipTone } from "@/components/ui/StatusChip";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 /**
  * Head-to-head history (spec §6, "Experience": profile history).
@@ -52,12 +54,16 @@ export default function HeadToHeadHistory({ limit }: { limit?: number }) {
   }, []);
 
   if (matches === null) {
-    return <p className="text-sm opacity-70" aria-busy="true">Loading your head-to-heads…</p>;
+    return (
+      <p className="text-sm" style={{ color: "var(--text-muted)" }} aria-busy="true">
+        Loading your head-to-heads…
+      </p>
+    );
   }
 
   if (error) {
     return (
-      <p className="text-sm opacity-80" role="status">
+      <p className="text-sm" style={{ color: "var(--text-secondary)" }} role="status">
         {error}
       </p>
     );
@@ -65,34 +71,40 @@ export default function HeadToHeadHistory({ limit }: { limit?: number }) {
 
   if (matches.length === 0) {
     return (
-      <p className="text-sm opacity-80" data-testid="h2h-history-empty">
-        No head-to-heads yet. Finish a RUN THE TABLE run and challenge someone to the
-        same board.
-      </p>
+      <div data-testid="h2h-history-empty">
+        <EmptyState
+          title="No head-to-heads yet"
+          description="Finish a RUN THE TABLE run and challenge someone to the same board."
+        />
+      </div>
     );
   }
 
   const rows = typeof limit === "number" ? matches.slice(0, limit) : matches;
 
   return (
-    <ul className="divide-y divide-white/10" data-testid="h2h-history">
+    <ul className="divide-y" style={{ borderColor: "var(--border-subtle)" }} data-testid="h2h-history">
       {rows.map((m) => (
         <li key={m.match_id} className="flex items-center justify-between gap-4 py-3">
           <div>
             <Link
               href={`/arena/run-the-table/h2h/${m.match_id}`}
               className="text-sm underline"
+              style={{ color: "var(--text-primary)" }}
             >
               vs {m.opponent_display_name ?? "an open invite"}
             </Link>
-            <p className="text-xs opacity-60">
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
               {new Date(m.created_at).toLocaleDateString()} · you were the{" "}
               {m.your_role}
             </p>
           </div>
-          <span className="text-sm" data-testid={`h2h-history-outcome-${m.match_id}`}>
+          <StatusChip
+            tone={outcomeTone(m)}
+            data-testid={`h2h-history-outcome-${m.match_id}`}
+          >
             {outcomeLabel(m)}
-          </span>
+          </StatusChip>
         </li>
       ))}
     </ul>
@@ -103,4 +115,11 @@ function outcomeLabel(m: HeadToHeadHistoryEntry): string {
   if (!m.your_outcome) return "In progress";
   if (m.your_outcome === "draw") return "Draw";
   return m.your_outcome === "won" ? "Won" : "Lost";
+}
+
+function outcomeTone(m: HeadToHeadHistoryEntry): StatusChipTone {
+  if (!m.your_outcome) return "muted";
+  if (m.your_outcome === "won") return "positive";
+  if (m.your_outcome === "lost") return "negative";
+  return "neutral";
 }
