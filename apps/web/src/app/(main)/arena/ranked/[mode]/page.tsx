@@ -4,6 +4,7 @@ import { use } from "react";
 import { useRouter } from "next/navigation";
 import RankedScreen from "@/components/ranked/RankedScreen";
 import { RANKED_MODES, RANKED_MODE_LABELS, type RankedMode } from "@/types/ranked";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
 
 interface Props {
   params: Promise<{ mode: string }>;
@@ -21,11 +22,12 @@ export default function RankedModePage({ params }: Props) {
   const rankedMode = mode as RankedMode;
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8">
-      <h1 className="text-xl font-bold mb-4" style={{ color: "var(--text-primary)" }}>
-        Ranked · {RANKED_MODE_LABELS[rankedMode]}
-      </h1>
+    <PeakV2Shell width="live-wide">
+      <header className="v2-page-header">
+        <p className="v2-page-kicker">Competitive</p>
+        <h1 className="v2-page-title">Ranked · {RANKED_MODE_LABELS[rankedMode]}</h1>
+      </header>
       <RankedScreen mode={rankedMode} />
-    </div>
+    </PeakV2Shell>
   );
 }

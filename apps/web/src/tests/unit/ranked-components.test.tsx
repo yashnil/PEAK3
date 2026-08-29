@@ -5,7 +5,7 @@
  * are mocked so these tests exercise only the UI phase transitions.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
@@ -27,15 +27,17 @@ vi.mock("@/lib/auth", () => ({
 const joinQueue = vi.fn();
 const cancelQueue = vi.fn();
 const getQueueStatus = vi.fn();
+const startOrGetGame = vi.fn();
 
 vi.mock("@/lib/ranked-api", () => ({
   rankedApi: {
     joinQueue: (...args: unknown[]) => joinQueue(...args),
     cancelQueue: (...args: unknown[]) => cancelQueue(...args),
     getQueueStatus: (...args: unknown[]) => getQueueStatus(...args),
-    startOrGetGame: vi.fn(),
+    startOrGetGame: (...args: unknown[]) => startOrGetGame(...args),
     getSettlement: vi.fn(),
     submitAction: vi.fn(),
+    getRating: vi.fn().mockResolvedValue(null),
   },
   RankedAPIError: class RankedAPIError extends Error {},
 }));
@@ -48,6 +50,7 @@ beforeEach(() => {
   joinQueue.mockReset();
   cancelQueue.mockReset();
   getQueueStatus.mockReset();
+  startOrGetGame.mockReset();
   mockPush.mockReset();
 });
 
@@ -129,5 +132,47 @@ describe("RankedScreen", () => {
     await waitFor(() => expect(screen.getByText(/Waiting for an opponent/i)).toBeInTheDocument());
     await user.tab();
     expect(screen.getByRole("button", { name: /cancel/i })).toHaveFocus();
+  });
+
+  it("shows which mode/round is in progress inside the main content, not only in the desktop standing rail", async () => {
+    // Regression guard: an earlier pass moved this label into
+    // `RankedStandingRail`, which is `hidden` below the `xl` breakpoint --
+    // silently dropping it during gameplay on every phone and most tablets.
+    joinQueue.mockResolvedValue({ status: "matched", mode: "apex_1y", queue_entry_id: "e1", match_id: "m1" });
+    startOrGetGame.mockResolvedValue({
+      game_id: "game-1",
+      mode: "apex_1y",
+      duration_years: 1,
+      board_type: "ranked",
+      status: "round_active",
+      current_round: 2,
+      total_rounds: 5,
+      current_offers: [],
+      selected_cards: [],
+      round_history: [],
+      open_roles: [],
+      current_dna: null,
+      hold_available: true,
+      held_card: null,
+      reframe_available: true,
+      reframed_this_round: false,
+      hold_used: false,
+      reframe_used: false,
+      board_metadata: {
+        board_id: "ranked-apex_1y-1",
+        lineup_model_version: "experimental_lineup_v3",
+        ruleset_version: "ruleset_v3",
+        card_pool_version: "v3",
+      },
+    });
+    const user = userEvent.setup();
+    render(<RankedScreen mode="apex_1y" />);
+
+    await user.click(screen.getByText(/Join 1Y Apex queue/i));
+
+    await waitFor(() => expect(screen.getByText(/Round 2 of 5/i)).toBeInTheDocument());
+
+    const mainContent = screen.getByTestId("ranked-main-content");
+    expect(within(mainContent).getByText(/1Y Apex · Ranked/i)).toBeInTheDocument();
   });
 });

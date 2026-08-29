@@ -70,6 +70,7 @@ import CompletionModal from "./CompletionModal";
 import CompletionTrigger from "./CompletionTrigger";
 import HowToPlay from "./HowToPlay";
 import StartGate from "./StartGate";
+import RecentResults from "./RecentResults";
 
 interface Props {
   /** Optional YYYY-MM-DD ARCHIVE date. Omitted means today's board, which the
@@ -1097,66 +1098,86 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
         </p>
       </header>
 
-      {/* Launch-polish §4: a single centred column at every width, capped
-          wider than an empty sidebar ever left the board (max-w-3xl, not the
-          header's max-w-6xl -- a 3x3 grid stretched to a 1152px reading
+      {/* Launch-polish §4: a single centred column below xl (max-w-3xl, not
+          the header's max-w-6xl -- a 3x3 grid stretched to a 1152px reading
           measure would be mostly gutter). The search/idle panel sits
           DIRECTLY BENEATH the board, in normal document flow, not beside it
-          in a `sticky` rail with its own independently-scrolling results
-          list -- there is no narrower column left to compress into. The
-          completion recap is no longer here at all: once `complete`, it
-          lives in `CompletionModal`, an overlay that never reduces the
-          board's width, reopened by the floating `CompletionTrigger` below. */}
-      <div className="mx-auto mt-5 flex w-full max-w-3xl flex-col gap-4">
-        <div
-          className="court-grid-bg rounded-xl p-2 sm:p-3"
-          data-tour-id="dg-board"
-          style={{ border: "1px solid var(--border-subtle)" }}
-        >
-          <DailyGridBoardView
-            board={board}
-            progress={progress}
-            selected={selected}
-            invalidCell={cellMessage ? { row: cellMessage.row, col: cellMessage.col } : null}
-            onSelect={handleSelect}
-          />
+          in a `sticky` rail -- there is no narrower column to compress the
+          BOARD into. At xl and up there is real width to spend, and a real
+          rail to spend it on: Recent Results, fed by the same local archive
+          the streak chip above already reads, not an invented panel. It only
+          renders with something true to show (`archive.entries.length > 0`)
+          and only while a board is in progress -- once `complete`, the
+          recap/history surface is `CompletionModal`, and showing this rail
+          alongside it would just be the same information twice. */}
+      <div className="mx-auto mt-5 flex w-full max-w-3xl flex-col gap-4 xl:max-w-6xl xl:flex-row xl:items-start xl:gap-6">
+        <div className="flex w-full max-w-3xl flex-col gap-4 xl:shrink-0">
+          <div
+            className="court-grid-bg rounded-xl p-2 sm:p-3"
+            data-tour-id="dg-board"
+            style={{ border: "1px solid var(--border-subtle)" }}
+          >
+            <DailyGridBoardView
+              board={board}
+              progress={progress}
+              selected={selected}
+              invalidCell={cellMessage ? { row: cellMessage.row, col: cellMessage.col } : null}
+              onSelect={handleSelect}
+            />
+          </div>
+
+          <div data-tour-id="dg-workbench">
+            {selected ? (
+              <CellPanel
+                key={`${selected.row}-${selected.col}`}
+                board={board}
+                row={selected.row}
+                col={selected.col}
+                filled={selectedFilled}
+                usedPlayerSlugs={usedPlayerSlugs(progress)}
+                invalidMessage={
+                  cellMessage && cellMessage.row === selected.row && cellMessage.col === selected.col
+                    ? cellMessage.text
+                    : null
+                }
+                submitting={submitting}
+                onSubmit={handleSubmit}
+                onClose={() => setSelected(null)}
+              />
+            ) : (
+              !complete && (
+                <div
+                  data-testid="daily-grid-idle-hint"
+                  className="card-surface p-5 text-center"
+                >
+                  <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                    Choose a square to start
+                  </p>
+                  <p className="mt-1.5 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                    Each square needs a player-season that satisfies both its row and its column. Squares
+                    with a smaller answer pool are worth more — but any valid answer beats an empty square.
+                  </p>
+                </div>
+              )
+            )}
+          </div>
         </div>
 
-        <div data-tour-id="dg-workbench">
-          {selected ? (
-            <CellPanel
-              key={`${selected.row}-${selected.col}`}
-              board={board}
-              row={selected.row}
-              col={selected.col}
-              filled={selectedFilled}
-              usedPlayerSlugs={usedPlayerSlugs(progress)}
-              invalidMessage={
-                cellMessage && cellMessage.row === selected.row && cellMessage.col === selected.col
-                  ? cellMessage.text
-                  : null
-              }
-              submitting={submitting}
-              onSubmit={handleSubmit}
-              onClose={() => setSelected(null)}
-            />
-          ) : (
-            !complete && (
-              <div
-                data-testid="daily-grid-idle-hint"
-                className="card-surface p-5 text-center"
-              >
-                <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                  Choose a square to start
-                </p>
-                <p className="mt-1.5 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                  Each square needs a player-season that satisfies both its row and its column. Squares
-                  with a smaller answer pool are worth more — but any valid answer beats an empty square.
-                </p>
-              </div>
-            )
-          )}
-        </div>
+        {!complete && archive && archive.entries.length > 0 && (
+          <aside
+            className="hidden xl:flex xl:w-80 xl:shrink-0 xl:flex-col xl:gap-3"
+            aria-label="Recent Daily Grid results"
+            data-testid="daily-grid-recent-rail"
+          >
+            <h2
+              className="text-xs font-bold uppercase tracking-[0.08em]"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Recent results
+            </h2>
+            <RecentResults entries={archive.entries.slice(0, 6)} linkToBoards />
+          </aside>
+        )}
       </div>
 
       {complete && (
