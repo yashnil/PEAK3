@@ -313,7 +313,18 @@ export default function PeakV2CourtSlotCard({
 
   const clickable = !!onClick;
   const tier = isPendingTarget ? pendingFitTier(pendingFit, pendingFitSeverity) : "neutral";
-  const pendingHint = tier === "weak" ? "Off-position" : tier === "stretch" ? "Playable stretch" : "Place here";
+  // ONE VOCABULARY FOR FIT, NOT TWO. This line used to say "Off-position" /
+  // "Playable stretch" / "Place here" — a second set of words for exactly the
+  // axis `pending-fit-badge` already names authoritatively, in the server's own
+  // wording ("Flex fit" / "Role stretch" / "Structural mismatch", mirrored from
+  // `nba_peak/perfect_season/positions.py::fit_label`). A placement board that
+  // says "Playable stretch" here and "Role stretch" two lines below is asking
+  // the player to work out whether those are the same thing.
+  //
+  // So the hint is now purely the ACTION, and fit is carried by the two
+  // channels that already exist and do not need reading: the slot's own border
+  // tier (`court-slot-pending-{strong,stretch,weak}`) and the single badge.
+  const pendingHint = "Place here";
   const body = (
     <PeakV2CourtSlot
       position={SLOT_LABELS[slot.slot_type] ?? slot.slot_type}

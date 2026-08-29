@@ -323,6 +323,14 @@ export interface RankingRow {
    *  "played no position", so a position filter excludes such a row rather
    *  than guessing one for it. */
   positions: string[];
+  /** The ONE position this player spent the most career minutes at, from the
+   *  model's `primary_position()`. This — NOT `positions` above — is what the
+   *  Rankings position tabs filter on: `positions` is an ELIGIBILITY set, and
+   *  filtering tabs on eligibility put Jordan, LeBron and Giannis in the PG
+   *  board. Exactly one value per player, so the five tabs partition the
+   *  board. `null`/absent only when the model cannot answer, in which case the
+   *  row is treated as unclassified rather than guessed into a tab. */
+  primary_position?: string | null;
 }
 
 export interface RankingRowPayload {
@@ -348,6 +356,7 @@ export interface RankingRowPayload {
   headshot_url?: string | null;
   season_in_progress?: boolean | null;
   positions?: string[] | null;
+  primary_position?: string | null;
 }
 
 /** Board-level provenance. Every field optional: a board that omits one simply

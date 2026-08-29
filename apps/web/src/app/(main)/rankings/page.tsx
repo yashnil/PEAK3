@@ -117,14 +117,24 @@ const WINDOW_OPTIONS: { id: "1y" | "2y" | "3y" | "5y"; label: string }[] = [
  * "All" plus the five canonical positions, in the order a basketball
  * reader expects them (backcourt out to the paint), not alphabetical.
  *
- * MULTI-POSITION PLAYERS MATCH EVERY POSITION THEY ARE ELIGIBLE AT. The
- * source is each row's `positions` array — the API's own structured
- * `career_positions()` set, the same minutes-gated career positions 82-0
- * and Three-Man Weave enforce placements with. So Michael Jordan (PG/SG/SF)
- * appears under PG, SG and SF; Jokic (C/PF) under both C and PF. Nothing
- * here parses a display string: substring-matching prose is how "PG" ends
- * up matching "PG-SG" but missing "G", and how a filter silently disagrees
- * with the game's own legality rules.
+ * THE TABS PARTITION THE BOARD: every player belongs to EXACTLY ONE of them.
+ * The source is each row's `primary_position` — the model's
+ * `primary_position()`, i.e. the single position the player logged the most
+ * career minutes at, behind the same games/minutes gate as everything else in
+ * that module.
+ *
+ * IT DELIBERATELY DOES NOT USE `positions`. That array is the ELIGIBILITY set
+ * (`career_positions()`) that 82-0 and Three-Man Weave enforce placements
+ * with, and it is correctly generous — LeBron really has logged real minutes
+ * at PG. Filtering tabs on it meant a player matched every position they were
+ * eligible at, which produced a "PG" board led by Michael Jordan, with LeBron
+ * James second and Giannis Antetokounmpo fifth. All true about eligibility;
+ * nonsense as a ranking of point guards. Having played point guard does not
+ * make you a point guard, and game placement flexibility must not decide tab
+ * membership.
+ *
+ * Nothing here parses a display string: substring-matching prose is how "PG"
+ * ends up matching "PG-SG" but missing "G".
  */
 const POSITION_OPTIONS: { id: RankingPositionFilter; label: string }[] = [
   { id: "all", label: "All" },
@@ -286,9 +296,14 @@ export default function RankingsPage() {
   // all of its sorting, ranking and pagination in memory, so a round trip
   // per position toggle would be slower AND would have to re-agree with the
   // sort state the client owns. The row already carries its canonical
-  // `positions`, which is more useful to the UI than a filter-only param.
+  // `primary_position`, which is more useful to the UI than a filter-only
+  // param.
+  //
+  // `=== position`, not `.includes(position)`: one player, one tab. A row
+  // whose primary position the model could not resolve matches no tab rather
+  // than being guessed into one — it is still present under "All".
   const rows = useMemo(
-    () => (position === "all" ? allRows : allRows.filter((r) => r.positions.includes(position))),
+    () => (position === "all" ? allRows : allRows.filter((r) => r.primary_position === position)),
     [allRows, position],
   );
   const showComponents = hasComponents(rows);

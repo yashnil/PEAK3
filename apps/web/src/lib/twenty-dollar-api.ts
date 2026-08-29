@@ -596,6 +596,24 @@ export function bidBlockedLabel(
   }
 }
 
+/** Is a blocked bid the player's PROBLEM, or just the state of the room?
+ *
+ *  `bidBlockedLabel` flattens both into one string, and the control painted
+ *  every one of them in `--v2-color-negative`. So "It is BackdoorCut's turn."
+ *  — the single most common message in the mode, and pure turn information —
+ *  rendered in the same red this product uses for errors, wrong answers and
+ *  lost matches, directly under a gold primary button. Waiting is not an
+ *  error, and red that fires on every opponent turn stops meaning anything
+ *  when a real refusal does arrive.
+ *
+ *  These three are the room telling you to wait. Everything else is the server
+ *  refusing a move you could otherwise make (not enough reserve, no legal
+ *  starting five, roster full, already passed), and stays red.
+ */
+export function isWaitingBlockedReason(reason: BidBlockedReason | null): boolean {
+  return reason === "not_your_turn" || reason === "no_candidate" || reason === "match_complete";
+}
+
 /** Slot order for display. The server publishes it; this is the fallback. */
 export const SLOT_ORDER = ["PG", "SG", "SF", "PF", "C"] as const;
 

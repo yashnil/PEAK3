@@ -5,14 +5,24 @@
  *
  *  1. The per-side TAG ("Your pick · correct" / "Not selected" / …) follows
  *     the player's actual click (`selectedPeakId`), never the outcome.
- *  2. The lane DOT FILL follows the LANE'S OWN DATA: on each lane, the side
- *     with the higher value is filled and the other is hollow — regardless of
- *     what the player picked, who won the matchup overall, or which side a
- *     name was dealt to. Equal-at-displayed-precision is a tie: both hollow.
+ *  2. The lane DOT COLOUR marks OWNERSHIP: the coloured dot belongs to the
+ *     OVERALL MATCHUP WINNER, and it is the same side on all five lanes.
+ *     Dot POSITION still encodes that side's value on the lane, so a lane the
+ *     winner loses shows the hollow dot further along the rule. An exact
+ *     overall tie (`score_gap === 0`) owns nothing: both dots hollow.
  *
- * Rule 2 supersedes an earlier pass in which fill tracked the player's pick.
- * That made the row answer a question the reader already knew the answer to,
- * and blanked the entire comparison on a timeout (no pick -> nothing filled).
+ * Rule 2 has superseded two earlier rules, both recorded because each was a
+ * real regression and neither should come back:
+ *
+ *   - Fill following the player's CLICK. Blanked the whole comparison on a
+ *     timeout, and reported the reader's own input back to them.
+ *   - Fill following the PER-LANE higher value. Self-consistent, but the dot's
+ *     position already encodes magnitude, so on a lane the overall winner lost
+ *     the loser's dot was both further right AND filled — reading as "that
+ *     side won" directly above an explanation sentence saying the opposite.
+ *
+ * The per-lane-higher tests from that second rule are therefore GONE rather
+ * than relaxed: they asserted the behaviour this pass removes.
  */
 import { describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -77,6 +87,7 @@ function window_(overrides: Partial<PeakWindow> = {}): PeakWindow {
 function answer(
   winningPeakId: "peak-left" | "peak-right",
   componentOverrides: Partial<AnswerResponse["component_comparison"]> = {},
+  scoreGap = 1.7,
 ): AnswerResponse {
   const winnerWindow = window_({
     id: winningPeakId,
@@ -94,7 +105,7 @@ function answer(
     arena_points_awarded: 0,
     updated_streak: 0,
     difficulty: "Comfortable",
-    score_gap: 1.7,
+    score_gap: scoreGap,
     winner: winnerWindow,
     loser: loserWindow,
     component_comparison: {
@@ -114,12 +125,14 @@ function renderReveal(opts: {
   winningPeakId: "peak-left" | "peak-right";
   selectedPeakId: string | null;
   componentOverrides?: Partial<AnswerResponse["component_comparison"]>;
+  /** 0 means the model separated nothing — an exact overall tie. */
+  scoreGap?: number;
 }) {
   render(
     <PeakDuelV2Reveal
       mode="daily"
       duel={duel()}
-      answer={answer(opts.winningPeakId, opts.componentOverrides)}
+      answer={answer(opts.winningPeakId, opts.componentOverrides, opts.scoreGap)}
       selectedPeakId={opts.selectedPeakId}
       currentIndex={0}
       totalDuels={10}
@@ -181,28 +194,36 @@ describe("PeakDuelV2Reveal — the pick TAG follows the player's actual click", 
   });
 });
 
-describe("PeakDuelV2Reveal — the lane DOT marks whoever is higher on that lane", () => {
-  it("left leads the lane: the filled dot sits at the left value, ahead of the hollow one", () => {
-    // winner is LEFT, so leftValue = comp.winner = 36.4, right = 30.1.
+describe("PeakDuelV2Reveal — the lane DOT COLOUR marks the overall matchup winner", () => {
+  const LANES = [
+    "Statistical Impact",
+    "Traditional Production",
+    "Individual Recognition",
+    "Playoff Rate Impact",
+    "Team Result",
+  ];
+
+  it("winner on the LEFT: the filled dot is the left value on every lane", () => {
+    // Winner is LEFT, and leads all five lanes in the default fixture, so the
+    // filled dot is also the further one here. The lane below is what proves
+    // colour is ownership rather than magnitude.
     renderReveal({ winningPeakId: "peak-left", selectedPeakId: "peak-left" });
-    const d = dots("Statistical Impact");
-    expect(d.filledCount).toBe(1);
-    expect(d.hollowCount).toBe(1);
-    expect(d.filledPct as number).toBeGreaterThan(d.hollowPct as number);
+    for (const label of LANES) {
+      const d = dots(label);
+      expect(d.filledCount, label).toBe(1);
+      expect(d.hollowCount, label).toBe(1);
+    }
   });
 
-  it("right leads the lane: the filled dot moves to the right value", () => {
-    // winner is RIGHT, so leftValue = comp.loser = 30.1, right = 36.4.
-    renderReveal({ winningPeakId: "peak-right", selectedPeakId: "peak-right" });
-    const d = dots("Statistical Impact");
-    expect(d.filledCount).toBe(1);
-    expect(d.filledPct as number).toBeGreaterThan(d.hollowPct as number);
-  });
-
-  it("THE OVERALL LOSER LEADING A LANE still gets that lane's filled dot", () => {
-    // The brief's worked example. The server says LEFT won the matchup, but
-    // on Statistical Impact the RIGHT (losing) player is ahead: 18.0 vs 15.0.
-    // The lane must report the lane, not the matchup.
+  it("THE OWNERSHIP RULE: on a lane the overall winner LOSES, the filled dot is the NEARER one", () => {
+    // The regression this rule exists for. LEFT won the matchup; on
+    // Statistical Impact the RIGHT (losing) player leads 18.0 to 15.0.
+    //
+    // Position: the right/loser dot is further along the rule (18.0 > 15.0).
+    // Colour:   the filled dot still belongs to LEFT, the matchup winner.
+    // So the filled dot must sit BEHIND the hollow one — the exact inversion
+    // the old per-lane rule could never produce, and the reason a reader could
+    // previously conclude the loser had won every component.
     renderReveal({
       winningPeakId: "peak-left",
       selectedPeakId: "peak-left",
@@ -210,21 +231,40 @@ describe("PeakDuelV2Reveal — the lane DOT marks whoever is higher on that lane
         statistical_impact: { winner: 15.0, loser: 18.0, winner_leads: false },
       },
     });
-    const si = lane("Statistical Impact");
-    const filled = si.querySelector(
-      'span[style*="background: var(--v2-color-comp"]',
-    ) as HTMLElement;
-    const hollow = si.querySelector('span[style*="border: 1.5px"]') as HTMLElement;
-    // left = 15.0 (the overall WINNER), right = 18.0 (the overall LOSER).
-    // Higher value sits further along the rule, and it must be the filled one.
-    expect(parseFloat(filled.style.left)).toBeGreaterThan(parseFloat(hollow.style.left));
+    const si = dots("Statistical Impact");
+    expect(si.filledCount).toBe(1);
+    expect(si.filledPct as number).toBeLessThan(si.hollowPct as number);
 
-    // Every other lane, where the overall winner does lead, is unaffected.
+    // Every other lane, where the winner does lead, keeps the filled dot ahead
+    // — proving position still tracks magnitude independently of colour.
     const tp = dots("Traditional Production");
     expect(tp.filledPct as number).toBeGreaterThan(tp.hollowPct as number);
   });
 
-  it("dot fill does not change when the player's selection changes", () => {
+  it("the SAME side is coloured on all five lanes, whatever each lane says", () => {
+    // Two lanes flipped to the loser. Ownership is a property of the matchup,
+    // so the coloured side must not change lane to lane.
+    renderReveal({
+      winningPeakId: "peak-right",
+      selectedPeakId: "peak-right",
+      componentOverrides: {
+        statistical_impact: { winner: 15.0, loser: 18.0, winner_leads: false },
+        team_achievement: { winner: 1.0, loser: 2.9, winner_leads: false },
+      },
+    });
+    // Winner is RIGHT, so on every lane the coloured dot is the right value.
+    // On the two flipped lanes the right value is the SMALLER one, so its dot
+    // is nearer; on the rest it is larger, so further. Colour never moves.
+    for (const label of LANES) expect(dots(label).filledCount, label).toBe(1);
+    expect(dots("Statistical Impact").filledPct as number).toBeLessThan(
+      dots("Statistical Impact").hollowPct as number,
+    );
+    expect(dots("Traditional Production").filledPct as number).toBeGreaterThan(
+      dots("Traditional Production").hollowPct as number,
+    );
+  });
+
+  it("dot colour does not change when the player's selection changes", () => {
     renderReveal({ winningPeakId: "peak-left", selectedPeakId: "peak-left" });
     const picked = dots("Statistical Impact");
     cleanup();
@@ -236,21 +276,25 @@ describe("PeakDuelV2Reveal — the lane DOT marks whoever is higher on that lane
     expect(other.filledCount).toBe(picked.filledCount);
   });
 
-  it("a timeout with no pick still shows a full comparison — every lane keeps its filled dot", () => {
-    // The old rule blanked all five lanes here (see design-review/05).
+  it("a timeout with no pick still shows a full comparison — every lane keeps its coloured dot", () => {
+    // Ownership comes from the matchup, not the click, so a no-pick reveal is
+    // still fully legible. (The click-based rule blanked all five lanes here.)
     renderReveal({ winningPeakId: "peak-left", selectedPeakId: null });
-    for (const label of [
-      "Statistical Impact",
-      "Traditional Production",
-      "Individual Recognition",
-      "Playoff Rate Impact",
-      "Team Result",
-    ]) {
-      expect(dots(label).filledCount).toBe(1);
+    for (const label of LANES) expect(dots(label).filledCount, label).toBe(1);
+  });
+
+  it("an EXACT OVERALL TIE owns nothing — every lane renders neutral", () => {
+    renderReveal({ winningPeakId: "peak-left", selectedPeakId: "peak-left", scoreGap: 0 });
+    for (const label of LANES) {
+      const d = dots(label);
+      expect(d.filledCount, label).toBe(0);
+      expect(d.hollowCount, label).toBe(2);
     }
   });
 
-  it("an exact tie at the displayed precision renders neutral — neither side promoted", () => {
+  it("a per-lane tie is NOT an ownership tie — the matchup winner still owns the colour", () => {
+    // Under the superseded per-lane rule this lane went neutral. Ownership is
+    // a matchup-level fact, so an equal lane changes nothing about colour.
     renderReveal({
       winningPeakId: "peak-left",
       selectedPeakId: "peak-left",
@@ -258,23 +302,7 @@ describe("PeakDuelV2Reveal — the lane DOT marks whoever is higher on that lane
         traditional_production: { winner: 5.7, loser: 5.7, winner_leads: true },
       },
     });
-    const tied = dots("Traditional Production");
-    expect(tied.filledCount).toBe(0);
-    expect(tied.hollowCount).toBe(2);
-    // A tie in one lane does not disturb the others.
+    expect(dots("Traditional Production").filledCount).toBe(1);
     expect(dots("Statistical Impact").filledCount).toBe(1);
-  });
-
-  it("values that differ only below the printed precision are treated as a tie", () => {
-    // Both print "5.7"; promoting either would claim something the numbers
-    // beside the dots do not show.
-    renderReveal({
-      winningPeakId: "peak-left",
-      selectedPeakId: "peak-left",
-      componentOverrides: {
-        traditional_production: { winner: 5.72, loser: 5.68, winner_leads: true },
-      },
-    });
-    expect(dots("Traditional Production").filledCount).toBe(0);
   });
 });

@@ -39,7 +39,7 @@ if str(_repo_root) not in sys.path:
 from app.core.config import settings  # noqa: E402
 from nba_peak import formula_version  # noqa: E402
 from nba_peak.perfect_season.assets import get_player_headshot_url  # noqa: E402
-from nba_peak.perfect_season.career_positions import career_positions
+from nba_peak.perfect_season.career_positions import career_positions, primary_position
 
 router = APIRouter()
 
@@ -152,10 +152,31 @@ class PeakRow(BaseModel):
     # the PF filter here by construction rather than by coincidence.
     #
     # An empty list means NO INFORMATION (an unknown slug, or a checkout
-    # without the optional minutes parquet) -- never "played nowhere". The
-    # position filter therefore excludes such a row rather than guessing a
-    # position for it.
+    # without the optional minutes parquet) -- never "played nowhere".
+    #
+    # THIS IS ELIGIBILITY, AND IT IS NO LONGER WHAT THE RANKINGS TABS FILTER
+    # ON. It stays on the row because it is genuinely useful (the explain
+    # modal, and any consumer asking "where could this player line up"), and
+    # because 82-0 / Three-Man Weave placement legality is defined by exactly
+    # this set. See `primary_position` below for what the tabs use and why.
     positions: list[str] = []
+    # ------------------------------------------------- primary position ---
+    # The ONE position this player spent the most career minutes at, from
+    # `nba_peak.perfect_season.career_positions.primary_position()`.
+    #
+    # The position tabs used to filter on `positions` above, i.e. on
+    # eligibility, and a player matched every tab they were eligible for.
+    # That is correct for a court and wrong for a leaderboard: it produced a
+    # "PG" board led by Michael Jordan, LeBron James second and Giannis
+    # Antetokounmpo fifth. Each is a true eligibility statement and none of
+    # them is a point guard.
+    #
+    # Exactly one value per player, so the five tabs PARTITION the board:
+    # every row appears under precisely one of them, and their union is "All".
+    # `None` only when the committed source cannot answer (measured: 0 of the
+    # 250 ranked players, but the field stays Optional so an incomplete
+    # checkout degrades to "unfiltered" rather than 500ing).
+    primary_position: Optional[str] = None
     # ------------------------------------------------------------------ 9C ---
     # The shared two-board rankings contract. Every field is Optional with a
     # default so an OLDER generated artifact (one built before
@@ -268,7 +289,14 @@ async def get_peaks(
     # free after that) -- cheap enough not to justify regenerating and
     # re-committing every rankings artifact to carry a field the model can
     # already answer for.
-    rows = [dict(r, positions=sorted(career_positions(r["player_slug"]))) for r in rows]
+    rows = [
+        dict(
+            r,
+            positions=sorted(career_positions(r["player_slug"])),
+            primary_position=primary_position(r["player_slug"]),
+        )
+        for r in rows
+    ]
 
     # Phase 6F Part C: real headshot URLs only behind the explicit,
     # default-off flag -- see nba_peak.perfect_season.assets module

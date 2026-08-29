@@ -393,21 +393,28 @@ describe("submitting freezes the clock (S20-08), end to end", () => {
 });
 
 // ---------------------------------------------------------------------------
-// PEAK3 Pass 1 — a bot's reply is polled for as soon as it is likely due,
-// rather than waiting on whatever is left of the fixed 2s interval. Handing
-// the turn to a seat other than the human's own arms one extra poll timed
-// just past `BOT_THINK_MS` (1.2s server-side, `apps/api/.../bots.py`).
+// PEAK3 — a bot's reply is polled for as soon as it is likely due, rather than
+// waiting on whatever is left of the fixed 2s interval. Handing the turn to a
+// seat other than the human's own arms ONE extra poll timed just past the
+// server's minimum deliberation.
 //
-// MARGINS ARE DELIBERATELY WIDE, NOT TIGHT TO THE 1400ms MARK. The suite runs
-// under `shouldAdvanceTime: true`, which lets real wall-clock jitter shift a
-// fake-timer boundary by tens of milliseconds -- a check pinned close to
-// 1400ms flaked under that jitter in practice. What actually matters to a
-// player is "well under the fixed 2s interval", not the exact millisecond, so
-// the checkpoints below sit far enough from every real boundary (~1400ms
-// follow-up, ~2000ms interval) to be robust to that jitter either way.
+// RETIMED WITH THE SERVER. The Showdown bot now deliberates for a seeded
+// 2.6-4.2s (`nba_peak.twenty_dollar.config.bot_think_seconds`) instead of
+// falling back to the platform's flat 1.2s default. 1.2s sat BELOW the room's
+// own 2000ms poll, which is why the bot's raise used to land in the same poll
+// that opened its turn and the opponent was never seen thinking. The follow-up
+// poll therefore moved from ~1400ms to ~2800ms; left where it was it would now
+// fire before the earliest possible reply and read nothing.
+//
+// WHAT THIS PROVES, given the interval ALSO fires at 2000ms: by ~3200ms an
+// armed follow-up produces a SECOND read (interval at 2000 + follow-up at
+// 2800). Without it there would be exactly one. Counting reads rather than
+// timing a single one is what keeps this robust — the suite runs under
+// `shouldAdvanceTime: true`, where wall-clock jitter shifts a fake-timer
+// boundary by tens of milliseconds and a check pinned to an exact mark flakes.
 // ---------------------------------------------------------------------------
 describe("a bot's move is polled for without waiting out the fixed interval", () => {
-  it("arms an extra poll when the turn passes to the bot, well inside the ordinary 2s interval", async () => {
+  it("arms an extra poll when the turn passes to the bot, on top of the ordinary interval", async () => {
     await openRoom();
     getMatch.mockClear();
     submitCommand.mockResolvedValue({
@@ -431,12 +438,20 @@ describe("a bot's move is polled for without waiting out the fixed interval", ()
     });
     expect(getMatch).not.toHaveBeenCalled();
 
-    // Past the follow-up's ~1400ms mark with real margin either side; a poll
-    // must have happened by here, well short of a full fresh 2000ms wait.
+    // Past the fixed interval (~2000ms) but short of the follow-up (~2800ms):
+    // exactly one read so far, from the interval alone.
     await act(async () => {
-      vi.advanceTimersByTime(1700);
+      vi.advanceTimersByTime(2200);
     });
-    expect(getMatch).toHaveBeenCalled();
+    expect(getMatch).toHaveBeenCalledTimes(1);
+
+    // Past the follow-up and still short of the interval's second tick
+    // (~4000ms): the extra read has landed. This is the assertion that would
+    // fail if the follow-up were dropped or left at its old 1400ms timing.
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(getMatch).toHaveBeenCalledTimes(2);
   });
 
   it("does not poll again immediately when the turn stays with the human", async () => {

@@ -1043,3 +1043,57 @@
     transition: none;
   }
 }
+
+/* ---- Shared mode cell: the two additions `/arena` needs ------------------
+   The catalogue reuses `.v2-arena-mode` verbatim (see `ModeSlateCell`); these
+   are the only two parts the homepage never needed. Both are deliberately
+   type-only — no second border, no nested panel — because the cell already
+   carries the card, and rule 22 rules out stacking rectangles inside it. */
+
+/* The ONE flagship marker on a page. Gold is scarce here on purpose: it is the
+   same accent the primary action uses, and giving it to a second cell would
+   make neither read as the flagship. */
+.v2-arena-mode-flagship {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-color-accent);
+}
+
+/* Names the destination inside the cell rather than as a right-aligned link
+   far from the mode it belongs to — which is how the old catalogue rows put
+   "Start a run" at the opposite edge of the screen from "RUN THE TABLE". */
+.v2-arena-mode-cta {
+  margin-top: auto;
+  padding-top: 0.6rem;
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--v2-color-accent);
+}
+
+/* A featured cell is lifted by GROUND, not by a heavier border. */
+.v2-arena-mode[data-featured="true"] {
+  background: var(--v2-bg-surface);
+}
+
+/* `/arena` groups modes in ones and twos rather than the homepage's three-up
+   slate, so the shared grid takes a column count from the group instead of
+   hard-coding 3. Without this a two-mode group stretched each cell across a
+   third of the page and left a third of the row empty. */
+.v2-arena-modes--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.v2-arena-modes--pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 640px) {
+  .v2-arena-modes--pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

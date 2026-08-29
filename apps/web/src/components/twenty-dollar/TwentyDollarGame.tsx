@@ -78,15 +78,31 @@ import PeakV2ShowdownResult from "@/components/v2/showdown/PeakV2ShowdownResult"
  * `POLL_MS` cadence alone, a bot move that becomes due one tick late can sit
  * unseen for up to another full interval on top of the think time. Every
  * submit that hands the turn to a seat other than the player's own now also
- * arms one extra one-shot poll timed just past `BOT_THINK_MS`, so the
+ * arms one extra one-shot poll timed just past `BOT_THINK_FLOOR_MS`, so the
  * player's own action is what schedules the read most likely to catch the
  * reply, instead of leaving it to chance against a clock that was already
  * running before the click.
  */
 
 const POLL_MS = 2000;
-const BOT_THINK_MS = 1200;
-const BOT_FOLLOW_UP_POLL_MS = BOT_THINK_MS + 200;
+
+/** MIRRORS `nba_peak.twenty_dollar.config.BOT_THINK_SECONDS_MIN`, and is NOT
+ *  authoritative for anything.
+ *
+ *  The server draws a per-turn deliberation of 2.6-4.2s from the match seed and
+ *  enforces it against the turn's stored `opened_at`. This constant exists only
+ *  to time the one extra READ below; nothing here gates rendering. A view that
+ *  arrives sooner than this is applied the instant it lands (`applyView` is
+ *  ordered by `state_version`, never by a timer), so the client can never sit
+ *  on an action the server has already committed.
+ *
+ *  It was 1200ms, mirroring the platform default the mode used to fall back
+ *  to. That default sat BELOW `POLL_MS`, which is exactly why the bot's move
+ *  used to arrive in the same poll that opened its turn and no opponent was
+ *  ever seen thinking. Left at 1200 it would now fire before the earliest
+ *  possible reply and waste the request. */
+const BOT_THINK_FLOOR_MS = 2600;
+const BOT_FOLLOW_UP_POLL_MS = BOT_THINK_FLOOR_MS + 200;
 
 export default function TwentyDollarGame({ matchId }: { matchId: string }) {
   const router = useRouter();
@@ -248,10 +264,10 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
         applyView(result.match);
         // THE TURN JUST LEFT THE HUMAN'S HANDS. If it is now on the clock for
         // anyone else — bot or opponent — arm one extra poll timed just past
-        // `BOT_THINK_MS` so a bot's reply is read as soon as it is likely to
-        // be due, rather than waiting on whatever is left of the fixed
-        // interval. Harmless against a human opponent: the poll simply finds
-        // them still deciding and the normal interval carries on.
+        // `BOT_THINK_FLOOR_MS` so a bot's reply is read as soon as it is
+        // likely to be due, rather than waiting on whatever is left of the
+        // fixed interval. Harmless against a human opponent: the poll simply
+        // finds them still deciding and the normal interval carries on.
         if (botFollowUpTimer.current !== null) {
           window.clearTimeout(botFollowUpTimer.current);
           botFollowUpTimer.current = null;

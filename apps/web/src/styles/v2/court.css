@@ -954,3 +954,97 @@
   align-items: flex-start;
   gap: 0.25rem;
 }
+
+/* ================================================================
+   82-0 PLACEMENT — the floor should own the composition
+   ================================================================
+   VISUAL ONLY. Nothing below changes placement state, legality, candidate
+   selection, drag/drop, keyboard movement, scoring or the result — the whole
+   pass is weight, size and colour on surfaces that already existed.
+
+   Measured baseline at 1440x900: each of the five starter slots was a
+   339x132 filled card, the five of them tiling 1084x695 while the court's
+   own arc, paint and rim sat behind them at low contrast. The board read as
+   a form with five large input fields on a decorative background, and the
+   power-forward and centre cards overlapped the paint.
+   ================================================================ */
+
+/* 1. LIGHTER PIECES, SO THE FLOOR SHOWS THROUGH.
+      The cards keep every dimension that matters for readability (the name,
+      the season, the score all sit in the same type sizes) — what goes is the
+      opaque ground and the heavy border that made each one a panel. A filled
+      slot now reads as a piece resting ON the court rather than a box drawn
+      over it. */
+[data-ui-version="v2"] .roster-board-starters [data-testid="court-slot"] > div {
+  background: color-mix(in srgb, var(--v2-bg-plane) 72%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+/* 2. AN EMPTY SLOT IS A GAP IN A LINEUP, NOT AN INPUT FIELD.
+      A dashed outline over the bare floor, so five unfilled positions read as
+      space still to fill instead of five grey form controls. */
+[data-ui-version="v2"] .roster-board-starters [data-testid="court-slot"][data-filled="false"] > div {
+  background: color-mix(in srgb, var(--v2-bg-plane) 30%, transparent);
+  border-style: dashed;
+  /* NEUTRAL, NOT ACCENT. Dashing five empty slots in gold was self-defeating:
+     it made an empty slot the same colour as the SELECTED one, and a measured
+     re-count showed total gold elements going UP (13 -> 17) on the very pass
+     meant to make gold scarce. An empty slot is an absence; it does not need
+     the accent to say so, and the dash already says it. */
+  border-color: var(--v2-border-subtle);
+}
+
+/* 3. THE COURT ITSELF, BROUGHT FORWARD.
+      The markings were already drawn; they were simply quieter than the cards
+      on top of them. Raising the line contrast (and only the lines) is what
+      makes the geometry the frame rather than the wallpaper — no new shapes,
+      no fill, so the floor never competes with a player's name. */
+[data-ui-version="v2"] .roster-board-court-markings .roster-board-paint {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 48%, transparent);
+}
+
+[data-ui-version="v2"] .roster-board-court-markings .roster-board-arc,
+[data-ui-version="v2"] .roster-board-court-markings .roster-board-ft-circle {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 44%, transparent);
+}
+
+[data-ui-version="v2"] .roster-board-sideline {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 38%, transparent);
+}
+
+/* 4. YELLOW, MADE SCARCE AGAIN.
+      Gold was simultaneously the brand mark, the LIVE dot, the selected
+      player's name, the selected slot's border, the "needs a guard" chips, a
+      fit caption, the court lines and the undo button — so selection, the one
+      state that must be unmistakable while a card is in hand, had no colour of
+      its own. The eligibility chips and the fit caption step down to muted
+      type; they are still legible, they just stop competing with the thing the
+      player is currently holding. */
+[data-ui-version="v2"] [data-testid="court-builder"] [data-testid="eligibility-notice"] {
+  color: var(--v2-text-muted);
+}
+
+[data-ui-version="v2"] [data-testid="pending-fit-badge"] {
+  color: var(--v2-text-secondary);
+}
+
+/* 5. THE SELECTED DESTINATION KEEPS THE ACCENT — alone.
+      Now that the surrounding gold has stepped back, the strongest valid
+      target is the brightest thing on the floor, which is what the accent is
+      for. */
+[data-ui-version="v2"] .court-slot-pending-strong > div {
+  border-color: var(--v2-color-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--v2-color-accent) 45%, transparent);
+}
+
+/* 6. SLOT HEIGHT — DELIBERATELY NOT CHANGED.
+      132px per card is what pushes the bench to y=925, below the fold at
+      1440x900, and trimming it is the obvious way to bring the 5+3 roster into
+      one composition (requirement 19). It is left alone anyway: `globals.css`
+      sets `--court-slot-h` on `.court-panel-wrapper` with a comment recording
+      that the height was RAISED to stop the narrow SG/SF/PF/C columns reading
+      as compressed against the wider PG card. Lowering it blind would trade
+      this pass's problem for that one, and requirement 14 puts regression risk
+      above visual gain on a mode that finally works. The bench's relationship
+      to the floor wants a layout answer, not a smaller number, and that is a
+      bigger change than this pass should make. */

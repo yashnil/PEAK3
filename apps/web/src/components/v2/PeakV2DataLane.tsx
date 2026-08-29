@@ -61,7 +61,13 @@ export interface PeakV2DataLaneProps {
    *  caller designates" — never an outcome marker. `"none"` renders both
    *  dots hollow, for use before any side has been chosen. Defaults to
    *  `"left"`, matching this component's original fixed behavior, so
-   *  existing callers are unaffected. Ignored when `fill="higher"`. */
+   *  existing callers are unaffected. Ignored when `fill="higher"`.
+   *
+   *  "The side the caller designates" can legitimately be an outcome, as long
+   *  as it is a CONSTANT one — Peak Duel's reveal passes the overall matchup
+   *  winner here, the same side on all five lanes. What it must never be is a
+   *  PER-LANE outcome; that is what `fill="higher"` is for, and why the two
+   *  are separate props. */
   pickedSide?: "left" | "right" | "none";
   /** `variant="line"` only — WHAT a filled dot means on this lane.
    *
@@ -75,7 +81,15 @@ export interface PeakV2DataLaneProps {
    *  independent of selection, of the overall winner, and of which side a
    *  value happens to be printed on. Values that are equal at the
    *  precision actually shown to the reader are a TIE and render neutral
-   *  (both hollow) rather than silently promoting one side. */
+   *  (both hollow) rather than silently promoting one side.
+   *
+   *  NO CURRENT PRODUCT CALLER, and that is deliberate rather than an
+   *  oversight. Peak Duel's reveal used to be the one caller and has moved
+   *  back to `"role"`: dot POSITION on these lanes already encodes magnitude,
+   *  so filling by magnitude too made the two channels redundant and, on a
+   *  lane the overall winner lost, actively misleading — the loser's larger
+   *  value sat further right AND filled, reading as "that side won". Keep this
+   *  mode only for a surface where the dot's position is NOT magnitude. */
   fill?: "role" | "higher";
   /** `variant="line"` only — secondary outcome text under each side, e.g.
    *  "Lane won +5.1" / "Wall +4.4" / "Closest". Never affects which dot is

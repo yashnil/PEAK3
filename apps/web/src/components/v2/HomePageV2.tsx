@@ -132,10 +132,28 @@ const COMPONENT_ORDER: RankingComponentKey[] = [
  *  badge. Nothing else earns a chip here, and the "Play →" affordance is
  *  dropped: the whole tile is the link, and seven identical gold "Play"
  *  labels were repetition, not guidance. */
+/**
+ * ONE MODE CELL, SHARED BY THE HOMEPAGE AND `/arena`.
+ *
+ * Exported and reused rather than reimplemented, because the two pages had
+ * drifted into different design systems answering the same question. The
+ * homepage showed modes as bordered cells with a display-serif flagship;
+ * `/arena` showed the same six modes as hairline-separated rows of small text
+ * with a right-aligned link — so pressing "Start a run" on a page full of
+ * cards landed the player on what read as a documentation index. Same content,
+ * two visual languages, and the destination was the weaker one.
+ *
+ * The two pages still ASK different questions — the homepage answers "what
+ * should I play now?", `/arena` answers "what games exist?" — so they differ
+ * in grouping, ordering and density, not in what a mode looks like.
+ */
 export function ModeSlateCell({
   mode,
   live,
   testId,
+  featured,
+  cta,
+  descriptionSource = "blurb",
 }: {
   mode: HomePageV2Mode;
   /** Marks a mode with live opponents — a real, changing property. */
@@ -144,18 +162,44 @@ export function ModeSlateCell({
    *  whose e2e-observable id predates `MODE_COPY`'s id (e.g. Peak Duel
    *  Daily's card kept its long-standing `home-daily-duel-card` name). */
   testId?: string;
+  /** The one gold flagship treatment on a page: `data-featured="true"` plus a
+   *  player-facing "Flagship" badge. Styling alone is deliberately not enough
+   *  — `play-routing.spec.ts`'s `assertSoleFeaturedCard` requires the badge to
+   *  exist and to be the ONLY one on the page, so a second featured cell is a
+   *  test failure rather than a quiet visual tie. */
+  featured?: boolean;
+  /** Names the destination in the link's own text ("Build a Perfect Season").
+   *  Real link content, not decoration: it is what a screen-reader user hears
+   *  and what the routing specs match on by accessible name. */
+  cta?: string;
+  /** `/arena` is a catalogue, so it wants the fuller `description`; the
+   *  homepage is a launcher and wants the one-line `blurb`. */
+  descriptionSource?: "blurb" | "description";
 }) {
   return (
     <Link
       href={mode.href}
       className="v2-arena-mode"
       data-testid={testId ?? (mode.id ? `home-${mode.id}-card` : undefined)}
+      data-featured={featured ? "true" : undefined}
     >
       <span className="v2-arena-mode-head">
+        {featured ? (
+          <span className="v2-arena-mode-flagship" data-testid="flagship-badge">
+            Flagship
+          </span>
+        ) : null}
         <span className="v2-arena-mode-title">{mode.title}</span>
         {live ? <span className="v2-arena-mode-live">Live</span> : null}
       </span>
-      <span className="v2-arena-mode-desc">{mode.blurb ?? mode.description}</span>
+      <span className="v2-arena-mode-desc">
+        {descriptionSource === "description" ? mode.description : mode.blurb ?? mode.description}
+      </span>
+      {cta ? (
+        <span className="v2-arena-mode-cta">
+          {cta} <span aria-hidden="true">→</span>
+        </span>
+      ) : null}
     </Link>
   );
 }
