@@ -31,6 +31,7 @@ verified; do not treat "the program" as done until
 | `49ad3ff` | **Batch 3**: RankedScreen + ranked leaderboard (see below) |
 | `6635f35` | **Batch 4**: profile + progress + history (see below) |
 | `bd704a7` | **Batch 5**: `/players/[slug]` PEAK3-native identity (see below) |
+| `0441872` | **Batch 6**: H2H challenge family (see below) |
 
 ## Baseline (Phase 3, all green before any UI edit — see VISUAL_POLISH_PLAN.md for full detail)
 
@@ -410,21 +411,94 @@ which truncation would have shown as `95.1`), confirmed all 4 windows'
 board-labels are now individually correct, confirmed leaderboard links,
 back link, not-found state, keyboard focus, and zero console errors.
 
+## Batch 6 — H2H challenge family (DONE, verified, committed as `0441872`)
+
+**Scope, confirmed by reading every file:** `MatchScreen`, `ChallengeCreator`,
+`HeadToHeadHistory`, `InviteLanding`, `SideBySideReceipt`
+(`components/head-to-head/*.tsx`) and the 3 thin `page.tsx` wrappers under
+`/arena/run-the-table/h2h`. Highest interaction-risk batch so far — the
+user explicitly flagged this going in, and the discipline held.
+
+**State machine mapped before any edit** (full detail in
+`ROUTE_BEHAVIOR_MATRIX.md`): create → invite → accept → waiting/joined →
+submitted-awaiting-opponent → settled (side-by-side receipt) → optional
+rematch, plus history and every error/expired/invalid/not-found branch.
+Nothing invented — e.g. confirmed `opponent_status` is the literal string
+`"hidden"` until both sides finish (spoiler safety is the server's, not
+the client's), and `InviteDescriptor` structurally cannot carry a spoiler
+since it has no seed/roster/score fields at all.
+
+**What changed:** all three pages now use `PeakV2Shell` + kicker/title;
+every status label (Submitted/In progress/Hidden until.../Won/Lost/Draw/
+Waiting for an opponent/Both players in/Finished) now uses the existing
+`StatusChip` component, tone-mapped (positive/negative/neutral/muted/
+accent) — color is never the only signal, every chip carries text; every
+button/link-as-button now uses `PeakV2PrimaryAction`/`SecondaryAction`;
+the settled-match outcome sentence now uses `PeakV2ResultHeadline` (same
+serif "moment" treatment as Ranked's result screen — reusing the
+component, not inventing new result vocabulary; the sentence text itself,
+e.g. "Ada beat Bo.", is unchanged); tie-breaker values, invite expiry
+dates, and generated invite/rematch links now use `.score-number`.
+
+**Real, confirmed-by-reading fix, not cosmetic:** raw `opacity-40/50/60/
+70` utilities throughout all 5 components (the exact failure class
+Batch 5's axe pass caught — opacity stacked on already-dim text pushing
+effective contrast below WCAG AA) replaced with `--text-secondary`/
+`--text-muted` tokens. `SideBySideReceipt.tsx` had already partially
+fixed this in an earlier pass (visible in its own code comments); the
+remaining instances (table header, index numbers, not-consulted rows,
+footnote) are fixed now too.
+
+**Tests:** `MatchScreen` and `ChallengeCreator` had ZERO coverage before
+(confirmed — the two components the user's brief independently flagged
+as highest-risk). Added 11 tests to `head-to-head.test.tsx` (6 + 5) and a
+new `head-to-head.spec.ts` (5 e2e tests) covering every state reachable
+without a second account. All 21 pre-existing tests in the file still
+pass unmodified in behavior.
+
+**Independent QA reached FULL SETTLEMENT** (including rematch) via a real
+two-account flow — the deepest verification of any batch so far. Zero
+spoiler leaks, zero regressions, confirmed via network-level response
+inspection (not text-scraping) that `opponent.result` never appears while
+`both_complete` is false. Confirmed copy-link, refresh-survives-reload,
+keyboard focus, and clean console throughout. **Notable QA process
+lesson: the existing `capture-daily-rtt-pvp-shots.ts` tool (a prior
+session's screenshot tool with a full two-account RTT+H2H driver) was
+found to be STALE** — missing the `rtt-boss-intro` surface and a required
+reveal-continue click, and still referencing a removed button — so QA
+wrote a fresh minimal driver instead of trusting it wholesale. Two
+non-blocking product notes surfaced for future reference (not bugs, not
+fixed): `RunTheTableGame.tsx` only reads `?start=`, never `?run=`, so
+MatchScreen's "Continue your run" link param is cosmetic; and
+`rttFetch` now auto-attaches the bearer token, so the capture tool's
+"guest-run-then-claim" workaround is no longer necessary.
+
+**Visual evaluator:** ship-as-is, HEAD verified, with one minor non-
+blocking note (the signed-in-no-run hub state is a bit sparse at 1440px —
+an edge/transient state, not a primary destination) and an honest
+disclosure that the deeper match states (waiting/joined/settled) could
+only be judged from source code, since no screenshots existed for those
+at evaluation time (QA's real-browser verification covered them instead).
+
+**Verification:** typecheck clean, lint 0 warnings, 2281/2281 vitest (101
+files, +11 tests), production build (hub 189kB, match 189kB, invite
+188kB — no prior baseline existed for these routes), `accessibility.spec.ts`
+15/15 + `play-routing.spec.ts` 35/35 + `head-to-head.spec.ts` 5/5.
+
 ## What's next — the user's explicit requested sequence for the "legacy surface" batches
 
 All of these are confirmed zero-`PeakV2*`-composition by the route matrix.
 Per the user's explicit instruction: **"legacy surface" is not permission to
 modernize product behavior** — preserve exactly what each does first, then
-improve how clearly/consistently it presents that, same as batches 1-5.
+improve how clearly/consistently it presents that, same as batches 1-6.
 Take an actual screenshot before assuming a gap's size in any of these —
 the ranked/daily-grid batch already proved the "0 imports" grep signal
 alone overstates severity (it can mean "sparse but fine" as easily as
 "actually broken").
 
-1. **H2H family** (`MatchScreen`, `ChallengeCreator`, `HeadToHeadHistory`,
-   `InviteLanding`)
-2. **Old draft-game routes** (`/arena/daily/*`, `/arena/practice/*`,
-   `/arena/labs` — `DraftScreen`)
+1. **Old draft-game routes** (`/arena/daily/*`, `/arena/practice/*`,
+   `/arena/labs` — `DraftScreen`) — the last item in the user's original
+   requested sequence.
 
 The user said to adjust this ordering if the actual route matrix/dependency
 graph makes another grouping safer — re-check `ROUTE_BEHAVIOR_MATRIX.md`'s
