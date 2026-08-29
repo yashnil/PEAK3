@@ -57,7 +57,17 @@ export default function ActionToast({ message, actionLabel, onAction, onDismiss 
           onDismiss();
         }}
         className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full px-3 font-bold uppercase tracking-wide focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-        style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+        /* OUTLINE, NOT FILL. A solid gold pill floating over the court was
+           the single brightest object on the screen during placement — for
+           UNDO, which is housekeeping, while the player's actual selection and
+           its best destination were competing for the same colour underneath
+           it. It keeps its full 44x44 target, its label and its focus ring;
+           only the fill goes. */
+        style={{
+          background: "transparent",
+          color: "var(--peak-accent-text, #f5c842)",
+          border: "1px solid var(--peak-accent)",
+        }}
       >
         {actionLabel}
       </button>

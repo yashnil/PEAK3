@@ -74,11 +74,22 @@ export default function LiveBuildPanel({ liveBuild }: Props) {
               {tag}
             </span>
           ))}
+          {/* A NEED IS PASSIVE STATUS, NOT A DESTINATION. These sat in the
+              accent, so "needs a guard" carried the same colour as the player
+              currently in hand and the slot they were about to be placed in —
+              three unrelated things all shouting at once during placement. The
+              chip still reads as a gap to fill (its own ground, uppercase, and
+              a dotted outline that the identity tags beside it do not have),
+              it just stops competing with the selection for the eye. */}
           {needs.map((n) => (
             <span
               key={n}
               className="text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5"
-              style={{ color: "var(--peak-accent-text, #f5c842)", background: "var(--peak-accent-bg)" }}
+              style={{
+                color: "var(--text-secondary)",
+                background: "var(--pk-surface-inset, var(--bg-elevated))",
+                border: "1px dotted var(--text-muted)",
+              }}
             >
               {n}
             </span>

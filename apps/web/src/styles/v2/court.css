@@ -1048,3 +1048,69 @@
       above visual gain on a mode that finally works. The bench's relationship
       to the floor wants a layout answer, not a smaller number, and that is a
       bigger change than this pass should make. */
+
+/* ================================================================
+   YELLOW MEANS "THE DESTINATION", NOT "A LEGAL SPOT"
+   ================================================================
+   VISUAL ONLY — no legality, no reducer, no hit-testing changes.
+
+   `pendingFitTier` returns "strong" for a bench slot, correctly: bench has no
+   position restriction, so any player is a fine bench fit. But the strong tier
+   is the accent treatment, and a five-slot court has THREE bench slots — so
+   selecting a player lit four large gold rectangles at once (the one natural
+   court destination plus all three bench slots), and gold stopped meaning
+   "this is where this player goes" and started meaning "this is somewhere they
+   are allowed to go". Measured on the before-state: SF, PF and Bench 1/2/3 all
+   rendered accent borders simultaneously.
+
+   The tier logic is untouched — a bench slot is still `strong`, still fully
+   clickable, still keyboard-reachable, still announced the same way. Only the
+   PAINT is scoped: on the court, strong keeps the accent; on the bench rail,
+   strong reads as "open and available" in neutral. Border STYLE still carries
+   availability without colour (solid = open destination), so this survives
+   without colour vision exactly as the tier grammar above does.
+   ================================================================ */
+/* `!important` here only because the strong tier further up already declares
+   `border-color`/`background` with `!important`; this is the narrower, later
+   rule of the two and has to be able to win. */
+[data-ui-version="v2"] .roster-board-bench .court-slot-pending-strong {
+  border-style: solid !important;
+  border-color: color-mix(in srgb, var(--v2-text-muted) 75%, transparent) !important;
+  background: color-mix(in srgb, var(--v2-bg-plane) 60%, transparent) !important;
+  box-shadow: none !important;
+}
+
+/* The court's own best destination, now that it is the only accent object on
+   the floor, can afford to be unmistakable by WEIGHT as well as colour — which
+   is what keeps selection legible without relying on colour alone. */
+[data-ui-version="v2"] .roster-board-starters .court-slot-pending-strong {
+  border-width: 2px !important;
+}
+
+/* ================================================================
+   BENCH PRESENCE — recovered from the SEAM, not from the starters
+   ================================================================
+   Measured at 1440x900 (idle): the board runs 230-731 and the bench 770-902,
+   so the bench is already 130px above the fold with nothing selected. What
+   pushes it under is the placement chrome — the "PLACE <player>" banner and
+   the LIVE BUILD panel add ~155px the moment a card is in hand, and the bench
+   lands at y=925.
+
+   So the space is taken back from the JOIN between the starters and the bench,
+   where three paddings stack for 44px of nothing (board pb 20 + starters pb 8
+   + bench-row pt 16), rather than from `--court-slot-h`. Requirement 3 is
+   explicit that the starter height exists for a real reason, and nothing here
+   makes a starter tile smaller, narrower or tighter.
+   ================================================================ */
+[data-ui-version="v2"] .roster-board {
+  padding-bottom: var(--v2-space-2);
+}
+
+[data-ui-version="v2"] .roster-board-starters {
+  padding-bottom: 0;
+}
+
+[data-ui-version="v2"] .roster-board-bench-row {
+  padding-top: var(--v2-space-2);
+  padding-bottom: var(--v2-space-4);
+}

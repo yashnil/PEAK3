@@ -348,7 +348,14 @@ export default function PeakV2CourtSlotCard({
           fontWeight: 700,
           textTransform: "uppercase",
           letterSpacing: "0.04em",
-          color: fitColor(pendingFit, pendingFitSeverity),
+          // THE SLOT ALREADY SAID THIS IN COLOUR. The border tier
+          // (`court-slot-pending-{strong,stretch,weak}`) carries fit as
+          // colour AND border-style; painting the caption in the same fit
+          // colour underneath said it twice and put a second gold object on
+          // the floor per destination. The caption is now a quiet label that
+          // NAMES what the border already showed, so gold is left to mean
+          // "the destination", not "there is a destination somewhere here".
+          color: "var(--v2-text-muted)",
         }}
       >
         {pendingFitPill}
