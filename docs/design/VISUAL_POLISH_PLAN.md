@@ -110,6 +110,15 @@ All four gates are green on the baseline. Any of these regressing during the
 polish program is a stop-the-line signal, not something to patch around by
 loosening the assertion.
 
+### Bundle baseline (from the frontend-verify production build, 2026-08-29)
+
+Shared JS: 102 kB. Heaviest routes by First Load JS: `/arena/run-the-table`
+48.2 kB / 289 kB total, `/arena/court/daily/[mode]` + `/arena/court/practice/[mode]`
+261 kB, `/daily/grid` 221 kB, `/arena/twenty-dollar/[matchId]` 211 kB,
+`/rankings` 20.4 kB / 150 kB, `/methodology` 5.09 kB / 159 kB. Middleware
+91.3 kB. Any batch touching these routes should re-check First Load JS in the
+same build output and flag a regression instead of shipping it silently.
+
 ## Companion documents
 
 - `docs/design/REFERENCE_BOARD.md` — external research synthesis
