@@ -27,6 +27,8 @@ verified; do not treat "the program" as done until
 | `5bb5bf8` | Phase 5 — dependency audit (conclusion: no new deps needed) |
 | `2bf9409` | **Batch 1**: RTT + 82-0 start-gate redesign (see below) |
 | `bb936c6` | **Batch 2**: Ranked-mode + Daily Grid 1440px density (see below) |
+| `b04c979` | Process fix — evaluator/investigation agent isolation (see below) |
+| `49ad3ff` | **Batch 3**: RankedScreen + ranked leaderboard (see below) |
 
 ## Baseline (Phase 3, all green before any UI edit — see VISUAL_POLISH_PLAN.md for full detail)
 
@@ -119,26 +121,102 @@ files, +1 regression test), production build (bundle deltas negligible:
 green. Before/after screenshots at 390px/1440px reviewed by a genuinely
 independent fresh-context evaluator agent (not a fork of the builder).
 
+## Process fix — evaluator/investigation agent isolation (`b04c979`)
+
+Per explicit user instruction after Batch 2's fork went out of scope on its
+own (see Batch 2 section above): fixed structurally, not with more prompt
+prose. `.claude/agents/ui-evaluator.md` — a subagent type with `tools: Read`
+only (harness-enforced allowlist) — for the pure-inspection evaluator role.
+For the screenshot-capture/investigation role (needs Bash for Playwright, so
+tool restriction can't apply): use a fresh non-fork agent + `isolation:
+"worktree"` instead. Full detail in `docs/design/VISUAL_POLISH_PLAN.md`'s
+"Process fix after Batch 2" section.
+
+**Two real gotchas found putting this into practice in Batch 3, both worth
+remembering:**
+
+1. **Custom `.claude/agents/*.md` files are not picked up mid-session.**
+   Tried to invoke `ui-evaluator` in this same session it was created in —
+   the harness returned "Agent type 'ui-evaluator' not found", listing only
+   the agents that existed at session start. The fix is committed and
+   correct; it just doesn't activate until a fresh session (or whatever
+   triggers the harness's agent-registry reload) picks it up. Worked around
+   by using `general-purpose` + `isolation: "worktree"` for the rest of this
+   session — a real technical isolation guarantee, just not the harness-
+   enforced Read-only one, until a future session gets to actually use
+   `ui-evaluator`.
+2. **`Agent`'s `isolation: "worktree"` branches from `origin/<default-branch>`
+   (i.e. `main`), not the caller's current branch/HEAD.** The Batch 3
+   investigation fork ran in a worktree checked out from stale `main`
+   (pre-batch-1-and-2) — its "before" screenshots and semantic inventory
+   silently missed the kicker header and standing rail Batch 2 had already
+   added. Caught by cross-checking `git merge-base --is-ancestor
+   <batch2-sha> HEAD` inside the worktree, then re-capturing the actually-
+   current state directly before trusting anything from that report as a
+   literal baseline. **Whoever continues this: if you need a worktree-
+   isolated agent to investigate the in-progress branch (not a fresh clone
+   of main), verify what ref it actually landed on before trusting its
+   findings as current — don't assume `isolation: "worktree"` gives you
+   your own HEAD.**
+
+## Batch 3 — RankedScreen + ranked leaderboard (DONE, verified, committed as `49ad3ff`)
+
+**Scope, per the user's explicit instruction:** RankedScreen + closely
+related ranked surfaces only (leaderboard, shared ranked components) — not
+`/history`/`/profile`/`/progress` this batch.
+
+**What changed:** every ad hoc `<button>` in `RankedScreen.tsx` → shared
+`PeakV2PrimaryAction`/`PeakV2SecondaryAction`; `RankedResultView`'s outcome
+word → `PeakV2ResultHeadline` (serif "moment" treatment), its numbers →
+`.score-number` (mono/tabular), and its content → a constrained centered
+`max-w-md` column (was floating unconstrained at 1024/1440); the leaderboard
+page (`arena/ranked/[mode]/leaderboard`) — which had literally no shell, a
+plain `<h1>`, an unstyled native `<table>` — fully rebuilt onto
+`PeakV2Shell` + the shared kicker/title header + `EmptyState`/`ErrorState`/
+`Skeleton` (their first real consumers anywhere in the app) + a styled table
+matching Rankings' own conventions; a generic error-copy fallback
+("Request failed"/"Unknown error") → "Something went wrong. Try again." in
+`ranked-api.ts` (wording only, no status/code semantics changed).
+
+**Structural note:** the leaderboard's `page.tsx` used `use(params)` with no
+working render harness in this repo (confirmed by trying — a `Suspense`-
+wrapped render of the page component just produced an empty `<div/>` with no
+error, for reasons not fully root-caused). Extracted the actual UI into
+`RankedLeaderboard.tsx` (plain `mode: RankedMode` prop), mirroring
+`RankedScreen`'s existing split, with `page.tsx` reduced to a thin
+`use(params)` → prop-pass wrapper. This is also what made the surface
+unit-testable at all — `ranked-leaderboard.test.tsx` (7 new tests) is the
+first coverage this page has ever had.
+
+**Verification:** typecheck clean, lint 0 warnings, 2248/2248 vitest (97
+files), production build (bundle deltas modest and explained by newly-
+adopted shared components: `/arena/ranked/[mode]` +4kB, leaderboard +10kB),
+`ranked.spec.ts` + `accessibility.spec.ts` + `play-routing.spec.ts` 55/55
+passed. Independent evaluator (fresh context + isolated worktree, see
+process-fix note above on why not the harness-enforced `ui-evaluator` yet)
+reviewed real before/after screenshots at 390/768/1024/1440 for both the
+result view and the leaderboard and returned ship-as-is for both, with one
+disclosed gap: no populated-leaderboard screenshot exists (an "established"
+rating needs 7 real placement matches per player — judged not worth the e2e
+fixture cost given `ranked-leaderboard.test.tsx` already covers the
+populated-table render path directly).
+
 ## What's next — the user's explicit requested sequence for the "legacy surface" batches
 
 All of these are confirmed zero-`PeakV2*`-composition by the route matrix.
 Per the user's explicit instruction: **"legacy surface" is not permission to
 modernize product behavior** — preserve exactly what each does first, then
-improve how clearly/consistently it presents that, same as batches 1-2.
+improve how clearly/consistently it presents that, same as batches 1-3.
 Take an actual screenshot before assuming a gap's size in any of these —
 the ranked/daily-grid batch already proved the "0 imports" grep signal
 alone overstates severity (it can mean "sparse but fine" as easily as
 "actually broken").
 
-1. **`RankedScreen` + closely related ranked surfaces** (leaderboard page,
-   any other ranked sub-route) — group with the just-finished Batch 2 since
-   they share the ranked data model and this session already has full
-   context on `RankedScreen.tsx`.
-2. **`/history`, `/profile`, `/progress`**
-3. **`/players/[slug]` and related Index/player-detail surfaces**
-4. **H2H family** (`MatchScreen`, `ChallengeCreator`, `HeadToHeadHistory`,
+1. **`/history`, `/profile`, `/progress`**
+2. **`/players/[slug]` and related Index/player-detail surfaces**
+3. **H2H family** (`MatchScreen`, `ChallengeCreator`, `HeadToHeadHistory`,
    `InviteLanding`)
-5. **Old draft-game routes** (`/arena/daily/*`, `/arena/practice/*`,
+4. **Old draft-game routes** (`/arena/daily/*`, `/arena/practice/*`,
    `/arena/labs` — `DraftScreen`)
 
 The user said to adjust this ordering if the actual route matrix/dependency
