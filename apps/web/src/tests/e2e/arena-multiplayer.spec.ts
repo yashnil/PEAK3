@@ -1040,6 +1040,13 @@ test.describe("The $20 Showdown", () => {
   });
 
   test("the lot on the block never blinks out between lots", async ({ browser }) => {
+    // MEASURED, not padded. Setup to the first live lot is ~2.4s and each
+    // settlement -> next-lot transition measured 4.1-7.0s now that the bot
+    // deliberates server-side for 2.6-4.2s. Two transitions plus setup is
+    // ~15s locally; 60s is roughly 4x that, which leaves room for a loaded CI
+    // runner without being so loose that a genuine hang looks like slowness.
+    // The default 30s was set when a bot moved in ~1.2s.
+    test.setTimeout(60_000);
     /*
      * C4. "During manual play, an active auction player appeared and then
      * visually disappeared during state transitions."
@@ -1093,21 +1100,39 @@ test.describe("The $20 Showdown", () => {
         requestAnimationFrame(sample);
       });
 
-      // Play several lots as fast as the board offers an action, so the sampler
-      // spans real lot transitions rather than one static board.
-      const stopAt = Date.now() + 60_000;
+      // ADVANCE ON AUTHORITATIVE STATE, NOT ON A STOPWATCH.
+      //
+      // This loop used to poll `td-pass` every 250ms inside a 60s budget while
+      // the test itself was bounded at 30s — the budget could never be spent,
+      // and the test's outcome depended on how fast four bot decisions
+      // happened to land. Since the Showdown bot became genuinely
+      // server-authoritative it deliberates 2.6-4.2s per turn
+      // (`nba_peak.twenty_dollar.config.bot_think_seconds`) instead of the
+      // platform default 1.2s, and a lot transition measured 4.1-7.0s end to
+      // end. Four of those plus setup no longer fit, so the test timed out
+      // BEFORE reaching its assertion. Instrumented over the same flow with no
+      // timeout, the gap array came back EMPTY: the lot never blinked. The
+      // budget expired; the invariant held.
+      //
+      // So the wait is now on the board's own lot counter changing, which is
+      // the real "a transition happened" signal, and TWO transitions are
+      // enough to span one settlement -> next-lot handover. Fewer bot
+      // decisions, no fixed sleeps, and the invariant below is untouched.
+      const lotNumber = page.getByTestId("td-lot-number");
+      const TRANSITIONS = 2;
       let lots = 0;
-      while (Date.now() < stopAt && lots < 4) {
+      for (let i = 0; i < TRANSITIONS; i += 1) {
         if (await page.getByTestId("td-result").count()) break;
+        const before = await lotNumber.innerText();
         const pass = page.getByTestId("td-pass");
-        if (await pass.isEnabled({ timeout: 500 }).catch(() => false)) {
-          await pass.click({ timeout: 2000 }).catch(() => undefined);
-          lots += 1;
-          continue;
-        }
-        await page.waitForTimeout(250);
+        await expect(pass).toBeEnabled({ timeout: 30_000 });
+        await pass.click();
+        // The next lot is on the block when the counter says so — the sampler
+        // above is watching every frame in between.
+        await expect(lotNumber).not.toHaveText(before, { timeout: 30_000 });
+        lots += 1;
       }
-      expect(lots, "the auction never advanced, so nothing was measured").toBeGreaterThan(1);
+      expect(lots, "the auction never advanced, so nothing was measured").toBeGreaterThan(0);
 
       const gaps = await page.evaluate(
         () => (window as unknown as Record<string, number[]>).__gaps,
@@ -1237,8 +1262,24 @@ test.describe("The $20 Showdown", () => {
 
       // THE SKIP ECONOMY IS ON SCREEN, for both seats, before it bites. A rule
       // you discover by finding a control greyed out has been taught badly.
-      await expect(page.getByTestId("td-skips-0")).toContainText(/skips? left/);
-      await expect(page.getByTestId("td-skips-1")).toContainText(/skips? left/);
+      //
+      // ASSERTED AS STRUCTURE, NOT AS ONE STRING. The tile used to put the
+      // whole phrase in the VALUE ("5 skips left"), which wrapped to two lines
+      // in both seat headers at 1440px and pushed them out of alignment. The
+      // count is now the value and the noun is the label, so the tile renders
+      // as two elements — `<span>Skips left</span><span>5</span>` — and the
+      // concatenated text is "Skips left5", which no /skips? left/ match can
+      // see. The UI is what changed; what the player is owed did not, so this
+      // asserts the two halves separately and case-insensitively (the label is
+      // uppercased by CSS `text-transform`, so its DOM casing is presentation
+      // and must not be pinned).
+      for (const seat of ["td-skips-0", "td-skips-1"]) {
+        const tile = page.getByTestId(seat);
+        await expect(tile.locator("span").first(), `${seat} label`).toHaveText(
+          /skips? left/i,
+        );
+        await expect(tile.locator("span").last(), `${seat} count`).toHaveText(/^\d+$/);
+      }
       await expect(page.getByTestId("td-market-phase")).toHaveAttribute(
         "data-phase",
         "standard",
