@@ -3,7 +3,7 @@
 Branch: `feature/arena-archive-visual-polish`. Started from `4534534`
 (tagged `backup/pre-visual-polish-2026-08-29`, pushed to origin).
 
-## Status: 8 route-family batches + release-candidate audit complete. Latest work = `01d9b8e` (Batch 8).
+## Status: 9 route-family batches + release-candidate audit complete. Latest work = `1cdc906` (Batch 9).
 
 **Not the same as "the whole app is converged."** The RC audit found
 several real, sizeable surfaces that no batch ever actually touched —
@@ -13,9 +13,12 @@ sub-panels" were unconverted; Batch 8 investigated that claim directly and
 found it substantially overstated (see Batch 8's own section below) — the
 real gap was 5 files plus one routing bug, both now fixed. Trust Batch 8's
 section over the RC audit's original framing for CourtBuilder specifically.
-Daily Grid/lobby/Three-Man-Weave/Twenty-Dollar-Showdown are still honestly
-reported as deferred, not silently absorbed into "done." See "Release-
-candidate audit" below before assuming any further route is finished.
+Batch 9 investigated the Daily Grid claim directly and found it accurate
+this time (unlike Batch 8's finding) — see Batch 9's own section below;
+that family is now converged. `/arena/lobby`, Three-Man Weave, and
+Twenty-Dollar Showdown are still honestly reported as deferred, not
+silently absorbed into "done." See "Release-candidate audit" below before
+assuming any further route is finished.
 
 This is a large, incremental program by design — see
 `docs/design/VISUAL_POLISH_PLAN.md`'s "scope decision" section for why (this
@@ -54,6 +57,9 @@ verified; do not treat "the program" as done until
 | `6652afd` | RC audit — `/u/[handle]` onto shared shell (former RC SHA) |
 | `68928fa` | chore — record RC audit results |
 | `01d9b8e` | **Batch 8**: CourtBuilder flagship completion (see below) |
+| `dda202c` | chore — record batch 8 status, next-batch proposal |
+| `0721c53` | **Batch 9**: Daily Grid + Daily History full convergence (candidate, see below) |
+| `1cdc906` | Batch 9 fix — Recent Results rail bounded as its own card (evaluator finding) |
 
 ## Baseline (Phase 3, all green before any UI edit — see VISUAL_POLISH_PLAN.md for full detail)
 
@@ -823,6 +829,92 @@ would be another full route-family batch each):** Daily Grid family,
 13 unconverted sub-panels, `/c/[token]`'s own page chrome. Recommend
 these as the next actual route-family batch(es) whenever that work
 resumes — CourtBuilder's sub-panels first, since it's the flagship.
+
+## Batch 9 — Daily Grid + Daily History full convergence (DONE, verified, committed as `0721c53` + fix `1cdc906`)
+
+**Scope, per the user's explicit instruction, following the RC audit's
+finding:** the RC audit's "0 PeakV2 refs" grep flagged the whole Daily Grid
+family as legacy. Same lesson as Batch 8 applied up front this time: read
+every one of the 12 `components/daily-grid/*` files plus
+`components/daily/DailyHub.tsx` before touching anything (recorded in
+`ROUTE_BEHAVIOR_MATRIX.md`'s pre-implementation semantic inventory). Found
+9 of 12 files (plus the `/daily` hub, a separate "Pass 5" build) already
+fully V2-native via an undocumented prior "Pass 7 (human acceptance
+testing)" pass that predates this program: `StartGate.tsx`,
+`DailyGridBoardView.tsx`+`GridCell.tsx`, `CellPanel.tsx`,
+`CompletionTrigger.tsx`, `CompletionModal.tsx`, `CompletionPanel.tsx`. The
+RC audit's "0 PeakV2 refs" grep on `DailyGridGame.tsx`/
+`DailyGridHistory.tsx` specifically was correct, though — unlike Batch 8,
+this family genuinely still needed a dedicated pass.
+
+**The real, narrow gap, found by reading every file:**
+1. `DailyGridGame.tsx`'s own outer chrome (~370 of 1247 lines: page
+   header, `StatTile`→`StatBox` on `PeakV2Score`, rollover-prompt banner,
+   archive-board banner, idle-hint panel, the four early-return branches
+   loading/error/gate/playing) — the one part of the whole loop that never
+   went through the Pass 7 rebuild.
+2. `HowToPlay.tsx`'s own action buttons ("Take the walkthrough" / "Back to
+   the grid" / "Close") and step cards — same class of fix as Batch 8's
+   action panels. The `Dialog` wrapper and rule content were already fine.
+3. `DailyGridHistory.tsx` in full — genuinely untouched: no `PeakV2Shell`,
+   its own duplicate `Stat` tile (independently reimplemented, same
+   pattern as `DailyGridGame`'s old `StatTile`), raw bordered banners.
+   Reuses `RecentResults` (already good) for the actual list — matches
+   this batch's "favor dense chronological scanability" brief already, so
+   the fix was purely page-chrome.
+
+**Batch 2 sidebar (Recent Results rail), re-evaluated per explicit
+instruction — kept, then recomposed after live evaluation:** initially
+kept as-is based on its own code comments (real data only, hidden during
+completion, uses otherwise-wasted xl+ width) — correct reasoning, but the
+*container* around it hadn't been checked against the newly-converged
+composition. The independent visual evaluator (below) found the bare
+heading+list floated on the page background left a stark unbounded empty
+region whenever the board+workbench column ran taller than the ≤6-row
+results list — the literal "unnecessary sidebar that doesn't earn its
+space" failure mode this batch was told to check for. Fixed in `1cdc906`:
+wrapped the rail in the same `pk-depth`/`pk-crown` card treatment as the
+rest of the family, added a "View full history" footer link. A shorter
+bordered card beside a taller bordered card reads as ordinary editorial
+layout; an unbordered list floating in empty space did not.
+`RecentResults.tsx` itself stayed untouched throughout.
+
+**Tests:** added `daily-grid-history.test.tsx` (5) and
+`daily-grid-how-to-play.test.tsx` (5) — both files had zero dedicated
+coverage before. All 75 pre-existing `daily-grid-components.test.tsx`
+tests passed unmodified (every `data-testid` preserved exactly, including
+the `daily-grid-timer` exact-text assertion via `PeakV2Score`'s new
+`valueTestId` prop).
+
+**Verification:** typecheck clean, lint 0 warnings, 2319/2319 vitest,
+clean production build, **77/77** on `daily-grid.spec.ts` +
+`daily-challenge.spec.ts` (including `@mobile` overflow checks and the
+exact `daily-grid-timer` text match) on the candidate, re-run as
+**63/63** `daily-grid.spec.ts` after the sidebar fix, 15/15
+`accessibility.spec.ts`.
+
+**Independent evaluator:** accept, with the sidebar finding above (fixed)
+and two items left deliberately unfixed as out of this batch's scope:
+`CompletionTrigger.tsx`'s `position: fixed; bottom-4` pill overlaps the
+site footer at the very bottom of a completed board's page, worst at
+390px — pre-existing (this file untouched, fixed positioning is viewport-
+relative and unaffected by any padding this batch changed), a real bug,
+flagged for a future pass. Minor: the mobile stat-tile row is an
+asymmetric 4+1 wrap — pre-existing layout, not introduced this batch, not
+worth a special-case fix.
+
+**Independent QA:** 10/10 flow checks pass — correct board/date, active-
+cell + search, ineligible-player rejection, valid-answer lock, filled-
+square immutability, full-board completion matching the server's own
+`/daily-grid/result` response byte-for-byte, persistence across refresh,
+correct history/streak tiles, history↔grid navigation, and correct
+recognition of an already-completed board on revisit. Zero console
+errors, zero non-2xx responses across the whole run. Verdict:
+functionality preserved, no regression attributable to this batch.
+
+**Bundle note:** `/daily/grid` 22kB→21kB (First Load JS unchanged, 221kB),
+`/daily/history` First Load JS 119kB→120kB (+1kB, new V2 imports) —
+negligible either way, confirmed against a baseline rebuild of `dda202c`.
 
 ## Process notes for whoever continues this (same session or a future one)
 
