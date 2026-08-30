@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import SeasonResultStub from "@/components/court/SeasonResultStub";
+import PeakV2CourtResult from "@/components/v2/court/PeakV2CourtResult";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
 import { getSharedCourtResult } from "@/lib/perfect-season-api";
 
 interface Props {
@@ -35,9 +36,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
  * watch someone's board while they are still playing it. Both cases land on
  * the not-found state below, which is honest about both.
  *
- * Nothing on this page is an owner action. `SeasonResultStub`'s `readOnly`
+ * Nothing on this page is an owner action. `PeakV2CourtResult`'s `readOnly`
  * flag hides the leaderboard submit panel, and the server would 403 a
  * submission from a non-owner anyway.
+ *
+ * Batch 8: this used to render the legacy `SeasonResultStub` instead of
+ * the same `PeakV2CourtResult` the owner's own result screen uses — same
+ * props (`state`/`result`/`onPlayAgain?`/`playAgainBusy?`/`readOnly?`),
+ * same `data-testid="season-result"`, confirmed drop-in. That meant
+ * sharing a run showed the recipient an older visual generation than the
+ * player who just finished it saw seconds earlier.
  */
 export default async function CourtResultsPage({ params }: Props) {
   const { id } = await params;
@@ -57,29 +65,23 @@ export default async function CourtResultsPage({ params }: Props) {
     return <NotFoundState />;
   }
 
-  return (
-    <div className="mx-auto max-w-2xl w-full px-4 py-8">
-      <SeasonResultStub state={state} result={state.simulation_result} readOnly />
-    </div>
-  );
+  return <PeakV2CourtResult state={state} result={state.simulation_result} readOnly />;
 }
 
 function NotFoundState() {
   return (
-    <div className="mx-auto max-w-lg px-4 py-16 text-center flex flex-col items-center gap-4">
-      <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-        Run not found
-      </h1>
-      <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-        This link may have expired, or the run never existed.
-      </p>
-      <Link
-        href="/arena/court/practice/apex_1y"
-        className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold"
-        style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
-      >
-        Build your own roster
-      </Link>
-    </div>
+    <PeakV2Shell width="live">
+      <div className="mx-auto max-w-lg px-4 py-16 text-center flex flex-col items-center gap-4">
+        <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
+          Run not found
+        </h1>
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+          This link may have expired, or the run never existed.
+        </p>
+        <PeakV2PrimaryAction href="/arena/court/practice/apex_1y">
+          Build your own roster
+        </PeakV2PrimaryAction>
+      </div>
+    </PeakV2Shell>
   );
 }

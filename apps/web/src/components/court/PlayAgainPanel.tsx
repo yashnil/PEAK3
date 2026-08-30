@@ -5,6 +5,8 @@ import { useAuth } from "@/lib/auth-context";
 import { getAccessToken } from "@/lib/auth";
 import { getLeaderboard, getMyRuns } from "@/lib/perfect-season-api";
 import { CourtMode, PerfectSeasonRunPublic } from "@/types/perfect-season";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
 
 interface Props {
   mode: CourtMode;
@@ -100,11 +102,7 @@ export default function PlayAgainPanel({ mode, wins, losses, lineupPeakScore, on
     (wins > personalBest.wins || (wins === personalBest.wins && lineupPeakScore != null && lineupPeakScore > personalBest.lineup_score));
 
   return (
-    <div
-      data-testid="play-again-panel"
-      className="rounded-xl p-3 flex flex-col gap-2.5 text-sm"
-      style={{ background: "var(--bg-surface)", border: "1px solid var(--peak-accent-dim)" }}
-    >
+    <div data-testid="play-again-panel" className="flex flex-col gap-2.5 text-sm">
       {user && leaderboardEnabled && personalBest !== "loading" && (
         <div data-testid="personal-best-compare" style={{ color: isNewBest ? "var(--peak-accent-text, #f5c842)" : "var(--text-secondary)" }}>
           {personalBest === null ? (
@@ -126,28 +124,25 @@ export default function PlayAgainPanel({ mode, wins, losses, lineupPeakScore, on
       {!user && leaderboardEnabled && !signInPromptShownAbove && (
         <div data-testid="play-again-signin-prompt" className="flex items-center justify-between gap-3">
           <span style={{ color: "var(--text-secondary)" }}>Sign in to save your best run and track it here.</span>
-          <a
-            href={signInHref}
-            className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0"
-            style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
-          >
+          <PeakV2SecondaryAction href={signInHref} size="sm" className="shrink-0">
             Sign in
-          </a>
+          </PeakV2SecondaryAction>
         </div>
       )}
       <div className="flex items-center justify-between gap-3">
         <span style={{ color: "var(--text-muted)" }}>
           {wins}-{losses} this run. Ready to run it back?
         </span>
-        <button
+        <PeakV2PrimaryAction
+          type="button"
           data-testid="play-again-btn"
           onClick={onPlayAgain}
           disabled={busy}
-          className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0 disabled:opacity-50"
-          style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
+          size="sm"
+          className="shrink-0"
         >
           {busy ? "Starting a new run…" : "Play again"}
-        </button>
+        </PeakV2PrimaryAction>
       </div>
     </div>
   );

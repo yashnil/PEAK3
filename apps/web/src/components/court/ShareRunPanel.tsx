@@ -4,6 +4,8 @@ import { Copy, Check, Share2, Link as LinkIcon, Download } from "lucide-react";
 import { SharedCourtResult, SimulationResultPublic } from "@/types/perfect-season";
 import { resultTier } from "./SeasonResultStub";
 import { downloadScorecardPng } from "@/lib/scorecard-export";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
 
 interface Props {
   state: SharedCourtResult;
@@ -101,62 +103,39 @@ export default function ShareRunPanel({ state, result }: Props) {
   }
 
   return (
-    <div
-      data-testid="share-run-panel"
-      className="rounded-xl p-3 flex flex-col gap-2.5 text-sm"
-      style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}
-    >
+    <div data-testid="share-run-panel" className="flex flex-col gap-2.5 text-sm">
       <div className="flex items-center justify-between gap-2">
         <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
           Share this run
         </span>
       </div>
       <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          data-testid="share-run-native-btn"
-          onClick={handleShare}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5"
-          style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
-        >
+        <PeakV2PrimaryAction type="button" data-testid="share-run-native-btn" onClick={handleShare} size="sm">
           <Share2 size={13} aria-hidden="true" />
           {shared ? "Shared!" : "Share"}
-        </button>
-        <button
-          type="button"
-          data-testid="share-run-copy-text-btn"
-          onClick={handleCopyText}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5"
-          style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
-        >
+        </PeakV2PrimaryAction>
+        <PeakV2SecondaryAction type="button" data-testid="share-run-copy-text-btn" onClick={handleCopyText} size="sm">
           {copied === "text" ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
           {copied === "text" ? "Copied!" : "Copy summary"}
-        </button>
-        <button
-          type="button"
-          data-testid="share-run-copy-link-btn"
-          onClick={handleCopyLink}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5"
-          style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
-        >
+        </PeakV2SecondaryAction>
+        <PeakV2SecondaryAction type="button" data-testid="share-run-copy-link-btn" onClick={handleCopyLink} size="sm">
           {copied === "link" ? <Check size={13} aria-hidden="true" /> : <LinkIcon size={13} aria-hidden="true" />}
           {copied === "link" ? "Copied!" : "Copy link"}
-        </button>
-        <button
+        </PeakV2SecondaryAction>
+        <PeakV2SecondaryAction
           type="button"
           data-testid="share-run-download-btn"
           aria-label="Download scorecard image"
           onClick={handleDownload}
           disabled={downloadState === "busy"}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 disabled:opacity-60"
-          style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
+          size="sm"
         >
           {downloadState === "done" ? <Check size={13} aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}
           {downloadState === "busy" && "Preparing…"}
           {downloadState === "done" && "Downloaded!"}
           {downloadState === "failed" && "Couldn't export"}
           {downloadState === "idle" && "Download Image"}
-        </button>
+        </PeakV2SecondaryAction>
       </div>
     </div>
   );

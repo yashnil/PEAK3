@@ -61,12 +61,44 @@ loaded). **What "polish this route" means varies a lot by route**:
 - **Tests:** `ranked-components.test.tsx`, `ranked-state.test.ts`, e2e `ranked.spec.ts`.
 - **Polish category:** `[mode]` and leaderboard need real V2 composition work — currently the weakest link in this family.
 
-### `/arena/court/daily`, `/arena/court/daily/[mode]`, `/arena/court/practice/[mode]`, `/arena/court/history`, `/arena/court/leaderboard`, `/arena/court/results/[id]`
-- **Renders:** `PeakSeasonStartGate` (2 v2 imports — partial V2), `PeakSeasonLeaderboard`, `SeasonResultStub`; history/leaderboard pages are bespoke fetch+render, no V2 shell.
-- **This is the "82-0" mode.**
-- **Must not change:** `getCourtBuilderReadiness` readiness logic, saved-run/personal-bests data (`SavedRun`, `PersonalBests` types), difficulty gating.
-- **Tests:** `peak-season-difficulty.test.tsx`, `peak-season-leaderboard.test.tsx`, `court-builder-hint.test.tsx`, `court-state.test.ts`, `court-mode-labels.test.ts`, e2e `courtbuilder.spec.ts`.
-- **Polish category:** start-gate has partial V2 (verify quality); history/leaderboard/results are route-family polish candidates, currently plain data pages.
+### `/arena/court/daily`, `/arena/court/daily/[mode]`, `/arena/court/practice/[mode]`, `/arena/court/history`, `/arena/court/leaderboard`, `/arena/court/results/[id]` — Batch 8 semantic inventory (2026-08-30, pre-implementation)
+
+**This entry was stale before this batch** — it named `SeasonResultStub` as the
+renderer and missed an entire `components/v2/court/` layer that already
+exists. Corrected here from a full read of the actual import graph, not the
+RC audit's "0 `PeakV2*` refs in the file itself" grep, which this batch
+proved is a poor proxy for this specific family (see "What the RC audit got
+wrong" below).
+
+**Actual route → component map:**
+- `/arena/court/practice/[mode]`, `/arena/court/daily/[mode]` → `PeakSeasonStartGate` (Batch 1, V2-converted) → on "Begin", creates the game and mounts → `CourtBuilder`.
+- `CourtBuilder.tsx` (orchestrator) → `PeakV2CourtLive` (the live/build court), `PeakV2CourtChooser` (the spin+candidate-selection docked panel), `PeakV2CourtResult` (the completion/result screen), `ActionToast` (the undo toast). **All three `PeakV2Court*` components already exist and are heavily V2-native** — multiple documented "Pass" iterations (Pass 3 initial cutover, Pass 7 "human acceptance testing" fixes to geometry/focus/mobile-hit-testing) with real UX-research findings cited in their own comments. This is NOT an unconverted surface.
+- `PeakV2CourtLive` reuses `CourtLayout` (the real court markings — paint/arc/rim, already fixed for "reads as a form not a court" in Phase 6C, long before this program) and `LiveBuildPanel` verbatim, on top of a fresh `PeakV2CourtSlotCard` slot renderer.
+- `PeakV2CourtChooser` reuses `SpinStage` and `EligiblePlayerSearch` verbatim (both explicitly documented as correctness-critical: reveal timing, ADR-005 Decision 6's "never renders a score"). **`EligiblePlayerSearch` is also used by Daily Grid's `GridCell.tsx`** — cross-family shared, same caution as `DNARadar.tsx`.
+- `PeakV2CourtResult` reuses `CourtLayout` again, plus **five genuinely legacy-styled action panels**: `SaveRunPanel`, `PlayAgainPanel`, `LeaderboardSubmitPanel`, `ShareRunPanel`, `PeakPicksRecap` — each its own `rounded-xl` bordered box with raw `<button>`/`<a>` elements styled ad hoc (`background: var(--peak-accent)`, hand-rolled uppercase-tracking classes), never `PeakV2PrimaryAction`/`SecondaryAction`. **This is the real, narrow, evidence-backed gap** — five files, not thirteen.
+- `LineupInsightPanel` (also reused by `PeakV2CourtResult`) is a plain bar-chart list, no buttons, tokens already consistent — minor/optional touch only.
+- **`/arena/court/results/[id]`** (the shared/permalink result link `ShareRunPanel`'s own "Copy link" button generates) renders `SeasonResultStub` directly — the OLD, pre-`PeakV2CourtResult` component — instead of `PeakV2CourtResult`. Confirmed identical prop signature (`state`, `result`, `onPlayAgain?`, `playAgainBusy?`, `readOnly?`) and identical `data-testid="season-result"`, so this is a like-for-like swap. **This is the single most concrete "polished promise, then an older generation" bug in the whole batch**: the player who just finished sees the new cinematic result; anyone they share the link with sees the old one.
+- `/arena/court/leaderboard` (`PeakSeasonLeaderboard`) is a separate destination page, not part of the CourtBuilder in-game loop and not imported by any `PeakV2Court*` component — **out of this batch's scope** per "do not touch unrelated Arena modes"; flagged for a future batch, not silently redesigned.
+- `/arena/court/history` — separate route, not investigated this batch (out of scope, not part of the CourtBuilder loop).
+
+**What the RC audit got wrong, for the record:** its Stage A/B grep (`grep -c "PeakV2" file.tsx`) counted zero for `CourtLayout`, `LiveBuildPanel`, `SpinStage`, `EligiblePlayerSearch`, `ActionToast`, `PeakCardCourt`, `PlayerAvatar`, `SeasonResultStub`, and the five action panels — but several of those (`CourtLayout`, `LiveBuildPanel`, `SpinStage`, `EligiblePlayerSearch`, `ActionToast`) are deliberately-reused-verbatim pieces already wrapped by a mature V2 container layer the grep never found (it imports them by relative/absolute path, not by re-exporting `PeakV2*` names). `PeakCardCourt.tsx` and `PlayerAvatar.tsx` are effectively orphaned from the live game (only `SeasonResultStub` — itself about to stop being rendered — still imports `PeakCardCourt`; `PlayerAvatar` is a cross-app shared avatar primitive, not court-specific). The actual gap was five files, not "the majority of the flagship."
+
+**CourtBuilder's real UI phase machine** (`lib/court-state.ts::uiPhaseFromStatus`, verified against the reducer-equivalent logic in `CourtBuilder.tsx`, not inferred):
+`spinning` (server `selection_pending`) → `placing` (server `placement_pending`) → `complete` (server `rounds_complete` or `result_ready`). Sub-states layered on top, all client-only view state, never sent to the server:
+- `movingSlot` — rearrange-in-progress (pick a filled slot, then a destination); Escape or the Cancel button exits it; available whenever `canRearrange && filledSlotCount >= 1`, independent of the round's own phase (a player can rearrange while a round is still unresolved).
+- `respinPending` — true from a respin request until `SpinStage` reports the reel has visually landed; gates what `CourtBuilder` renders directly (never leaks the new team/season before the reel lands, even though `state.current_spin` itself updates immediately).
+- `overlayMinimized` — the chooser can be closed to work the court underneath mid-round ("View court" / "Resume selection"); resets to reopened on every new round.
+- `hint` — Easy-mode-only, once per run, scoped to the round it was requested for.
+- `actionToast` — one-line undo receipt after a place/swap, bounded by the server's own `undo.expires_at`; dismissed the instant `status === "result_ready"`.
+- `error`/`busy` — a rejected action surfaces in a `role="alert"` banner; every mutating action gates on `busy`.
+
+**Intentional differences preserved, not touched:** the whole state machine above, `action_place_card`'s "soft placement" rule (every open slot is legal regardless of position — this is gameplay, not a bug), the three-tier pending-fit visual system (`pendingFitTier`), the reveal-discipline gating (`score_status`/`exact_player_season_key`/`peak_locked` — never shown before `result_ready`), Hold's-equivalent-for-CourtBuilder (none — there is no hold mechanic here, only respin/hint), `SpinStage`'s reveal timing, `EligiblePlayerSearch`'s no-score rule (ADR-005 Decision 6), difficulty gating, personal-best/leaderboard data contracts.
+
+**Legacy presentation differences removed (this batch):** `SaveRunPanel`/`PlayAgainPanel`/`LeaderboardSubmitPanel`/`ShareRunPanel` buttons and links restyled onto `PeakV2PrimaryAction`/`PeakV2SecondaryAction`; the ad hoc bordered-box treatment on those four plus `PeakPicksRecap` brought in line with `PeakV2CourtResult`'s own hairline-divided (`PeakV2Rule`) section grammar instead of floating as visibly older bordered cards; `/arena/court/results/[id]` switched from `SeasonResultStub` to `PeakV2CourtResult`.
+
+- **Must not change:** `getCourtBuilderReadiness` readiness logic, saved-run/personal-bests data contracts and comparison logic (server-computed, never recomputed client-side), difficulty gating, respin/hint idempotency keys, the undo window, `action_swap_slots`/`action_place_card`/`action_undo_last_placement` semantics, `SpinStage`'s reveal ceremony and `EligiblePlayerSearch`'s no-score rule (both reused verbatim, shared with/adjacent to other families), `CourtLayout`'s actual court geometry (already correct — do not rebuild it), `drawScorecard`'s canvas export (data-driven, provably independent of which component renders the page).
+- **Tests:** `peak-season-difficulty.test.tsx`, `peak-season-leaderboard.test.tsx`, `court-builder-hint.test.tsx`, `court-state.test.ts`, `court-mode-labels.test.ts`, `save-run-panel.test.tsx`, `play-again-panel.test.tsx`, `leaderboard-submit-panel.test.tsx`, `result-tier.test.ts`, e2e `courtbuilder.spec.ts` (the largest single e2e file in the app, ~16 minutes, its own CI shard).
+- **Polish category:** narrow, surgical convergence — five action-panel components restyled, one route pointed at the already-correct result component. Not a redesign; `PeakV2CourtLive`/`Chooser`/`Result`/`SlotCard`, `CourtLayout`, `SpinStage`, `EligiblePlayerSearch` are left structurally untouched as already-mature.
 
 ### `/arena/run-the-table`
 - **Renders:** `RunTheTableGame` — **13 internal v2 imports**, the most V2-composed game surface in the app. Not touched this batch.
