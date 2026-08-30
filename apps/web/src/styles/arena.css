@@ -337,9 +337,17 @@
 /* Actions                                                             */
 /* ------------------------------------------------------------------ */
 
+/* FLEXBOX, NOT GRID. `repeat(auto-fit, minmax(9rem, 1fr))` put two of a
+   three-action card's buttons on one row and stranded the third alone on a
+   second row AT HALF WIDTH -- the exact orphan-wrap `ComingLater`'s own grid
+   already had this same failure and was fixed for (see arena-lobby's own
+   comment on that fix). A wrapping flex row with `flex-grow` on each item
+   fixes both shapes with one rule: items sharing a line split it evenly,
+   and an item left alone on the last line grows to fill it, because
+   `flex-grow` only ever competes against the OTHER items on its own line. */
 .ar-actions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.6rem;
   margin-top: auto;
   padding-top: 0.35rem;
@@ -347,6 +355,7 @@
 
 .ar-action {
   display: flex;
+  flex: 1 1 9rem;
   flex-direction: column;
   gap: 0.3rem;
 }
