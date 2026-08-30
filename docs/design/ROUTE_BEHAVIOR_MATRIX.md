@@ -184,6 +184,123 @@ two components the user's brief independently flags as highest-risk.
 system is the easy part; the hard part is not silently touching any of
 the state transitions above.
 
+### `/arena/lobby` — Batch 10 semantic inventory (2026-08-30, pre-implementation)
+
+**Same lesson as Batches 8/9, re-confirmed a third time:** the RC audit's
+"0 refs, not mentioned anywhere in the route matrix" was correct about the
+*matrix's own omission*, but reading the actual composition before touching
+it found this route is NOT a blank legacy slab. `ArenaLobby.tsx` went
+through a real, undocumented "closed-alpha capability" rewrite of its own
+(see the component's own extensive docstring), and `styles/v2/arena-lobby.
+css` is an already-shipped "Pass 5" CSS-only reskin of its `.ar-*` classes,
+scoped to `[data-ui-version="v2"]` (which is permanently on `<html>` — see
+`app/layout.tsx` — so this reskin is live in production today, not an
+experiment). A live screenshot pass at 390/768/1024/1440 (this stage, before
+any edit) showed a page that already reads as clean and considered: two
+peer mode cards inside one hairline-split panel, real status badges,
+clear primary/secondary actions, a "coming later" panel. This is a
+refinement pass, not a rescue.
+
+**The real, narrow gap:**
+1. `ArenaLobby.tsx`'s own JSX still emits raw `<button className="ar-btn
+   ar-btn-primary">`/`<span className="ar-badge">` markup instead of the
+   shared `PeakV2PrimaryAction`/`PeakV2SecondaryAction`/`StatusChip`
+   primitives, and the outer wrapper hand-mimics `PeakV2Shell` (arena-
+   lobby.css's `.ar-lobby` override sets the exact same max-width/padding/
+   centering `PeakV2Shell` would) rather than using it.
+2. The "Coming later in the alpha" panel's `grid-template-columns:
+   repeat(auto-fit, minmax(14rem, 1fr))` produces an uneven 2-col-with-
+   orphan-wrap layout at 768px (confirmed live: "Public matchmaking" +
+   "Ratings" on row one, "Arena leaderboard" alone on row two under the
+   first column) — the one concrete layout defect found.
+3. The page header (`.ar-lobby-head`) is hand-rolled kicker/h1/intro
+   markup on legacy tokens aliased through the reskin, rather than the
+   family's now-established v2-token-direct header grammar.
+
+**A CRITICAL SHARED-CSS CONSTRAINT, found by grepping every consumer
+before touching anything:** `arena.css`'s `.ar-btn`, `.ar-btn-primary`,
+`.ar-badge`, `.ar-badge-alpha`, `.ar-panel`, `.ar-panel-title`,
+`.ar-panel-body`, `.ar-panel-actions`, `.ar-notice`, `.ar-lobby`,
+`.ar-lobby-head`, `.ar-lobby-title`, `.ar-lobby-intro`, `.ar-eyebrow` are
+NOT lobby-exclusive — `ThreeManWeaveLoader.tsx`'s own start-gate (its
+pre-match join/create screen) renders its OWN independent JSX using these
+SAME class names, and `arena-lobby.css`'s existing `[data-ui-version="v2"]
+.ar-btn` (etc.) overrides are global, not scoped under `.ar-lobby` — so
+they already reskin Three-Man Weave's and Twenty-Dollar Showdown's start
+gates too. Batch 10's explicit scope is `/arena/lobby` only ("do not touch
+Three-Man Weave or Twenty-Dollar Showdown yet"), so this batch changes
+WHICH MARKUP `ArenaLobby.tsx`'s own render functions (`LobbyShell`,
+`Unavailable`, `ComingLater`, `GameCard`, `QueuePanel`, `RoomPanel`) emit
+(swapping in `PeakV2*`/`StatusChip` components, which are self-contained
+and only affect this file's own output), and leaves every shared `.ar-*`
+CSS RULE and every OTHER consumer's JSX byte-for-byte untouched. Classes
+that are genuinely lobby-exclusive (verified 0 hits in
+`three-man-weave/*.tsx`/`twenty-dollar/*.tsx`) — `.ar-grid`, `.ar-card`,
+`.ar-card-*`, `.ar-facts`, `.ar-actions`, `.ar-action`, `.ar-action-note`,
+`.ar-private*`, `.ar-code-input`, `.ar-room-code`, `.ar-queue-facts`,
+`.ar-progress`, `.ar-later*` — may be freely restyled.
+
+**`components/arena/HowToPlay.tsx` is explicitly OUT OF SCOPE, and stays
+untouched this batch,** despite rendering inside every lobby `GameCard`:
+it is imported verbatim by `TwentyDollarGame.tsx` and both
+`ThreeManWeaveLoader.tsx`/`ThreeManWeaveGame.tsx` too (same rules content,
+same component, by design — "the lobby card, the game room and any future
+surface all read the SAME sentences"). Restyling it now would touch both
+modes' match rooms before their own batch. Recommended as part of Batch
+11 instead, where it can be verified against all three consumers at once.
+
+**No fabricated hierarchy:** `lib/arena-modes.ts`'s `ARENA_MODES` carries
+no ranked/featured/tier signal between Three-Man Weave and The $20
+Showdown — both are peer closed-alpha multiplayer games, distinguished
+only by `kindBadge` ("Multiplayer" vs "Auction"). `lib/arena-capability.ts`
+derives ONE posture for the whole page (`unavailable`/`practice_only`/
+`open`), never a per-mode rank. Per the brief's own instruction, this
+batch does not invent a primary/secondary mode distinction that the data
+does not support — both cards stay equally weighted, exactly as today.
+
+**Actual state machine** (`ArenaLobby.tsx`, verified against the code):
+`readiness` fetch (null while loading) → `capability` derived once
+(`arenaCapability()`) → gates in order: fetch error with no readiness yet
+(`lobby-error`) → still loading (`lobby-loading`) → `posture ===
+"unavailable"` (`lobby-disabled`/`lobby-no-modes`/`lobby-no-entry-paths`,
+one wall, three distinct reasons) → `queueMode` set (public-queue takeover,
+`QueuePanel`, 2s poll, cancel/fill-with-bots) → `room` set (private-room
+takeover, `RoomPanel`, 2s poll until the last seat fills, host-only
+fill-with-bots) → the catalogue (`lobby-mode-grid`, one `GameCard` per
+`capability.modes`, `?game=` deep-link highlight). Each `GameCard` builds
+its own action list from capability (`practiceAvailable`/
+`publicQueueAvailable`/`privateRoomAvailable`) — a posture-closed path is
+not rendered at all (no disabled ghost button); a transiently-closed path
+(bots off while other doors are open) keeps its control, disabled, with a
+reason. `practice_only` posture additionally renders `ComingLater` once,
+after the grid, instead of per-card disabled controls.
+
+**Must not change:** every `data-testid` in `arena-lobby.test.tsx` (30
+tests) and `arena-multiplayer.spec.ts`'s lobby `describe` blocks (~15
+tests, shared file with TMW/Twenty-Dollar's own e2e coverage) — including
+exact text assertions (`"Closed alpha"`, `"play vs bots"` case-insensitive,
+`"Bot practice is offline right now."`, `"Multiplayer is not open yet"`
+only in the true-unavailable case, `"unrated in alpha"`, seat format
+`"{n} of {seatCount}"`, countdown format `"{n}s"`); `data-posture` on the
+`arena-lobby` element; every `matchPath`/`href`/query-param behavior;
+`app/(main)/arena/lobby/page.tsx`'s `<Suspense>` fallback, which hand-
+mirrors `LobbyShell`'s markup so the two states don't visibly flash
+between two different empties — must be updated in lockstep with any
+`LobbyShell` header change.
+
+**Test coverage:** already substantial for a route the matrix had never
+recorded — `arena-lobby.test.tsx` (30 tests: routes, rated-state,
+catalogue data, both-games rendering, closed-alpha, starting a game,
+presentation helpers) plus `arena-multiplayer.spec.ts`'s lobby-specific
+`describe` blocks (both-games-reachable navigation, the lobby itself,
+closed-alpha in a real browser incl. axe + `@mobile` overflow + keyboard).
+No coverage gap identified — this batch adds no new test file, only
+re-verifies the existing suite against the restyle.
+
+**Polish category:** narrow refinement pass — the shared-CSS-with-other-
+consumers constraint above is the load-bearing fact for this batch, not
+a legacy-vs-converged question.
+
 ### `/arena/three-man-weave`, `/arena/three-man-weave/[matchId]`
 - **Renders:** `ThreeManWeaveLoader` → `ThreeManWeaveGame` (3 v2 imports — partial).
 - **Must not change:** 872-line-class stage/commit/timeout/reconnect logic (per prior planning doc — verify still true); PickOverlay behavior.
