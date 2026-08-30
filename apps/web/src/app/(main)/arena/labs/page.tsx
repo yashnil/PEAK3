@@ -40,15 +40,15 @@ const MODE_CSS: Record<DraftMode, string> = {
   foundation_5y: "var(--foundation-blue)",
 };
 
-function ModeCard({ mode, revealIndex }: { mode: DraftMode; revealIndex: number }) {
+function ModeCard({ mode }: { mode: DraftMode }) {
   const color = MODE_CSS[mode];
+  // No `.pk-reveal` entrance — see DraftCard.tsx's comment: the release-
+  // candidate audit found it can intermittently fail WCAG contrast while a
+  // card is still fading in.
   return (
     <div
-      className="pk-depth pk-crown pk-reveal rounded-2xl border p-5 flex flex-col gap-4"
-      style={{
-        borderColor: "var(--border-default)",
-        "--pk-reveal-index": revealIndex,
-      } as React.CSSProperties}
+      className="pk-depth pk-crown rounded-2xl border p-5 flex flex-col gap-4"
+      style={{ borderColor: "var(--border-default)" }}
     >
       <div className="flex items-center gap-2">
         <span className="text-2xl" aria-hidden="true">{MODE_ICONS[mode]}</span>
@@ -127,8 +127,8 @@ export default function LegacyLabsPage() {
         </div>
 
         <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {MODES.map((m, i) => (
-            <ModeCard key={m} mode={m} revealIndex={i} />
+          {MODES.map((m) => (
+            <ModeCard key={m} mode={m} />
           ))}
         </div>
 

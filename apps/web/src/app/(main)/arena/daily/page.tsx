@@ -89,17 +89,19 @@ export default function DailyHubPage() {
         </div>
 
         {/* Mode cards */}
+        {/* No `.pk-reveal` entrance here — see DraftCard.tsx's comment: the
+            release-candidate audit found it can intermittently fail WCAG
+            contrast while a card is still fading in, and these cards carry
+            the day's score/CTA that a player needs at full contrast
+            immediately. */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-          {MODES.map((mode, i) => {
+          {MODES.map((mode) => {
             const completion = completions[mode];
             return (
               <div
                 key={mode}
-                className="pk-depth pk-crown pk-reveal rounded-xl p-6 flex flex-col gap-4 border"
-                style={{
-                  borderColor: "var(--border-default)",
-                  "--pk-reveal-index": i,
-                } as React.CSSProperties}
+                className="pk-depth pk-crown rounded-xl p-6 flex flex-col gap-4 border"
+                style={{ borderColor: "var(--border-default)" }}
               >
                 {/* Title row */}
                 <div className="flex items-start justify-between gap-2">

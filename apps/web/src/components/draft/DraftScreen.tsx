@@ -431,7 +431,6 @@ export default function DraftScreen({ initialGameState, boardDate, challengeToke
                     selected={isSelected}
                     dimmed={isDimmed || (!hasEligibleRole && !isSelected)}
                     eligible={hasEligibleRole}
-                    revealIndex={gs.current_round}
                     onClick={
                       state.phase === "selecting" && !submitting
                         ? () => handleSelectOffer(card.peak_window_id)
