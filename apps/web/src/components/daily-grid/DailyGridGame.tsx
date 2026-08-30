@@ -1158,10 +1158,18 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
         </div>
 
         {!complete && archive && archive.entries.length > 0 && (
+          // A bounded card, not a bare floating list: the board's own height
+          // varies with the viewport and the list never grows past 6 rows, so
+          // this column is almost always shorter than the board beside it. A
+          // real edge (`pk-depth pk-crown` + border) reads as "a shorter card
+          // next to a taller one" -- ordinary editorial layout -- where an
+          // unbordered heading+list floating on the bare page background read
+          // as unfinished, empty space instead.
           <aside
-            className="hidden xl:flex xl:w-80 xl:shrink-0 xl:flex-col xl:gap-3"
+            className="pk-depth pk-crown hidden gap-3 rounded-xl p-4 xl:flex xl:w-80 xl:shrink-0 xl:flex-col"
             aria-label="Recent Daily Grid results"
             data-testid="daily-grid-recent-rail"
+            style={{ border: "1px solid var(--v2-border-subtle)" }}
           >
             <h2
               className="text-xs font-bold uppercase tracking-[0.08em]"
@@ -1170,6 +1178,14 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
               Recent results
             </h2>
             <RecentResults entries={archive.entries.slice(0, 6)} linkToBoards />
+            <PeakV2SecondaryAction
+              href="/daily/history"
+              size="sm"
+              data-testid="daily-grid-recent-rail-history-link"
+              className="mt-1 self-start"
+            >
+              View full history
+            </PeakV2SecondaryAction>
           </aside>
         )}
       </div>
