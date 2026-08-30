@@ -3,13 +3,17 @@
 Branch: `feature/arena-archive-visual-polish`. Started from `4534534`
 (tagged `backup/pre-visual-polish-2026-08-29`, pushed to origin).
 
-## Status: 7 route-family batches + release-candidate audit complete. RC = `6652afd`.
+## Status: 8 route-family batches + release-candidate audit complete. Latest work = `01d9b8e` (Batch 8).
 
-**Not the same as "the whole app is converged."** The RC audit (below)
-found several real, sizeable surfaces that no batch ever actually
-touched — Daily Grid (`/daily/grid`, `/daily/history`), `/arena/lobby`,
-Three-Man Weave, Twenty-Dollar Showdown, and 13 of 14 CourtBuilder
-sub-panels (the 82-0 flagship's own child components). These are honestly
+**Not the same as "the whole app is converged."** The RC audit found
+several real, sizeable surfaces that no batch ever actually touched —
+Daily Grid (`/daily/grid`, `/daily/history`), `/arena/lobby`, Three-Man
+Weave, Twenty-Dollar Showdown. It ALSO claimed "13 of 14 CourtBuilder
+sub-panels" were unconverted; Batch 8 investigated that claim directly and
+found it substantially overstated (see Batch 8's own section below) — the
+real gap was 5 files plus one routing bug, both now fixed. Trust Batch 8's
+section over the RC audit's original framing for CourtBuilder specifically.
+Daily Grid/lobby/Three-Man-Weave/Twenty-Dollar-Showdown are still honestly
 reported as deferred, not silently absorbed into "done." See "Release-
 candidate audit" below before assuming any further route is finished.
 
@@ -47,7 +51,9 @@ verified; do not treat "the program" as done until
 | `e007427` | RC audit fix — keyboard Tab-skip past role panel |
 | `e552c45` | RC audit fix — flaky WCAG contrast from card entrance animation |
 | `2493af8` | RC audit — `.score-number` consistency within Batch 7's own scope |
-| `6652afd` | RC audit — `/u/[handle]` onto shared shell (**RC SHA**) |
+| `6652afd` | RC audit — `/u/[handle]` onto shared shell (former RC SHA) |
+| `68928fa` | chore — record RC audit results |
+| `01d9b8e` | **Batch 8**: CourtBuilder flagship completion (see below) |
 
 ## Baseline (Phase 3, all green before any UI edit — see VISUAL_POLISH_PLAN.md for full detail)
 
@@ -616,6 +622,77 @@ fix.
 106→106 kB (flat), `/arena/practice/[mode]` 129→130 kB, `/arena/results/[id]`
 128→130 kB — modest, consistent with the rest of the app's V2-component
 cost.
+
+## Batch 8 — CourtBuilder flagship completion (DONE, verified, committed as `01d9b8e`)
+
+**Scope, per the user's explicit instruction, following the RC audit's
+finding:** the majority-legacy-flagship claim from the RC audit turned out
+to be substantially overstated on investigation. Full state/panel inventory
+(recorded in `ROUTE_BEHAVIOR_MATRIX.md`) found `CourtBuilder.tsx` already
+delegates to mature, multi-pass V2 components (`PeakV2CourtLive`,
+`PeakV2CourtChooser`, `PeakV2CourtResult` — documented "Pass 3" cutover and
+"Pass 7" human-acceptance-testing fixes), which reuse `CourtLayout`,
+`LiveBuildPanel`, `SpinStage`, `EligiblePlayerSearch` verbatim because those
+are already correct (`CourtLayout`'s real court markings solved the "reads
+as a form" failure in Phase 6C, long before this program existed). The RC
+audit's "0 PeakV2 refs" grep was a poor proxy — it counted these
+already-good, verbatim-reused files as "legacy" because they're imported by
+relative path rather than re-exported under a `PeakV2*` name.
+
+**The real, narrow gap, found by actually reading every file:** five
+action panels `PeakV2CourtResult` reuses on the post-game result screen
+(`SaveRunPanel`, `PlayAgainPanel`, `LeaderboardSubmitPanel`,
+`ShareRunPanel`, `PeakPicksRecap`) were still raw bordered boxes with ad
+hoc `<button>`/`<a>` styling — visibly older than the cinematic,
+hairline-divided page they sit inside. Restyled onto
+`PeakV2PrimaryAction`/`SecondaryAction`, dropped their own outer box.
+**Second, more concrete bug:** `/arena/court/results/[id]` (the shared/
+permalink URL `ShareRunPanel`'s own "Copy link" generates) rendered the
+OLD `SeasonResultStub` instead of `PeakV2CourtResult` — confirmed
+identical prop signature and `data-testid`, so a like-for-like swap. This
+was the actual "polished promise, then an older generation" bug: the
+player who just finished saw the new cinematic result; anyone they shared
+the link with saw the old one.
+
+**Left deliberately untouched, documented as out of scope:**
+`PeakSeasonLeaderboard.tsx` + `/arena/court/leaderboard` (a separate
+destination, not part of the CourtBuilder loop) — flagged for a future
+batch. `SpinStage`, `EligiblePlayerSearch` (also shared with Daily Grid's
+`GridCell.tsx`), `CourtLayout` — reused verbatim, correctness/UX-critical,
+not touched (same discipline as `DNARadar.tsx`).
+
+**Tests:** added `share-run-panel.test.tsx` (5), `peak-picks-recap.test.tsx`
+(4), `court-results-page.test.tsx` (3) — all three had zero coverage
+before. All pre-existing `save-run-panel`/`play-again-panel`/
+`leaderboard-submit-panel` unit tests passed unmodified (testids/behavior
+byte-identical).
+
+**Verification:** typecheck clean, lint 0 warnings, 2309/2309 vitest,
+clean production build, **99/99 `courtbuilder.spec.ts`** (the largest e2e
+file in the app, ~10min, its own CI shard — full select/cancel/reselect/
+place/swap/undo/respin/hint/complete/share/download/leaderboard/shared-
+read-only-result loop), 15/15 `accessibility.spec.ts`.
+
+**Independent evaluator:** ship as-is. All 9 evaluator questions answered
+affirmatively; shared permalink confirmed visually identical generation to
+the owner's own result screen (the exact thing this batch fixed); one
+pre-existing (not introduced this batch) minor note — long recap rows
+truncate at 390px, a `PeakPicksRecap` internal-content issue this batch's
+outer-box removal didn't touch.
+
+**Independent QA:** 19/19 checks pass, zero console errors, zero non-2xx
+responses. Full free-play run, cancel/reselect (confirmed via a real
+`.../cancel` 200, not just a client-side hide), 8-round completion, all
+five action panels in both leaderboard-flag states, the shared/permalink
+flow byte-identical roster text between owner and shared views, invalid-id
+not-found state, and a keyboard-only playthrough of round 1 plus the
+result screen's actions. No regressions found.
+
+**Bundle note:** `/arena/court/results/[id]` grew ~128kB→194kB (+66kB)
+since it now shares `PeakV2CourtResult`'s richer cinematic bundle instead
+of the lighter legacy `SeasonResultStub` — justified: it fixes a real
+visual-consistency bug, and the route is a low-traffic shared/permalink
+destination, not a hot path.
 
 ## Release-candidate audit — DONE, RC = `6652afd`
 
