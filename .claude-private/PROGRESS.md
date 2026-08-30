@@ -3,7 +3,7 @@
 Branch: `feature/arena-archive-visual-polish`. Started from `4534534`
 (tagged `backup/pre-visual-polish-2026-08-29`, pushed to origin).
 
-## Status: 9 route-family batches + release-candidate audit complete. Latest work = `1cdc906` (Batch 9).
+## Status: 10 route-family batches + release-candidate audit complete. Latest work = `1525b11` (Batch 10).
 
 **Not the same as "the whole app is converged."** The RC audit found
 several real, sizeable surfaces that no batch ever actually touched —
@@ -13,12 +13,13 @@ sub-panels" were unconverted; Batch 8 investigated that claim directly and
 found it substantially overstated (see Batch 8's own section below) — the
 real gap was 5 files plus one routing bug, both now fixed. Trust Batch 8's
 section over the RC audit's original framing for CourtBuilder specifically.
-Batch 9 investigated the Daily Grid claim directly and found it accurate
-this time (unlike Batch 8's finding) — see Batch 9's own section below;
-that family is now converged. `/arena/lobby`, Three-Man Weave, and
-Twenty-Dollar Showdown are still honestly reported as deferred, not
-silently absorbed into "done." See "Release-candidate audit" below before
-assuming any further route is finished.
+Batches 9 and 10 investigated the Daily Grid and `/arena/lobby` claims
+directly and found both accurate (unlike Batch 8's finding) — see each
+batch's own section below; both families are now converged. Three-Man
+Weave and Twenty-Dollar Showdown (and `HowToPlay.tsx`, shared by both and
+by the lobby) are still honestly reported as deferred, not silently
+absorbed into "done." See "Release-candidate audit" below before assuming
+any further route is finished.
 
 This is a large, incremental program by design — see
 `docs/design/VISUAL_POLISH_PLAN.md`'s "scope decision" section for why (this
@@ -60,6 +61,9 @@ verified; do not treat "the program" as done until
 | `dda202c` | chore — record batch 8 status, next-batch proposal |
 | `0721c53` | **Batch 9**: Daily Grid + Daily History full convergence (candidate, see below) |
 | `1cdc906` | Batch 9 fix — Recent Results rail bounded as its own card (evaluator finding) |
+| `bde0a55` | chore — record batch 9 status, next-batch proposal |
+| `2282f0f` | **Batch 10**: `/arena/lobby` full convergence (candidate, see below) |
+| `1525b11` | Batch 10 fix — third lobby action button orphaned at half width (evaluator finding) |
 
 ## Baseline (Phase 3, all green before any UI edit — see VISUAL_POLISH_PLAN.md for full detail)
 
@@ -915,6 +919,99 @@ functionality preserved, no regression attributable to this batch.
 **Bundle note:** `/daily/grid` 22kB→21kB (First Load JS unchanged, 221kB),
 `/daily/history` First Load JS 119kB→120kB (+1kB, new V2 imports) —
 negligible either way, confirmed against a baseline rebuild of `dda202c`.
+
+## Batch 10 — `/arena/lobby` full convergence (DONE, verified, committed as `2282f0f` + fix `1525b11`)
+
+**Scope, per the user's explicit instruction:** `/arena/lobby`
+(`ArenaLobby.tsx`) only. Not Three-Man Weave, not The $20 Showdown, not
+`HowToPlay.tsx` (shared with both match rooms — deferred to Batch 11).
+
+**Same lesson as Batches 8/9, re-confirmed a third time:** the RC audit's
+"0 refs, not mentioned in the matrix" was correct about the matrix's own
+omission but not about the route being unconverted. `ArenaLobby.tsx` had
+already been through an undocumented "closed-alpha capability" rewrite,
+and `styles/v2/arena-lobby.css` is an already-shipped CSS-only reskin,
+live in production (`<html data-ui-version="v2">` is static, not a flag).
+A live 4-viewport screenshot pass before editing found a page that
+already read as clean and considered — this was a refinement pass, not a
+rescue.
+
+**The load-bearing constraint, found by grepping every consumer first:**
+`arena.css`'s `.ar-btn`, `.ar-badge`, `.ar-panel`, `.ar-lobby*` etc. are
+NOT lobby-exclusive — `ThreeManWeaveLoader.tsx`'s own start gate renders
+independent JSX using the SAME class names, and `arena-lobby.css`'s V2
+overrides are global. So this batch changed only WHAT MARKUP
+`ArenaLobby.tsx`'s own render functions emit (swapping in
+`PeakV2Shell`/`PeakV2PrimaryAction`/`PeakV2SecondaryAction`/`StatusChip`),
+leaving every shared CSS rule and every other consumer's JSX untouched.
+Classes confirmed lobby-exclusive by grep (`.ar-grid`, `.ar-card*`,
+`.ar-facts`, `.ar-actions`, `.ar-action*`, `.ar-private*`,
+`.ar-code-input`, `.ar-room-code`, `.ar-queue-facts`, `.ar-progress`,
+`.ar-later*`) were restyled directly, including one CSS edit.
+
+**No fabricated hierarchy:** `lib/arena-modes.ts` carries no ranked/
+featured/tier signal between Three-Man Weave and The $20 Showdown — both
+stayed equally weighted, exactly as before.
+
+**Two real defects found and fixed, both the same underlying failure
+mode:**
+1. (Found by me, pre-commit) `ComingLater`'s `repeat(auto-fit,
+   minmax(14rem,1fr))` grid produced an uneven 2-col-with-orphan-wrap
+   layout at 768px — replaced with explicit Tailwind breakpoints.
+2. (Found live by the independent evaluator, post-commit, `1525b11`) The
+   SAME failure mode in a place I hadn't tested at the right posture:
+   `.ar-actions`'s identical `auto-fit` grid stranded a card's THIRD
+   action button (only offered when the public queue is enabled — my own
+   manual testing stayed in `practice_only` posture, which only ever
+   shows two actions and happened to fit) alone on a row at half width.
+   Fixed by switching to a wrapping flex row with `flex: 1 1 9rem` —
+   items sharing a line split it evenly; a lone stranded item grows to
+   fill its line, because `flex-grow` only competes against items on the
+   SAME flex line. Lesson for future batches: THIS APP'S auto-fit grids
+   are a recurring source of orphan-wrap bugs — grep for
+   `repeat(auto-fit` before trusting any N-item flex/grid row is safe at
+   every N.
+
+**A real, positive side effect, not engineered but verified:** moving the
+page wrapper off the `.ar-lobby` class (onto `PeakV2Shell` + a plain div)
+stopped `arena-lobby.css`'s `[data-ui-version="v2"] .ar-lobby { background:
+none }` override from also zeroing out `.pk-atmosphere`'s
+`background-image` on the same element (both are shorthand-adjacent
+properties on ONE div in the old markup). The component's own documented
+"concourse lighting" (floodlights + court grid behind the mode cards) is
+now visible as originally intended — confirmed via live screenshot,
+axe-clean in both postures.
+
+**Tests:** no new test file — `arena-lobby.test.tsx` already carried 31
+tests (unmodified, all still pass) and `arena-multiplayer.spec.ts`'s
+lobby-specific blocks already existed; this batch found no coverage gap.
+
+**Verification:** typecheck clean, lint 0 warnings, 2319/2319 vitest,
+clean production build, **arena-multiplayer.spec.ts 30/30** (one bot-
+timing flake on the FIRST full run pre-fix, in an unrelated $20 Showdown
+auction test — confirmed pre-existing by isolated re-run and a second
+full clean run), **accessibility.spec.ts 15/15**.
+
+**Independent evaluator:** accept, with the orphan-button finding above
+(fixed). All 9 evaluator questions answered affirmatively on the fixed
+candidate — 3-second legibility, obvious primary action per card, clear
+kind/action-type distinction, "same Arena" as `/arena`/`/daily`, 1440px
+genuinely composed (not a narrow column), 390px compact, no over-designed
+cards, no harder-to-find status info, reads as PEAK3 not a template
+launcher.
+
+**Independent QA:** 9/9 checks pass with a real signed-in test session —
+correct cards/facts, `?game=` highlight, bot-practice match creation and
+routing, Play-With-Friends create/join panel (6-char gating), room-code
++ seat progress + fill-with-bots, public-queue searching panel (seats/
+status/countdown/real `<progress>`/cancel), correct `data-posture`, zero
+console errors, zero non-2xx responses, no mobile overflow. Verdict:
+functionality preserved.
+
+**Bundle note:** `/arena/lobby` 6.15kB→8.28kB own, 177kB→191kB First Load
+JS (+14kB) — the route's first-time cost of adopting the shared
+`PeakV2*`/`StatusChip` primitives it had never imported before; the
+follow-up CSS fix added no bundle weight.
 
 ## Process notes for whoever continues this (same session or a future one)
 
