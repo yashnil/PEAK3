@@ -78,7 +78,7 @@ export default function LineupBoard({ selectedCards, openRoles, heldCard }: Prop
                   {filled.card.player_name}
                 </span>
                 <span
-                  className="text-xs tabular-nums shrink-0 ml-2"
+                  className="text-xs score-number shrink-0 ml-2"
                   style={{ color: "var(--text-secondary)" }}
                 >
                   {Math.round(filled.card.individual_peak_score)}

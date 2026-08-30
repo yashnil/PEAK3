@@ -118,7 +118,7 @@ export default function ShareChallenge({
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
             Your lineup peak rating:{" "}
             <span
-              className="font-bold tabular-nums"
+              className="font-bold score-number"
               style={{ color: "var(--peak-accent-text)" }}
             >
               {(Math.round(lineupPeakRating * 10) / 10).toFixed(1)}

@@ -54,7 +54,7 @@ export default function DNABar({ dna, label }: Props) {
               />
             </div>
             <div
-              className="w-7 text-right text-xs tabular-nums shrink-0"
+              className="w-7 text-right text-xs score-number shrink-0"
               style={{ color }}
             >
               {Math.round(val)}

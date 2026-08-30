@@ -73,7 +73,7 @@ function ScoreCol({
         {player.display_name}
       </div>
       <div
-        className="text-4xl font-bold tabular-nums leading-none"
+        className="text-4xl font-bold score-number leading-none"
         style={{ color: isWinner ? "var(--peak-accent-text)" : "var(--text-primary)" }}
       >
         {rating.toFixed(1)}
@@ -84,7 +84,7 @@ function ScoreCol({
           style={{ color: "var(--text-secondary)" }}
         >
           <span>Talent</span>
-          <span className="tabular-nums">
+          <span className="score-number">
             {(Math.round(player.talent_score * 10) / 10).toFixed(1)}
           </span>
         </div>
@@ -93,7 +93,7 @@ function ScoreCol({
           style={{ color: "var(--text-secondary)" }}
         >
           <span>Coverage</span>
-          <span className="tabular-nums">
+          <span className="score-number">
             {(Math.round(player.coverage_score * 10) / 10).toFixed(1)}
           </span>
         </div>
@@ -102,7 +102,7 @@ function ScoreCol({
           style={{ color: "var(--text-secondary)" }}
         >
           <span>Synergy</span>
-          <span className="tabular-nums">
+          <span className="score-number">
             {synergySign}
             {(player.synergy_total * 100).toFixed(1)}%
           </span>
@@ -113,7 +113,7 @@ function ScoreCol({
             style={{ color: "var(--text-secondary)" }}
           >
             <span>Efficiency</span>
-            <span className="tabular-nums">{effPct}%</span>
+            <span className="score-number">{effPct}%</span>
           </div>
         )}
         {pctLabel != null && (
@@ -122,7 +122,7 @@ function ScoreCol({
             style={{ color: "var(--text-secondary)" }}
           >
             <span>Board</span>
-            <span className="tabular-nums">Top {pctLabel}%</span>
+            <span className="score-number">Top {pctLabel}%</span>
           </div>
         )}
       </div>
@@ -189,7 +189,7 @@ function PicksCol({
               R{card.round} · {ROLE_LABELS[card.role]}
             </span>
             <span
-              className="text-xs tabular-nums font-semibold shrink-0"
+              className="text-xs score-number font-semibold shrink-0"
               style={{ color: "var(--peak-accent-text)" }}
             >
               {card.individual_peak_score.toFixed(1)}
