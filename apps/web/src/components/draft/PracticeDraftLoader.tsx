@@ -48,12 +48,23 @@ export default function PracticeDraftLoader({ mode, seed }: Props) {
   // but wasteful, and it makes the server logs lie about how many games exist.
   const startedRef = useRef(false);
 
+  // The API requires a seed for a practice board (it has no date to key off,
+  // unlike a daily). A seedless visit — every link that doesn't spell out
+  // `?seed=`, including every "Practice" link on /arena/labs — used to send
+  // no seed at all and get a 400 `board_error` back, which this component
+  // then showed as its own generic "Could not create practice board" retry
+  // screen: the create genuinely never happened, not a flaky API. Picked
+  // once per mount (`useState` initializer), so it's stable across
+  // `create()`'s own retries and doesn't fight `startedRef`'s StrictMode
+  // guard by picking a new board on every re-render.
+  const [effectiveSeed] = useState(() => seed ?? Math.floor(Math.random() * 1_000_000));
+
   const create = useCallback(() => {
     setFailed(false);
-    createDraftGame(mode, "practice", { seed })
+    createDraftGame(mode, "practice", { seed: effectiveSeed })
       .then(setGameState)
       .catch(() => setFailed(true));
-  }, [mode, seed]);
+  }, [mode, effectiveSeed]);
 
   useEffect(() => {
     if (startedRef.current) return;

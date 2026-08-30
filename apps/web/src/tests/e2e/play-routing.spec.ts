@@ -754,6 +754,27 @@ test.describe("Legacy Labs", () => {
     }
   });
 
+  test("the Practice link actually starts a board, not a 'could not create' error", async ({
+    page,
+  }) => {
+    // Regression: every seedless `/arena/practice/{mode}` visit — which is
+    // exactly what Labs' own "Practice" links are — sent no `seed` to an API
+    // that requires one for a practice board, so this link 400'd into
+    // PracticeDraftLoader's generic retry screen on every click. Found during
+    // the release-candidate audit; PracticeDraftLoader now picks a random
+    // seed when the caller (Labs, or a bare URL) doesn't supply one.
+    await page.goto("/arena/labs", { waitUntil: "load" });
+    await page
+      .getByRole("link", { name: "Practice" })
+      .first()
+      .click();
+    await expect(page.getByRole("heading", { name: "Peak Draft" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("offer-card").first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/could not create practice board/i)).toHaveCount(0);
+  });
+
   test("is never linked from the navbar, not even from the Play launcher", async ({ page }) => {
     await page.goto("/arena/labs", { waitUntil: "load" });
     const nav = page.getByRole("navigation", { name: "Main navigation" });
