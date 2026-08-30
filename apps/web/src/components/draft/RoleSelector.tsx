@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useRef } from "react";
 import { DraftCard, DraftRole, ROLE_LABELS, DRAFT_ROLES } from "@/types/draft";
 
 // Theme-aware `--accent-*` tokens (P3-G2) -- see the identical comment in
@@ -32,9 +33,29 @@ export default function RoleSelector({
 }: Props) {
   const eligibleOpen = card.eligible_roles.filter((r) => openRoles.includes(r));
 
+  // The offer card that opened this panel becomes `disabled` the instant it
+  // is selected (its `onClick` only exists in the "selecting" phase — see
+  // DraftCard/DraftScreen), and a disabled element drops out of the tab
+  // order from wherever it sat. This panel renders BEFORE the offer-card
+  // list in the DOM (it needs to sit above the offers visually), so a
+  // player who selected a card with the keyboard had forward-Tab jump
+  // past it entirely into whatever came after the offers instead of
+  // landing here — confirmed via a real browser during the release-
+  // candidate audit. Moving focus onto the panel itself the moment it
+  // mounts is the same fix `ChallengeComparison` already uses for its own
+  // outcome heading: `tabIndex={-1}` makes a non-interactive element a
+  // valid, one-time focus target without joining the normal tab order.
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, []);
+
   return (
     <div
-      className="pk-depth pk-crown-accent flex flex-col gap-4 rounded-xl p-4 border"
+      ref={panelRef}
+      tabIndex={-1}
+      data-testid="role-panel"
+      className="pk-depth pk-crown-accent flex flex-col gap-4 rounded-xl p-4 border outline-none"
       style={{
         borderColor: "var(--peak-accent-edge)",
       }}
