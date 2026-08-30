@@ -13,21 +13,19 @@ import {
   localDailyWindow,
 } from "@/lib/daily-time";
 import { useDailyReset } from "@/lib/use-daily-reset";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2Score from "@/components/v2/PeakV2Score";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
+import type { V2Tone } from "@/components/v2/v2-tone";
 import RecentResults from "./RecentResults";
 
-function Stat({ label, value, accent, testId }: { label: string; value: string; accent?: string; testId: string }) {
+function Stat({ label, value, tone, testId }: { label: string; value: string; tone?: V2Tone; testId: string }) {
   return (
-    <div className="card-surface flex-1 px-3 py-3 text-center">
-      <p
-        data-testid={testId}
-        className="score-number font-display text-2xl font-bold leading-none"
-        style={{ color: accent ?? "var(--text-primary)" }}
-      >
-        {value}
-      </p>
-      <p className="mt-1.5 text-[9px] font-bold uppercase tracking-[0.12em]" style={{ color: "var(--text-muted)" }}>
-        {label}
-      </p>
+    <div
+      className="pk-depth pk-crown flex-1 rounded-lg px-3 py-2 text-center"
+      style={{ border: "1px solid var(--v2-border-subtle)" }}
+    >
+      <PeakV2Score role="instrument" size="sm" tone={tone ?? "neutral"} value={value} label={label} valueTestId={testId} align="center" />
     </div>
   );
 }
@@ -85,43 +83,46 @@ export default function DailyGridHistory() {
 
   if (archive === null) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center">
-        <p role="status" data-testid="daily-history-loading" style={{ color: "var(--text-muted)" }}>
-          Loading your history…
-        </p>
-      </div>
+      <PeakV2Shell width="live">
+        <div className="flex min-h-[50vh] items-center justify-center">
+          <p role="status" data-testid="daily-history-loading" style={{ color: "var(--v2-text-muted)" }}>
+            Loading your history…
+          </p>
+        </div>
+      </PeakV2Shell>
     );
   }
 
   const playedToday = today !== "" && hasCompleted(archive, today);
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-3 pb-16 pt-6 sm:px-4">
+    <PeakV2Shell width="live">
+    <div className="pb-16 pt-6">
       <header>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="font-display text-2xl font-bold sm:text-3xl">Daily Grid History</h1>
-            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+            <h1
+              className="text-2xl font-bold sm:text-3xl"
+              style={{ fontFamily: "var(--v2-font-display)", color: "var(--v2-text-primary)" }}
+            >
+              Daily Grid History
+            </h1>
+            <p className="mt-1 text-sm" style={{ color: "var(--v2-text-secondary)" }}>
               Every grid you have finished, with the score and today&rsquo;s maximum as they stood on
               the day.
             </p>
           </div>
-          <Link
-            href="/daily/grid"
-            data-testid="daily-history-back"
-            className="shrink-0 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-            style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
-          >
+          <PeakV2SecondaryAction href="/daily/grid" data-testid="daily-history-back" size="sm" className="shrink-0">
             Back to the grid
-          </Link>
+          </PeakV2SecondaryAction>
         </div>
 
         <p
           data-testid="daily-history-local-notice"
-          className="mt-3 rounded-lg px-3 py-2 text-xs leading-relaxed"
-          style={{ background: "var(--bg-surface)", color: "var(--text-secondary)" }}
+          className="pk-depth pk-crown mt-3 rounded-lg px-3 py-2 text-xs leading-relaxed"
+          style={{ color: "var(--v2-text-secondary)", border: "1px solid var(--v2-border-subtle)" }}
         >
-          <strong style={{ color: "var(--text-primary)" }}>Stored in this browser.</strong> Your Daily
+          <strong style={{ color: "var(--v2-text-primary)" }}>Stored in this browser.</strong> Your Daily
           Grid record is not tied to an account and is not ranked against other players — clearing
           site data clears it. Only boards played on their own day count toward the streak.
         </p>
@@ -132,7 +133,7 @@ export default function DailyGridHistory() {
           testId="daily-history-current-streak"
           label="Day streak"
           value={String(archive.current_streak)}
-          accent="var(--peak-accent)"
+          tone="accent"
         />
         <Stat
           testId="daily-history-longest-streak"
@@ -148,16 +149,17 @@ export default function DailyGridHistory() {
           testId="daily-history-best-percent"
           label="Best % of max"
           value={archive.best_percent_of_max === null ? "—" : `${archive.best_percent_of_max}%`}
-          accent="var(--comp-team)"
+          tone="team"
         />
       </div>
 
       <div
         data-testid="daily-history-today"
-        className="mt-3 flex flex-wrap items-center gap-2 rounded-lg px-3 py-2.5 text-sm"
+        className={`pk-depth ${playedToday ? "pk-crown" : "pk-crown-accent"} mt-3 flex flex-wrap items-center gap-2 rounded-lg px-3 py-2.5 text-sm`}
         style={{
-          background: playedToday ? "var(--bg-surface)" : "var(--peak-accent-bg)",
-          border: "1px solid var(--border-subtle)",
+          border: playedToday
+            ? "1px solid var(--v2-border-subtle)"
+            : "1px solid var(--v2-color-accent-dim, var(--v2-color-accent))",
         }}
       >
         {playedToday ? (
@@ -165,22 +167,22 @@ export default function DailyGridHistory() {
             <CalendarClock size={14} aria-hidden="true" style={{ color: "var(--comp-team-text)" }} />
             <strong style={{ color: "var(--comp-team-text)" }}>Today&rsquo;s grid is done.</strong>
             {countdown !== null && (
-              <span style={{ color: "var(--text-secondary)" }}>
+              <span style={{ color: "var(--v2-text-secondary)" }}>
                 Next board in {formatCountdown(countdown)}.
               </span>
             )}
           </>
         ) : (
           <>
-            <Flame size={14} aria-hidden="true" style={{ color: "var(--peak-accent-text)" }} />
-            <strong style={{ color: "var(--text-primary)" }}>
+            <Flame size={14} aria-hidden="true" style={{ color: "var(--v2-color-accent)" }} />
+            <strong style={{ color: "var(--v2-text-primary)" }}>
               You have not played today&rsquo;s grid yet.
             </strong>
             <Link
               href="/daily/grid"
               data-testid="daily-history-play-today"
               className="font-semibold underline underline-offset-2"
-              style={{ color: "var(--peak-accent-text)" }}
+              style={{ color: "var(--v2-color-accent)" }}
             >
               Play it now
             </Link>
@@ -191,7 +193,7 @@ export default function DailyGridHistory() {
       <section className="mt-5" aria-label="Completed grids">
         <h2
           className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em]"
-          style={{ color: "var(--text-muted)" }}
+          style={{ fontFamily: "var(--v2-font-mono)", color: "var(--v2-text-muted)" }}
         >
           {archive.total_completed > 0
             ? `All ${archive.total_completed} completed grids`
@@ -204,5 +206,6 @@ export default function DailyGridHistory() {
         />
       </section>
     </div>
+    </PeakV2Shell>
   );
 }

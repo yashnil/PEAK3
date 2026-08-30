@@ -235,11 +235,124 @@ the state transitions above.
 - **Tests:** `game-engine.test.tsx`, `game-intro.test.tsx`, `score-derivation.test.tsx`, `peak-duel-v2-reveal.test.tsx`, `peak-duel-v2-history.test.tsx`, `result-tier.test.ts`, e2e `gameplay.spec.ts`, `duel-viewport.spec.ts`.
 - **Polish category:** system-consistency polish — already the most-iterated surface (per `PeakDuelV2*` component count).
 
-### `/daily`, `/daily/grid`, `/daily/history`
-- **Renders:** `DailyHub` (1 v2 import — partial), `DailyGridGame` (**0 v2 imports**), `DailyGridHistory`.
-- **Must not change:** board mechanic, `board_type` handling (flagged as a past bug source in memory), streak/archive logic.
-- **Tests:** the large `daily-grid-*` suite (api, archive, completion-v2, components, mobile-labels, retry, rollover, share-card, start-gate-v2, state, tour), e2e `daily-grid.spec.ts`.
-- **Polish category:** Daily Grid is confirmed still legacy-composed (`daily-grid-completion-v2.test.tsx` / `daily-grid-start-gate-v2.test.tsx` names suggest partial V2 work exists on *some* states already — verify at runtime before assuming it's 0%). Likely the single largest self-contained polish target given its state-machine complexity.
+### `/daily`, `/daily/grid`, `/daily/history` — Batch 9 semantic inventory (2026-08-30, pre-implementation)
+
+**Same lesson as Batch 8, applied up front this time:** the matrix's own
+prior hedge ("verify at runtime before assuming it's 0%") was correct.
+Read every one of the 12 `components/daily-grid/*` files plus
+`components/daily/DailyHub.tsx` before touching anything. The real gap is
+much narrower than "0 v2 imports" implied, but it is real — this is not a
+repeat of Batch 8's "actually already done" finding.
+
+**Already fully V2-native, confirmed by reading the code, NOT touched this
+batch** (multiple files reference a "Pass 7 (human acceptance testing)"
+pass that predates this program and already rebuilt these):
+- `/daily` → `DailyHub.tsx` → `PeakV2DailyHub` — a real, mature "Pass 5"
+  V2 build. Fully converged.
+- `StartGate.tsx` — `PeakV2Shell`/`PeakV2PrimaryAction`/`SecondaryAction`.
+- `DailyGridBoardView.tsx` + `GridCell.tsx` — the board itself, the actual
+  hero object — full `--v2-*` token usage, "Pass 7" hardened (focus,
+  reveal, fit-tier grammar mirrors `PeakV2CourtSlotCard`'s from Batch 8).
+- `CellPanel.tsx` — full `--v2-*` token usage, "Phase 11C" accessibility
+  hardening (real status badges, never color-only, disabled+labeled
+  unplayable rows).
+- `CompletionTrigger.tsx` — `.pk-press`, peak-accent tokens.
+- `CompletionModal.tsx` — wraps `PeakV2Modal` directly.
+- `CompletionPanel.tsx` — fully rebuilt "Pass 7" onto
+  `PeakV2CinematicStage`/`PeakV2ResultHeadline`/`PeakV2Rule`/`PeakV2Score`/
+  `PeakV2PrimaryAction`/`SecondaryAction` (cinematic-hero → hairline-
+  divided detail, explicitly replacing an earlier "card-in-card-in-card"
+  legacy structure this pass already deleted).
+- `OptimalGrid.tsx`, `RecentResults.tsx`, `DailyLeaderboard.tsx` — reused
+  verbatim by `CompletionPanel` ("their own internal presentation
+  untouched by this pass" — its own docstring). Not `PeakV2*`-branded but
+  already consistent: shared tokens, `.score-number`, and (`RecentResults`)
+  `.pk-depth`/`.pk-crown`/`.pk-lift`/`.pk-press`. Already dense/scannable,
+  matching this batch's own "favor dense chronological scanability" goal.
+  Untouched.
+- `PlayerAvatar.tsx` — shared cross-app primitive (RTT, Twenty-Dollar,
+  Three-Man-Weave, Rankings, court, this family). Not this batch's to
+  restyle.
+
+**The real, narrow gap, found by reading every file:**
+1. **`DailyGridGame.tsx`'s own outer shell** (~370 lines: the page header,
+   the `StatTile` row, the rollover-prompt banner, the archive-board
+   banner, the idle-hint panel, the outer page wrapper) — the one part of
+   this whole family that never went through the Pass 7 rebuild. Ad hoc
+   `card-surface` boxes, hand-rolled button chrome for History/Tour/Rules,
+   no `PeakV2Shell`. Every phase (loading, error, gate, playing, complete)
+   routes through this same file, so this is the actual "does the whole
+   loop feel like one thing" surface.
+2. **`HowToPlay.tsx`'s own action buttons** ("Take the walkthrough" /
+   "Back to the grid" / "Close") — raw ad hoc button styling, same class
+   of fix as Batch 8's action panels. The `Dialog` wrapper itself and the
+   four rule-step cards are fine; only the buttons.
+3. **`DailyGridHistory.tsx`** (`/daily/history`) — genuinely untouched:
+   no `PeakV2Shell`, its own duplicate `Stat` tile component (same pattern
+   as `DailyGridGame`'s `StatTile`, independently reimplemented), raw
+   bordered banners, raw button-styled `Link`s. Reuses `RecentResults`
+   (already good) for the actual list.
+
+**Actual state machine** (`DailyGridGame.tsx`, verified against the code,
+not inferred): `loading` → (`showGate === null`, pre-localStorage-read) →
+`showGate === true` (`StartGate`) → playing → `complete`
+(`isComplete(progress)` — all 9 cells filled). Within playing:
+`selected` (row,col) drives `CellPanel` mounting; a locked cell is final
+(no remove/reset control anywhere); `cellMessage` carries the server's
+own rejection sentence per cell; `submitting` gates the search-result
+buttons; the clock starts at board REVEAL for a returning player (not on
+first move) and is anchored server-side (`beginAttempt`/`withServerTimer`)
+with a silent local-clock fallback if that call fails. Sub-flows layered
+on top, all independently gated: the rollover prompt (`rolloverFrom`,
+fires on window-close, non-destructive — an untouched board silently
+swaps, a touched one prompts and waits), the archive-board banner
+(`isArchiveBoard`, computed from the server's own window when present),
+leaderboard retries (`retryRun`/`retryOutcome`/`retryStarting` — a signed-
+in player's replay to challenge their own leaderboard entry, never
+touches the canonical result), the completion overlay
+(`resultModalOpen` + `CompletionTrigger` reopens it, opens automatically
+once on completion including a mount that restores an already-finished
+board), the rules gate/panel/guided-tour (three independent surfaces:
+`showGate`, `rulesPanelOpen`, `tour.open`), and the desktop-only "Recent
+Results" rail (`archive.entries.length > 0 && !complete`, added Batch 2 —
+see below).
+
+**The Batch 2 sidebar, re-evaluated per this batch's explicit instruction:**
+still earns its place. `DailyGridGame.tsx`'s own comment on it is exactly
+right and is being preserved, not just assumed: it renders only with real
+data, only while a board is in progress (never alongside `CompletionModal`,
+which would be the same information twice), and there is deliberately no
+narrower reading column to compress the board into at `xl`+ — the rail is
+what actually uses that width. Kept, restyled to match the new outer-shell
+treatment (its heading/spacing, not `RecentResults` itself, which is
+untouched).
+
+**Must not change:** board/date identity (`board.date`/`board.daily_key`,
+server-decided, never computed client-side), `board_type`/`isArchiveBoard`
+determination, the timed-attempt handshake and its silent-fallback
+behavior, one-player-per-board + locked-pick-is-final rules, search
+eligibility (`used`/`no_fit`/`unknown`/`available` — server-decided,
+client never re-derives), scoring (`arena_points`/`quality_points`, always
+server-issued), the rollover's non-destructive prompt behavior, retry-run
+semantics (never touches the canonical official result/archive row),
+completion-overlay auto-open-once behavior, streak/archive
+localStorage schema, official (account-backed) save being best-effort/
+silent-on-failure.
+
+**Tests:** the large existing `daily-grid-*` suite (api, archive,
+completion-v2, components [1428 lines/75+ tests], mobile-labels, retry,
+rollover, share-card, start-gate-v2, state, tour) plus e2e
+`daily-grid.spec.ts` — all testid/text-content based (`toHaveTextContent`
+substring/regex), except `daily-grid-timer` which e2e pins with an EXACT
+`toHaveText("6:30")` match, meaning that testid's element must contain
+ONLY the time value, never the label. **`DailyGridHistory.tsx` and
+`HowToPlay.tsx` have no dedicated unit test today** — a real gap, added
+this batch.
+
+- **Polish category:** narrow, surgical convergence — same shape as Batch
+  8. The board/cell/completion loop is already excellent (Pass 7); the
+  gap is the orchestrator's own outer chrome, one dialog's buttons, and
+  one genuinely-untouched history page.
 
 ### `/rankings`, `/methodology`
 - **Renders:** `PeakV2Shell` + `PeakV2ResultHeadline` + `PeakV2Rule` wrapping `RankingsTable`/`RankingsAnalysis`/`RankingsProvenance` (rankings) and an accordion (methodology).

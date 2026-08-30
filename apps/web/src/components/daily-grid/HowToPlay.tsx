@@ -25,6 +25,8 @@ import { useRef } from "react";
 import { Lock, Search, Target, Trophy } from "lucide-react";
 
 import { Dialog } from "@/components/ui/Dialog";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
 
 const STEPS: { icon: typeof Target; title: string; body: string }[] = [
   {
@@ -95,11 +97,15 @@ export default function HowToPlay({
         <div>
           <p
             className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-            style={{ color: "var(--peak-accent-text)" }}
+            style={{ color: "var(--v2-color-accent)" }}
           >
             How to play
           </p>
-          <h2 id="how-to-play-heading" className="font-display mt-1 text-2xl font-bold sm:text-3xl">
+          <h2
+            id="how-to-play-heading"
+            className="mt-1 text-2xl font-bold sm:text-3xl"
+            style={{ fontFamily: "var(--v2-font-display)", color: "var(--v2-text-primary)" }}
+          >
             Build the highest-scoring grid
           </h2>
           {/* The objective, stated once, in the words the rest of the page
@@ -107,26 +113,26 @@ export default function HowToPlay({
           <p
             data-testid="how-to-play-objective"
             className="mt-2 max-w-xl text-sm leading-relaxed"
-            style={{ color: "var(--text-secondary)" }}
+            style={{ color: "var(--v2-text-secondary)" }}
           >
             Fill the grid with exact NBA player-seasons. Your goal:{" "}
-            <strong style={{ color: "var(--text-primary)" }}>
+            <strong style={{ color: "var(--v2-text-primary)" }}>
               maximize your PEAK3 total with nine different players
             </strong>
             . The rows and columns are basketball facts — teams, awards, eras, playoff runs. PEAK3 only
             decides what each pick was worth.
           </p>
         </div>
-        <button
+        <PeakV2SecondaryAction
           ref={closeRef}
           type="button"
           data-testid="how-to-play-close"
           onClick={onClose}
-          className="shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-          style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
+          size="sm"
+          className="shrink-0"
         >
           Close
-        </button>
+        </PeakV2SecondaryAction>
       </div>
 
       <ol className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -135,26 +141,32 @@ export default function HowToPlay({
           return (
             <li
               key={step.title}
-              className="card-surface flex gap-3 p-4"
+              className="pk-depth pk-crown flex gap-3 rounded-lg p-4"
+              style={{ border: "1px solid var(--v2-border-subtle)" }}
               data-testid="how-to-play-step"
             >
               <div
                 aria-hidden="true"
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
                 style={{
-                  background: "var(--bg-elevated)",
-                  border: "1px solid var(--border-subtle)",
-                  color: "var(--peak-accent-text)",
+                  background: "var(--v2-bg-plane)",
+                  border: "1px solid var(--v2-border-subtle)",
+                  color: "var(--v2-color-accent)",
                 }}
               >
                 <Icon size={15} />
               </div>
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+                <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--v2-text-muted)" }}>
                   Step {i + 1}
                 </p>
-                <h3 className="font-display mt-0.5 text-sm font-bold">{step.title}</h3>
-                <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                <h3
+                  className="mt-0.5 text-sm font-bold"
+                  style={{ fontFamily: "var(--v2-font-display)", color: "var(--v2-text-primary)" }}
+                >
+                  {step.title}
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--v2-text-secondary)" }}>
                   {step.body}
                 </p>
               </div>
@@ -168,9 +180,9 @@ export default function HowToPlay({
           <li
             key={rule}
             className="flex gap-2 text-xs leading-relaxed"
-            style={{ color: "var(--text-secondary)" }}
+            style={{ color: "var(--v2-text-secondary)" }}
           >
-            <span aria-hidden="true" style={{ color: "var(--peak-accent-text)" }}>
+            <span aria-hidden="true" style={{ color: "var(--v2-color-accent)" }}>
               &middot;
             </span>
             {rule}
@@ -179,31 +191,27 @@ export default function HowToPlay({
       </ul>
 
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p data-testid="how-to-play-board-line" className="text-xs" style={{ color: "var(--text-muted)" }}>
+        <p data-testid="how-to-play-board-line" className="text-xs" style={{ color: "var(--v2-text-muted)" }}>
           Today&apos;s board &middot; {date}
           {theme ? ` · ${theme}` : ""} &middot; {difficulty} difficulty
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {onTakeTour && (
-            <button
+            <PeakV2SecondaryAction
               type="button"
               data-testid="how-to-play-take-tour"
               onClick={onTakeTour}
-              className="rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-              style={{ borderColor: "var(--border-emphasis)", color: "var(--text-primary)" }}
             >
               Take the walkthrough
-            </button>
+            </PeakV2SecondaryAction>
           )}
-          <button
+          <PeakV2PrimaryAction
             type="button"
             data-testid="how-to-play-dismiss"
             onClick={onClose}
-            className="rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-            style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
           >
             Back to the grid
-          </button>
+          </PeakV2PrimaryAction>
         </div>
       </div>
     </Dialog>
