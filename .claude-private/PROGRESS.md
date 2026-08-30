@@ -3,7 +3,15 @@
 Branch: `feature/arena-archive-visual-polish`. Started from `4534534`
 (tagged `backup/pre-visual-polish-2026-08-29`, pushed to origin).
 
-## Status: in progress, staged deliberately across sessions
+## Status: 7 route-family batches + release-candidate audit complete. RC = `6652afd`.
+
+**Not the same as "the whole app is converged."** The RC audit (below)
+found several real, sizeable surfaces that no batch ever actually
+touched — Daily Grid (`/daily/grid`, `/daily/history`), `/arena/lobby`,
+Three-Man Weave, Twenty-Dollar Showdown, and 13 of 14 CourtBuilder
+sub-panels (the 82-0 flagship's own child components). These are honestly
+reported as deferred, not silently absorbed into "done." See "Release-
+candidate audit" below before assuming any further route is finished.
 
 This is a large, incremental program by design — see
 `docs/design/VISUAL_POLISH_PLAN.md`'s "scope decision" section for why (this
@@ -34,6 +42,12 @@ verified; do not treat "the program" as done until
 | `0441872` | **Batch 6**: H2H challenge family (see below) |
 | `0b50745` | **Batch 7**: legacy Peak Draft family — Daily/Practice/Labs (see below) |
 | `939f8b2` | Batch 7 fix — completion-screen dead space (evaluator finding) |
+| `16eb553` | chore — batch 7 status + final-audit proposal |
+| `35e4a3c` | RC audit fix — Practice board seedless-visit 400 |
+| `e007427` | RC audit fix — keyboard Tab-skip past role panel |
+| `e552c45` | RC audit fix — flaky WCAG contrast from card entrance animation |
+| `2493af8` | RC audit — `.score-number` consistency within Batch 7's own scope |
+| `6652afd` | RC audit — `/u/[handle]` onto shared shell (**RC SHA**) |
 
 ## Baseline (Phase 3, all green before any UI edit — see VISUAL_POLISH_PLAN.md for full detail)
 
@@ -603,40 +617,135 @@ fix.
 128→130 kB — modest, consistent with the rest of the app's V2-component
 cost.
 
-## What's next — the program's final stage
+## Release-candidate audit — DONE, RC = `6652afd`
 
-**Per the user's explicit instruction, do not start another route-family
-visual-polish batch.** Batch 7 was the last one in the requested sequence.
-The next stage is a proposed (not yet started) **Global Arena Archive
-Convergence + Release Candidate Audit** — reviewing the entire app as one
-product rather than another route family. Proposed scope for that stage,
-pending the user's go-ahead:
+Ran the user's full "Global Arena Archive Convergence + Release Candidate
+Audit" spec (Stages A–L) against branch head `16eb553`. Default posture
+was VERIFY AND LEAVE ALONE; only 5 small, evidence-backed commits landed.
+Dispatched 7 parallel fork/agent investigations (route reconciliation,
+design-drift grep, cleanliness grep, bundle-delta measurement, 2 live
+visual reviews, 1 accessibility certification) using the same worktree +
+SHA-pinning discipline as every batch's evaluator/QA step.
 
-1. **Cross-batch consistency sweep** — now that 7 route families have each
-   had an independent pass (RTT/82-0, Ranked/Daily-Grid, Ranked leaderboard,
-   Profile/Progress/History, Player detail, H2H, Peak Draft), check they
-   actually feel like one product side by side: token usage, `PeakV2Shell`
-   width choices, `StatusChip` tone conventions, motion vocabulary
-   (`.pk-*`) coverage gaps, and any surface still outside the `PeakV2*`
-   system entirely (Home, Peak Duel result, Rankings were flagged in the
-   route matrix as "already strong / refinement only" and never got a
-   dedicated batch — worth a real look, not an assumption).
-2. **The two pre-existing bugs this batch surfaced** (Labs practice-link
-   missing seed; keyboard forward-Tab skip after card selection) — small,
-   isolated, good candidates for the audit's fix list.
-3. **Full accessibility pass** — axe beyond what e2e specs already cover
-   (a dedicated sweep of every route, not just the ones with an
-   `accessibility.spec.ts` entry), plus manual keyboard-only playthroughs
-   of every game mode.
-4. **Performance pass** — Core Web Vitals / Lighthouse per route, now that
-   bundle deltas have been tracked per-batch but never looked at as an
-   aggregate; identify any route whose First Load JS grew disproportionately
-   across the whole program.
-5. **A final, single visual-rubric pass over the release candidate as a
-   whole** — not per-component, but "does this read as one shipped
-   product" — using `docs/design/VISUAL_RUBRIC.md` end to end.
+**Process lesson worth keeping:** the API's CORS allowlist
+(`apps/api/app/main.py`) hardcodes only `localhost:3000-3003`. Two of the
+worktree agents on ports 3011-3013 got silent fetch failures that looked
+like real product bugs (broken pages, axe violations on error screens)
+until traced to CORS. Fix for any future off-3000 worktree: start uvicorn
+with `PEAK3_CORS_ORIGINS='["http://localhost:PORT"]'` set.
 
-This is a proposal for the user to confirm/adjust scope on, not started.
+**Route reconciliation (Stage A) — the single most important finding of
+this whole audit:** the 7 batches covered real, real surfaces well, but
+NOT the whole app. Confirmed via direct `grep -c "PeakV2"` per component,
+not assumption:
+- **Daily Grid family** (`/daily`, `/daily/grid`, `/daily/history`) —
+  `DailyGridGame.tsx` (1247 lines) and `DailyGridHistory.tsx` (208 lines):
+  **0** PeakV2 refs. Batch 2's title ("Ranked-mode + Daily Grid 1440px
+  density") oversold this — it added one sidebar component, not a system
+  conversion. `docs/design/ROUTE_BEHAVIOR_MATRIX.md`'s own entry for this
+  route was stale pre-batch language; not yet corrected.
+- **`/arena/lobby`** (`ArenaLobby.tsx`, 781 lines) — **0** refs, and not
+  mentioned anywhere in the route matrix at all. A real, linked-from-Home
+  multiplayer entry point.
+- **Three-Man Weave / Twenty-Dollar Showdown** — 8/856 and 6/664 refs
+  respectively. The matrix already called these "partial, needs a
+  consistency pass" before this program started; no batch ever picked
+  them up.
+- **CourtBuilder (82-0, the current flagship)** — `CourtBuilder.tsx`
+  itself has 8 refs (partial), but 13 of its 14 child sub-panels
+  (`PlayAgainPanel`, `PlayerAvatar`, `PeakCardCourt`,
+  `LeaderboardSubmitPanel`, `SeasonResultStub`, `CourtLayout`,
+  `LineupInsightPanel`, `SpinStage`, `LiveBuildPanel`, `SaveRunPanel`,
+  `ShareRunPanel`, `PeakPicksRecap`, `PeakSeasonLeaderboard`,
+  `ActionToast`) have **0**. Only the start gate (Batch 1) was ever
+  actually restyled. This is the flagship the homepage/nav promote —
+  the single highest-priority gap for whenever route-family work resumes.
+- **`/c/[token]`** (shared challenge link, 348 lines) — inherits V2 via
+  the `DraftScreen`/`ChallengeComparison` it renders, but its own
+  landing/pre-game chrome was never itself reviewed.
+- Everything else (~40 routes) is accounted for and accurate in the
+  matrix: Home, Peak Duel, Rankings, Methodology confirmed **still hold**
+  their pre-program "already strong" classification (verified by direct
+  read + live 4-viewport visual review this stage, not re-assumed); all
+  7 batches' own routes confirmed correct; auth/legal pages confirmed
+  intentionally quiet and unchanged.
+
+**Design-system drift (Stage B):** no drift found outside Batch 7's own
+scope worth fixing. Real finding: Batch 7 itself was inconsistent —
+`DraftCard`/`RoleSelector` got `.score-number`, four sibling components
+in the same directory didn't (fixed, `2493af8`). Two shared primitives
+(`ScorePill`, `SectionHeader`) exist, are tested, and are never actually
+used anywhere — not deleted (not confidently dead), flagged for a future
+decision. Two `opacity-70` instances in `BossPreview.tsx`/
+`PeakV2RTTBossPreview.tsx` were flagged as *possible* contrast risks but
+not confirmed failing by axe — left alone per "verify and leave alone."
+
+**Cleanliness (Stage G):** nothing this program left behind was dead.
+Pre-existing, unrelated: a stale screenshot-capture script
+(`capture-daily-rtt-pvp-shots.ts`, already known-stale since Batch 6) and
+an untracked `apps/web/.env.local.save` (not opened, not touched, flagged
+only).
+
+**Bundle/performance (Stage F), whole-program vs. baseline `4534534`:**
+zero dependency changes, shared JS flat at 102 kB, worst single-route
+delta +12 kB / +9.2% (`/arena/daily`, `/arena/ranked/[mode]/leaderboard`),
+no route over +15%. Not a regression.
+
+**Visual review (Stage C), live 4-viewport (390/768/1024/1440), both
+themes, on everything an actual batch touched:** two independent agents
+— one on Arena game surfaces, one on identity/personal/nav surfaces —
+each returned **"ship, no deficiencies found."** One process note: full-
+page Playwright screenshots of a page with an open fixed-position overlay
+(mobile drawer, an account nudge) visually double the overlay in the
+stitched image — a screenshot artifact, not a real rendering bug;
+re-verified with a normal viewport screenshot both times.
+
+**Accessibility certification (Stage E):** 15/15 axe pass on
+`accessibility.spec.ts` pre-fix; manual keyboard flows passed for global
+nav, mobile drawer, Peak Draft selection, Profile label associations, H2H
+creation, Daily Grid, 82-0 Begin. Confirmed-reproducible: the keyboard
+Tab-skip bug (fixed this stage). Not fully certified, recorded rather
+than silently skipped: a full keyboard-driven Ranked round (only
+reachability verified), chart/DNA-bar accessible-name check, manual
+`<table>`-semantics check on Rankings/leaderboards beyond axe passing,
+`prefers-reduced-motion` forced-verification, and 320px zoom/reflow.
+
+**Two known functional/accessibility defects (Stage D) — reproduced,
+root-caused, fixed, each its own commit + regression test:**
+1. `35e4a3c` — every seedless `/arena/practice/{mode}` visit (every Labs
+   "Practice" link) sent no `seed`; the API requires one for a practice
+   board and 400'd every time. `PracticeDraftLoader` now picks one
+   random seed per mount when none is supplied.
+2. `e007427` — after a keyboard-driven offer-card selection, the card
+   disables and drops from the tab order; `RoleSelector` renders BEFORE
+   the offer list in the DOM, so forward-Tab used to skip past the newly-
+   opened role panel into the footer. Fixed with the same `tabIndex={-1}`
+   +focus-on-mount pattern `ChallengeComparison` already used.
+
+**One NEW defect found during this stage's own re-verification, not one
+of the two named above — its own commit, `e552c45`:** Batch 7's
+`.pk-reveal` entrance animation on Peak Draft/Daily-hub/Labs cards caused
+an intermittent (~2-in-5, reproduced via 5x and then 8x repeated live-
+browser runs) "serious" WCAG contrast violation while a card was still
+fading in. Root-caused by scripting repeated axe runs against a live
+page — not dismissed as flake. Fixed by removing the animation from
+these specific cards (they're the "obvious in 2-3 seconds" decision
+surface; needed full contrast from frame one), not by tuning the
+animation. Confirmed 8/8 clean after.
+
+**Full gate battery on frozen RC `6652afd` (Stage J):** model tests 1859
+passed/1 xfailed · API unit 1804 passed/2 skipped · API integration 116
+skipped (no Supabase test project configured, expected) · frontend-verify
+(typecheck/lint-0/2297 vitest/build) all green · full Playwright, all 4
+projects: 456 passed, 1 skipped, 0 failed (329 chromium-core+mobile-
+chrome, 127 passed+1 skipped multiplayer+courtbuilder).
+
+**Deferred, not fixed this stage (too large for a convergence audit —
+would be another full route-family batch each):** Daily Grid family,
+`/arena/lobby`, Three-Man Weave, Twenty-Dollar Showdown, CourtBuilder's
+13 unconverted sub-panels, `/c/[token]`'s own page chrome. Recommend
+these as the next actual route-family batch(es) whenever that work
+resumes — CourtBuilder's sub-panels first, since it's the flagship.
 
 ## Process notes for whoever continues this (same session or a future one)
 
