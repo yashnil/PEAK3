@@ -1,9 +1,10 @@
 "use client";
 
-import { forwardRef, useEffect, useState } from "react";
+import { forwardRef } from "react";
 import { Trophy } from "lucide-react";
 import { DailyGridProgress, GridResultResponse } from "@/types/daily-grid";
 import { resultGrade, totalArenaPoints } from "@/lib/daily-grid-state";
+import { useFooterVisible } from "@/lib/use-footer-visible";
 
 interface Props {
   progress: DailyGridProgress;
@@ -11,38 +12,17 @@ interface Props {
   onOpen: () => void;
 }
 
-/**
- * True once the page's global `<footer>` has scrolled into view.
- *
- * FIX (final RC audit, deferred from Batch 9): this trigger is `position:
- * fixed` at a constant distance from the viewport's bottom edge, and the
- * footer is ordinary in-flow content at the true end of the page — so
- * scrolling all the way down necessarily brings the footer to that same
- * screen coordinate. There is no scroll position, at any viewport width,
- * where the footer is visible and the pill does not sit on top of it; it
- * is worst at 390px (a taller, stacked footer) but reproduces everywhere.
- * `IntersectionObserver` is the smallest fix: hide the pill exactly when
- * the footer it would otherwise cover is on screen, and restore it the
- * moment the player scrolls back up to the board. `rootMargin`'s negative
- * bottom value starts hiding the pill slightly before the footer's own top
- * edge reaches the viewport, so the two never overlap even mid-transition.
- */
-function useFooterVisible(): boolean {
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    if (typeof IntersectionObserver === "undefined") return;
-    const footer = document.querySelector("footer");
-    if (!footer) return;
-    const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), {
-      rootMargin: "0px 0px -60px 0px",
-    });
-    observer.observe(footer);
-    return () => observer.disconnect();
-  }, []);
-
-  return visible;
-}
+// FIX (final RC audit, deferred from Batch 9): this trigger is `position:
+// fixed` at a constant distance from the viewport's bottom edge, and the
+// footer is ordinary in-flow content at the true end of the page — so
+// scrolling all the way down necessarily brings the footer to that same
+// screen coordinate. There is no scroll position, at any viewport width,
+// where the footer is visible and the pill does not sit on top of it; it
+// is worst at 390px (a taller, stacked footer) but reproduces everywhere.
+// `useFooterVisible` (extracted to `lib/`, now also used by
+// `HandleOnboardingPrompt.tsx` for the identical defect) hides the pill
+// exactly when the footer it would otherwise cover is on screen, and
+// restores it the moment the player scrolls back up to the board.
 
 /**
  * The compact floating trigger that replaces a permanently-compressed

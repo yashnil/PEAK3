@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { getAccessToken } from "@/lib/auth";
 import { fetchProfile, updateProfile, ProfileAPIError, handleLooksValid } from "@/lib/profile-api";
+import { useFooterVisible } from "@/lib/use-footer-visible";
 
 const DISMISS_KEY = "peak3_handle_prompt_dismissed";
 
@@ -95,6 +96,15 @@ export default function HandleOnboardingPrompt() {
   const [handle, setHandle] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const checkedForUser = useRef<string | null>(null);
+  // FIX (final RC audit): `fixed bottom-4 right-4` overlapped whatever
+  // in-flow content sat at that screen position on a narrow/short page --
+  // the footer nav column on Progress/History/Ranked, the Handle field
+  // itself on a short Profile page. `useFooterVisible` (shared with
+  // `CompletionTrigger.tsx`, which had the identical defect) hides the
+  // prompt whenever the true end of the page is already on screen, since
+  // a page short enough for its own content to reach this prompt's corner
+  // is also short enough for its footer to be nearby.
+  const footerVisible = useFooterVisible();
 
   useEffect(() => {
     if (loading) return;
@@ -169,6 +179,9 @@ export default function HandleOnboardingPrompt() {
   // covering a player's own roster mid-draft, under a running clock.
   if (isLiveMatchRoute(pathname)) return null;
   if (phase !== "prompting" && phase !== "saving" && phase !== "saved") return null;
+  // THE PAGE'S OWN CONTENT OWNS THE SCREEN TOO, once it's reached. See the
+  // fix note above this component's state block.
+  if (footerVisible) return null;
 
   return (
     <div

@@ -8,8 +8,8 @@
  * forever -- sessionStorage, not localStorage); saving calls the real
  * update endpoint and never auto-saves without the player submitting.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
@@ -225,4 +225,61 @@ describe("during a live Arena match", () => {
       ).toBeInTheDocument();
     });
   }
+});
+
+describe("once the page's own footer is on screen (final RC audit)", () => {
+  /**
+   * THE DEFECT THIS LOCKS OUT. `fixed bottom-4 right-4` overlapped whatever
+   * in-flow content sat at that screen position on a narrow/short page --
+   * confirmed live on Profile (covered the Handle field itself), Progress,
+   * History, and Ranked mode/leaderboard (covered the footer's own PLAY
+   * nav column). Shares `useFooterVisible` with `CompletionTrigger.tsx`,
+   * which had the identical defect.
+   */
+  class FakeIntersectionObserver {
+    static instances: FakeIntersectionObserver[] = [];
+    callback: IntersectionObserverCallback;
+    constructor(callback: IntersectionObserverCallback) {
+      this.callback = callback;
+      FakeIntersectionObserver.instances.push(this);
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() {
+      return [];
+    }
+    fire(isIntersecting: boolean) {
+      this.callback([{ isIntersecting } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+    }
+  }
+
+  beforeEach(() => {
+    FakeIntersectionObserver.instances = [];
+    vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
+    mockUseAuth.mockReturnValue({ user: SIGNED_IN_USER, loading: false });
+    mockFetchProfile.mockResolvedValue({ handle: null, id: "p1" });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("hides once the footer scrolls into view, and returns once it scrolls back out", async () => {
+    const footer = document.createElement("footer");
+    document.body.appendChild(footer);
+    try {
+      render(<HandleOnboardingPrompt />);
+      expect(await screen.findByTestId("handle-onboarding-prompt")).toBeInTheDocument();
+
+      const observer = FakeIntersectionObserver.instances.at(-1)!;
+      act(() => observer.fire(true));
+      expect(screen.queryByTestId("handle-onboarding-prompt")).not.toBeInTheDocument();
+
+      act(() => observer.fire(false));
+      expect(screen.getByTestId("handle-onboarding-prompt")).toBeInTheDocument();
+    } finally {
+      document.body.removeChild(footer);
+    }
+  });
 });
