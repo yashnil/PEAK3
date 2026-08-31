@@ -54,12 +54,16 @@ loaded). **What "polish this route" means varies a lot by route**:
 - **Must not change:** fail-closed readiness checks gating each mode card.
 - **Polish category:** route-family refinement.
 
-### `/arena/ranked`, `/arena/ranked/[mode]`, `/arena/ranked/[mode]/leaderboard`
-- **Renders:** hub page uses `PeakV2Shell` directly + inline composition; `[mode]` renders `RankedScreen` (`components/ranked/RankedScreen.tsx`, **0 v2 imports found** — legacy composition **(unverified at runtime — worth a screenshot check)**); leaderboard page is bespoke, not V2-shelled.
+### `/arena/ranked`, `/arena/ranked/[mode]`, `/arena/ranked/[mode]/leaderboard` — DONE, converged (verified by the final RC audit, 2026-08-31)
+
+**This entry was stale** — it previously described this family as "0 v2 imports, legacy composition, needs real V2 composition work." Corrected here after the final RC audit read the actual current code directly rather than trusting the old entry: `RankedScreen.tsx` (`[mode]`) imports `PeakV2PrimaryAction`/`PeakV2SecondaryAction`/`PeakV2ResultHeadline`; `RankedLeaderboard.tsx` (the leaderboard route) imports `PeakV2Shell`/`Skeleton`/`EmptyState`/`ErrorState`; `[mode]/page.tsx` itself wraps in `PeakV2Shell width="live-wide"` with the standard kicker/title header. This was converted in an earlier batch of this program (see `.claude-private/PROGRESS.md`'s Batch 3 entry) and simply never got its matrix entry updated — a documentation gap, not a product one.
+
+- **Renders:** hub page uses `PeakV2Shell` directly + inline composition; `[mode]` → `RankedModePage` (`PeakV2Shell`) → `RankedScreen`; leaderboard → `RankedLeaderboard` (`PeakV2Shell` + shared `Skeleton`/`EmptyState`/`ErrorState`).
 - **Data deps:** `rankedApi`, `useAuth`/`getAccessToken` (auth-gated queue).
 - **Must not change:** exact queue/rating logic, `QueueRatingResponse`/`RankedReadinessResponse` handling, auth gating.
-- **Tests:** `ranked-components.test.tsx`, `ranked-state.test.ts`, e2e `ranked.spec.ts`.
-- **Polish category:** `[mode]` and leaderboard need real V2 composition work — currently the weakest link in this family.
+- **One real bug found and fixed by the final RC audit:** `[mode]/page.tsx` called `router.replace("/arena/ranked")` directly in the render body (not inside a `useEffect`) when the URL's `mode` segment was invalid — a real "Cannot update a component while rendering a different component" React warning on any hand-typed/malformed URL (no in-app link ever produces one). Fixed by moving the redirect into a `useEffect`; no behavior change on the correct-URL path.
+- **Tests:** `ranked-components.test.tsx`, `ranked-state.test.ts`, `ranked-leaderboard.test.tsx`, e2e `ranked.spec.ts`.
+- **Polish category:** DONE. Already converged; not touched by Batches 9-11.
 
 ### `/arena/court/daily`, `/arena/court/daily/[mode]`, `/arena/court/practice/[mode]`, `/arena/court/history`, `/arena/court/leaderboard`, `/arena/court/results/[id]` — Batch 8 semantic inventory (2026-08-30, pre-implementation)
 
@@ -103,18 +107,24 @@ wrong" below).
 ### `/arena/run-the-table`
 - **Renders:** `RunTheTableGame` — **13 internal v2 imports**, the most V2-composed game surface in the app. Not touched this batch.
 
-### `/arena/run-the-table/h2h`, `/h2h/[matchId]`, `/h2h/invite/[token]` — Batch 6 semantic inventory (2026-08-29, pre-implementation)
+### `/arena/run-the-table/h2h`, `/h2h/[matchId]`, `/h2h/invite/[token]` — DONE, converged (verified by the final RC audit, 2026-08-31)
+
+**This entry was stale** — it previously said "0 `PeakV2*` imports anywhere
+in the family" and described all four non-`SideBySideReceipt` components as
+still raw-`opacity-*`-styled. Corrected here after the final RC audit read
+the actual current code directly: all five H2H components are now heavily
+`PeakV2`/`StatusChip`-based (this family was converted in Batch 6 of this
+program — see `.claude-private/PROGRESS.md` — and the matrix entry below
+simply never got updated afterward; a documentation gap, not a product
+one). The state-machine documentation below was re-verified as still
+accurate — converging the visual layer did not change any of these states
+or transitions.
 
 **Renders:** `HeadToHeadHubPage` (hub) → `ChallengeCreator` + `HeadToHeadHistory`;
 `HeadToHeadMatchPage` → `MatchScreen` (→ `SideBySideReceipt` once settled);
-`HeadToHeadInvitePage` → `InviteLanding`. **0 `PeakV2*` imports anywhere in
-the family** — confirmed by reading every file, not just grep. All three
-pages are thin server-component wrappers; all 5 components are client
-components. `SideBySideReceipt` already went through a prior polish pass
-(visible in its own code comments — "WAS opacity-75," "used to be text-lg
-in body ink") and is meaningfully more considered than its siblings; the
-other four still use raw Tailwind `opacity-*` utilities throughout instead
-of the app's `--text-secondary`/`--text-muted` tokens.
+`HeadToHeadInvitePage` → `InviteLanding`. All three pages are thin server-
+component wrappers; all 5 components are client components, now built on
+`PeakV2*` primitives and `StatusChip` throughout.
 
 **The actual state machine (from `lib/head-to-head-api.ts` + the
 components — not inferred from names):**
@@ -180,9 +190,10 @@ two components the user's brief independently flags as highest-risk.
 **Zero e2e coverage for the entire family** (no spec file, no
 `run-the-table/h2h` string anywhere in `tests/e2e/`).
 
-**Polish category:** route-family polish, high interaction-risk — visual
-system is the easy part; the hard part is not silently touching any of
-the state transitions above.
+**Polish category:** DONE. Converged in Batch 6; not touched by Batches
+9-11. Test-coverage gaps noted above (`MatchScreen`/`ChallengeCreator`
+unit coverage, zero e2e for the family) were not part of this program's
+scope and remain open items for whoever owns test-coverage backlog.
 
 ### `/arena/lobby` — Batch 10 semantic inventory (2026-08-30, pre-implementation)
 
@@ -543,9 +554,15 @@ this batch.
 - **Renders:** static content pages; `styles/v2/info-pages.css` loaded globally suggests these already have *some* v2 treatment.
 - **Polish category:** low-risk, likely typography/spacing-only — verify against `info-pages.css` before assuming a gap exists.
 
-### `/profile`, `/progress`, `/history` — Batch 4 semantic inventory (2026-08-29, pre-implementation)
+### `/profile`, `/progress`, `/history` — DONE, converged (verified by the final RC audit, 2026-08-31)
 
-All three: **no `PeakV2Shell`/`PeakV2*` imports**, plain `max-w-{lg,2xl} mx-auto px-4 py-8` + `<h1 className="text-xl font-bold">`. All three share a byte-identical ad hoc loading spinner (`animate-spin` div) — also used by 3 unrelated pages outside this batch's scope (`auth/complete`, `arena/daily/[mode]`, `c/[token]`; left untouched, noted for a future pass). All three have an ad hoc `role="alert"` error box that duplicates what `ErrorState` (introduced batch 3) already does.
+**This entry was stale** — it previously said "no `PeakV2Shell`/`PeakV2*`
+imports, plain `max-w-{lg,2xl}` div." Corrected here after the final RC
+audit confirmed directly: all three pages now use `PeakV2Shell` +
+`PeakV2SecondaryAction` (converted in Batch 4 of this program — see
+`.claude-private/PROGRESS.md` — matrix entry never updated afterward; a
+documentation gap, not a product one). The data/state documentation below
+was re-verified as still accurate.
 
 **`/profile`** — auth-gated (`signInHref("/profile")` redirect if `!user`; separate `!supabaseEnabled` state renders "Authentication is not configured" + a link home, distinct from the auth-gate redirect).
 - Identity: `InitialsAvatar`, "Signed in as {email}", "· Joined {date}" if `profile.joined_at` present
@@ -572,7 +589,7 @@ All three: **no `PeakV2Shell`/`PeakV2*` imports**, plain `max-w-{lg,2xl} mx-auto
 
 **Must not change (all three):** `useAuth`/`getAccessToken` gating, `signInHref`/`returnTo` redirect pattern, XP/streak/achievement/rating/history data contracts and API calls, tab state machine, pagination cursor logic, achievement earned/not-earned partitioning, `RankedRatingCards`'s "no composite rank until 2+ queues established" rule.
 
-**Polish category:** genuine route-family polish target — these are exactly the "profile/progression" surfaces CLAUDE.md's product brief calls out for milestone-grouped, uncluttered treatment. Product intent per the user's Batch 4 brief: `/profile` = "who am I," `/progress` = "how am I developing" (participation, not skill), `/history` = "what have I done" (chronological record) — hierarchy should reflect that distinction, not force all three into one interchangeable dashboard template.
+**Polish category:** DONE. Converged in Batch 4 per the product intent stated at the time: `/profile` = "who am I," `/progress` = "how am I developing" (participation, not skill), `/history` = "what have I done" (chronological record). Not touched by Batches 9-11. The two test-coverage gaps noted above (`/profile` and `/history` page-level component tests) remain open items, not part of this program's scope.
 
 ### `/u/[handle]` (public profile view — NOT in Batch 4 scope, untouched)
 - Separate route from `/profile`; not investigated this batch.
@@ -583,14 +600,24 @@ All three: **no `PeakV2Shell`/`PeakV2*` imports**, plain `max-w-{lg,2xl} mx-auto
 - **Tests:** `auth-*.test.ts(x)` (callback, claim, complete, safe-next, session, token-cache, ui), e2e `auth.spec.ts`.
 - **Polish category:** intentionally quiet per CLAUDE.md's own design principles ("Auth/Settings surfaces — deliberately quieter, no need to theme aggressively") — light consistency pass only, do not "gamify."
 
-### `/players/[slug]` — Batch 5 semantic inventory (2026-08-29, pre-implementation)
+### `/players/[slug]` — DONE, converged (verified by the final RC audit, 2026-08-31)
+
+**This entry was stale** — it previously said "no V2 shell" and "tests:
+none exist for this route at all." Corrected here after the final RC audit
+confirmed directly: `page.tsx` now imports and uses `PeakV2Shell`/
+`PeakV2Score`/`PeakV2SecondaryAction` throughout (converted in Batch 5 of
+this program — see `.claude-private/PROGRESS.md` — matrix entry never
+updated afterward), and `player-page.test.tsx` exists with real coverage.
+The bug fixes and "what exists today" inventory below describe what Batch
+5 found and fixed at the time and were re-verified as still accurate
+descriptions of current behavior — the bugs named are FIXED, not open.
 
 **Renders:** `apps/web/src/app/(main)/players/[slug]/page.tsx` — an ASYNC SERVER
-COMPONENT (no `"use client"`, no interactivity at all). No V2 shell. No
-`loading.tsx`/`error.tsx` in the route folder. Data fetch is a raw
-`fetch()` in the page itself (not the existing typed `getPlayer()` client
-in `lib/api.ts` — a real but pre-existing inconsistency, left alone this
-batch since it's a data-fetch mechanism change, not presentation).
+COMPONENT (no `"use client"`, no interactivity at all), wrapped in
+`PeakV2Shell`. Data fetch is a raw `fetch()` in the page itself (not the
+existing typed `getPlayer()` client in `lib/api.ts` — a real but
+pre-existing inconsistency, left alone in Batch 5 since it's a data-fetch
+mechanism change, not presentation).
 
 **No Index/search surface exists.** `searchPlayers()` (`lib/api.ts`) and
 `PlayerSearchResponse` are defined but have **zero callers anywhere in the
@@ -651,15 +678,8 @@ out of scope (belongs to `/rankings`, not touched this batch).
   `prime_score`, `prime_index`, every `components` field), which windows
   are considered present (`durations` filter), the `/rankings?years={d}`
   and `/rankings` link targets, `generateMetadata`'s title logic.
-- **Tests:** none exist for this route at all (`player-avatar.test.tsx` is
-  an unrelated component). Zero e2e coverage either (grepped all
-  `*.spec.ts` — no navigation to `/players/`).
-- **Polish category:** route-family polish — a real chance to establish
-  PEAK3's "premium basketball editorial + statistical reference" identity
-  (per the user's Batch 5 brief), using only what's actually implemented:
-  identity → per-window peak figures (now with 1/3/5yr color identity) →
-  existing component-breakdown bars, refined. No chart, no selector, no
-  new visualization — those would be product development, not polish.
+- **Tests:** `player-page.test.tsx` (added in Batch 5; `player-avatar.test.tsx` is a separate, unrelated component). Zero e2e coverage still (grepped all `*.spec.ts` — no navigation to `/players/`) — an open item, not part of this program's scope.
+- **Polish category:** DONE. Converged in Batch 5 toward PEAK3's "premium basketball editorial + statistical reference" identity: identity → per-window peak figures (1/3/5yr color identity) → existing component-breakdown bars. No chart, no selector, no new visualization were added — those would be product development, not polish, and remain correctly unimplemented. Not touched by Batches 9-11.
 
 ### `/c/[token]` — shared challenge link
 - **Renders:** `DraftScreen` + `ChallengeComparison`.
@@ -672,6 +692,6 @@ out of scope (belongs to `/rankings`, not touched this batch).
 ## Cross-cutting risk notes
 
 1. **Import-graph analysis undercounts real V2 coverage** for routes whose page.tsx doesn't import `PeakV2*` directly but whose child component does (e.g. `RunTheTableGame`, `TwentyDollarGame`, `ThreeManWeaveGame`, `PeakSeasonStartGate`, `DailyHub` all show partial v2 imports; `DraftScreen`, `DailyGridGame`, `MatchScreen`, `RankedScreen` show **zero**). Before polishing any "zero" route, take an actual screenshot — don't assume the gap size from the grep count alone.
-2. **Confirmed legacy-composed, no V2 at all (highest-value gap, by grep):** the draft-game family (`/arena/daily/*`, `/arena/practice/*`, `/arena/results/*`, `/arena/labs`), `RankedScreen` (`/arena/ranked/[mode]`), `DailyGridGame` (`/daily/grid`), `MatchScreen`/h2h family, `/history`, `/profile`, `/progress`, `/players/[slug]`, auth pages.
+2. **UPDATED as of the final RC audit (2026-08-31) — this note is now historical, not current.** Every route named below has since been converged and verified DONE (see each route's own section above and `.claude-private/PROGRESS.md`): the draft-game family (Batch 7), `RankedScreen`/`/arena/ranked/[mode]` (Batch 3), `DailyGridGame`/`/daily/grid` (Batch 9), `MatchScreen`/h2h family (Batch 6), `/history`/`/profile`/`/progress` (Batch 4), `/players/[slug]` (Batch 5). Auth pages remain intentionally quiet/unchanged per CLAUDE.md's own design principles, not because they were missed. This note is kept as a record of what the RC audit originally (and, for several of these routes, incorrectly — see each route's "This entry was stale" callout) flagged, not as a current gap list. Do not use grep `PeakV2` counts as evidence of anything — Batches 8-11 each independently proved this proxy wrong.
 3. **Global shell risk:** any change to `nav.tsx`, `Footer.tsx`, `Dialog.tsx`, or `styles/v2/tokens.css` needs full regression (e2e `play-routing.spec.ts`, `nav-components.test.tsx`, `footer.test.tsx`, `accessibility.spec.ts` at minimum) since every route inherits them.
 4. **Anti-pattern precedent:** per `.claude-private/reconstruction_plan_v5.md` (prior session, not authoritative but informative), Run the Table's start-gate and the 82-0 difficulty picker were previously flagged as "gold-bordered card + numbered-list microcopy" — the exact settings-page anti-pattern CLAUDE.md's brief warns against. Worth a direct look before assuming `PeakSeasonStartGate`'s 2 v2 imports mean it already meets the bar.

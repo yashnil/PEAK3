@@ -139,8 +139,16 @@ export default function DailyLeaderboard({
                   </span>
                 )}
               </span>
-              <span className="score-number text-right">{row.score}</span>
+              {/* Final RC audit: neither cell had any text label, visible or
+                  hidden — a sighted reader infers "score" vs "time" from
+                  column position and number format, a screen reader heard
+                  two bare numbers with no indication of what either meant. */}
+              <span className="score-number text-right">
+                <span className="sr-only">Score </span>
+                {row.score}
+              </span>
               <span className="score-number text-right" style={{ color: "var(--text-secondary)" }}>
+                <span className="sr-only">Time </span>
                 {formatCompletionTime(row.completion_time_ms)}
               </span>
             </li>
@@ -164,8 +172,12 @@ export default function DailyLeaderboard({
             #{you.rank}
           </span>
           <span className="font-semibold">You</span>
-          <span className="score-number text-right">{you.score}</span>
+          <span className="score-number text-right">
+            <span className="sr-only">Score </span>
+            {you.score}
+          </span>
           <span className="score-number text-right" style={{ color: "var(--text-secondary)" }}>
+            <span className="sr-only">Time </span>
             {formatCompletionTime(you.completion_time_ms)}
           </span>
         </div>

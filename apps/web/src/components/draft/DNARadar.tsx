@@ -26,6 +26,19 @@ export default function DNARadar({
   const cy = size / 2;
   const r = size * 0.38;
 
+  // FINAL RC AUDIT FIX: the accessible name used to be the static string
+  // "Lineup DNA radar" — real for sighted users (the polygon's shape and
+  // fill IS the six dimensions), but a screen-reader user got no data at
+  // all, only "there is a radar chart here." The six per-point `<title>`
+  // elements below never fixed this: a `role="img"` element's accessible
+  // name/description comes from `aria-label`/`aria-labelledby` per the
+  // accname spec, so those never reached assistive tech in the first
+  // place (they're kept as native hover tooltips for a mouse, which is
+  // real, separate behavior). Building the label from the actual values
+  // is the smallest fix that closes the gap without adding a visible
+  // table this thumbnail-sized decoration has no room for.
+  const summary = DIMS.map((dim) => `${DNA_LABELS[dim]} ${Math.round(dna[dim] ?? 0)}`).join(", ");
+
   function polarToXY(angleIdx: number, radius: number) {
     const angle = (Math.PI * 2 * angleIdx) / n - Math.PI / 2;
     return {
@@ -53,7 +66,7 @@ export default function DNARadar({
       height={size}
       viewBox={`0 0 ${size} ${size}`}
       className="max-w-full h-auto"
-      aria-label="Lineup DNA radar"
+      aria-label={`Lineup DNA: ${summary}`}
       role="img"
     >
       {/* Ring guides */}

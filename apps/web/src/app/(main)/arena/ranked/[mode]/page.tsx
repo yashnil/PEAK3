@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from "react";
+import { use, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import RankedScreen from "@/components/ranked/RankedScreen";
 import { RANKED_MODES, RANKED_MODE_LABELS, type RankedMode } from "@/types/ranked";
@@ -13,11 +13,18 @@ interface Props {
 export default function RankedModePage({ params }: Props) {
   const { mode } = use(params);
   const router = useRouter();
+  const valid = RANKED_MODES.includes(mode as RankedMode);
 
-  if (!RANKED_MODES.includes(mode as RankedMode)) {
-    router.replace("/arena/ranked");
-    return null;
-  }
+  // Redirecting from inside the render body (rather than an effect) updates
+  // the router while RankedModePage is still rendering, which React reports
+  // as "Cannot update a component while rendering a different component" —
+  // a real console warning on any hand-typed/malformed `?mode=` URL, since
+  // no in-app link ever produces an invalid mode.
+  useEffect(() => {
+    if (!valid) router.replace("/arena/ranked");
+  }, [valid, router]);
+
+  if (!valid) return null;
 
   const rankedMode = mode as RankedMode;
 
