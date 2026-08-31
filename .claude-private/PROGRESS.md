@@ -3,7 +3,7 @@
 Branch: `feature/arena-archive-visual-polish`. Started from `4534534`
 (tagged `backup/pre-visual-polish-2026-08-29`, pushed to origin).
 
-## Status: 11 route-family batches + release-candidate audit complete. Latest work = `da9dd6b` (Batch 11).
+## Status: PROGRAM COMPLETE. 11 route-family batches + release-candidate audit + FINAL WHOLE-APP RC AUDIT all done. Final SHA = `b262d40`. READY FOR FOUNDER MANUAL REVIEW.
 
 **Not the same as "the whole app is converged."** The RC audit found
 several real, sizeable surfaces that no batch ever actually touched —
@@ -16,10 +16,17 @@ section over the RC audit's original framing for CourtBuilder specifically.
 Batches 9, 10, and 11 investigated the Daily Grid, `/arena/lobby`, and
 Three-Man Weave/Twenty-Dollar Showdown claims directly and found all
 accurate (unlike Batch 8's finding) — see each batch's own section below;
-all four families are now converged. As of Batch 11, every route the RC
-audit originally flagged as unconverted has been investigated and
-addressed. See "Release-candidate audit" below and consider a final
-whole-app release-candidate audit before declaring the program done.
+all four families are now converged. The **FINAL WHOLE-APP RELEASE
+CANDIDATE AUDIT** (own section near the end of this file, done
+2026-08-31) then re-reviewed the entire product end to end — every route
+in the app, not just the ones batches touched — fixed 6 small confirmed
+defects (5 in the audit's own candidate `0af05b4`, 1 follow-up in
+`b262d40`), and left everything else alone as already correct. Two items
+were deliberately NOT fixed and are called out for a founder decision:
+a 1440px composition/spacing question on 4 routes, and ~2933 lines of
+confirmed-dead code awaiting a cleanup-batch go-ahead. This program is
+now feature-complete for its own charter; do not start further visual
+work on this branch without a new, explicit user request.
 
 This is a large, incremental program by design — see
 `docs/design/VISUAL_POLISH_PLAN.md`'s "scope decision" section for why (this
@@ -1123,6 +1130,169 @@ a real result screen, both modes' error states, zero console errors).
 shared `PeakV2*` primitives were already bundled into these routes via
 the pre-existing mature `v2/tmw`/`v2/showdown` components, so this batch
 added no new client-boundary cost.
+
+## FINAL WHOLE-APP RELEASE CANDIDATE AUDIT — DONE (2026-08-31), final SHA `b262d40`
+
+The certification stage, not another polish batch. Default posture was
+"inspect → verify → leave alone"; code changes were made only for
+confirmed, fixable defects. Checkpoint tag
+`checkpoint/pre-final-rc-audit-2026-08-31` points at `66ceef0` (Batch 11's
+final state) as the recovery point before this stage.
+
+**Method:** four parallel investigation strands (route reconciliation ×2 —
+already-certified-routes spot-check + newly-converged-routes deep-dive;
+automated a11y — axe/reduced-motion/reflow; manual a11y — keyboard/table/
+chart naming), all against a shared working tree. **Two of the four
+(the accessibility pair) failed silently** — dispatched with an open-ended
+background-job pattern that outlived their own turn, never returned final
+results, and left orphaned dev-server processes + scratch spec files
+behind (cleaned up). Lesson for future dispatches: use isolated worktrees
+for concurrent live-rendering investigation (as every batch's own
+evaluator/QA already does), and avoid multi-turn Monitor/background
+patterns for investigation agents — a single synchronous Playwright run
+per agent is more reliable. The accessibility investigation was redone
+directly by the coordinator via synchronous runs, which completed
+reliably in one pass each time.
+
+**Route reconciliation (23+ routes across both clusters):** zero MISSING
+routes. Two real findings: (1) five `ROUTE_BEHAVIOR_MATRIX.md` sections
+(Ranked, H2H, Profile/Progress/History, `/players/[slug]`, the
+cross-cutting risk notes) were still written in pre-implementation voice
+from Batches 3-6, describing gaps that were converged and closed long ago
+— corrected, docs-only, no product risk. (2) `/arena/ranked/[mode]/
+page.tsx` called `router.replace()` during render (not in a `useEffect`)
+for an invalid `mode` URL segment — a real React console warning on any
+hand-typed URL, pre-existing, not introduced by any batch — fixed.
+
+**Whole-product visual convergence:** reviewed as one product across ~25
+routes at 4 viewports by an independent evaluator. Verdict: coherent, not
+a patchwork, with two concrete exceptions. (1) **Fixed**: the
+`HandleOnboardingPrompt` nudge card (`fixed bottom-4 right-4`, global,
+every signed-in route) overlapped real content on narrow/short pages —
+confirmed on 5 routes (Profile's own Handle field; Progress/History/
+Ranked's footer nav column). Same root-cause class as the CompletionTrigger
+fix below; fixed with the same `useFooterVisible` hook, extracted to
+`lib/` for both consumers. (2) **Documented, not fixed — a design
+decision, not a bug**: Ranked mode/leaderboard, Daily Grid, the H2H hub,
+and Daily Grid History still show the "single centered CTA floating in
+empty space at 1440px" pattern `VISUAL_RUBRIC.md` itself names as its own
+Spacing/Composition score-2 reference example — despite "Ranked-mode/
+Daily-Grid density" being an already-completed convergence batch. This is
+a genuine composition/redesign question, not a "confirmed unfinished
+legacy styling" defect this certification stage's charter covers (no new
+features, no redesigning already-functional surfaces) — flagged
+prominently for a founder decision, not touched.
+
+**Deferred Batch 9 issue, reproduced and fixed:** `CompletionTrigger.tsx`'s
+completion pill (`fixed bottom-4`) permanently overlapped the site footer
+at the true bottom of any completed Daily Grid board's page, at every
+viewport width (not just 390px, as originally suspected) — geometric
+certainty, not a timing bug: a fixed element and in-flow content at the
+same screen position always collide once scrolled there. Fixed with
+`useFooterVisible` (`IntersectionObserver` on the global `<footer>`);
+restores the pill the moment the player scrolls back up. Zero prior test
+coverage; added 3 focused tests.
+
+**Accessibility:** DNA-radar chart (`DNARadar.tsx`, shared by Peak Draft
+and Twenty-Dollar Showdown) had a static "Lineup DNA radar" accessible
+name carrying none of the six dimension values a sighted user reads
+directly off the shape — fixed by building the label from the real data.
+`DailyLeaderboard.tsx`'s score/time cells were bare unlabeled numbers —
+fixed with `sr-only` labels, no visual change. Broad axe sweep (Daily
+Grid family, Peak Duel, Ranked, Profile/Progress/History): zero serious/
+critical violations. Forced `prefers-reduced-motion`: confirmed honored
+(zero animations still running after settle, homepage + Daily Grid).
+320px reflow: zero overflow across 8 representative routes. Ranked's
+queue-entry keyboard reachability: confirmed live (a real, tab-reachable,
+activatable `<button>`, sane tab order from a skip-link). Rankings/Ranked-
+leaderboard/82-0-leaderboard: confirmed already using proper `<th
+scope="col">` semantics. One data point (a font-size-based "200% zoom"
+proxy showing document-level overflow on `/rankings`) investigated and
+attributed to the proxy technique itself (real zoom scales the whole
+render layer; `font-size: 200%` does not) rather than a confirmed defect
+— the actual element is the Rankings table, already correctly wrapped in
+`overflow-x-auto` per this codebase's own established pattern and WCAG
+1.4.4's own data-table exemption.
+
+**Performance, whole program vs. the ORIGINAL baseline `4534534` (not
+just this session's batches):** shared JS unchanged (102kB). Zero new
+dependencies across the entire 11-batch + audit program (`diff`'d
+`package.json` dependencies+devDependencies, byte-identical). `"use
+client"` count +2 (226→228) — negligible client-boundary growth. Per-
+route First Load JS: `/arena/lobby` +14kB (177→191kB, Batch 10 — first-
+time adoption of shared `PeakV2*` primitives on a route that had zero
+before, confirmed legitimate reuse, not duplication, by inspecting the
+shared-chunk size, which did not grow), `/arena/run-the-table/h2h` family
++11kB each (×3 routes, pre-dates this session), `/arena/daily` and
+`/arena/ranked/[mode]/leaderboard` +10kB each, `/history` +10kB,
+`/players/[slug]` +9kB — all pre-date Batches 9-11 and reflect the same
+kind of legitimate first-time shared-primitive adoption. Largest
+DECREASE: `/arena/court/results/[id]` −33kB (227→194kB). `/daily/grid`
+First Load JS is literally unchanged (221kB) despite Batch 9's full
+conversion. No route showed evidence of accidental duplicate bundling.
+
+**Dead code, CONFIRMED superseded, NOT deleted (a cleanup decision, out
+of this program's scope):**
+- Three-Man Weave: `PodiumReceipt.tsx` (372), `RosterBoard.tsx` (248),
+  `SeatCourt.tsx` (350), `TurnStatus.tsx` (324), `WeaveSpinner.tsx` (409)
+  — 1703 lines.
+- Twenty-Dollar Showdown: `BidControls.tsx` (284), `ShowdownClock.tsx`
+  (250), `MatchIntro.tsx` (173) — 707 lines.
+- `components/shared/GameCard.tsx` (262 lines, Batch 10 finding).
+- `components/ui/ScorePill.tsx` (139) + `SectionHeader.tsx` (122) — 261
+  lines (RC audit finding, re-confirmed this stage).
+- **Total: ~2933 lines of confirmed-dead component code**, zero
+  production/dynamic-import/story-fixture references (re-verified this
+  stage via direct `import` grep, not just text-mention grep), plus a
+  substantial but unquantified chunk of their own dead-code-only test
+  coverage in `three-man-weave-components.test.tsx`/`twenty-dollar.test.tsx`.
+  **Recommendation:** a dedicated post-RC cleanup batch, scoped to
+  deletion + corresponding test removal only, no visual/behavioral change.
+
+**Full test battery on the final candidate `b262d40`:** model 1859
+passed/1 xfailed; API unit 1804 passed/2 skipped; API integration 116
+skipped (no Supabase test project in this environment, expected); full
+frontend unit suite 2326/2326 (113 files); typecheck clean; lint clean (0
+warnings); production build green. Full Playwright: first complete run
+(pre-follow-up-fix, at `0af05b4`) 456/456 passed + 1 skipped in 27.7min.
+Second complete run (post-follow-up-fix, at final `b262d40`) suffered
+severe environmental slowdown (3.7 HOURS instead of ~30min, evidently
+system resource contention from an extremely long session) and showed 14
+failures, ALL concentrated in the two long-running timing-sensitive
+projects (`chromium-multiplayer`, `chromium-courtbuilder`) and ALL
+unrelated to any file this stage touched. A clean, fast (15.8min, normal
+duration) targeted re-run of exactly those two spec files on the same
+`b262d40` passed 134/134 — confirming the 14 failures were pure
+environmental flakiness, not regressions.
+
+**Independent whole-product evaluator + QA:** evaluator judged the
+product as one coherent, shippable thing with the two exceptions above
+(one fixed, one flagged for the founder). Scored `VISUAL_RUBRIC.md`'s
+Part 2 dimensions 3-5 across the board (Consistency and Spacing/
+Composition both docked to 3, driven by the same two findings). QA
+verified all 4 code fixes from the candidate commit live (signed-in
+Playwright session): CompletionTrigger hide/restore at 390px+1440px,
+Ranked redirect fixed with the correct-URL path unaffected, DNARadar's
+real per-dimension label, DailyLeaderboard's sr-only labels genuinely
+hidden — zero regressions. The follow-up mobile-overlap fix was verified
+directly by the coordinator (live Playwright + screenshots, both routes,
+before/after scroll) rather than a second full independent QA dispatch,
+a proportionate judgment call given its small, isolated, well-tested
+scope and the disproportionate cost of another full agent dispatch this
+late in an already-extensive audit.
+
+**Git:** checkpoint `checkpoint/pre-final-rc-audit-2026-08-31` → `66ceef0`
+(unmoved). Candidate `0af05b4` (5 fixes) → independently evaluated/QA'd →
+follow-up fix `b262d40` (1 more fix, found by that same evaluator pass) →
+re-verified (full unit suite, typecheck, lint, build, targeted + full
+Playwright). Final SHA `b262d40`, pushed, local == remote verified twice.
+`backup/pre-visual-polish-2026-08-29` untouched throughout.
+
+**Recommendation: READY FOR FOUNDER MANUAL REVIEW**, with two items
+called out for the founder specifically (not blockers, but not silently
+resolved either): the Ranked/Daily-Grid/H2H-hub/Daily-History 1440px
+composition question (a product/design decision), and the ~2933 lines of
+confirmed-dead code awaiting a cleanup-batch go-ahead.
 
 ## Process notes for whoever continues this (same session or a future one)
 
