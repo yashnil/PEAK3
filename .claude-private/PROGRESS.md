@@ -3,7 +3,7 @@
 Branch: `feature/arena-archive-visual-polish`. Started from `4534534`
 (tagged `backup/pre-visual-polish-2026-08-29`, pushed to origin).
 
-## Status: 10 route-family batches + release-candidate audit complete. Latest work = `1525b11` (Batch 10).
+## Status: 11 route-family batches + release-candidate audit complete. Latest work = `da9dd6b` (Batch 11).
 
 **Not the same as "the whole app is converged."** The RC audit found
 several real, sizeable surfaces that no batch ever actually touched —
@@ -13,13 +13,13 @@ sub-panels" were unconverted; Batch 8 investigated that claim directly and
 found it substantially overstated (see Batch 8's own section below) — the
 real gap was 5 files plus one routing bug, both now fixed. Trust Batch 8's
 section over the RC audit's original framing for CourtBuilder specifically.
-Batches 9 and 10 investigated the Daily Grid and `/arena/lobby` claims
-directly and found both accurate (unlike Batch 8's finding) — see each
-batch's own section below; both families are now converged. Three-Man
-Weave and Twenty-Dollar Showdown (and `HowToPlay.tsx`, shared by both and
-by the lobby) are still honestly reported as deferred, not silently
-absorbed into "done." See "Release-candidate audit" below before assuming
-any further route is finished.
+Batches 9, 10, and 11 investigated the Daily Grid, `/arena/lobby`, and
+Three-Man Weave/Twenty-Dollar Showdown claims directly and found all
+accurate (unlike Batch 8's finding) — see each batch's own section below;
+all four families are now converged. As of Batch 11, every route the RC
+audit originally flagged as unconverted has been investigated and
+addressed. See "Release-candidate audit" below and consider a final
+whole-app release-candidate audit before declaring the program done.
 
 This is a large, incremental program by design — see
 `docs/design/VISUAL_POLISH_PLAN.md`'s "scope decision" section for why (this
@@ -64,6 +64,8 @@ verified; do not treat "the program" as done until
 | `bde0a55` | chore — record batch 9 status, next-batch proposal |
 | `2282f0f` | **Batch 10**: `/arena/lobby` full convergence (candidate, see below) |
 | `1525b11` | Batch 10 fix — third lobby action button orphaned at half width (evaluator finding) |
+| `587ae94` | chore — record batch 10 status, next-batch proposal |
+| `da9dd6b` | **Batch 11**: Three-Man Weave + Twenty-Dollar Showdown + HowToPlay convergence (candidate, see below; no fixes needed) |
 
 ## Baseline (Phase 3, all green before any UI edit — see VISUAL_POLISH_PLAN.md for full detail)
 
@@ -1012,6 +1014,115 @@ functionality preserved.
 JS (+14kB) — the route's first-time cost of adopting the shared
 `PeakV2*`/`StatusChip` primitives it had never imported before; the
 follow-up CSS fix added no bundle weight.
+
+## Batch 11 — Three-Man Weave + Twenty-Dollar Showdown + HowToPlay convergence (DONE, verified, committed as `da9dd6b`, no fixes needed)
+
+**Scope, per the user's explicit instruction:** Three-Man Weave, Twenty-
+Dollar Showdown, and `components/arena/HowToPlay.tsx` (explicitly brought
+into scope this batch because it's shared by both match rooms AND the
+Batch-10-converged lobby — the right point to converge it while
+regression-testing all three consumers together).
+
+**Investigation method:** two parallel fork agents (one per mode) read
+every component/test file in full before any edit, per the by-now-
+standing Batch 8-10 lesson not to trust ref-count proxies. Findings
+independently confirmed by my own direct greps before implementation
+began.
+
+**Headline finding, same pattern a fourth time:** both modes already
+carry substantial prior V2 rebuilds — `components/v2/tmw/*`
+(PeakV2TMWCourts/Reveal/Result) and `components/v2/showdown/*`
+(PeakV2ShowdownIntro/Live/Result/Clock/BidControls) — mature, token-
+driven, and hardened by their own dedicated test files
+(`three-man-weave-v2-geometry.test.tsx` documents 5+ real closure-pass
+bug fixes; every `v2/showdown/*` file cites specific prior visual-QA
+passes). This was a refinement pass on a narrow real gap, not a rescue.
+
+**A NEW finding this batch, not present in Batches 8-10: real dead code.**
+Confirmed by grep (zero non-test-file consumers) — three-man-weave:
+`PodiumReceipt.tsx`, `RosterBoard.tsx`, `SeatCourt.tsx`, `TurnStatus.tsx`,
+`WeaveSpinner.tsx` (~1700 lines, superseded by `v2/tmw/*`, kept alive only
+by their own now-pointless tests); twenty-dollar: `BidControls.tsx`,
+`ShowdownClock.tsx`, `MatchIntro.tsx` (~700 lines, superseded by
+`v2/showdown/*`). Same category as Batch 10's orphaned
+`shared/GameCard.tsx` finding. Flagged, NOT restyled (pointless — nothing
+renders them) and NOT deleted (a cleanup decision, out of a polish
+batch's scope) — recommend a future dedicated cleanup batch across all
+three programs' accumulated dead code (`shared/GameCard.tsx` +
+`ScorePill`/`SectionHeader` from the RC audit + these ~2400 lines).
+
+**The real gap, once dead code and already-mature `v2/*` were excluded:**
+1. `ThreeManWeaveGame.tsx`'s own room header (title, Rated/Unrated + "vs
+   bots" badges, connection/rejection banners) — never went through
+   either mode's rebuild. Converged onto `PeakV2Shell`/`StatusChip`/v2
+   tokens, wrapped as an independent `PeakV2Shell` sibling before the
+   self-shelling `PeakV2TMWCourts`/`PeakV2TMWResult` (two independent
+   shell instances stacked, not nested — avoids the double-gutter
+   problem nesting would cause).
+2. `ThreeManWeaveLoader.tsx`'s start gate and error state — literally the
+   same `.ar-lobby`/`.ar-panel`/`.ar-btn`/`.ar-badge`/`.ar-error*` classes
+   Batch 10 converged away from in `ArenaLobby.tsx`, now down to exactly
+   two remaining consumers (this file and `TwentyDollarGame.tsx`, both in
+   this batch) — same proven treatment.
+3. `PickOverlay.tsx`'s commit/cancel/move-confirm/clear-filters buttons —
+   used `.btn-primary`/`.btn-secondary`, ALSO used by unrelated,
+   out-of-scope `GuidedTour.tsx`. Fixed at the JSX level only inside this
+   file (swapped to `PeakV2PrimaryAction`/`SecondaryAction`); the shared
+   CSS classes and `GuidedTour.tsx` untouched.
+4. `IdentityLockPanel.tsx`'s "Recent picks" rail (`.tmw-ledger*`,
+   confirmed TMW-exclusive) — added `pk-depth pk-crown` + `--v2-*` tokens
+   so it reads as a raised surface like the courts around it.
+5. `TwentyDollarGame.tsx`'s own top-level error/loading gates (byte-for-
+   byte the same shared classes as #2) and `ForfeitControl`
+   (`.td-forfeit*`, exclusive) — same treatment; the destructive
+   "Forfeit" confirm now reads red persistently via `--v2-color-negative`
+   rather than only on hover (a11y win: works on touch, not just mouse).
+6. `components/arena/HowToPlay.tsx` — CSS-only token upgrade (`.ar-rules*`,
+   confirmed this component's sole owner): v2 fonts/colors, an accent-
+   colored chevron, mono/uppercase section title matching the "eyebrow"
+   idiom used everywhere else. The native `<details>` structure and all
+   three consumers' content are completely untouched.
+
+**No fabricated hierarchy, no mechanic touched:** Twenty-Dollar's budget
+treatment (tabular numerals, `formatDollars()`, sealed-score copy) and
+Three-Man Weave's shared-roll/snake-order/identity-lock/stage-then-commit
+mechanics were already correct in the mature `v2/*` components and are
+completely untouched.
+
+**One test assertion corrected, not weakened:**
+`three-man-weave-components.test.tsx`'s "uses real buttons, not text"
+now asserts `tagName === "BUTTON"` instead of the retired
+`.btn-primary`/`.btn-secondary` classnames — the actual invariant its own
+name describes still holds under `PeakV2PrimaryAction`/`SecondaryAction`
+(real `<button>` elements); only the implementation-specific proxy was
+stale.
+
+**Verification:** typecheck clean, lint 0 warnings, full unit suite
+2319/2319 (one confirmed pre-existing flake unrelated to this batch,
+clean on immediate re-run), production build green, full
+`arena-multiplayer.spec.ts` **30/30** (covers both modes' complete
+bot-practice playthroughs plus the lobby's HowToPlay consumer),
+`accessibility.spec.ts` **15/15**. Live-rendered myself at 390/1440px
+before the candidate commit (start gate, room header, HowToPlay
+disclosure, both modes' error states) to catch anything Batch 10's
+evaluator-only-catches-it pattern might repeat — found nothing wrong.
+
+**Independent evaluator:** accept, no findings requiring a fix. Explicitly
+verified the exact failure class Batch 10 shipped with (orphaned buttons
+in an odd-numbered action row) does NOT recur here at any of the 4
+viewports, across all three multi-button rows this batch touched (start
+gate, error state, forfeit confirm).
+
+**Independent QA:** functionality preserved — 10/10 checks across both
+modes plus the shared HowToPlay, via a real signed-in Playwright session
+(stage/commit/cancel a real draft pick, forfeit ending a real match with
+a real result screen, both modes' error states, zero console errors).
+
+**Bundle:** `/arena/three-man-weave/[matchId]` 215kB→215kB (+2B),
+`/arena/twenty-dollar/[matchId]` 210kB→211kB (+1kB) — negligible; the
+shared `PeakV2*` primitives were already bundled into these routes via
+the pre-existing mature `v2/tmw`/`v2/showdown` components, so this batch
+added no new client-boundary cost.
 
 ## Process notes for whoever continues this (same session or a future one)
 

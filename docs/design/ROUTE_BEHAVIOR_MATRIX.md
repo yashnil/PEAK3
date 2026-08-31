@@ -301,16 +301,78 @@ re-verifies the existing suite against the restyle.
 consumers constraint above is the load-bearing fact for this batch, not
 a legacy-vs-converged question.
 
-### `/arena/three-man-weave`, `/arena/three-man-weave/[matchId]`
-- **Renders:** `ThreeManWeaveLoader` → `ThreeManWeaveGame` (3 v2 imports — partial).
-- **Must not change:** 872-line-class stage/commit/timeout/reconnect logic (per prior planning doc — verify still true); PickOverlay behavior.
-- **Tests:** `three-man-weave-components.test.tsx`, `three-man-weave-state.test.ts`, `three-man-weave-v2-geometry.test.tsx`.
-- **Polish category:** partial V2 — visual-consistency pass on existing `PeakV2TMW*` components.
+### `/arena/three-man-weave`, `/arena/three-man-weave/[matchId]` — Batch 11 findings (2026-08-31, DONE)
 
-### `/arena/twenty-dollar/[matchId]`
-- **Renders:** `TwentyDollarGame` (3 v2 imports — partial).
-- **Tests:** `twenty-dollar*.test.tsx` (phase, reconnect, room, base).
-- **Polish category:** partial V2, needs a consistency pass.
+**Renders:** `ThreeManWeaveLoader` (start gate / resume / error states) →
+`ThreeManWeaveGame` (room chrome + state machine) → `PickOverlay` (live
+pick surface) + `IdentityLockPanel` (recent-picks rail) +
+`components/v2/tmw/PeakV2TMWCourts`/`PeakV2TMWReveal`/`PeakV2TMWResult`
+(already mature — a prior, undocumented V2 rebuild predating this
+program, hardened by `three-man-weave-v2-geometry.test.tsx`'s 5+
+documented closure-pass bug fixes).
+
+**Dead code, confirmed by grep (zero non-test consumers), NOT touched by
+Batch 11 (a cleanup decision, not a polish one):** `PodiumReceipt.tsx`,
+`RosterBoard.tsx`, `SeatCourt.tsx`, `TurnStatus.tsx`, `WeaveSpinner.tsx`
+(~1700 lines, superseded by `v2/tmw/*`, kept alive only by their own
+tests in `three-man-weave-components.test.tsx`).
+
+**Batch 11 restyled:** `ThreeManWeaveGame.tsx`'s own room header (title,
+Rated/Unrated + vs-bots `StatusChip` badges, connection/rejection
+banners — wrapped in its own `PeakV2Shell`, independent of and stacked
+before the self-shelling `PeakV2TMWCourts`); `ThreeManWeaveLoader.tsx`'s
+start gate and error state (same `PeakV2Shell`/`PrimaryAction`/
+`SecondaryAction`/`StatusChip` treatment Batch 10 proved for
+`ArenaLobby.tsx`); `PickOverlay.tsx`'s commit/cancel/move-confirm/clear-
+filters buttons (JSX-level swap only — `.btn-primary`/`.btn-secondary`
+are also used by the unrelated `GuidedTour.tsx`, so the shared CSS itself
+was never touched); `IdentityLockPanel.tsx` (added `pk-depth pk-crown` to
+its exclusive `.tmw-ledger` class).
+
+**Must not change:** the state machine (`loading` → `PHASE_INTRO` →
+`PHASE_REVEAL` per round → pick turn with stage-then-commit → timeout
+`lastCall`/`expired` → `complete`), snake order reversal, the global
+identity lock, `PickOverlay`'s stage-then-commit pattern. All untouched
+by Batch 11 — visual-only.
+
+- **Tests:** `three-man-weave-components.test.tsx`, `three-man-weave-state.test.ts`, `three-man-weave-v2-geometry.test.tsx` — all pre-existing, one assertion corrected (see Batch 11's PROGRESS.md section: `.btn-primary` classname check → `tagName === "BUTTON"`, the actual invariant its own test name describes).
+- **Polish category:** DONE. Narrow convergence — most of this route was already mature going in.
+
+### `/arena/twenty-dollar/[matchId]` — Batch 11 findings (2026-08-31, DONE)
+
+**Renders:** `TwentyDollarGame` (top-level gates + `ForfeitControl`) →
+`components/v2/showdown/PeakV2ShowdownIntro`/`Live`/`Result`/`Clock`/
+`BidControls` (already mature — a prior "Pass 3" V2 rebuild, extensively
+documented against a visual reference spec) → `AuctionBoard.tsx`/
+`LotLedger.tsx`/`TwentyDollarReceipt.tsx`/`ComponentSilhouette.tsx`
+(reused verbatim inside the `PeakV2Showdown*` wrappers, already good —
+same pattern as Batch 8's `CourtLayout`).
+
+**Dead code, confirmed by grep, NOT touched:** `BidControls.tsx` (the
+legacy one, not `PeakV2ShowdownBidControls`), `ShowdownClock.tsx`,
+`MatchIntro.tsx` (~700 lines, superseded, kept alive only by
+`twenty-dollar.test.tsx`).
+
+**Batch 11 restyled:** `TwentyDollarGame.tsx`'s own top-level match-not-
+found/loading gates (byte-for-byte the same shared `.ar-error*`/
+`.ar-room`/`.ar-notice` classes as Three-Man Weave's loader — same
+treatment, both in this batch); `ForfeitControl` (`.td-forfeit*`,
+exclusive) — the destructive "Forfeit" confirm now reads red persistently
+via `--v2-color-negative` rather than only on `:hover` (works on touch).
+
+**Budget/currency treatment — verified already correct, untouched:**
+tabular numerals throughout (`fontVariantNumeric: "tabular-nums"`),
+`formatDollars()`, no chip/card/poker imagery, no oversized "$20"
+decoration, sealed-score-until-hammer copy. Confirmed by both the
+investigating fork and the independent evaluator against the "no casino
+interface" bar in `docs/design/VISUAL_POLISH_PLAN.md`'s brief.
+
+**Must not change:** alternating-opener auction, pass-exits-lot-not-match,
+hidden score until settlement, five-slot budget constraint, forced/
+auto-filled lot framing. All untouched by Batch 11.
+
+- **Tests:** `twenty-dollar*.test.tsx` (phase, reconnect, room, base) — all pre-existing, unmodified.
+- **Polish category:** DONE. Narrower gap than Three-Man Weave — only the top-level gates and the forfeit control needed work.
 
 ### `/arena/daily`, `/arena/daily/[mode]`, `/arena/practice/[mode]`, `/arena/results/[id]`, `/arena/labs` — Batch 7 semantic inventory (2026-08-29, pre-implementation)
 
