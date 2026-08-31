@@ -44,6 +44,8 @@ import IdentityLockPanel from "./IdentityLockPanel";
 import PeakV2TMWCourts from "@/components/v2/tmw/PeakV2TMWCourts";
 import PeakV2TMWReveal from "@/components/v2/tmw/PeakV2TMWReveal";
 import PeakV2TMWResult from "@/components/v2/tmw/PeakV2TMWResult";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import { StatusChip } from "@/components/ui/StatusChip";
 
 const TMW_INTRO_RULES = [
   { label: "Shared roll", detail: "one real franchise and decade, rolled once for all three drafters" },
@@ -703,43 +705,61 @@ export default function ThreeManWeaveGame({
         starting={busy}
         testId="tmw-game-intro"
       />
-      <header className="ar-room-head">
-        <div className="ar-room-meta">
-          <h1 className="ar-room-title">Three-Man Weave</h1>
-          <span className="ar-badge">{match.rated ? "Rated" : "Unrated"}</span>
-          {hasBots && (
-            <span className="ar-badge" data-testid="tmw-bot-badge">
-              vs bots
-            </span>
-          )}
-        </div>
-        <div className="ar-room-tools">
-          {/* "How to play" is always available, which is what lets the opening
-              sequence stay a matchup rather than become a tutorial (TMW-13). */}
-          {meta ? (
-            <HowToPlay title={meta.name} rules={meta.rules} testId="tmw-rules" />
-          ) : null}
-        </div>
-      </header>
-
-      {connection !== "live" && (
-        <p
-          data-testid="tmw-connection"
-          data-connection={connection}
-          role="status"
-          className="ar-notice"
+      <PeakV2Shell width="live-wide">
+        <header
+          className="flex flex-wrap items-center justify-between gap-3 pb-3"
+          style={{ borderBottom: "1px solid var(--v2-border-subtle)" }}
         >
-          {connection === "reconnecting"
-            ? "Reconnecting… the board below is the last state we confirmed."
-            : "You appear to be offline. The match is still running on the server; this board will catch up when the connection returns."}
-        </p>
-      )}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1
+              className="text-2xl font-bold"
+              style={{ fontFamily: "var(--v2-font-display)", color: "var(--v2-text-primary)" }}
+            >
+              Three-Man Weave
+            </h1>
+            <StatusChip tone="neutral">
+              {match.rated ? "Rated" : "Unrated"}
+            </StatusChip>
+            {hasBots && (
+              <StatusChip tone="neutral" data-testid="tmw-bot-badge">
+                vs bots
+              </StatusChip>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* "How to play" is always available, which is what lets the opening
+                sequence stay a matchup rather than become a tutorial (TMW-13). */}
+            {meta ? (
+              <HowToPlay title={meta.name} rules={meta.rules} testId="tmw-rules" />
+            ) : null}
+          </div>
+        </header>
 
-      {rejection && (
-        <p data-testid="tmw-rejection" role="alert" className="ar-notice">
-          {rejection}
-        </p>
-      )}
+        {connection !== "live" && (
+          <p
+            data-testid="tmw-connection"
+            data-connection={connection}
+            role="status"
+            className="pk-depth pk-crown mt-3 rounded-lg px-3 py-2.5 text-sm"
+            style={{ border: "1px solid var(--v2-border-subtle)", color: "var(--v2-text-secondary)" }}
+          >
+            {connection === "reconnecting"
+              ? "Reconnecting… the board below is the last state we confirmed."
+              : "You appear to be offline. The match is still running on the server; this board will catch up when the connection returns."}
+          </p>
+        )}
+
+        {rejection && (
+          <p
+            data-testid="tmw-rejection"
+            role="alert"
+            className="pk-depth pk-crown mt-3 rounded-lg px-3 py-2.5 text-sm"
+            style={{ border: "1px solid var(--v2-border-subtle)", color: "var(--v2-text-secondary)" }}
+          >
+            {rejection}
+          </p>
+        )}
+      </PeakV2Shell>
 
       {complete && results ? (
             <PeakV2TMWResult

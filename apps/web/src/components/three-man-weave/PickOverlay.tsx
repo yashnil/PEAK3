@@ -1,5 +1,7 @@
 "use client";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
 import type {
   ArenaSeatPublic,
   TmwRoll,
@@ -711,9 +713,8 @@ export default function PickOverlay({
             <div className="tmw-place-actions">
               {mode === "moving" ? (
                 <>
-                  <button
+                  <PeakV2PrimaryAction
                     type="button"
-                    className="btn-primary"
                     data-testid="tmw-move-confirm"
                     disabled={!canCommitMove || busy}
                     data-loading={busy ? "true" : "false"}
@@ -725,10 +726,9 @@ export default function PickOverlay({
                       : canCommitMove
                         ? `Move ${movingPick!.player_name} to ${TMW_SLOT_LABELS[slot!]}`
                         : `Choose where ${movingPick!.player_name} goes`}
-                  </button>
-                  <button
+                  </PeakV2PrimaryAction>
+                  <PeakV2SecondaryAction
                     type="button"
-                    className="btn-secondary"
                     data-testid="tmw-move-cancel"
                     onClick={() => {
                       setMovingFrom(null);
@@ -736,13 +736,12 @@ export default function PickOverlay({
                     }}
                   >
                     Cancel move
-                  </button>
+                  </PeakV2SecondaryAction>
                 </>
               ) : mode === "placing" ? (
                 <>
-                  <button
+                  <PeakV2PrimaryAction
                     type="button"
-                    className="btn-primary"
                     data-testid="tmw-confirm-pick"
                     disabled={!canCommitPlacement || busy}
                     data-loading={busy ? "true" : "false"}
@@ -754,10 +753,9 @@ export default function PickOverlay({
                       : slot
                         ? `Draft ${chosen!.player_name} at ${TMW_SLOT_LABELS[slot]}`
                         : `Choose a slot for ${chosen!.player_name}`}
-                  </button>
-                  <button
+                  </PeakV2PrimaryAction>
+                  <PeakV2SecondaryAction
                     type="button"
-                    className="btn-secondary"
                     data-testid="tmw-cancel-pick"
                     onClick={() => {
                       // CHANGE SELECTION: clears the server's staged choice
@@ -770,7 +768,7 @@ export default function PickOverlay({
                     }}
                   >
                     Cancel selection
-                  </button>
+                  </PeakV2SecondaryAction>
                 </>
               ) : null}
             </div>
@@ -833,9 +831,9 @@ function EmptyPool({
         <strong>Hidden by your position filter.</strong> {reason.hidden}{" "}
         {reason.hidden === 1 ? "player matches" : "players match"} your search but
         none play the positions you selected.{" "}
-        <button type="button" className="btn-secondary" onClick={onClearFilters}>
+        <PeakV2SecondaryAction type="button" size="sm" onClick={onClearFilters}>
           Clear filters
-        </button>
+        </PeakV2SecondaryAction>
       </span>
     );
   }

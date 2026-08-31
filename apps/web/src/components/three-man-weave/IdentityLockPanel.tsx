@@ -40,7 +40,7 @@ export default function IdentityLockPanel({
     <section
       data-testid="tmw-identity-lock"
       aria-labelledby="tmw-lock-heading"
-      className="tmw-ledger"
+      className="tmw-ledger pk-depth pk-crown"
     >
       <header className="tmw-ledger-head">
         <h2 id="tmw-lock-heading" className="tmw-ledger-title">
