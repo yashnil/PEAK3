@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 
 import ArenaLobby from "@/components/arena/ArenaLobby";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
 
 export const metadata: Metadata = {
   title: "Multiplayer · PEAK3 Arena",
@@ -28,13 +29,27 @@ export default function ArenaLobbyPage() {
   return (
     <Suspense
       fallback={
-        <div className="ar-lobby">
-          <header className="ar-lobby-head">
-            <p className="ar-eyebrow">PEAK3 Arena</p>
-            <h1 className="ar-lobby-title">Multiplayer</h1>
-          </header>
-          <p className="ar-notice">Loading the Arena…</p>
-        </div>
+        <PeakV2Shell width="live">
+          <div className="pk-atmosphere pb-14 pt-9">
+            <header className="flex flex-col gap-1.5 pb-1">
+              <p
+                className="text-xs font-bold uppercase tracking-[0.14em]"
+                style={{ color: "var(--v2-color-accent)" }}
+              >
+                PEAK3 Arena
+              </p>
+              <h1
+                className="text-4xl font-bold sm:text-[2.75rem]"
+                style={{ fontFamily: "var(--v2-font-display)", color: "var(--v2-text-primary)" }}
+              >
+                Multiplayer
+              </h1>
+            </header>
+            <p className="mt-4 text-sm" style={{ color: "var(--v2-text-secondary)" }}>
+              Loading the Arena…
+            </p>
+          </div>
+        </PeakV2Shell>
       }
     >
       <ArenaLobby />

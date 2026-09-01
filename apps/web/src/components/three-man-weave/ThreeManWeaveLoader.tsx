@@ -1,5 +1,4 @@
 "use client";
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { ArenaReadiness, TmwMatchView } from "@/types/three-man-weave";
 import { TMW_MODE } from "@/types/three-man-weave";
@@ -12,6 +11,10 @@ import {
 import { modeMeta } from "@/lib/arena-modes";
 import HowToPlay from "@/components/arena/HowToPlay";
 import ThreeManWeaveGame from "./ThreeManWeaveGame";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
+import { StatusChip } from "@/components/ui/StatusChip";
 
 /**
  * The explicit start gate, the resume path, and the styled failure states.
@@ -114,9 +117,13 @@ export default function ThreeManWeaveLoader({ matchId }: { matchId?: string }) {
 
   if (matchId) {
     return (
-      <div className="ar-room" data-testid="tmw-loading">
-        <p className="ar-notice">Loading the draft room…</p>
-      </div>
+      <PeakV2Shell width="live">
+        <div className="pk-atmosphere py-9" data-testid="tmw-loading">
+          <p role="status" className="text-sm" style={{ color: "var(--v2-text-secondary)" }}>
+            Loading the draft room…
+          </p>
+        </div>
+      </PeakV2Shell>
     );
   }
 
@@ -125,7 +132,7 @@ export default function ThreeManWeaveLoader({ matchId }: { matchId?: string }) {
     Boolean(readiness?.modes.some((m) => m.id === TMW_MODE));
 
   return (
-    <div className="ar-lobby">
+    <PeakV2Shell width="live">
       {/* The game briefing lives in `ThreeManWeaveGame` now, not here.
           gameplay-experience-polish: this lobby's own "Play bots" button is
           only ONE of the ways a player reaches a match -- the Arena hub's
@@ -136,65 +143,97 @@ export default function ThreeManWeaveLoader({ matchId }: { matchId?: string }) {
           `ThreeManWeaveGame` instead means every entry point -- this button,
           the Arena hub, a direct link, a resume -- shows the exact same
           briefing exactly once per match. */}
-      <header className="ar-lobby-head">
-        <p className="ar-eyebrow">PEAK3 Arena · Multiplayer</p>
-        <h1 className="ar-lobby-title">Three-Man Weave</h1>
-        <p className="ar-lobby-intro">
-          Three drafters, six rounds, one shared franchise and decade per round.
-          Every player is drafted off the roll they were eligible for and scored on
-          their best PEAK3 season anywhere in that decade. Once a name is taken it
-          is gone for everyone.
-        </p>
-      </header>
-
-      <section className="ar-panel" data-testid="tmw-start-gate">
-        {startError && (
-          <p data-testid="tmw-start-error" role="alert" className="ar-notice">
-            {startError}
+      <div className="pk-atmosphere pb-14 pt-9">
+        <header className="flex flex-col gap-1.5 pb-1">
+          <p
+            className="text-xs font-bold uppercase tracking-[0.14em]"
+            style={{ color: "var(--v2-color-accent)" }}
+          >
+            PEAK3 Arena · Multiplayer
           </p>
-        )}
+          <h1
+            className="text-4xl font-bold sm:text-[2.75rem]"
+            style={{ fontFamily: "var(--v2-font-display)", color: "var(--v2-text-primary)" }}
+          >
+            Three-Man Weave
+          </h1>
+          <p className="mt-1 max-w-2xl text-sm leading-relaxed" style={{ color: "var(--v2-text-secondary)" }}>
+            Three drafters, six rounds, one shared franchise and decade per round.
+            Every player is drafted off the roll they were eligible for and scored on
+            their best PEAK3 season anywhere in that decade. Once a name is taken it
+            is gone for everyone.
+          </p>
+        </header>
 
-        {readiness && !available ? (
-          <>
-            <span className="ar-badge ar-badge-alpha">Closed alpha</span>
-            <h2 className="ar-panel-title">Not open on this deployment yet</h2>
-            <p className="ar-panel-body" data-testid="tmw-unavailable">
-              Three-Man Weave is in closed alpha. Everything else in the Arena is
-              playable now.
+        <section
+          className="pk-depth pk-crown mt-5 flex flex-col items-start gap-3 rounded-2xl p-7"
+          data-testid="tmw-start-gate"
+          style={{ border: "1px solid var(--v2-border-subtle)" }}
+        >
+          {startError && (
+            <p
+              data-testid="tmw-start-error"
+              role="alert"
+              className="text-sm"
+              style={{ color: "var(--v2-text-secondary)" }}
+            >
+              {startError}
             </p>
-            <Link className="ar-btn" href="/arena">
-              Browse every PEAK3 game
-            </Link>
-          </>
-        ) : (
-          <>
-            <h2 className="ar-panel-title">Start a draft</h2>
-            <p className="ar-panel-body">
-              Practice starts immediately against two bot opponents. For a public match
-              or a match with friends, use the multiplayer lobby.
-            </p>
-            <div className="ar-panel-actions">
-              <button
-                type="button"
-                data-testid="tmw-start"
-                disabled={busy || !readiness}
-                onClick={start}
-                className="ar-btn ar-btn-primary"
+          )}
+
+          {readiness && !available ? (
+            <>
+              <StatusChip tone="accent">Closed alpha</StatusChip>
+              <h2
+                className="text-xl font-bold"
+                style={{ fontFamily: "var(--v2-font-display)", color: "var(--v2-text-primary)" }}
               >
-                {busy ? "Starting…" : "Play bots"}
-              </button>
-              <Link className="ar-btn" href="/arena/lobby?game=three_man_weave">
-                Public match or Play With Friends
-              </Link>
-            </div>
-          </>
-        )}
+                Not open on this deployment yet
+              </h2>
+              <p
+                className="max-w-xl text-sm leading-relaxed"
+                data-testid="tmw-unavailable"
+                style={{ color: "var(--v2-text-secondary)" }}
+              >
+                Three-Man Weave is in closed alpha. Everything else in the Arena is
+                playable now.
+              </p>
+              <PeakV2SecondaryAction href="/arena">Browse every PEAK3 game</PeakV2SecondaryAction>
+            </>
+          ) : (
+            <>
+              <h2
+                className="text-xl font-bold"
+                style={{ fontFamily: "var(--v2-font-display)", color: "var(--v2-text-primary)" }}
+              >
+                Start a draft
+              </h2>
+              <p className="max-w-xl text-sm leading-relaxed" style={{ color: "var(--v2-text-secondary)" }}>
+                Practice starts immediately against two bot opponents. For a public match
+                or a match with friends, use the multiplayer lobby.
+              </p>
+              <div className="flex flex-wrap gap-2.5">
+                <PeakV2PrimaryAction
+                  type="button"
+                  data-testid="tmw-start"
+                  disabled={busy || !readiness}
+                  onClick={start}
+                >
+                  {busy ? "Starting…" : "Play bots"}
+                </PeakV2PrimaryAction>
+                <PeakV2SecondaryAction href="/arena/lobby?game=three_man_weave">
+                  Public match or Play With Friends
+                </PeakV2SecondaryAction>
+              </div>
+            </>
+          )}
 
-        {meta ? (
-          <HowToPlay title={meta.name} rules={meta.rules} testId="tmw-rules" />
-        ) : null}
-      </section>
-    </div>
+          {meta ? (
+            <HowToPlay title={meta.name} rules={meta.rules} testId="tmw-rules" />
+          ) : null}
+        </section>
+      </div>
+    </PeakV2Shell>
   );
 }
 
@@ -217,18 +256,33 @@ function ArenaErrorState({
   body: string;
 }) {
   return (
-    <div className="ar-error" role="alert" data-testid={testId}>
-      <p className="ar-error-code">{code}</p>
-      <h1 className="ar-error-title">{title}</h1>
-      <p className="ar-error-body">{body}</p>
-      <div className="ar-panel-actions">
-        <Link className="ar-btn ar-btn-primary" href="/arena/lobby">
-          Back to multiplayer
-        </Link>
-        <Link className="ar-btn" href="/arena">
-          Every PEAK3 game
-        </Link>
+    <PeakV2Shell width="live">
+      <div
+        className="pk-depth pk-crown mx-auto my-16 flex max-w-xl flex-col items-start gap-3 rounded-2xl p-8"
+        role="alert"
+        data-testid={testId}
+        style={{ border: "1px solid var(--v2-border-subtle)" }}
+      >
+        <p
+          className="text-xs font-bold uppercase tracking-[0.14em]"
+          style={{ fontFamily: "var(--v2-font-mono)", color: "var(--v2-text-muted)" }}
+        >
+          {code}
+        </p>
+        <h1
+          className="text-2xl font-bold"
+          style={{ fontFamily: "var(--v2-font-display)", color: "var(--v2-text-primary)" }}
+        >
+          {title}
+        </h1>
+        <p className="text-sm leading-relaxed" style={{ color: "var(--v2-text-secondary)" }}>
+          {body}
+        </p>
+        <div className="flex flex-wrap gap-2.5">
+          <PeakV2PrimaryAction href="/arena/lobby">Back to multiplayer</PeakV2PrimaryAction>
+          <PeakV2SecondaryAction href="/arena">Every PEAK3 game</PeakV2SecondaryAction>
+        </div>
       </div>
-    </div>
+    </PeakV2Shell>
   );
 }

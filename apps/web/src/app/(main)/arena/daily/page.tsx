@@ -6,6 +6,10 @@ import { draftProgress } from "@/lib/draft-progress";
 import { localDailyWindow } from "@/lib/daily-time";
 import { useDailyReset } from "@/lib/use-daily-reset";
 import { DraftMode, DraftCompletionSummary, MODE_LABELS } from "@/types/draft";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
+import { StatusChip } from "@/components/ui/StatusChip";
 
 const MODES: DraftMode[] = ["apex_1y", "prime_3y", "foundation_5y"];
 
@@ -49,150 +53,137 @@ export default function DailyHubPage() {
   });
 
   return (
-    <div
-      className="max-w-4xl mx-auto px-4 py-8"
-      style={{ background: "var(--bg-page)" }}
-    >
-      {/* Phase 8E: this is the legacy Peak Draft daily hub, not the current
-          flagship -- a visible way out to 82-0 Peak Season instead of a
-          dead end, for anyone who lands here from an old link/bookmark
-          rather than the (now-fixed) homepage/nav routing. */}
-      <Link
-        href="/arena/court/practice/apex_1y"
-        className="mb-6 flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm transition-opacity hover:opacity-90"
-        style={{ background: "var(--bg-elevated)", borderColor: "var(--peak-accent, #f5c842)" }}
-      >
-        <span style={{ color: "var(--text-primary)" }}>
-          <strong style={{ color: "var(--peak-accent-text, #f5c842)" }}>New:</strong> build a roster and chase an 82-0 season in 82-0 Peak Season.
-        </span>
-        <span className="font-semibold shrink-0" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
-          Try it →
-        </span>
-      </Link>
-
-      {/* Header */}
-      <div className="mb-8">
-        <h1
-          className="font-display text-3xl font-bold"
-          style={{ color: "var(--text-primary)" }}
+    <PeakV2Shell width="live">
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        {/* Phase 8E: this is the legacy Peak Draft daily hub, not the current
+            flagship -- a visible way out to 82-0 Peak Season instead of a
+            dead end, for anyone who lands here from an old link/bookmark
+            rather than the (now-fixed) homepage/nav routing. */}
+        <Link
+          href="/arena/court/practice/apex_1y"
+          className="pk-lift pk-press mb-6 flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm"
+          style={{ background: "var(--bg-elevated)", borderColor: "var(--peak-accent, #f5c842)" }}
         >
-          Today&apos;s Peak Draft
-        </h1>
-        <p className="mt-1 text-sm" style={{ color: "var(--text-muted)" }}>
-          {dateLabel}
-        </p>
-      </div>
+          <span style={{ color: "var(--text-primary)" }}>
+            <strong style={{ color: "var(--peak-accent-text, #f5c842)" }}>New:</strong> build a roster and chase an 82-0 season in 82-0 Peak Season.
+          </span>
+          <span className="font-semibold shrink-0" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
+            Try it →
+          </span>
+        </Link>
 
-      {/* Mode cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-        {MODES.map((mode) => {
-          const completion = completions[mode];
-          return (
-            <div
-              key={mode}
-              className="rounded-xl p-6 flex flex-col gap-4 border"
-              style={{
-                background: "var(--bg-elevated)",
-                borderColor: "var(--border-default)",
-              }}
-            >
-              {/* Title row */}
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div
-                    className="font-bold text-base"
-                    style={{ color: "var(--text-primary)" }}
-                  >
-                    {MODE_LABELS[mode]}
-                  </div>
-                  <div
-                    className="text-xs mt-0.5"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    {MODE_SUBTITLES[mode]}
-                  </div>
-                </div>
-                {completion && (
-                  <span
-                    className="text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0"
-                    style={{ background: "var(--correct)", color: "#fff" }}
-                  >
-                    ✓ Completed
-                  </span>
-                )}
-              </div>
+        {/* Header */}
+        <div className="mb-8">
+          <StatusChip tone="accent" size="sm">
+            Daily
+          </StatusChip>
+          <h1
+            className="font-display text-3xl font-bold mt-2"
+            style={{ color: "var(--text-primary)" }}
+          >
+            Today&apos;s Peak Draft
+          </h1>
+          <p className="mt-1 text-sm" style={{ color: "var(--text-muted)" }}>
+            {dateLabel}
+          </p>
+        </div>
 
-              {/* Score or CTA */}
-              {completion ? (
-                <>
+        {/* Mode cards */}
+        {/* No `.pk-reveal` entrance here — see DraftCard.tsx's comment: the
+            release-candidate audit found it can intermittently fail WCAG
+            contrast while a card is still fading in, and these cards carry
+            the day's score/CTA that a player needs at full contrast
+            immediately. */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+          {MODES.map((mode) => {
+            const completion = completions[mode];
+            return (
+              <div
+                key={mode}
+                className="pk-depth pk-crown rounded-xl p-6 flex flex-col gap-4 border"
+                style={{ borderColor: "var(--border-default)" }}
+              >
+                {/* Title row */}
+                <div className="flex items-start justify-between gap-2">
                   <div>
-                    <span
-                      className="text-2xl font-bold score-number"
-                      style={{ color: "var(--peak-accent-text)" }}
+                    <div
+                      className="font-bold text-base"
+                      style={{ color: "var(--text-primary)" }}
                     >
-                      {completion.lineup_peak_rating.toFixed(1)}
-                    </span>
-                    <span
-                      className="text-xs ml-1"
+                      {MODE_LABELS[mode]}
+                    </div>
+                    <div
+                      className="text-xs mt-0.5"
                       style={{ color: "var(--text-muted)" }}
                     >
-                      lineup rating
-                    </span>
+                      {MODE_SUBTITLES[mode]}
+                    </div>
                   </div>
-                  <Link
-                    href={`/arena/daily/${mode}`}
-                    className="block text-center py-2 rounded-lg text-sm font-medium border transition-colors hover:bg-[var(--bg-surface)]"
-                    style={{
-                      borderColor: "var(--border-default)",
-                      color: "var(--text-primary)",
-                    }}
-                  >
-                    View Result
-                  </Link>
-                </>
-              ) : (
-                <Link
-                  href={`/arena/daily/${mode}`}
-                  className="block text-center py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
-                  style={{
-                    background: "var(--peak-accent)",
-                    color: "var(--text-inverse)",
-                  }}
-                >
-                  Play Now
-                </Link>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                  {completion && (
+                    <StatusChip tone="positive" size="sm">
+                      ✓ Completed
+                    </StatusChip>
+                  )}
+                </div>
 
-      {/* Rules reminder */}
-      <div
-        className="mb-8 px-4 py-3 rounded-lg border text-sm"
-        style={{
-          background: "var(--bg-surface)",
-          borderColor: "var(--border-subtle)",
-          color: "var(--text-secondary)",
-        }}
-      >
-        <span
-          className="font-semibold"
-          style={{ color: "var(--text-primary)" }}
+                {/* Score or CTA */}
+                {completion ? (
+                  <>
+                    <div>
+                      <span
+                        className="text-2xl font-bold score-number"
+                        style={{ color: "var(--peak-accent-text)" }}
+                      >
+                        {completion.lineup_peak_rating.toFixed(1)}
+                      </span>
+                      <span
+                        className="text-xs ml-1"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        lineup rating
+                      </span>
+                    </div>
+                    <PeakV2SecondaryAction href={`/arena/daily/${mode}`} className="w-full">
+                      View Result
+                    </PeakV2SecondaryAction>
+                  </>
+                ) : (
+                  <PeakV2PrimaryAction href={`/arena/daily/${mode}`} className="w-full">
+                    Play Now
+                  </PeakV2PrimaryAction>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Rules reminder */}
+        <div
+          className="mb-8 px-4 py-3 rounded-lg border text-sm"
+          style={{
+            background: "var(--bg-surface)",
+            borderColor: "var(--border-subtle)",
+            color: "var(--text-secondary)",
+          }}
         >
-          Rules:{" "}
-        </span>
-        1 Hold · 1 Reframe · 5 rounds · Pick the best peak window for each role
-      </div>
+          <span
+            className="font-semibold"
+            style={{ color: "var(--text-primary)" }}
+          >
+            Rules:{" "}
+          </span>
+          1 Hold · 1 Reframe · 5 rounds · Pick the best peak window for each role
+        </div>
 
-      {/* Back link */}
-      <Link
-        href="/arena"
-        className="text-sm underline"
-        style={{ color: "var(--peak-accent-text)" }}
-      >
-        ← Back to Arena
-      </Link>
-    </div>
+        {/* Back link */}
+        <Link
+          href="/arena"
+          className="text-sm underline"
+          style={{ color: "var(--peak-accent-text)" }}
+        >
+          ← Back to Arena
+        </Link>
+      </div>
+    </PeakV2Shell>
   );
 }

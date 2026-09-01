@@ -1,8 +1,8 @@
 "use client";
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { DraftCard as DraftCardType, DraftRole } from "@/types/draft";
-import type { RankedMode, RankedSettlementView } from "@/types/ranked";
+import type { QueueRatingResponse, RankedMode, RankedSettlementView } from "@/types/ranked";
 import { RANKED_MODE_LABELS } from "@/types/ranked";
 import { createInitialRankedState, rankedReducer } from "@/lib/ranked-state";
 import { eligibleRolesForCard } from "@/lib/draft-state";
@@ -13,6 +13,9 @@ import { analytics } from "@/lib/analytics";
 
 import DraftCard from "@/components/draft/DraftCard";
 import RoleSelector from "@/components/draft/RoleSelector";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
+import PeakV2ResultHeadline from "@/components/v2/PeakV2ResultHeadline";
 
 interface Props {
   mode: RankedMode;
@@ -26,11 +29,32 @@ export default function RankedScreen({ mode }: Props) {
   const [pendingRole, setPendingRole] = useState<DraftRole | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Persistent standing context (rating/division/placement), read the same
+  // way the ranked hub already reads it -- additive and read-only, no game
+  // state depends on it. Left unset (not an error state) for an anonymous
+  // visitor, a not-yet-established player, or while ranked rating writes are
+  // off; the hub tolerates the same three cases via the same try/catch.
+  const [rating, setRating] = useState<QueueRatingResponse | null>(null);
+
+  const refreshRating = useCallback(async () => {
+    if (!user) return;
+    try {
+      const token = await getAccessToken();
+      if (!token) return;
+      setRating(await rankedApi.getRating(token, mode));
+    } catch {
+      // Not eligible / not signed in / ranked rating not enabled here.
+    }
+  }, [user, mode]);
 
   useEffect(() => {
     dispatch({ type: "SET_MODE", mode });
     analytics.track({ type: "ranked_queue_viewed", mode });
   }, [mode]);
+
+  useEffect(() => {
+    void refreshRating();
+  }, [refreshRating]);
 
   // ── Resume on mount/refresh ──────────────────────────────────────────────
   // A refresh must restore the ranked game or settled result, not silently
@@ -158,10 +182,14 @@ export default function RankedScreen({ mode }: Props) {
           analytics.track({ type: "placement_completed", mode });
         }
         dispatch({ type: "SETTLED", settlement });
+        // The match just changed the player's rating server-side; refetch
+        // rather than derive it from the settlement view so the standing
+        // rail always reflects the same source of truth the hub reads.
+        void refreshRating();
       }
     }, 2500);
     return () => clearInterval(interval);
-  }, [state.phase, state.matchId, mode]);
+  }, [state.phase, state.matchId, mode, refreshRating]);
 
   const handleSelectOffer = useCallback((cardId: string) => {
     setSelectedOfferId((prev) => (prev === cardId ? null : cardId));
@@ -202,53 +230,44 @@ export default function RankedScreen({ mode }: Props) {
   const gs = state.gameState;
 
   // ── Render ───────────────────────────────────────────────────────────────
+  // Each phase computes its own centre content exactly as before (same JSX,
+  // same conditions, same order); the only change is that a phase no longer
+  // returns directly, so every phase can share one persistent standing rail
+  // at desktop widths instead of each phase reinventing (or omitting) one.
+  let mainContent: ReactNode = null;
 
   if (state.phase === "queue_idle") {
-    return (
+    mainContent = (
       <div className="flex flex-col items-center gap-4 py-12 text-center">
         <p style={{ color: "var(--text-secondary)" }}>
           Ranked pairs you with another PEAK3 player on the exact same hidden board. Neither
           side sees the other&apos;s picks until both are done.
         </p>
-        <button
-          onClick={joinQueue}
-          className="px-6 py-3 rounded-lg font-semibold"
-          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
-        >
+        <PeakV2PrimaryAction onClick={joinQueue}>
           Join {RANKED_MODE_LABELS[mode]} queue
-        </button>
+        </PeakV2PrimaryAction>
       </div>
     );
-  }
-
-  if (state.phase === "queue_waiting") {
-    return (
+  } else if (state.phase === "queue_waiting") {
+    mainContent = (
       <div className="flex flex-col items-center gap-4 py-12 text-center" aria-live="polite">
         <p style={{ color: "var(--text-primary)" }}>Waiting for an opponent…</p>
-        <p className="text-sm tabular-nums" style={{ color: "var(--text-muted)" }}>
-          {Math.floor(state.waitedSeconds)}s elapsed
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          <span className="score-number">{Math.floor(state.waitedSeconds)}</span>s elapsed
         </p>
-        <button
-          onClick={cancelQueue}
-          className="text-sm px-4 py-2 rounded-lg"
-          style={{ color: "var(--text-secondary)", background: "var(--bg-elevated)" }}
-        >
+        <PeakV2SecondaryAction onClick={cancelQueue} size="sm">
           Cancel
-        </button>
+        </PeakV2SecondaryAction>
       </div>
     );
-  }
-
-  if (state.phase === "matched" || (state.phase === "playing" && !gs)) {
-    return (
+  } else if (state.phase === "matched" || (state.phase === "playing" && !gs)) {
+    mainContent = (
       <div className="flex flex-col items-center gap-3 py-12 text-center" aria-live="polite">
         <p style={{ color: "var(--text-primary)" }}>Matched! Loading your board…</p>
       </div>
     );
-  }
-
-  if (state.phase === "awaiting_opponent") {
-    return (
+  } else if (state.phase === "awaiting_opponent") {
+    mainContent = (
       <div className="flex flex-col items-center gap-3 py-12 text-center" aria-live="polite">
         <p style={{ color: "var(--text-primary)" }}>You&apos;re done. Waiting for your opponent to finish…</p>
         <p className="text-sm" style={{ color: "var(--text-muted)" }}>
@@ -256,81 +275,127 @@ export default function RankedScreen({ mode }: Props) {
         </p>
       </div>
     );
-  }
-
-  if (state.phase === "settled" && state.settlement) {
-    return <RankedResultView settlement={state.settlement} mode={mode} onDone={() => dispatch({ type: "RESET" })} />;
-  }
-
-  if (state.phase === "error") {
-    return (
+  } else if (state.phase === "settled" && state.settlement) {
+    mainContent = (
+      <RankedResultView settlement={state.settlement} mode={mode} onDone={() => dispatch({ type: "RESET" })} />
+    );
+  } else if (state.phase === "error") {
+    mainContent = (
       <div className="flex flex-col items-center gap-3 py-12 text-center">
         <p style={{ color: "var(--text-primary)" }}>{state.errorMessage}</p>
-        <button
-          onClick={() => dispatch({ type: "RESET" })}
-          className="text-sm px-4 py-2 rounded-lg"
-          style={{ color: "var(--text-secondary)", background: "var(--bg-elevated)" }}
-        >
+        <PeakV2SecondaryAction onClick={() => dispatch({ type: "RESET" })} size="sm">
           Back to queue
-        </button>
+        </PeakV2SecondaryAction>
+      </div>
+    );
+  } else if (gs) {
+    mainContent = (
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between text-sm" style={{ color: "var(--text-secondary)" }}>
+          <span>Round {gs.current_round} of {gs.total_rounds}</span>
+          <span>{RANKED_MODE_LABELS[mode]} · Ranked</span>
+        </div>
+
+        {pendingRole === null ? (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {gs.current_offers.map((card: DraftCardType) => {
+              const eligibleOpen = eligibleRolesForCard(card, gs.open_roles);
+              const hasEligibleRole = eligibleOpen.length > 0;
+              return (
+                <DraftCard
+                  key={card.peak_window_id}
+                  card={card}
+                  selected={selectedOfferId === card.peak_window_id}
+                  eligible={hasEligibleRole}
+                  dimmed={!hasEligibleRole}
+                  onClick={
+                    !submitting
+                      ? () => {
+                          handleSelectOffer(card.peak_window_id);
+                          if (eligibleOpen.length === 1) {
+                            void handleConfirm(card.peak_window_id, eligibleOpen[0]);
+                          } else if (eligibleOpen.length > 1) {
+                            setPendingRole(eligibleOpen[0]);
+                          }
+                        }
+                      : undefined
+                  }
+                />
+              );
+            })}
+          </div>
+        ) : (
+          selectedOfferId && (
+            <RoleSelector
+              card={gs.current_offers.find((c) => c.peak_window_id === selectedOfferId)!}
+              openRoles={gs.open_roles}
+              selectedRole={pendingRole}
+              onSelect={setPendingRole}
+              onCancel={() => {
+                setSelectedOfferId(null);
+                setPendingRole(null);
+              }}
+              onConfirm={() => selectedOfferId && pendingRole && handleConfirm(selectedOfferId, pendingRole)}
+              submitting={submitting}
+            />
+          )
+        )}
       </div>
     );
   }
 
-  if (!gs) return null;
+  if (!mainContent) return null;
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between text-sm" style={{ color: "var(--text-secondary)" }}>
-        <span>Round {gs.current_round} of {gs.total_rounds}</span>
-        <span>{RANKED_MODE_LABELS[mode]} · Ranked</span>
-      </div>
-
-      {pendingRole === null ? (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {gs.current_offers.map((card: DraftCardType) => {
-            const eligibleOpen = eligibleRolesForCard(card, gs.open_roles);
-            const hasEligibleRole = eligibleOpen.length > 0;
-            return (
-              <DraftCard
-                key={card.peak_window_id}
-                card={card}
-                selected={selectedOfferId === card.peak_window_id}
-                eligible={hasEligibleRole}
-                dimmed={!hasEligibleRole}
-                onClick={
-                  !submitting
-                    ? () => {
-                        handleSelectOffer(card.peak_window_id);
-                        if (eligibleOpen.length === 1) {
-                          void handleConfirm(card.peak_window_id, eligibleOpen[0]);
-                        } else if (eligibleOpen.length > 1) {
-                          setPendingRole(eligibleOpen[0]);
-                        }
-                      }
-                    : undefined
-                }
-              />
-            );
-          })}
-        </div>
-      ) : (
-        selectedOfferId && (
-          <RoleSelector
-            card={gs.current_offers.find((c) => c.peak_window_id === selectedOfferId)!}
-            openRoles={gs.open_roles}
-            selectedRole={pendingRole}
-            onSelect={setPendingRole}
-            onCancel={() => {
-              setSelectedOfferId(null);
-              setPendingRole(null);
-            }}
-            onConfirm={() => selectedOfferId && pendingRole && handleConfirm(selectedOfferId, pendingRole)}
-            submitting={submitting}
-          />
-        )
-      )}
+    <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:gap-8">
+      <div className="min-w-0 flex-1" data-testid="ranked-main-content">{mainContent}</div>
+      <RankedStandingRail mode={mode} rating={rating} signedIn={Boolean(user)} />
     </div>
+  );
+}
+
+function RankedStandingRail({
+  mode,
+  rating,
+  signedIn,
+}: {
+  mode: RankedMode;
+  rating: QueueRatingResponse | null;
+  signedIn: boolean;
+}) {
+  return (
+    <aside
+      className="hidden xl:flex xl:w-72 xl:shrink-0 xl:flex-col xl:gap-3 xl:rounded-xl xl:border xl:p-4"
+      style={{ borderColor: "var(--border-default)" }}
+      aria-label="Your ranked standing"
+      data-testid="ranked-standing-rail"
+    >
+      <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+        {RANKED_MODE_LABELS[mode]} · Ranked
+      </p>
+
+      {rating?.established ? (
+        <div>
+          <p className="text-3xl font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>
+            {Math.round(rating.rating ?? 0)}
+          </p>
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            {rating.division ?? "Rating"}
+          </p>
+        </div>
+      ) : rating ? (
+        <div>
+          <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+            {rating.valid_rated_matches} placement {rating.valid_rated_matches === 1 ? "match" : "matches"} played
+          </p>
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>{rating.uncertainty_label}</p>
+        </div>
+      ) : !signedIn ? (
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          Sign in to track your rating and division here.
+        </p>
+      ) : null}
+    </aside>
   );
 }
 
@@ -350,17 +415,18 @@ function RankedResultView({
     : `${delta >= 0 ? "+" : ""}${delta.toFixed(0)}`;
 
   return (
-    <div className="flex flex-col gap-6 py-6">
+    <div className="mx-auto flex w-full max-w-md flex-col gap-6 py-6">
       {/* Tier 1: outcome + scores — always visible first */}
       <div className="text-center">
         <div className="text-xs uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
           {RANKED_MODE_LABELS[mode]} · Ranked
         </div>
-        <div className="text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
+        <PeakV2ResultHeadline scale="moment" as="p" style={{ marginTop: "0.25rem" }}>
           {outcomeLabel}
-        </div>
+        </PeakV2ResultHeadline>
         <div className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
-          You {settlement.your_score.toFixed(2)} · Opponent {settlement.opponent_score.toFixed(2)}
+          You <span className="score-number">{settlement.your_score.toFixed(2)}</span> · Opponent{" "}
+          <span className="score-number">{settlement.opponent_score.toFixed(2)}</span>
           {settlement.tie_break_used && settlement.tie_break_used !== "none" && (
             <span> · decided by {settlement.tie_break_used.replace("_", " ")}</span>
           )}
@@ -373,8 +439,11 @@ function RankedResultView({
           <div style={{ color: "var(--text-primary)" }}>{settlement.placement_progress}</div>
         ) : (
           <div style={{ color: "var(--text-primary)" }}>
-            Rating: {settlement.rating_change.prior_rating.toFixed(0)} → {settlement.rating_change.new_rating.toFixed(0)}{" "}
-            <span style={{ color: delta >= 0 ? "var(--correct)" : "var(--incorrect)" }}>({deltaLabel})</span>
+            Rating: <span className="score-number">{settlement.rating_change.prior_rating.toFixed(0)}</span> →{" "}
+            <span className="score-number">{settlement.rating_change.new_rating.toFixed(0)}</span>{" "}
+            <span className="score-number" style={{ color: delta >= 0 ? "var(--correct)" : "var(--incorrect)" }}>
+              ({deltaLabel})
+            </span>
           </div>
         )}
         {settlement.division_change && (
@@ -383,13 +452,7 @@ function RankedResultView({
       </div>
 
       <div className="flex justify-center gap-3">
-        <button
-          onClick={onDone}
-          className="px-5 py-2.5 rounded-lg font-semibold"
-          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
-        >
-          Queue again
-        </button>
+        <PeakV2PrimaryAction onClick={onDone}>Queue again</PeakV2PrimaryAction>
       </div>
     </div>
   );

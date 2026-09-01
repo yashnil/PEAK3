@@ -30,6 +30,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import DraftScreen from "@/components/draft/DraftScreen";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
 import { createDraftGame } from "@/lib/draft-api";
 import type { DraftGameState, DraftMode } from "@/types/draft";
 
@@ -46,12 +48,23 @@ export default function PracticeDraftLoader({ mode, seed }: Props) {
   // but wasteful, and it makes the server logs lie about how many games exist.
   const startedRef = useRef(false);
 
+  // The API requires a seed for a practice board (it has no date to key off,
+  // unlike a daily). A seedless visit — every link that doesn't spell out
+  // `?seed=`, including every "Practice" link on /arena/labs — used to send
+  // no seed at all and get a 400 `board_error` back, which this component
+  // then showed as its own generic "Could not create practice board" retry
+  // screen: the create genuinely never happened, not a flaky API. Picked
+  // once per mount (`useState` initializer), so it's stable across
+  // `create()`'s own retries and doesn't fight `startedRef`'s StrictMode
+  // guard by picking a new board on every re-render.
+  const [effectiveSeed] = useState(() => seed ?? Math.floor(Math.random() * 1_000_000));
+
   const create = useCallback(() => {
     setFailed(false);
-    createDraftGame(mode, "practice", { seed })
+    createDraftGame(mode, "practice", { seed: effectiveSeed })
       .then(setGameState)
       .catch(() => setFailed(true));
-  }, [mode, seed]);
+  }, [mode, effectiveSeed]);
 
   useEffect(() => {
     if (startedRef.current) return;
@@ -61,32 +74,34 @@ export default function PracticeDraftLoader({ mode, seed }: Props) {
 
   if (failed) {
     return (
-      <div className="mx-auto max-w-lg px-4 py-16 text-center">
-        <p style={{ color: "var(--incorrect)" }}>
-          Could not create practice board. Is the API running?
-        </p>
-        <button
-          type="button"
-          onClick={create}
-          className="mt-4 rounded-md border px-3 py-1.5 text-sm"
-          style={{ borderColor: "var(--border-subtle)" }}
-          data-testid="practice-draft-retry"
-        >
-          Try again
-        </button>
-      </div>
+      <PeakV2Shell width="live">
+        <div className="mx-auto max-w-lg px-4 py-16 flex flex-col items-center gap-4 text-center">
+          <p role="alert" style={{ color: "var(--incorrect)" }}>
+            Could not create practice board. Is the API running?
+          </p>
+          <PeakV2SecondaryAction
+            type="button"
+            onClick={create}
+            data-testid="practice-draft-retry"
+          >
+            Try again
+          </PeakV2SecondaryAction>
+        </div>
+      </PeakV2Shell>
     );
   }
 
   if (!gameState) {
     return (
-      <div
-        className="mx-auto max-w-lg px-4 py-16 text-center"
-        role="status"
-        data-testid="practice-draft-loading"
-      >
-        <p style={{ color: "var(--text-muted)" }}>Building your practice board…</p>
-      </div>
+      <PeakV2Shell width="live">
+        <div
+          className="mx-auto max-w-lg px-4 py-16 text-center"
+          role="status"
+          data-testid="practice-draft-loading"
+        >
+          <p style={{ color: "var(--text-muted)" }}>Building your practice board…</p>
+        </div>
+      </PeakV2Shell>
     );
   }
 

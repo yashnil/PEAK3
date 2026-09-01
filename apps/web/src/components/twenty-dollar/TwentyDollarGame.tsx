@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -26,6 +25,9 @@ import { useShowdownPhase } from "./useShowdownPhase";
 import PeakV2ShowdownIntro from "@/components/v2/showdown/PeakV2ShowdownIntro";
 import PeakV2ShowdownLive from "@/components/v2/showdown/PeakV2ShowdownLive";
 import PeakV2ShowdownResult from "@/components/v2/showdown/PeakV2ShowdownResult";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
 
 /**
  * One $20 Showdown match — the auction room.
@@ -383,37 +385,50 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
   if (loadFailure && !view) {
     const notYours = loadFailure.status === 403;
     return (
-      <div className="ar-error" role="alert" data-testid="td-match-error">
-        <p className="ar-error-code">{notYours ? "Not your seat" : "Match not found"}</p>
-        <h1 className="ar-error-title">
-          {notYours
-            ? "This auction belongs to someone else"
-            : "We could not find that auction"}
-        </h1>
-        <p className="ar-error-body">
-          {notYours
-            ? "Only the two bidders seated in a match can open it. If a friend sent you a room code, join from the multiplayer lobby instead."
-            : "That match id does not resolve. Matches expire after two hours, so a link copied from an old session may have outlived its game."}
-        </p>
-        <div className="ar-panel-actions">
-          <Link className="ar-btn ar-btn-primary" href="/arena/lobby">
-            Back to multiplayer
-          </Link>
-          <Link className="ar-btn" href="/arena">
-            Every PEAK3 game
-          </Link>
+      <PeakV2Shell width="live">
+        <div
+          className="pk-depth pk-crown mx-auto my-16 flex max-w-xl flex-col items-start gap-3 rounded-2xl p-8"
+          role="alert"
+          data-testid="td-match-error"
+          style={{ border: "1px solid var(--v2-border-subtle)" }}
+        >
+          <p
+            className="text-xs font-bold uppercase tracking-[0.14em]"
+            style={{ fontFamily: "var(--v2-font-mono)", color: "var(--v2-text-muted)" }}
+          >
+            {notYours ? "Not your seat" : "Match not found"}
+          </p>
+          <h1
+            className="text-2xl font-bold"
+            style={{ fontFamily: "var(--v2-font-display)", color: "var(--v2-text-primary)" }}
+          >
+            {notYours
+              ? "This auction belongs to someone else"
+              : "We could not find that auction"}
+          </h1>
+          <p className="text-sm leading-relaxed" style={{ color: "var(--v2-text-secondary)" }}>
+            {notYours
+              ? "Only the two bidders seated in a match can open it. If a friend sent you a room code, join from the multiplayer lobby instead."
+              : "That match id does not resolve. Matches expire after two hours, so a link copied from an old session may have outlived its game."}
+          </p>
+          <div className="flex flex-wrap gap-2.5">
+            <PeakV2PrimaryAction href="/arena/lobby">Back to multiplayer</PeakV2PrimaryAction>
+            <PeakV2SecondaryAction href="/arena">Every PEAK3 game</PeakV2SecondaryAction>
+          </div>
         </div>
-      </div>
+      </PeakV2Shell>
     );
   }
 
   if (!view) {
     return (
-      <div className="ar-room">
-        <p className="ar-notice" data-testid="td-loading">
-          Loading the auction…
-        </p>
-      </div>
+      <PeakV2Shell width="live">
+        <div className="pk-atmosphere py-9">
+          <p role="status" className="text-sm" style={{ color: "var(--v2-text-secondary)" }}>
+            Loading the auction…
+          </p>
+        </div>
+      </PeakV2Shell>
     );
   }
 
@@ -611,7 +626,7 @@ function AuctionRoom({
  */
 function ForfeitControl({ onConfirm, busy }: { onConfirm: () => void; busy: boolean }) {
   const [confirming, setConfirming] = useState(false);
-  const cancelRef = useRef<HTMLButtonElement | null>(null);
+  const cancelRef = useRef<HTMLButtonElement | HTMLAnchorElement | null>(null);
 
   useEffect(() => {
     if (!confirming) return;
@@ -626,39 +641,44 @@ function ForfeitControl({ onConfirm, busy }: { onConfirm: () => void; busy: bool
 
   if (!confirming) {
     return (
-      <button
+      <PeakV2SecondaryAction
         type="button"
-        className="ar-btn td-forfeit"
+        size="sm"
         data-testid="td-forfeit"
         onClick={() => setConfirming(true)}
       >
         Forfeit match
-      </button>
+      </PeakV2SecondaryAction>
     );
   }
 
   return (
-    <div className="td-forfeit-confirm" data-testid="td-forfeit-confirm" role="group"
-      aria-label="Confirm forfeit">
+    <div
+      className="td-forfeit-confirm"
+      data-testid="td-forfeit-confirm"
+      role="group"
+      aria-label="Confirm forfeit"
+    >
       <p className="td-forfeit-question">Concede this match?</p>
-      <button
+      <PeakV2SecondaryAction
         type="button"
+        size="sm"
         ref={cancelRef}
-        className="ar-btn"
         data-testid="td-forfeit-cancel"
         onClick={() => setConfirming(false)}
       >
         Keep playing
-      </button>
-      <button
+      </PeakV2SecondaryAction>
+      <PeakV2SecondaryAction
         type="button"
-        className="ar-btn td-forfeit-go"
+        size="sm"
         data-testid="td-forfeit-confirm-button"
         disabled={busy}
         onClick={onConfirm}
+        style={{ color: "var(--v2-color-negative)", borderColor: "var(--v2-color-negative)" }}
       >
         {busy ? "Conceding…" : "Forfeit"}
-      </button>
+      </PeakV2SecondaryAction>
     </div>
   );
 }

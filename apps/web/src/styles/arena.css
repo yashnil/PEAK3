@@ -337,9 +337,17 @@
 /* Actions                                                             */
 /* ------------------------------------------------------------------ */
 
+/* FLEXBOX, NOT GRID. `repeat(auto-fit, minmax(9rem, 1fr))` put two of a
+   three-action card's buttons on one row and stranded the third alone on a
+   second row AT HALF WIDTH -- the exact orphan-wrap `ComingLater`'s own grid
+   already had this same failure and was fixed for (see arena-lobby's own
+   comment on that fix). A wrapping flex row with `flex-grow` on each item
+   fixes both shapes with one rule: items sharing a line split it evenly,
+   and an item left alone on the last line grows to fill it, because
+   `flex-grow` only ever competes against the OTHER items on its own line. */
 .ar-actions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.6rem;
   margin-top: auto;
   padding-top: 0.35rem;
@@ -347,6 +355,7 @@
 
 .ar-action {
   display: flex;
+  flex: 1 1 9rem;
   flex-direction: column;
   gap: 0.3rem;
 }
@@ -560,7 +569,7 @@
 /* ------------------------------------------------------------------ */
 
 .ar-rules {
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--v2-border-subtle, var(--border-subtle));
   padding-top: 0.7rem;
 }
 
@@ -569,9 +578,10 @@
   align-items: center;
   gap: 0.35rem;
   min-height: 2rem;
-  font-size: 0.75rem;
+  font-family: var(--v2-font-ui, inherit);
+  font-size: 0.8125rem;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--v2-text-secondary, var(--text-secondary));
   cursor: pointer;
   list-style: none;
 }
@@ -580,11 +590,15 @@
   display: none;
 }
 
+/* The chevron reads as an accent affordance -- the same "there is more here"
+   signal a disclosure control gives elsewhere in the app -- rather than a
+   plain secondary-text glyph indistinguishable from decoration. */
 .ar-rules-summary::before {
   content: "›";
   display: inline-block;
   font-size: 1rem;
   line-height: 1;
+  color: var(--v2-color-accent);
   transition: transform 180ms ease;
 }
 
@@ -603,13 +617,17 @@
 }
 
 /* A heading inside How to Play, which is opened mid-match by someone who does
-   not know a rule. Nothing in that panel is tertiary. */
+   not know a rule. Nothing in that panel is tertiary. Mono/uppercase/tracked
+   matches the section-label idiom used for every other "here is a labelled
+   group of content" heading in the app (e.g. Daily History's "Completed
+   grids", the lobby's "Coming later in the alpha"). */
 .ar-rules-title {
-  font-size: 0.75rem;
+  font-family: var(--v2-font-mono, var(--font-mono));
+  font-size: 0.6875rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-secondary);
+  color: var(--v2-text-muted, var(--text-secondary));
 }
 
 .ar-rules-list {
@@ -618,16 +636,18 @@
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
+  font-family: var(--v2-font-ui, inherit);
   font-size: 0.8125rem;
   line-height: 1.5;
-  color: var(--text-secondary);
+  color: var(--v2-text-secondary, var(--text-secondary));
 }
 
 .ar-rules-foot {
   margin-top: 0.6rem;
+  font-family: var(--v2-font-ui, inherit);
   font-size: 0.6875rem;
   line-height: 1.45;
-  color: var(--text-muted);
+  color: var(--v2-text-muted, var(--text-muted));
 }
 
 /* ------------------------------------------------------------------ */

@@ -5,6 +5,7 @@ import {
   type HeadToHeadReceipt,
   type SettlementLevel,
 } from "@/lib/head-to-head-api";
+import PeakV2ResultHeadline from "@/components/v2/PeakV2ResultHeadline";
 
 /**
  * The side-by-side final receipt (spec §6, "Experience").
@@ -37,18 +38,20 @@ export default function SideBySideReceipt({ receipt }: { receipt: HeadToHeadRece
         Head-to-Head result
       </h2>
 
-      {/* THE VERDICT, as the loudest thing on the receipt. It used to be
-          `text-lg` in body ink — one step above the sentence beneath it and
-          two below the table's own header row, which is backwards for the one
-          line that says who won. The SENTENCE is unchanged; only its weight,
-          face and colour are. */}
-      <p
-        className="pk-reveal font-display mt-2 text-2xl font-extrabold leading-tight sm:text-3xl"
-        style={{ color: outcomeColor, "--pk-reveal-index": 0 } as React.CSSProperties}
-        data-testid="h2h-outcome"
-      >
-        {outcomeSentence(receipt)}
-      </p>
+      {/* THE VERDICT, as the loudest thing on the receipt — the app's shared
+          "moment" numeral/headline treatment (same serif escalation used for
+          Ranked's settled result), not a bespoke one-off style. The SENTENCE
+          is unchanged; only the component rendering it is. */}
+      <div data-testid="h2h-outcome">
+        <PeakV2ResultHeadline
+          as="p"
+          scale="line"
+          className="pk-reveal"
+          style={{ color: outcomeColor, marginTop: "0.5rem", "--pk-reveal-index": 0 } as React.CSSProperties}
+        >
+          {outcomeSentence(receipt)}
+        </PeakV2ResultHeadline>
+      </div>
       {/* WAS `opacity-75`, which dims the ink AND everything about it. This is
           the sentence that explains WHY the match ended the way it did, so it
           keeps full opacity at the secondary tier instead. */}
@@ -68,7 +71,7 @@ export default function SideBySideReceipt({ receipt }: { receipt: HeadToHeadRece
             Head-to-head comparison, in the published winner order
           </caption>
           <thead>
-            <tr className="text-left opacity-70">
+            <tr className="text-left" style={{ color: "var(--text-secondary)" }}>
               <th scope="col" className="py-2 pr-3">Tie-breaker</th>
               <th scope="col" className="py-2 pr-3">{receipt.creator.display_name}</th>
               <th scope="col" className="py-2 pr-3">{receipt.opponent.display_name}</th>
@@ -76,32 +79,33 @@ export default function SideBySideReceipt({ receipt }: { receipt: HeadToHeadRece
             </tr>
           </thead>
           <tbody>
-            {settlement.levels.map((level, index) => (
-              <tr
-                key={level.level}
-                data-testid={`h2h-level-${level.level}`}
-                className={
-                  level.level === settlement.decided_by
-                    ? "font-semibold"
-                    : level.verdict === "not_consulted"
-                      ? "opacity-40"
-                      : undefined
-                }
-              >
-                <th scope="row" className="py-2 pr-3 text-left font-normal">
-                  <span className="mr-2 opacity-50">{index + 1}</span>
-                  {level.label}
-                </th>
-                <td className="py-2 pr-3">{formatLevelValue(level.level, level.creator)}</td>
-                <td className="py-2 pr-3">{formatLevelValue(level.level, level.opponent)}</td>
-                <td className="py-2">{verdictLabel(level, receipt)}</td>
-              </tr>
-            ))}
+            {settlement.levels.map((level, index) => {
+              const isDecider = level.level === settlement.decided_by;
+              const notConsulted = level.verdict === "not_consulted";
+              return (
+                <tr
+                  key={level.level}
+                  data-testid={`h2h-level-${level.level}`}
+                  className={isDecider ? "font-semibold" : undefined}
+                  style={{ color: notConsulted ? "var(--text-muted)" : "var(--text-primary)" }}
+                >
+                  <th scope="row" className="py-2 pr-3 text-left font-normal">
+                    <span className="mr-2" style={{ color: "var(--text-muted)" }}>
+                      {index + 1}
+                    </span>
+                    {level.label}
+                  </th>
+                  <td className="score-number py-2 pr-3">{formatLevelValue(level.level, level.creator)}</td>
+                  <td className="score-number py-2 pr-3">{formatLevelValue(level.level, level.opponent)}</td>
+                  <td className="py-2">{verdictLabel(level, receipt)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
 
-      <p className="mt-4 text-xs opacity-60">
+      <p className="mt-4 text-xs" style={{ color: "var(--text-muted)" }}>
         Tie-breakers are applied strictly in order; a level only counts when every
         level above it is exactly equal. Credit efficiency is roster PEAK3 total per
         net credit committed. Active play time is measured server-side from your

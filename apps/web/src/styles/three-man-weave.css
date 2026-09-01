@@ -1250,14 +1250,17 @@
    Recent picks + draft history (TMW-12)
    --------------------------------------------------------------------------- */
 
+/* `background` deliberately omitted -- `.pk-depth` (added alongside this
+   class in the JSX) supplies the raised-surface gradient fill, so this rail
+   matches the crowned, lit surfaces around it instead of sitting as a flat
+   box among them. */
 .tmw-ledger {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
   padding: 0.6rem 0.75rem;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--v2-border-subtle, var(--border-subtle));
   border-radius: var(--pk-r-md, 10px);
-  background: var(--bg-elevated);
 }
 
 .tmw-ledger-head {
@@ -1268,17 +1271,17 @@
 }
 
 .tmw-ledger-title {
-  font-family: var(--font-display);
+  font-family: var(--v2-font-mono, var(--font-mono));
   font-size: 0.6875rem;
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--text-secondary);
+  color: var(--v2-text-muted, var(--text-secondary));
 }
 
 .tmw-ledger-count {
   font-size: 0.6875rem;
-  color: var(--text-secondary);
+  color: var(--v2-text-muted, var(--text-secondary));
 }
 
 .tmw-ledger-empty {

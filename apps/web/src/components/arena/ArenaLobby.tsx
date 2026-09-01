@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import {
@@ -27,6 +27,11 @@ import {
   type ArenaCapability,
 } from "@/lib/arena-capability";
 import HowToPlay from "@/components/arena/HowToPlay";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2Rule from "@/components/v2/PeakV2Rule";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
+import { StatusChip } from "@/components/ui/StatusChip";
 
 /**
  * The shared Arena lobby. One surface, every mode.
@@ -256,7 +261,12 @@ export default function ArenaLobby() {
   if (error && !readiness) {
     return (
       <LobbyShell capability={null}>
-        <p className="ar-notice" role="alert" data-testid="lobby-error">
+        <p
+          className="pk-depth pk-crown rounded-2xl p-5 text-sm"
+          role="alert"
+          data-testid="lobby-error"
+          style={{ border: "1px solid var(--v2-border-subtle)", color: "var(--v2-text-secondary)" }}
+        >
           {error}
         </p>
       </LobbyShell>
@@ -265,7 +275,11 @@ export default function ArenaLobby() {
   if (!readiness || !capability) {
     return (
       <LobbyShell capability={null}>
-        <p className="ar-notice" data-testid="lobby-loading">
+        <p
+          className="pk-depth pk-crown rounded-2xl p-5 text-sm"
+          data-testid="lobby-loading"
+          style={{ border: "1px solid var(--v2-border-subtle)", color: "var(--v2-text-secondary)" }}
+        >
           Loading the Arena…
         </p>
       </LobbyShell>
@@ -322,7 +336,12 @@ export default function ArenaLobby() {
   return (
     <LobbyShell capability={capability}>
       {error ? (
-        <p className="ar-notice" role="alert" data-testid="lobby-error">
+        <p
+          className="pk-depth pk-crown mb-4 rounded-2xl p-5 text-sm"
+          role="alert"
+          data-testid="lobby-error"
+          style={{ border: "1px solid var(--v2-border-subtle)", color: "var(--v2-text-secondary)" }}
+        >
           {error}
         </p>
       ) : null}
@@ -378,28 +397,52 @@ function LobbyShell({
     ? arenaHeadline(capability)
     : { title: "Multiplayer", intro: "" };
   return (
-    // THE LOBBY IS THE CONCOURSE. `.pk-atmosphere` puts the same two
-    // floodlights and court grid behind the mode cards that both game rooms
-    // now sit on, so walking from the lobby into a match is one building
-    // rather than two pages. The grid pitch is set in `arena.css`.
-    <div
-      className="ar-lobby pk-atmosphere"
-      data-testid="arena-lobby"
-      data-posture={capability?.posture ?? "loading"}
-    >
-      <header className="ar-lobby-head">
-        <p className="ar-eyebrow">PEAK3 Arena</p>
-        <h1 className="ar-lobby-title">{headline.title}</h1>
-        {capability?.posture === "practice_only" ? (
-          <p className="ar-alpha-line" data-testid="lobby-alpha-line">
-            <span className="ar-badge ar-badge-alpha">Closed alpha</span>
-            <span>Bot practice is open. Live matchmaking is not.</span>
+    <PeakV2Shell width="live">
+      {/* THE LOBBY IS THE CONCOURSE. `.pk-atmosphere` puts the same two
+          floodlights and court grid behind the mode cards that both game
+          rooms now sit on, so walking from the lobby into a match is one
+          building rather than two pages. The grid pitch is set in
+          `arena.css`; `PeakV2Shell` supplies the page-width/centering this
+          element used to hand-mimic via a CSS override. */}
+      <div
+        className="pk-atmosphere pb-14 pt-9"
+        data-testid="arena-lobby"
+        data-posture={capability?.posture ?? "loading"}
+        style={{ "--pk-court-grid-size": "96px" } as CSSProperties}
+      >
+        <header className="flex flex-col gap-1.5 pb-1">
+          <p
+            className="text-xs font-bold uppercase tracking-[0.14em]"
+            style={{ color: "var(--v2-color-accent)" }}
+          >
+            PEAK3 Arena
           </p>
-        ) : null}
-        {headline.intro ? <p className="ar-lobby-intro">{headline.intro}</p> : null}
-      </header>
-      {children}
-    </div>
+          <h1
+            className="text-4xl font-bold sm:text-[2.75rem]"
+            style={{ fontFamily: "var(--v2-font-display)", color: "var(--v2-text-primary)" }}
+          >
+            {headline.title}
+          </h1>
+          {capability?.posture === "practice_only" ? (
+            <p
+              className="mt-1 flex flex-wrap items-center gap-2 text-sm"
+              data-testid="lobby-alpha-line"
+              style={{ color: "var(--v2-text-secondary)" }}
+            >
+              <StatusChip tone="accent">Closed alpha</StatusChip>
+              <span>Bot practice is open. Live matchmaking is not.</span>
+            </p>
+          ) : null}
+          {headline.intro ? (
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed" style={{ color: "var(--v2-text-secondary)" }}>
+              {headline.intro}
+            </p>
+          ) : null}
+        </header>
+        <PeakV2Rule spacing="md" />
+        {children}
+      </div>
+    </PeakV2Shell>
   );
 }
 
@@ -434,13 +477,22 @@ function Unavailable({
             body: "Three-Man Weave and The $20 Showdown are in closed alpha and this build is not serving them. Everything else in the Arena is playable now.",
           };
   return (
-    <section className="ar-panel ar-panel-quiet" data-testid={copy.testId}>
-      <span className="ar-badge ar-badge-alpha">Closed alpha</span>
-      <h2 className="ar-panel-title">{copy.headline}</h2>
-      <p className="ar-panel-body">{copy.body}</p>
-      <a className="ar-btn pk-lift pk-press" href="/arena">
-        Browse every PEAK3 game
-      </a>
+    <section
+      className="pk-depth pk-crown flex flex-col items-start gap-3 rounded-2xl p-7"
+      data-testid={copy.testId}
+      style={{ border: "1px solid var(--v2-border-subtle)" }}
+    >
+      <StatusChip tone="accent">Closed alpha</StatusChip>
+      <h2
+        className="text-xl font-bold"
+        style={{ fontFamily: "var(--v2-font-display)", color: "var(--v2-text-primary)" }}
+      >
+        {copy.headline}
+      </h2>
+      <p className="max-w-xl text-sm leading-relaxed" style={{ color: "var(--v2-text-secondary)" }}>
+        {copy.body}
+      </p>
+      <PeakV2SecondaryAction href="/arena">Browse every PEAK3 game</PeakV2SecondaryAction>
     </section>
   );
 }
@@ -449,15 +501,32 @@ function Unavailable({
  *  a reader can actually play. */
 function ComingLater() {
   return (
-    <section className="ar-later" data-testid="lobby-coming-later" aria-labelledby="ar-later-title">
-      <h2 className="ar-later-title" id="ar-later-title">
+    <section
+      className="pk-depth mt-2 rounded-2xl p-5"
+      data-testid="lobby-coming-later"
+      aria-labelledby="ar-later-title"
+      style={{ border: "1px dashed var(--v2-border)" }}
+    >
+      <h2
+        className="text-[11px] font-bold uppercase tracking-[0.14em]"
+        id="ar-later-title"
+        style={{ fontFamily: "var(--v2-font-mono)", color: "var(--v2-text-muted)" }}
+      >
         Coming later in the alpha
       </h2>
-      <ul className="ar-later-list">
+      {/* Explicit Tailwind breakpoints rather than `repeat(auto-fit,
+          minmax(...))`: the auto-fit version fit exactly 2 of these 3 items
+          per row at 768px, wrapping the third alone onto its own row — an
+          orphaned-looking layout for a page this otherwise considered. */}
+      <ul className="mt-3 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-3">
         {ARENA_COMING_LATER.map((item) => (
-          <li key={item.title}>
-            <span className="ar-later-name">{item.title}</span>
-            <span className="ar-later-detail">{item.detail}</span>
+          <li key={item.title} className="flex flex-col gap-0.5">
+            <span className="text-sm font-semibold" style={{ color: "var(--v2-text-secondary)" }}>
+              {item.title}
+            </span>
+            <span className="text-xs leading-relaxed" style={{ color: "var(--v2-text-muted)" }}>
+              {item.detail}
+            </span>
           </li>
         ))}
       </ul>
@@ -544,17 +613,17 @@ function GameCard({
       <span className="ar-card-rail" aria-hidden="true" />
 
       <div className="ar-card-head">
-        <div className="ar-card-badges">
-          <span className="ar-badge">{mode.kindBadge}</span>
+        <div className="ar-card-badges flex flex-wrap items-center gap-1.5">
+          <StatusChip tone="neutral">{mode.kindBadge}</StatusChip>
           {alpha ? (
             // PLAYABLE, and the badge says so. "Closed alpha" on a card whose
             // primary button starts a match reads as "you cannot play this",
             // which was the single most misleading thing on the page.
-            <span className="ar-badge ar-badge-play" data-testid={`lobby-${mode.id}-playable`}>
+            <StatusChip tone="positive" data-testid={`lobby-${mode.id}-playable`}>
               Playable vs bots
-            </span>
+            </StatusChip>
           ) : (
-            <span className="ar-badge ar-badge-alpha">Closed alpha</span>
+            <StatusChip tone="accent">Closed alpha</StatusChip>
           )}
         </div>
         <h2 className="ar-card-title">{mode.name}</h2>
@@ -575,11 +644,13 @@ function GameCard({
           // "Play vs bots" rather than "Play bots" on the card whose whole job
           // is to say what a reviewer can do right now.
           const label = id === "practice" && alpha ? "Play vs bots" : meta.name;
+          const Action = primary ? PeakV2PrimaryAction : PeakV2SecondaryAction;
           return (
             <div className="ar-action" key={id}>
-              <button
+              <Action
                 type="button"
-                className={`ar-btn pk-lift pk-press${primary ? " ar-btn-primary" : ""}`}
+                size="sm"
+                className="w-full"
                 data-testid={`lobby-${mode.id}-${id}`}
                 disabled={Boolean(reason) || busyFor !== null}
                 onClick={() => (id === "private_room" ? onToggleJoin() : onStart(id))}
@@ -587,7 +658,7 @@ function GameCard({
                 aria-expanded={id === "private_room" ? joinOpen : undefined}
               >
                 {busyFor === id ? "Starting…" : label}
-              </button>
+              </Action>
               <span className="ar-action-note" id={`${mode.id}-${id}-note`}>
                 {reason ?? meta.description}
               </span>
@@ -606,15 +677,15 @@ function GameCard({
           button rather than living permanently on the card. */}
       {joinOpen ? (
         <div className="ar-private" data-testid={`lobby-${mode.id}-private`}>
-          <button
+          <PeakV2PrimaryAction
             type="button"
-            className="ar-btn ar-btn-primary pk-lift pk-press"
+            size="sm"
             data-testid={`lobby-${mode.id}-create-room`}
             disabled={busyFor !== null}
             onClick={() => onStart("private_room")}
           >
             Create room
-          </button>
+          </PeakV2PrimaryAction>
           <span className="ar-private-or">or</span>
           <label className="ar-sr-only" htmlFor={`join-${mode.id}`}>
             Six-character room code
@@ -632,15 +703,15 @@ function GameCard({
             maxLength={6}
             onChange={(e) => onJoinCode(normaliseRoomCode(e.target.value))}
           />
-          <button
+          <PeakV2SecondaryAction
             type="button"
-            className="ar-btn pk-lift pk-press"
+            size="sm"
             data-testid={`lobby-${mode.id}-join-submit`}
             disabled={busyFor !== null || joinCode.length !== 6}
             onClick={onJoinSubmit}
           >
             Join
-          </button>
+          </PeakV2SecondaryAction>
         </div>
       ) : null}
 
@@ -673,9 +744,19 @@ function QueuePanel({
   const progress = Math.round((waited / HUMAN_PREFERENCE_SECONDS) * 100);
 
   return (
-    <section className="ar-panel" aria-live="polite" data-testid="lobby-searching">
-      <span className="ar-badge">{mode.kindBadge}</span>
-      <h2 className="ar-panel-title">{mode.name} · public match</h2>
+    <section
+      className="pk-depth pk-crown flex flex-col items-start gap-3.5 rounded-2xl p-7"
+      aria-live="polite"
+      data-testid="lobby-searching"
+      style={{ border: "1px solid var(--v2-border-subtle)" }}
+    >
+      <StatusChip tone="neutral">{mode.kindBadge}</StatusChip>
+      <h2
+        className="text-xl font-bold"
+        style={{ fontFamily: "var(--v2-font-display)", color: "var(--v2-text-primary)" }}
+      >
+        {mode.name} · public match
+      </h2>
 
       <dl className="ar-queue-facts">
         <div>
@@ -708,25 +789,19 @@ function QueuePanel({
         {progress}%
       </progress>
 
-      <div className="ar-panel-actions">
+      <div className="flex flex-wrap gap-2.5">
         {onFillNow ? (
-          <button
-            type="button"
-            className="ar-btn ar-btn-primary pk-lift pk-press"
-            data-testid="lobby-fill-now"
-            onClick={onFillNow}
-          >
+          <PeakV2PrimaryAction type="button" data-testid="lobby-fill-now" onClick={onFillNow}>
             Start with bots now
-          </button>
+          </PeakV2PrimaryAction>
         ) : null}
-        <button
+        <PeakV2SecondaryAction
           type="button"
-          className="ar-btn pk-lift pk-press"
           data-testid="lobby-cancel-search"
           onClick={onCancel}
         >
           Cancel
-        </button>
+        </PeakV2SecondaryAction>
       </div>
     </section>
   );
@@ -749,32 +824,37 @@ function RoomPanel({
 }) {
   const isHost = room.your_seat_index === 0;
   return (
-    <section className="ar-panel" aria-live="polite" data-testid="lobby-room">
-      <span className="ar-badge">{mode.kindBadge}</span>
-      <h2 className="ar-panel-title">{mode.name} · Play With Friends</h2>
+    <section
+      className="pk-depth pk-crown flex flex-col items-start gap-3.5 rounded-2xl p-7"
+      aria-live="polite"
+      data-testid="lobby-room"
+      style={{ border: "1px solid var(--v2-border-subtle)" }}
+    >
+      <StatusChip tone="neutral">{mode.kindBadge}</StatusChip>
+      <h2
+        className="text-xl font-bold"
+        style={{ fontFamily: "var(--v2-font-display)", color: "var(--v2-text-primary)" }}
+      >
+        {mode.name} · Play With Friends
+      </h2>
 
       <p className="ar-room-code" data-testid="lobby-room-code">
         {room.room_code ?? "······"}
       </p>
-      <p className="ar-panel-body">
+      <p className="max-w-xl text-sm leading-relaxed" style={{ color: "var(--v2-text-secondary)" }}>
         Share this code. {room.seats.length} of {room.seat_count} seats taken — the
         game starts by itself when the last one fills.
       </p>
 
-      <div className="ar-panel-actions">
+      <div className="flex flex-wrap gap-2.5">
         {onFill && isHost ? (
-          <button
-            type="button"
-            className="ar-btn ar-btn-primary pk-lift pk-press"
-            data-testid="lobby-room-fill-bots"
-            onClick={onFill}
-          >
+          <PeakV2PrimaryAction type="button" data-testid="lobby-room-fill-bots" onClick={onFill}>
             Fill empty seats with bots
-          </button>
+          </PeakV2PrimaryAction>
         ) : null}
-        <button type="button" className="ar-btn pk-lift pk-press" data-testid="lobby-leave-room" onClick={onLeave}>
+        <PeakV2SecondaryAction type="button" data-testid="lobby-leave-room" onClick={onLeave}>
           Back
-        </button>
+        </PeakV2SecondaryAction>
       </div>
     </section>
   );

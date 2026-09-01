@@ -66,6 +66,56 @@
   color: var(--v2-text-primary);
 }
 
+/* ---- Ruleset counts as scannable instrumentation, not a rules sentence ---- */
+.v2-rtt-gate-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--v2-space-6);
+}
+
+.v2-rtt-gate-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding-left: var(--v2-space-3);
+  border-left: 1px solid var(--v2-border-subtle);
+}
+
+.v2-rtt-gate-stat:first-child {
+  padding-left: 0;
+  border-left: none;
+}
+
+@media (max-width: 560px) {
+  /* Dividers read as a separator between chips on one row; once the row
+     wraps, a lone leading rule on a new line reads as a stray mark instead.
+     Stack instead, and drop the rule in favor of the gap alone. */
+  .v2-rtt-gate-stats {
+    flex-direction: column;
+    gap: var(--v2-space-2);
+  }
+
+  .v2-rtt-gate-stat {
+    padding-left: 0;
+    border-left: none;
+  }
+}
+
+.v2-rtt-gate-stat-value {
+  font-family: var(--v2-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: var(--v2-mono-feature);
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: var(--v2-text-primary);
+}
+
+.v2-rtt-gate-stat-label {
+  font-family: var(--v2-font-ui);
+  font-size: 0.6875rem;
+  color: var(--v2-text-muted);
+}
+
 .v2-rtt-gate-disclosure {
   font-family: var(--v2-font-ui);
   font-size: 0.8125rem;

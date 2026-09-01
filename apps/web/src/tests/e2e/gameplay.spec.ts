@@ -583,4 +583,23 @@ test.describe("Keyboard navigation", () => {
     const roleBtn = page.locator('[data-testid="role-btn"]');
     await expect(roleBtn.first()).toBeVisible({ timeout: 5_000 });
   });
+
+  test("selecting a card with the keyboard moves focus into the role panel, not past it", async ({
+    page,
+  }) => {
+    // Regression: the selected offer card becomes `disabled` the instant it
+    // is picked and drops out of the tab order from wherever it sat; the
+    // role-assignment panel renders BEFORE the offer-card list in the DOM,
+    // so forward-Tab used to jump past it entirely rather than landing on
+    // it. Found during the release-candidate audit; RoleSelector now moves
+    // focus onto itself as soon as it mounts.
+    await startPracticeDraft(page, "apex_1y", 42);
+    const cards = page.locator('[data-testid="offer-card"]');
+    await cards.first().focus();
+    await page.keyboard.press("Enter");
+    await page.getByTestId("role-btn").first().waitFor({ state: "visible", timeout: 5_000 });
+    // Focus must have landed on the panel that just opened — not on
+    // <body>, and not on something after the offers/footer.
+    await expect(page.getByTestId("role-panel")).toBeFocused();
+  });
 });

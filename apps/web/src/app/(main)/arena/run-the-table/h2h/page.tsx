@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 
 import ChallengeCreator from "@/components/head-to-head/ChallengeCreator";
 import HeadToHeadHistory from "@/components/head-to-head/HeadToHeadHistory";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
 
 /**
  * `/arena/run-the-table/h2h` — the head-to-head hub.
@@ -20,39 +21,42 @@ export const metadata: Metadata = {
 
 export default function HeadToHeadHubPage() {
   return (
-    <main className="mx-auto max-w-2xl px-4 py-10">
-      <p className="text-xs uppercase tracking-widest opacity-60">RUN THE TABLE</p>
-      <h1 className="mt-2 text-3xl font-semibold">Head-to-Head</h1>
-      <p className="mt-3 text-sm opacity-80">
-        Two players, one board, played whenever each of you has time. PEAK3 rates the
-        two finished runs against a published order of tie-breakers — it does not
-        decide who is the better basketball mind.
-      </p>
+    <PeakV2Shell width="live">
+      <header className="v2-page-header">
+        <p className="v2-page-kicker">Run the Table</p>
+        <h1 className="v2-page-title" style={{ fontSize: "var(--v2-display-size-line)" }}>
+          Head-to-Head
+        </h1>
+        <p className="v2-page-lede">
+          Two players, one board, played whenever each of you has time. PEAK3 rates the
+          two finished runs against a published order of tie-breakers — it does not
+          decide who is the better basketball mind.
+        </p>
+      </header>
 
-      <section className="mt-8" aria-labelledby="h2h-create-heading">
-        <h2 id="h2h-create-heading" className="text-lg font-semibold">
-          Start a challenge
-        </h2>
-        <div className="mt-3">
-          <ChallengeCreator />
-        </div>
-      </section>
+      <div className="mx-auto flex w-full max-w-2xl flex-col divide-y" style={{ borderColor: "var(--v2-border-subtle)" }}>
+        <section className="py-6 first:pt-0" aria-labelledby="h2h-create-heading">
+          <h2 id="h2h-create-heading" className="text-sm font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+            Start a challenge
+          </h2>
+          <div className="mt-3">
+            <ChallengeCreator />
+          </div>
+        </section>
 
-      <section className="mt-10" aria-labelledby="h2h-history-heading">
-        <h2 id="h2h-history-heading" className="text-lg font-semibold">
-          Your head-to-heads
-        </h2>
-        <div className="mt-3">
-          <HeadToHeadHistory />
-        </div>
-      </section>
+        <section className="py-6" aria-labelledby="h2h-history-heading">
+          <h2 id="h2h-history-heading" className="text-sm font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+            Your head-to-heads
+          </h2>
+          <div className="mt-3">
+            <HeadToHeadHistory />
+          </div>
+        </section>
+      </div>
 
-      <Link
-        href="/arena/run-the-table"
-        className="mt-10 inline-block text-sm underline opacity-80"
-      >
+      <PeakV2SecondaryAction href="/arena/run-the-table" size="sm" className="mt-6">
         Back to RUN THE TABLE
-      </Link>
-    </main>
+      </PeakV2SecondaryAction>
+    </PeakV2Shell>
   );
 }

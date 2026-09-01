@@ -31,6 +31,9 @@ import DraftReceipt from "./DraftReceipt";
 import DecisionReplay from "./DecisionReplay";
 import ShareChallenge from "./ShareChallenge";
 import ChallengeComparison from "./ChallengeComparison";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
+import { StatusChip } from "@/components/ui/StatusChip";
 
 interface Props {
   initialGameState: DraftGameState;
@@ -195,27 +198,29 @@ export default function DraftScreen({ initialGameState, boardDate, challengeToke
 
   if (!gs || state.phase === "loading") {
     return (
-      <div
-        className="flex items-center justify-center h-64 text-sm"
-        style={{ color: "var(--text-muted)" }}
-      >
-        Loading board…
-      </div>
+      <PeakV2Shell width="live">
+        <div
+          className="flex items-center justify-center h-64 text-sm"
+          style={{ color: "var(--text-muted)" }}
+        >
+          Loading board…
+        </div>
+      </PeakV2Shell>
     );
   }
 
   if (state.phase === "error") {
     return (
-      <div className="flex flex-col items-center gap-4 py-16">
-        <p style={{ color: "var(--incorrect)" }}>{state.errorMessage}</p>
-        <button
-          onClick={() => router.push("/arena")}
-          className="text-sm underline"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          Back to Arena
-        </button>
-      </div>
+      <PeakV2Shell width="live">
+        <div className="flex flex-col items-center gap-4 py-16 text-center">
+          <p role="alert" style={{ color: "var(--incorrect)" }}>
+            {state.errorMessage}
+          </p>
+          <PeakV2SecondaryAction onClick={() => router.push("/arena")}>
+            Back to Arena
+          </PeakV2SecondaryAction>
+        </div>
+      </PeakV2Shell>
     );
   }
 
@@ -228,19 +233,65 @@ export default function DraftScreen({ initialGameState, boardDate, challengeToke
       ? gs.current_offers.find((c) => c.peak_window_id === state.selectedOfferId) ?? null
       : null;
 
+  // The persistent roster/DNA rail only earns its place on screens wide
+  // enough to hold a second column without stealing width from the one
+  // decision that matters (brief: "one obvious decision at a time" on
+  // mobile). It shows the SAME data the in-flow LineupBoard would — full
+  // roster, single held card, empty/all-open board on round one included —
+  // never a duplicate DOM node: each is `lg:hidden` / `hidden lg:flex` so
+  // exactly one of the two renders at any viewport width.
+  //
+  // Once the draft is complete there is nothing left to hold a decision
+  // over, so no rail renders. Rather than leave the reserved 320px column
+  // empty beside a receipt that was never widened to use it (a real gap an
+  // independent visual pass over this exact commit caught, at 1024/1440),
+  // the completed state drops the grid and widens its own single column
+  // instead — simpler than mounting a second copy of `DecisionReplay` to
+  // fill the rail, which would have put two "ROUND 1 · ..." nodes in the
+  // DOM at once and broken `gameplay.spec.ts`'s existing, unscoped
+  // `getByText(/round 1|pick 1|your picks/i)` assertion.
+  const sidebar = !isDone ? (
+    <div className="hidden lg:flex lg:flex-col gap-4 lg:sticky lg:top-6">
+      <LineupBoard
+        selectedCards={gs.selected_cards}
+        openRoles={gs.open_roles}
+        heldCard={gs.held_card}
+      />
+      {gs.current_dna && gs.selected_cards.length > 0 && (
+        <div
+          className="pk-depth pk-crown rounded-xl border p-4"
+          style={{ borderColor: "var(--border-subtle)" }}
+        >
+          <DNABar dna={gs.current_dna} label="Current lineup DNA" />
+        </div>
+      )}
+    </div>
+  ) : null;
+
   return (
-    <div className="flex flex-col gap-5 max-w-lg mx-auto px-4 py-6">
+    <PeakV2Shell width="live">
+      <div className="py-6 lg:py-8">
+        <div
+          className={
+            sidebar
+              ? "mx-auto max-w-lg lg:max-w-none lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-8 lg:items-start"
+              : "mx-auto max-w-lg lg:max-w-2xl"
+          }
+        >
+          <div className="flex flex-col gap-5 px-4 lg:px-0">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <div
-            className="text-xs font-semibold uppercase tracking-wider"
-            style={{ color: "var(--text-muted)" }}
-          >
-            {MODE_LABELS[gs.mode]} · Round {gs.current_round}/{gs.total_rounds}
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <StatusChip tone="accent" size="sm">
+              {MODE_LABELS[gs.mode]}
+            </StatusChip>
+            <StatusChip tone="neutral" size="sm">
+              Round {gs.current_round}/{gs.total_rounds}
+            </StatusChip>
           </div>
           <h1
-            className="text-xl font-bold mt-0.5"
+            className="text-xl font-bold mt-1.5"
             style={{ color: "var(--text-primary)" }}
           >
             Peak Draft
@@ -263,6 +314,7 @@ export default function DraftScreen({ initialGameState, boardDate, challengeToke
       {/* Error banner */}
       {state.errorMessage && (
         <div
+          role="alert"
           className="text-xs px-3 py-2 rounded-lg"
           style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}
         >
@@ -324,10 +376,12 @@ export default function DraftScreen({ initialGameState, boardDate, challengeToke
             onConfirm={handleConfirmSelection}
             submitting={submitting}
           />
-          <LineupBoard
-            selectedCards={gs.selected_cards}
-            openRoles={gs.open_roles}
-          />
+          <div className="lg:hidden">
+            <LineupBoard
+              selectedCards={gs.selected_cards}
+              openRoles={gs.open_roles}
+            />
+          </div>
         </>
       )}
 
@@ -421,21 +475,20 @@ export default function DraftScreen({ initialGameState, boardDate, challengeToke
 
       {/* ── LINEUP PROGRESS ──────────────────────── */}
       {!isDone && gs.selected_cards.length > 0 && state.phase !== "role_select" && (
-        <LineupBoard
-          selectedCards={gs.selected_cards}
-          openRoles={gs.open_roles}
-          heldCard={gs.held_card}
-        />
+        <div className="lg:hidden">
+          <LineupBoard
+            selectedCards={gs.selected_cards}
+            openRoles={gs.open_roles}
+            heldCard={gs.held_card}
+          />
+        </div>
       )}
 
       {/* ── CURRENT DNA ──────────────────────────── */}
       {gs.current_dna && !isDone && gs.selected_cards.length > 0 && (
         <div
-          className="rounded-xl border p-4"
-          style={{
-            background: "var(--bg-elevated)",
-            borderColor: "var(--border-subtle)",
-          }}
+          className="lg:hidden pk-depth pk-crown rounded-xl border p-4"
+          style={{ borderColor: "var(--border-subtle)" }}
         >
           <DNABar dna={gs.current_dna} label="Current lineup DNA" />
         </div>
@@ -450,6 +503,10 @@ export default function DraftScreen({ initialGameState, boardDate, challengeToke
           onClose={() => setShowShareModal(false)}
         />
       )}
-    </div>
+          </div>
+          {sidebar}
+        </div>
+      </div>
+    </PeakV2Shell>
   );
 }

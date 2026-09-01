@@ -9,6 +9,10 @@ import { InitialsAvatar } from "@/components/auth/InitialsAvatar";
 import { signInHref } from "@/lib/supabase/safe-next";
 import RankedRatingCards from "@/components/ranked/RankedRatingCards";
 import { fetchProfile, updateProfile, ProfileAPIError, type Profile } from "@/lib/profile-api";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
+import { PersonalPageLoading } from "@/components/ui/PersonalPageLoading";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 export default function ProfilePage() {
   const { user, loading, supabaseEnabled, signOut } = useAuth();
@@ -78,11 +82,7 @@ export default function ProfilePage() {
   }
 
   if (loading || profileLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-[var(--border-default)] border-t-[var(--peak-accent)]" />
-      </div>
-    );
+    return <PersonalPageLoading />;
   }
 
   if (!supabaseEnabled) {
@@ -103,161 +103,147 @@ export default function ProfilePage() {
 
   if (!user) return null;
 
+  const identityName = profile?.display_name || user.email || "Player";
+
   return (
-    <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-          Profile
-        </h1>
-        <div className="flex gap-2">
-          {/* `/progress` had no link from anywhere in the chrome before this
-              pass. It does now (`nav-model.ts`'s account links), and the two
-              signed-in surfaces cross-link each other here as well. */}
-          {[
-            { href: "/progress", label: "Progress" },
-            { href: "/history", label: "History" },
-          ].map((entry) => (
-            <Link
-              key={entry.href}
-              href={entry.href}
-              className="text-sm px-3 py-1.5 rounded-lg"
-              style={{
-                background: "var(--bg-elevated)",
-                border: "1px solid var(--border-default)",
-                color: "var(--text-secondary)",
-              }}
+    <PeakV2Shell width="live">
+      <header className="v2-page-header">
+        <p className="v2-page-kicker">Player</p>
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h1 className="v2-page-title">Profile</h1>
+          <div className="flex flex-wrap gap-2">
+            <PeakV2SecondaryAction href="/progress" size="sm">
+              Progress
+            </PeakV2SecondaryAction>
+            <PeakV2SecondaryAction href="/history" size="sm">
+              History
+            </PeakV2SecondaryAction>
+            <PeakV2SecondaryAction onClick={handleSignOut} size="sm" data-testid="profile-signout">
+              Sign Out
+            </PeakV2SecondaryAction>
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 py-2">
+        {/* Tier 1: identity — who this is, first and most prominent. */}
+        <div className="flex items-center gap-4">
+          <InitialsAvatar email={user.email} name={user.name} size={56} />
+          <div className="min-w-0">
+            <p className="truncate text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
+              {identityName}
+            </p>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+              {profile?.handle ? `@${profile.handle}` : user.email}
+              {profile?.joined_at && ` · Joined ${new Date(profile.joined_at).toLocaleDateString()}`}
+            </p>
+          </div>
+        </div>
+
+        {error && <ErrorState message={error} />}
+
+        {/* Tier 2: competitive status. */}
+        <RankedRatingCards />
+
+        {/* Tier 3: account settings — quiet, secondary, not competing with identity. */}
+        <div className="flex flex-col gap-4 border-t pt-6" style={{ borderColor: "var(--border-subtle)" }}>
+          <h2 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+            Account settings
+          </h2>
+
+          <form onSubmit={handleSave} className="space-y-4">
+            <div>
+              <label htmlFor="profile-handle" className="block text-sm font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
+                Handle
+              </label>
+              <input
+                id="profile-handle"
+                type="text"
+                value={handle}
+                onChange={(e) => setHandle(e.target.value)}
+                placeholder="your_handle"
+                maxLength={20}
+                className="w-full rounded-lg px-3 py-2 text-sm border"
+                style={{
+                  background: "var(--bg-surface)",
+                  borderColor: "var(--border-default)",
+                  color: "var(--text-primary)",
+                }}
+              />
+              <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                3–20 characters, letters/digits/underscores. This is what other players see —
+                on the leaderboard and anywhere else your activity is public. Never your name
+                or email. Required before you can submit a run to a public leaderboard.
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="profile-display-name" className="block text-sm font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
+                Display Name
+              </label>
+              <input
+                id="profile-display-name"
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                maxLength={60}
+                className="w-full rounded-lg px-3 py-2 text-sm border"
+                style={{
+                  background: "var(--bg-surface)",
+                  borderColor: "var(--border-default)",
+                  color: "var(--text-primary)",
+                }}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="profile-bio" className="block text-sm font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
+                Bio
+              </label>
+              <textarea
+                id="profile-bio"
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
+                maxLength={500}
+                rows={3}
+                className="w-full rounded-lg px-3 py-2 text-sm border resize-none"
+                style={{
+                  background: "var(--bg-surface)",
+                  borderColor: "var(--border-default)",
+                  color: "var(--text-primary)",
+                }}
+              />
+            </div>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isPublic}
+                onChange={(e) => setIsPublic(e.target.checked)}
+                className="rounded"
+              />
+              <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                Make profile public
+              </span>
+            </label>
+
+            {saved && (
+              <p role="status" className="text-sm" style={{ color: "var(--correct)" }}>
+                Profile saved.
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={saving}
+              className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-60"
+              style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
             >
-              {entry.label}
-            </Link>
-          ))}
-          <button
-            onClick={handleSignOut}
-            data-testid="profile-signout"
-            className="text-sm px-3 py-1.5 rounded-lg"
-            style={{
-              background: "var(--bg-elevated)",
-              border: "1px solid var(--border-default)",
-              color: "var(--text-secondary)",
-            }}
-          >
-            Sign Out
-          </button>
+              {saving ? "Saving…" : "Save Profile"}
+            </button>
+          </form>
         </div>
       </div>
-
-      <div
-        className="rounded-xl p-4 text-sm flex items-center gap-3"
-        style={{
-          background: "var(--bg-surface)",
-          border: "1px solid var(--border-subtle)",
-          color: "var(--text-muted)",
-        }}
-      >
-        <InitialsAvatar email={user.email} name={user.name} size={36} />
-        <span>
-          Signed in as{" "}
-          <span style={{ color: "var(--text-secondary)" }}>{user.email ?? "anonymous"}</span>
-          {profile?.joined_at && (
-            <span> · Joined {new Date(profile.joined_at).toLocaleDateString()}</span>
-          )}
-        </span>
-      </div>
-
-      <RankedRatingCards />
-
-      <form onSubmit={handleSave} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
-            Handle
-          </label>
-          <input
-            type="text"
-            value={handle}
-            onChange={(e) => setHandle(e.target.value)}
-            placeholder="your_handle"
-            maxLength={20}
-            className="w-full rounded-lg px-3 py-2 text-sm border"
-            style={{
-              background: "var(--bg-surface)",
-              borderColor: "var(--border-default)",
-              color: "var(--text-primary)",
-            }}
-          />
-          <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-            3–20 characters, letters/digits/underscores. This is what other players see —
-            on the leaderboard and anywhere else your activity is public. Never your name
-            or email. Required before you can submit a run to a public leaderboard.
-          </p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
-            Display Name
-          </label>
-          <input
-            type="text"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            maxLength={60}
-            className="w-full rounded-lg px-3 py-2 text-sm border"
-            style={{
-              background: "var(--bg-surface)",
-              borderColor: "var(--border-default)",
-              color: "var(--text-primary)",
-            }}
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
-            Bio
-          </label>
-          <textarea
-            value={bio}
-            onChange={(e) => setBio(e.target.value)}
-            maxLength={500}
-            rows={3}
-            className="w-full rounded-lg px-3 py-2 text-sm border resize-none"
-            style={{
-              background: "var(--bg-surface)",
-              borderColor: "var(--border-default)",
-              color: "var(--text-primary)",
-            }}
-          />
-        </div>
-
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={isPublic}
-            onChange={(e) => setIsPublic(e.target.checked)}
-            className="rounded"
-          />
-          <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
-            Make profile public
-          </span>
-        </label>
-
-        {error && (
-          <p role="alert" className="text-sm rounded-lg px-3 py-2" style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}>
-            {error}
-          </p>
-        )}
-        {saved && (
-          <p role="status" className="text-sm" style={{ color: "var(--correct)" }}>
-            Profile saved.
-          </p>
-        )}
-
-        <button
-          type="submit"
-          disabled={saving}
-          className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-60"
-          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
-        >
-          {saving ? "Saving…" : "Save Profile"}
-        </button>
-      </form>
-    </div>
+    </PeakV2Shell>
   );
 }

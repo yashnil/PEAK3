@@ -1364,10 +1364,15 @@ describe("PickOverlay", () => {
   });
 
   it("uses real buttons, not text, for both actions", async () => {
+    // Batch 11: these render through `PeakV2PrimaryAction`/`PeakV2SecondaryAction`
+    // now, not the legacy `.btn-primary`/`.btn-secondary` classnames -- assert
+    // the actual invariant the test's own name describes (a real `<button>`
+    // element, not decorative text) rather than an implementation-specific
+    // classname.
     renderOverlay();
     await userEvent.click(screen.getByTestId("tmw-candidate-kawhi-leonard"));
-    expect(screen.getByTestId("tmw-confirm-pick")).toHaveClass("btn-primary");
-    expect(screen.getByTestId("tmw-cancel-pick")).toHaveClass("btn-secondary");
+    expect(screen.getByTestId("tmw-confirm-pick").tagName).toBe("BUTTON");
+    expect(screen.getByTestId("tmw-cancel-pick").tagName).toBe("BUTTON");
     expect(screen.getByTestId("tmw-cancel-pick")).toHaveTextContent("Cancel selection");
   });
 

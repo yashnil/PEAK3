@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { getAccessToken } from "@/lib/auth";
 import { getLeaderboard, submitRun, PerfectSeasonAPIError } from "@/lib/perfect-season-api";
 import { CourtMode, PerfectSeasonRunPublic } from "@/types/perfect-season";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
 
 interface Props {
   gameId: string;
@@ -94,11 +95,7 @@ export default function LeaderboardSubmitPanel({ gameId, mode, lineupScoreStatus
   if (leaderboardEnabled === null) return null;
 
   return (
-    <div
-      data-testid="leaderboard-submit-panel"
-      className="rounded-xl p-3 flex flex-col gap-2 text-sm"
-      style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}
-    >
+    <div data-testid="leaderboard-submit-panel" className="flex flex-col gap-2 text-sm">
       {phase === "submitted" && submittedRun ? (
         <div data-testid="leaderboard-submit-confirmation" className="flex flex-col gap-1">
           <span className="font-semibold" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
@@ -113,13 +110,9 @@ export default function LeaderboardSubmitPanel({ gameId, mode, lineupScoreStatus
       ) : !user ? (
         <div className="flex items-center justify-between gap-3">
           <span style={{ color: "var(--text-secondary)" }}>Sign in to submit your run to the global leaderboard.</span>
-          <a
-            href={signInHref}
-            className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0"
-            style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
-          >
+          <PeakV2PrimaryAction href={signInHref} size="sm" className="shrink-0">
             Sign in
-          </a>
+          </PeakV2PrimaryAction>
         </div>
       ) : isIncomplete ? (
         // Phase 8C: proactive ineligibility -- the backend always rejects
@@ -132,14 +125,15 @@ export default function LeaderboardSubmitPanel({ gameId, mode, lineupScoreStatus
             This run has one or more cards with no official PEAK3 score yet — only fully-scored
             rosters are eligible for the global leaderboard.
           </span>
-          <button
+          <PeakV2PrimaryAction
+            type="button"
             disabled
-            className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0 opacity-40 cursor-not-allowed"
-            style={{ background: "var(--bg-elevated)", color: "var(--text-muted)" }}
+            size="sm"
+            className="shrink-0"
             title="Not eligible: one or more cards have no official PEAK3 score yet."
           >
             Not eligible yet
-          </button>
+          </PeakV2PrimaryAction>
         </div>
       ) : (
         <div className="flex flex-col gap-1.5">
@@ -147,15 +141,16 @@ export default function LeaderboardSubmitPanel({ gameId, mode, lineupScoreStatus
             <span style={{ color: "var(--text-secondary)" }}>
               Global leaderboard tracks respins and exact-score coverage.
             </span>
-            <button
+            <PeakV2PrimaryAction
+              type="button"
               data-testid="leaderboard-submit-btn"
               onClick={handleSubmit}
               disabled={phase === "submitting"}
-              className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0 disabled:opacity-50"
-              style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
+              size="sm"
+              className="shrink-0"
             >
               {phase === "submitting" ? "Submitting…" : "Submit to leaderboard"}
-            </button>
+            </PeakV2PrimaryAction>
           </div>
           {phase === "error" && errorMessage && (
             <span

@@ -1,5 +1,6 @@
 "use client";
 import { SelectedCard, DRAFT_ROLES, DraftRole, ROLE_LABELS, DraftCard } from "@/types/draft";
+import { StatusChip } from "@/components/ui/StatusChip";
 
 // Theme-aware `--accent-*` tokens (P3-G2) -- see the identical comment in
 // DraftCard.tsx, which owns the canonical explanation of this mapping.
@@ -25,12 +26,17 @@ export default function LineupBoard({ selectedCards, openRoles, heldCard }: Prop
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <div
-        className="text-xs font-semibold uppercase tracking-wider mb-1"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        Your Lineup
+    <div className="pk-depth pk-crown flex flex-col gap-1.5 rounded-xl border p-3" style={{ borderColor: "var(--border-subtle)" }}>
+      <div className="flex items-center justify-between mb-1">
+        <div
+          className="text-xs font-semibold uppercase tracking-wider"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          Your Lineup
+        </div>
+        <StatusChip tone={selectedCards.length === DRAFT_ROLES.length ? "positive" : "neutral"} size="sm">
+          {selectedCards.length}/{DRAFT_ROLES.length}
+        </StatusChip>
       </div>
       {DRAFT_ROLES.map((role) => {
         const filled = byRole.get(role);
@@ -72,7 +78,7 @@ export default function LineupBoard({ selectedCards, openRoles, heldCard }: Prop
                   {filled.card.player_name}
                 </span>
                 <span
-                  className="text-xs tabular-nums shrink-0 ml-2"
+                  className="text-xs score-number shrink-0 ml-2"
                   style={{ color: "var(--text-secondary)" }}
                 >
                   {Math.round(filled.card.individual_peak_score)}

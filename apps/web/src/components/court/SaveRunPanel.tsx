@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import { getAccessToken } from "@/lib/auth";
 import { getMyPersonalBests, saveRun, PerfectSeasonAPIError } from "@/lib/perfect-season-api";
 import { PersonalBests, RunComparison, SaveRunResponse } from "@/types/perfect-season";
+import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
 
 interface Props {
   gameId: string;
@@ -133,23 +134,15 @@ export default function SaveRunPanel({ gameId, wins, savable, readOnly = false }
   const previousBestRun = existingBests?.best_run ?? null;
 
   return (
-    <div
-      data-testid="save-run-panel"
-      className="rounded-xl p-3 flex flex-col gap-2 text-sm"
-      style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}
-    >
+    <div data-testid="save-run-panel" className="flex flex-col gap-2 text-sm">
       {!user ? (
         <div className="flex items-center justify-between gap-3" data-testid="save-run-signin-cta">
           <span style={{ color: "var(--text-secondary)" }}>
             Sign in to save this run, track personal bests, and see your history.
           </span>
-          <Link
-            href={signInHref}
-            className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0"
-            style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
-          >
+          <PeakV2PrimaryAction href={signInHref} size="sm" className="shrink-0">
             Sign in
-          </Link>
+          </PeakV2PrimaryAction>
         </div>
       ) : phase === "saved" && result ? (
         <div className="flex flex-col gap-1.5" data-testid="save-run-confirmation">
@@ -183,15 +176,16 @@ export default function SaveRunPanel({ gameId, wins, savable, readOnly = false }
                 ? `Your best so far: ${previousBestRun.wins}-${previousBestRun.losses}. This run: ${wins}-${82 - wins}.`
                 : "Save this run to start tracking your personal bests."}
             </span>
-            <button
+            <PeakV2PrimaryAction
+              type="button"
               data-testid="save-run-btn"
               onClick={handleSave}
               disabled={phase === "saving"}
-              className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0 disabled:opacity-50"
-              style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
+              size="sm"
+              className="shrink-0"
             >
               {phase === "saving" ? "Saving…" : "Save run"}
-            </button>
+            </PeakV2PrimaryAction>
           </div>
           {phase === "error" && errorMessage && (
             <span

@@ -138,18 +138,31 @@ export default function RunStartGate({
             })}
           </div>
 
-          <p className="v2-rtt-gate-rule">
-            {acts ? <>One of two nodes per stage, across <strong data-testid="rtt-gate-acts">{acts} acts</strong>. </> : null}
+          <div className="v2-rtt-gate-stats">
+            {acts ? (
+              <div className="v2-rtt-gate-stat" data-testid="rtt-gate-acts">
+                <span className="v2-rtt-gate-stat-value">{acts} acts</span>
+                <span className="v2-rtt-gate-stat-label">one of two nodes per stage</span>
+              </div>
+            ) : null}
             {battles ? (
-              <span data-testid="rtt-gate-battles">
-                {battles} boss battles decide the run
-                {lives ? <>, and you start with <span data-testid="rtt-gate-lives">{lives} lives</span></> : null}.
-              </span>
+              <div className="v2-rtt-gate-stat" data-testid="rtt-gate-battles">
+                <span className="v2-rtt-gate-stat-value">{battles} boss battles</span>
+                <span className="v2-rtt-gate-stat-label">decide the run</span>
+              </div>
             ) : (
-              <>Every act ends in a boss battle.</>
-            )}{" "}
-            {lanesToWinSentence(lanesToWin)}
-          </p>
+              <div className="v2-rtt-gate-stat">
+                <span className="v2-rtt-gate-stat-label">Every act ends in a boss battle.</span>
+              </div>
+            )}
+            {lives ? (
+              <div className="v2-rtt-gate-stat" data-testid="rtt-gate-lives">
+                <span className="v2-rtt-gate-stat-value">{lives} lives</span>
+                <span className="v2-rtt-gate-stat-label">starting</span>
+              </div>
+            ) : null}
+          </div>
+          <p className="v2-rtt-gate-rule">{lanesToWinSentence(lanesToWin)}</p>
 
           {sinks.length > 0 && (
             <details className="v2-rtt-gate-disclosure" data-testid="rtt-gate-credit-sinks">

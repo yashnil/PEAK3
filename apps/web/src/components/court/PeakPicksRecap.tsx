@@ -25,11 +25,7 @@ export default function PeakPicksRecap({ recap }: Props) {
   const matchedCount = recap.filter((r) => r.matched).length;
 
   return (
-    <div
-      data-testid="peak-picks-recap"
-      className="rounded-xl p-3 flex flex-col gap-2.5"
-      style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}
-    >
+    <div data-testid="peak-picks-recap" className="flex flex-col gap-2.5">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
           <TrendingUp size={14} style={{ color: "var(--peak-accent-text, #f5c842)" }} aria-hidden="true" />

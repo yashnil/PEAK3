@@ -28,7 +28,7 @@ export default function LineupInsightPanel({ result }: { result: SimulationResul
           <div key={key} className="flex flex-col gap-0.5">
             <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
               <span>{COMPONENT_LABELS[key] ?? key}</span>
-              <span>{value.toFixed(1)}</span>
+              <span className="score-number">{value.toFixed(1)}</span>
             </div>
             <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--bg-surface)" }}>
               <div

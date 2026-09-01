@@ -1,4 +1,6 @@
 import { notFound } from "next/navigation";
+import PeakV2Shell from "@/components/v2/PeakV2Shell";
+import { InitialsAvatar } from "@/components/auth/InitialsAvatar";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -37,47 +39,40 @@ export default async function PublicProfilePage({ params }: Props) {
   }
 
   return (
-    <div className="max-w-lg mx-auto px-4 py-12 space-y-6">
-      <div
-        className="rounded-xl border p-6 space-y-3"
-        style={{
-          background: "var(--bg-surface)",
-          borderColor: "var(--border-subtle)",
-        }}
-      >
-        {/* Avatar placeholder — initials */}
+    <PeakV2Shell width="live">
+      <div className="max-w-lg mx-auto px-4 py-12 space-y-6">
         <div
-          className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold"
-          style={{
-            background: "var(--bg-elevated)",
-            color: "var(--peak-accent-text)",
-            border: "2px solid var(--border-subtle)",
-          }}
+          className="pk-depth pk-crown rounded-xl border p-6 space-y-3"
+          style={{ borderColor: "var(--border-subtle)" }}
         >
-          {(profile.display_name ?? profile.handle ?? "?").slice(0, 1).toUpperCase()}
-        </div>
+          <InitialsAvatar
+            name={profile.display_name ?? profile.handle}
+            size={64}
+            className="text-xl"
+          />
 
-        <div>
-          <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-            {profile.display_name ?? profile.handle}
-          </h1>
-          {profile.handle && (
-            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-              @{profile.handle}
+          <div>
+            <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
+              {profile.display_name ?? profile.handle}
+            </h1>
+            {profile.handle && (
+              <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+                @{profile.handle}
+              </p>
+            )}
+          </div>
+
+          {profile.bio && (
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+              {profile.bio}
             </p>
           )}
-        </div>
 
-        {profile.bio && (
-          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-            {profile.bio}
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Joined {new Date(profile.joined_at).toLocaleDateString()}
           </p>
-        )}
-
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-          Joined {new Date(profile.joined_at).toLocaleDateString()}
-        </p>
+        </div>
       </div>
-    </div>
+    </PeakV2Shell>
   );
 }
