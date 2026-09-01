@@ -387,6 +387,33 @@ class PostgresRankedMatchmakingRepository:
             )
 
     async def record_submission(self, submission: MatchSubmission) -> MatchSubmission:
+        """Idempotent per (match_id, owner_sub) — the first submission for a
+        given player on a given match wins; every later call (a retry with
+        the SAME idempotency_key, or, critically, a genuinely concurrent
+        second call carrying a DIFFERENT idempotency_key) returns that same
+        original row rather than creating a second one.
+
+        public-platform-readiness Batch P4: the pre-check SELECT below and
+        the INSERT are two separate round trips, not one transaction — two
+        concurrent calls for the same (match_id, owner_sub) with DIFFERENT
+        idempotency_keys can both read "no existing row" before either has
+        inserted, and both then attempt the INSERT. `ON CONFLICT (match_id,
+        idempotency_key)` does not fire for two different keys, so the
+        second INSERT was hitting the separate
+        `ranked_match_submissions_user_match_unique UNIQUE(match_id,
+        owner_sub)` constraint uncaught — an unhandled `UniqueViolationError`
+        (500) instead of the idempotent "return the winner's row" this
+        method promises. Reproduced live against a real Postgres instance
+        with two genuinely concurrent `asyncio.gather`'d calls before this
+        fix (see `test_repository_conformance.py`); the memory-backed
+        equivalent (`ranked_memory.py`) never exhibited this because its
+        entire check-then-write sequence runs under one `asyncio.Lock`,
+        which is exactly why the existing memory-only concurrency suite
+        never caught it. Fixed the same way `join_queue` above and
+        `_insert_settlement` below already handle their own analogous
+        races: catch the unique-violation and re-read, rather than
+        pre-checking and hoping nothing changes in between.
+        """
         async with self._pool.acquire() as conn:
             existing = await conn.fetchrow(
                 "SELECT * FROM ranked_match_submissions WHERE match_id = $1 AND owner_sub = $2",
@@ -394,19 +421,29 @@ class PostgresRankedMatchmakingRepository:
             )
             if existing:
                 return _row_to_submission(existing)
-            row = await conn.fetchrow(
-                """
-                INSERT INTO ranked_match_submissions
-                    (id, match_id, participant_id, owner_sub, game_id, board_version_key,
-                     lineup_evaluation, solver_version, submitted_at, idempotency_key)
-                VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
-                ON CONFLICT (match_id, idempotency_key) DO UPDATE SET match_id = EXCLUDED.match_id
-                RETURNING *
-                """,
-                submission.id, submission.match_id, submission.participant_id, submission.owner_sub,
-                submission.game_id, submission.board_version_key, json.dumps(submission.lineup_evaluation),
-                submission.solver_version, submission.submitted_at, submission.idempotency_key,
-            )
+            try:
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO ranked_match_submissions
+                        (id, match_id, participant_id, owner_sub, game_id, board_version_key,
+                         lineup_evaluation, solver_version, submitted_at, idempotency_key)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
+                    ON CONFLICT (match_id, idempotency_key) DO UPDATE SET match_id = EXCLUDED.match_id
+                    RETURNING *
+                    """,
+                    submission.id, submission.match_id, submission.participant_id, submission.owner_sub,
+                    submission.game_id, submission.board_version_key, json.dumps(submission.lineup_evaluation),
+                    submission.solver_version, submission.submitted_at, submission.idempotency_key,
+                )
+            except asyncpg.UniqueViolationError:
+                # A concurrent call for this same (match_id, owner_sub) won
+                # the race and already inserted under a different
+                # idempotency_key — that row is authoritative, not this one.
+                winner = await conn.fetchrow(
+                    "SELECT * FROM ranked_match_submissions WHERE match_id = $1 AND owner_sub = $2",
+                    submission.match_id, submission.owner_sub,
+                )
+                return _row_to_submission(winner)
             return _row_to_submission(row)
 
     async def get_submission(self, match_id: str, owner_sub: str) -> MatchSubmission | None:
@@ -716,11 +753,26 @@ class PostgresRankedRatingRepository:
     ) -> RankedSettlement:
         async with self._pool.acquire() as conn:
             async with conn.transaction():
-                await conn.execute(
-                    "INSERT INTO rating_periods (id, mode, queue_version, match_id, algorithm_version, opened_at) VALUES ($1,$2,$3,$4,$5,$6)",
-                    period.id, period.mode, period.queue_version, period.match_id,
-                    period.algorithm_version, period.opened_at,
-                )
+                # public-platform-readiness Batch P4: `rating_periods.match_id`
+                # carries its own UNIQUE constraint (rating_periods_match_id_key)
+                # and this INSERT runs BEFORE `_insert_settlement`'s guarded one
+                # below — under a genuine concurrent-settlement race (reproduced
+                # live against real Postgres with three simultaneous
+                # attempt_settlement calls), the SECOND transaction can hit
+                # THIS constraint first and raise an unhandled
+                # UniqueViolationError before ever reaching the try/except a
+                # few lines down, defeating the whole point of that guard.
+                # Same fix, same signal: a duplicate match_id on EITHER table
+                # means someone else already committed this match's
+                # settlement first.
+                try:
+                    await conn.execute(
+                        "INSERT INTO rating_periods (id, mode, queue_version, match_id, algorithm_version, opened_at) VALUES ($1,$2,$3,$4,$5,$6)",
+                        period.id, period.mode, period.queue_version, period.match_id,
+                        period.algorithm_version, period.opened_at,
+                    )
+                except asyncpg.UniqueViolationError as exc:
+                    raise DuplicateSettlement(f"match {settlement.match_id} is already settled") from exc
                 try:
                     await self._insert_settlement(conn, settlement)
                 except asyncpg.UniqueViolationError as exc:

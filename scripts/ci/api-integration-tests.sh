@@ -12,4 +12,5 @@ export PEAK3_TEST_REPOSITORY_MODE="${PEAK3_TEST_REPOSITORY_MODE:-memory}"
 step "Supabase / Postgres integration tests"
 cd "$REPO_ROOT/apps/api"
 "$PYTHON_BIN" -m pytest tests/integration/ tests/test_repository_conformance.py \
+  tests/test_ranked_concurrency_postgres.py \
   -m supabase_integration -v --tb=short "$@"

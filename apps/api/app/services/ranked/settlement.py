@@ -41,6 +41,73 @@ def _round(value: float | None, decimals: int = SCORE_DECIMALS) -> float | None:
     return None if value is None else round(value, decimals)
 
 
+async def _ensure_match_reflects_settlement(
+    match_id: str,
+    settlement: RankedSettlement,
+    matchmaking_repo: RankedMatchmakingRepository,
+    rating_repo: RankedRatingRepository,
+) -> None:
+    """Idempotently repair `ranked_matches`/`ranked_match_participants` to
+    agree with an ALREADY-COMMITTED settlement.
+
+    public-platform-readiness Batch P4. `commit_settlement`'s own transaction
+    (period + settlement + both ledger entries + both rating/placement
+    upserts) is genuinely atomic — but `set_match_rating_period`,
+    `set_match_status`, and the two `set_participant_post_match_rating`
+    calls that follow it in `attempt_settlement` are four SEPARATE
+    statements against a different repository (`matchmaking_repo`, not
+    `rating_repo` — the two are not one connection/transaction, so folding
+    them into `commit_settlement` itself is not possible without merging
+    the two repositories). If the process crashes or the connection drops
+    in the window between `commit_settlement` returning and these four
+    writes completing, the rating ledger (source of truth) is already
+    correct, but `ranked_matches.status` stays stuck at `'matched'` and
+    `ranked_match_participants.post_match_rating/rd/volatility` stay NULL
+    for both sides — forever, because `attempt_settlement`'s own early
+    return (`existing = await rating_repo.get_settlement(match_id); if
+    existing is not None: return existing`) short-circuits before ever
+    reaching them again on a retry.
+
+    Called from every `attempt_settlement` exit path that has a settlement
+    in hand (freshly committed, recovered from `DuplicateSettlement`, or
+    found already existing on entry) so a retry — the same request retried,
+    a duplicate final submission, or simply `GET .../settlement` being
+    polled again — repairs this window instead of leaving it stuck. Reads
+    the authoritative post-match values from the rating ledger (never
+    recomputes Glicko-2) so this is a pure repair, not a second
+    calculation. Skips entirely once the match is already `'settled'` with
+    both participants' post-match ratings populated, so the common case
+    (nothing to repair) costs one cheap read, not four writes, on every
+    call.
+    """
+    match = await matchmaking_repo.get_match(match_id)
+    if match is None:
+        return
+    participants = await matchmaking_repo.get_participants(match_id)
+    already_complete = (
+        match.status == "settled"
+        and match.rating_period_id is not None
+        and all(p.post_match_rating is not None for p in participants)
+    )
+    if already_complete:
+        return
+
+    await matchmaking_repo.set_match_rating_period(match_id, settlement.rating_period_id)
+    await matchmaking_repo.set_match_status(match_id, "settled", settlement_status="settled")
+    for owner_sub in (settlement.participant_a_sub, settlement.participant_b_sub):
+        current = await matchmaking_repo.get_participant(match_id, owner_sub)
+        if current is not None and current.post_match_rating is not None:
+            continue  # this side is already correctly written; do not overwrite with a stale re-derivation
+        ledger = await rating_repo.list_ledger_entries(owner_sub, match.mode)
+        entries = [e for e in ledger if e.match_id == match_id]
+        if not entries:
+            continue  # the ledger write did not survive the crash either — nothing safe to repair with
+        entry = entries[-1]
+        await matchmaking_repo.set_participant_post_match_rating(
+            match_id, owner_sub, entry.post_rating, entry.post_rd, entry.post_volatility
+        )
+
+
 async def record_submission(
     match_id: str,
     owner_sub: str,
@@ -103,6 +170,7 @@ async def attempt_settlement(
     """
     existing = await rating_repo.get_settlement(match_id)
     if existing is not None:
+        await _ensure_match_reflects_settlement(match_id, existing, matchmaking_repo, rating_repo)
         return existing
 
     match = await matchmaking_repo.get_match(match_id)
@@ -220,17 +288,15 @@ async def attempt_settlement(
             period, settlement, [ledger_a, ledger_b], updated_ratings, updated_placements
         )
     except DuplicateSettlement:
-        return await rating_repo.get_settlement(match_id)
+        # Another concurrent call already committed the atomic transaction —
+        # that row is authoritative; still make sure the trailing match/
+        # participant writes it may not have finished yet (see
+        # `_ensure_match_reflects_settlement`) actually land.
+        winner = await rating_repo.get_settlement(match_id)
+        await _ensure_match_reflects_settlement(match_id, winner, matchmaking_repo, rating_repo)
+        return winner
 
-    await matchmaking_repo.set_match_rating_period(match_id, period.id)
-    await matchmaking_repo.set_match_status(match_id, "settled", settlement_status="settled")
-    await matchmaking_repo.set_participant_post_match_rating(
-        match_id, part_a.owner_sub, new_a.rating, new_a.rd, new_a.volatility
-    )
-    await matchmaking_repo.set_participant_post_match_rating(
-        match_id, part_b.owner_sub, new_b.rating, new_b.rd, new_b.volatility
-    )
-
+    await _ensure_match_reflects_settlement(match_id, committed, matchmaking_repo, rating_repo)
     return committed
 
 

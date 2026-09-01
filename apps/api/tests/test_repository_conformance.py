@@ -329,6 +329,50 @@ async def test_postgres_profile_repo_conforms(pg_pool):
     await _assert_profile_repo_conforms(PostgresProfileRepository(pg_pool))
 
 
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_profile_survives_a_fresh_repository_instance(pg_pool):
+    """public-platform-readiness Batch P1 regression test.
+
+    Reproduces, at the repository layer, the exact bug reported for handle
+    persistence: a user claims a handle, "signs out", and on the next sign-in
+    the handle is gone. Live reproduction against a real FastAPI process
+    (restarted between requests, real Supabase-issued JWT, real Postgres)
+    showed the cause was never the write/read/uniqueness logic here — it was
+    that `PEAK3_DATABASE_URL` was unset, so every request resolved
+    `MemoryProfileRepository`, whose state is a plain dict on the Python
+    object and therefore does not survive a process restart.
+
+    A brand-new `PostgresProfileRepository` object — constructed exactly the
+    way `get_profile_repo` builds one per request in
+    app/core/dependencies.py, and standing in here for "a new server process
+    picked the pool back up after a restart" — must still resolve a profile an
+    entirely different instance wrote earlier, because the state lives in
+    Postgres, not on the Python object. `MemoryProfileRepository` fails this
+    exact shape of test by construction (two instances are two unrelated
+    dicts); that contrast IS the bug, and is why the fix is "make sure
+    PEAK3_DATABASE_URL is configured," not a code change to this file.
+    """
+    from app.repositories.postgres_profile import PostgresProfileRepository
+
+    auth_sub = f"user-{uuid.uuid4()}"
+    handle = f"restart{uuid.uuid4().hex[:8]}"
+
+    session_a = PostgresProfileRepository(pg_pool)
+    await session_a.update_profile(auth_sub, {"handle": handle, "display_name": "Session A"})
+
+    # A second, independently-constructed repository sharing only the pool —
+    # nothing here is passed from session_a to session_b in-process.
+    session_b = PostgresProfileRepository(pg_pool)
+    restored = await session_b.get_or_create_profile(auth_sub)
+    assert restored.handle == handle, (
+        "handle did not survive a fresh repository instance against the same "
+        "pool — this is the exact cross-session persistence failure this test "
+        "guards against"
+    )
+    assert restored.display_name == "Session A"
+
+
 # ---------------------------------------------------------------------------
 # ArenaRepository — the multiplayer foundation
 #

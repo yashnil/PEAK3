@@ -101,20 +101,32 @@ describe("RankedLeaderboard", () => {
     getLeaderboard.mockResolvedValue(
       makeResponse({
         entries: [
-          { rank: 1, owner_sub: "player-abc123", rating: 1487, rd: 45, division: "Gold" },
-          { rank: 2, owner_sub: "player-def456", rating: 1450, rd: 50, division: "Silver" },
+          { rank: 1, handle: "player_abc123", rating: 1487, rd: 45, division: "Gold" },
+          { rank: 2, handle: "player_def456", rating: 1450, rd: 50, division: "Silver" },
         ],
       }),
     );
     renderPage();
 
     const table = await screen.findByTestId("leaderboard-table");
-    expect(table).toHaveTextContent("player-abc123");
+    expect(table).toHaveTextContent("@player_abc123");
     expect(table).toHaveTextContent("1487");
     expect(table).toHaveTextContent("Gold");
-    expect(table).toHaveTextContent("player-def456");
+    expect(table).toHaveTextContent("@player_def456");
     expect(table).toHaveTextContent("1450");
     expect(table).toHaveTextContent("Silver");
+  });
+
+  it("never renders a raw owner_sub — public-platform-readiness Batch P3 §3.7", async () => {
+    getLeaderboard.mockResolvedValue(
+      makeResponse({
+        entries: [{ rank: 1, handle: "safe_handle", rating: 1487, rd: 45, division: "Gold" }],
+      }),
+    );
+    renderPage();
+
+    const table = await screen.findByTestId("leaderboard-table");
+    expect(table).not.toHaveTextContent(/owner_sub/i);
   });
 
   it("shows the updated-at timestamp once a response lands", async () => {

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Request, Response
 
 from app.core.dataset import dataset_store
 
@@ -12,7 +12,7 @@ async def health() -> dict:
 
 
 @router.get("/health/readiness")
-async def readiness(response: Response) -> dict:
+async def readiness(request: Request, response: Response) -> dict:
     """Readiness probe — 503 unless EVERY generated artifact this API serves is
     present.
 
@@ -28,6 +28,19 @@ async def readiness(response: Response) -> dict:
     The build now asserts the file exists, so reaching the 503 branch below
     means something removed it after the build — which is worth failing loudly
     for rather than discovering through a missing homepage section.
+
+    `repository_mode` (public-platform-readiness Batch P1) is the same
+    "postgres" | "memory" signal `app.core.repository_registry` already logs
+    once at startup, put where a human can actually check it. The startup log
+    line was the ONLY place this was visible; a deploy running DEBUG=True with
+    no PEAK3_DATABASE_URL configured serves every request "successfully" while
+    silently storing profiles, handles, and every other durable domain in a
+    process-local dict that a restart empties — which is exactly the local-dev
+    configuration that reproduced the "handle forgotten after sign back in"
+    report this endpoint was extended to help diagnose. `assert_production_ready`
+    already refuses to boot with DEBUG=False in this state; this field is for
+    the DEBUG=True case that guard intentionally allows, and for verifying a
+    deploy without reading its logs.
     """
     # IMPORTED INSIDE THE HANDLER, like `settings` below. `app.main` puts the
     # repository root on `sys.path`, and it does so AFTER importing this module
@@ -37,6 +50,7 @@ async def readiness(response: Response) -> dict:
     from nba_peak.nba_facts import bank_status
 
     facts = bank_status()
+    repository_mode = "postgres" if getattr(request.app.state, "db_pool", None) is not None else "memory"
 
     if not dataset_store.is_loaded or not facts["loaded"]:
         response.status_code = 503
@@ -48,6 +62,7 @@ async def readiness(response: Response) -> dict:
             "player_count": meta.get("player_count", 0) if loaded else 0,
             "duration_count": len(dataset_store.get_all_leaderboards()) if loaded else 0,
             "fact_bank": facts,
+            "repository_mode": repository_mode,
         }
 
     from app.core.config import settings
@@ -64,4 +79,9 @@ async def readiness(response: Response) -> dict:
         # the readiness probe instead of silently 401-ing every authenticated
         # request with one WARNING line. Reports the *mode*, never key material.
         "auth_verification_mode": settings.auth_verification_mode,
+        # "postgres" | "memory" — "memory" means every durable domain (profiles,
+        # handles, saved runs, ratings, matches...) is process-local and will be
+        # lost on the next restart. Never "memory" in a real deploy unless
+        # PEAK3_DEBUG is also (incorrectly) true there.
+        "repository_mode": repository_mode,
     }

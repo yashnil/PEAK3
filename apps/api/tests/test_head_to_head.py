@@ -1074,6 +1074,60 @@ def test_rematch_is_idempotent_across_two_tabs(client: TestClient):
     assert second.json()["detail"]["error_code"] == "rematch_already_offered"
 
 
+def test_two_truly_concurrent_rematch_requests_never_hand_back_a_dead_token(client: TestClient):
+    """public-platform-readiness Batch P4 regression test.
+
+    `test_rematch_is_idempotent_across_two_tabs` above only proves the
+    SEQUENTIAL case: the second call's own `find_rematch` pre-check finds
+    the first call's already-committed row and 409s cleanly. It never
+    exercises the case where BOTH calls pass that pre-check before either
+    commits — which requires genuinely overlapping requests, not two
+    sequential ones. Before this batch's fix, the loser of that race got an
+    HTTP 200 with a `match_id` belonging to the WINNER but an `invite_token`
+    derived from its own, never-persisted `invite_id` — a token that looks
+    identical to a real success response but silently 404s the first time
+    anyone (including the same player) tries to use it.
+
+    Fired via a real thread pool (not sequential awaits) so the two POSTs
+    can genuinely interleave at the database layer.
+    """
+    import concurrent.futures
+
+    creator = _sub("creator")
+    created, _run = _create_match(client, creator, seed=777028)
+    _accept(client, _sub("opponent"), created["invite_token"])
+
+    def _offer_rematch():
+        with _as(creator):
+            return client.post(f"{H2H}/{created['match_id']}/rematch", json={})
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        fut_a = pool.submit(_offer_rematch)
+        fut_b = pool.submit(_offer_rematch)
+        resp_a, resp_b = fut_a.result(), fut_b.result()
+
+    responses = [resp_a, resp_b]
+    successes = [r for r in responses if r.status_code == 200]
+    conflicts = [r for r in responses if r.status_code == 409]
+
+    # Whichever way the race actually resolved (both calls could even have
+    # been serialized enough for the sequential 200-then-409 shape, or both
+    # could have raced past the pre-check for the fixed 409-on-mismatch
+    # branch to fire) — the invariant that must hold either way is: never
+    # two 200s, and every 200 response's invite_token must actually resolve.
+    assert len(successes) == 1, f"expected exactly one successful rematch offer, got {[r.status_code for r in responses]}"
+    assert len(conflicts) == 1
+    assert conflicts[0].json()["detail"]["error_code"] == "rematch_already_offered"
+
+    winner_body = successes[0].json()
+    invite_resp = client.get(f"{H2H}/invite/{winner_body['invite_token']}")
+    assert invite_resp.status_code == 200, (
+        "the winning rematch response's invite_token must actually resolve — "
+        f"got {invite_resp.status_code}: {invite_resp.text}"
+    )
+    assert invite_resp.json()["match_id"] == winner_body["match_id"]
+
+
 # ---------------------------------------------------------------------------
 # History
 # ---------------------------------------------------------------------------

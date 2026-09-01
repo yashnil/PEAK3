@@ -96,6 +96,37 @@ class ProfileResponse(BaseModel):
     joined_at: str
 
 
+class PublicProfileResponse(BaseModel):
+    """The explicit public projection served by `GET /profiles/{handle}`.
+
+    public-platform-readiness Batch P3 (§3.2/§3.15): deliberately a SEPARATE
+    model from `ProfileResponse` rather than that model reused and hoped to
+    stay safe. `ProfileResponse` is the private "my own profile" shape
+    (`GET/PUT /profiles/me`) and carries `id` (the profile row's own PK --
+    not `auth_sub`, but still an internal identifier no public consumer
+    needs), `region`, `is_public`, and `history_public` -- none of which any
+    frontend page reads on the public profile (grepped: `region` is unused
+    anywhere in the product today; `is_public`/`history_public` are
+    meaningful only to the owner's own settings view). Every field below IS
+    read by `apps/web/src/app/(main)/u/[handle]/page.tsx` today, or is one of
+    the couple of explicitly-named "if the product actually supports them"
+    candidates from the task brief (`avatar_key`) that is genuinely
+    public-safe. This is the shape returned to EVERY caller of
+    `GET /profiles/{handle}` -- including the profile's own owner (a
+    profile's owner viewing their public page sees the same projection any
+    stranger would; the owner's extended private fields are only ever served
+    by `/profiles/me`). Never add a field here because it would be
+    convenient to have -- add it only once a real consumer needs it, the way
+    every field already here has one.
+    """
+
+    handle: Optional[str] = None
+    display_name: Optional[str] = None
+    bio: Optional[str] = None
+    avatar_key: Optional[str] = None
+    joined_at: str
+
+
 class UpdateProfileRequest(BaseModel):
     handle: Optional[str] = Field(None, min_length=3, max_length=20)
     display_name: Optional[str] = Field(None, max_length=60)

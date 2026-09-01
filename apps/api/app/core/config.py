@@ -543,7 +543,17 @@ class Settings(BaseSettings):
                     "PEAK3_SIGNING_SECRET is the public default value and "
                     "DEBUG is False. Set a real secret before deploying."
                 )
-        if not self.DEBUG and self.DATABASE_URL is None:
+        if not self.DEBUG and not self.DATABASE_URL:
+            # public-platform-readiness Batch P5: was `is None`, which a
+            # deploy-platform variable that is DEFINED but EMPTY (a common
+            # shape for an unset variable-reference on several hosts) walks
+            # straight past -- pydantic parses `PEAK3_DATABASE_URL=""` as the
+            # string `""`, not `None`. `main.py`'s lifespan() and
+            # assert_production_ready() both already catch this downstream
+            # (both use a truthy check), so this was never a live boot-into-
+            # memory risk -- but it meant the earliest, cheapest guard had a
+            # blind spot the two guards after it didn't share. Matches the
+            # truthy-check convention every other guard in this method uses.
             raise ValueError(
                 "PEAK3_DATABASE_URL must be set in production (DEBUG=False). "
                 "See docs/implementation/LOCAL_DEV.md for setup instructions."

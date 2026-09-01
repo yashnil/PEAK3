@@ -667,6 +667,43 @@ class TestPublicProfile:
         assert resp.status_code == 200
         assert resp.json()["handle"] == handle
 
+    def test_public_profile_response_is_the_minimal_projection(self):
+        """public-platform-readiness Batch P3 §3.2/§3.15: `GET /profiles/{handle}`
+        must return PublicProfileResponse's exact field set, never the
+        private ProfileResponse shape (`id`, `region`, `is_public`,
+        `history_public` — none of which any public consumer needs)."""
+        handle = f"minimal{uuid.uuid4().hex[:6]}"
+        self._create_profile_with_handle(handle, is_public=True)
+
+        _clear_overrides()
+        with TestClient(app) as client:
+            resp = client.get(f"/api/v1/profiles/{handle}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert set(body.keys()) == {"handle", "display_name", "bio", "avatar_key", "joined_at"}
+        assert "id" not in body
+        assert "region" not in body
+        assert "is_public" not in body
+        assert "history_public" not in body
+
+    def test_owner_viewing_own_public_page_gets_the_same_public_projection(self):
+        """public-platform-readiness Batch P3 §3.2: the profile's own owner,
+        viewing GET /profiles/{handle} (not /profiles/me), must see exactly
+        what a stranger would see — no extended private fields leak through
+        just because the caller happens to be the owner."""
+        handle = f"ownview{uuid.uuid4().hex[:6]}"
+        sub = self._create_profile_with_handle(handle, is_public=True)
+
+        subject = _auth(sub=sub)
+        _clear_overrides()
+        app.dependency_overrides[get_optional_auth] = lambda: subject
+        app.dependency_overrides[get_required_auth] = lambda: subject
+        with TestClient(app) as client:
+            resp = client.get(f"/api/v1/profiles/{handle}")
+        _clear_overrides()
+        assert resp.status_code == 200
+        assert set(resp.json().keys()) == {"handle", "display_name", "bio", "avatar_key", "joined_at"}
+
     def test_private_profile_hidden_to_others(self):
         handle = f"privuser{uuid.uuid4().hex[:6]}"
         self._create_profile_with_handle(handle, is_public=False)

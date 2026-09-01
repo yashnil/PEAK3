@@ -1019,6 +1019,30 @@ async def rematch(
         status=PARTICIPANT_STATUS_IN_PROGRESS,
     )
     saved = await repo.create_match(match, creator)
+    if saved.match_id != match.match_id:
+        # public-platform-readiness Batch P4: a genuinely concurrent second
+        # rematch request from the same participant (e.g. a double-clicked
+        # button, two tabs) can both pass the `find_rematch` pre-check above
+        # before either commits — `repo.create_match` catches the resulting
+        # UNIQUE(rematch_of, creator_sub) violation and returns the WINNER's
+        # match to the loser rather than raising, so this branch is reached
+        # instead of the exception below. Minting a token from THIS
+        # request's own local `invite_id` would be wrong here: `saved` is a
+        # different match with a different, already-established
+        # `invite_hash`, and this request's `invite_id` was never persisted
+        # anywhere for it to resolve against — the resulting token would
+        # 404 on first use. Treat it exactly like the pre-check above:
+        # the caller already has (or their concurrent request already
+        # created) a rematch; tell them so instead of handing back a
+        # response that looks like success but silently cannot be used.
+        raise HTTPException(
+            status_code=409,
+            detail=error_detail(
+                "You already offered a rematch for this head-to-head. Share that "
+                "link instead.",
+                "rematch_already_offered",
+            ),
+        )
     token = _mint_invite(invite_id)
     return HeadToHeadCreatedResponse(
         match_id=saved.match_id,

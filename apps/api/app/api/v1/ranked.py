@@ -40,6 +40,7 @@ from app.core.config import settings
 from app.core.dependencies import (
     AchievementRepoDep,
     GameRepoDep,
+    ProfileRepoDep,
     ProgressionRepoDep,
     RankedMatchmakingRepoDep,
     RankedRatingRepoDep,
@@ -441,7 +442,20 @@ def _parse_leaderboard_cursor(cursor: str | None) -> tuple[float, float, int, st
     return float(rating_str), float(rd_str), int(valid_matches_str), owner
 
 @router.get("/ranked/queues/{mode}/leaderboard", response_model=LeaderboardResponse)
-async def get_leaderboard(mode: str, rating_repo: RankedRatingRepoDep, cursor: str | None = None, limit: int = 50) -> LeaderboardResponse:
+async def get_leaderboard(
+    mode: str, rating_repo: RankedRatingRepoDep, profile_repo: ProfileRepoDep, cursor: str | None = None, limit: int = 50
+) -> LeaderboardResponse:
+    """The public rating board for one mode.
+
+    NO AUTH — same posture as Arena's leaderboard (`GET .../arena/leaderboard/{mode}`).
+    ONLY PLAYERS WITH A PUBLIC HANDLE APPEAR: a rating exists for every
+    established player, but a public row needs a name, and the only name
+    this product shows is the handle a player chose. A player without one is
+    rated and simply unlisted until they pick a handle — their rating is not
+    lost, and `rank` still counts their position (gaps are expected in a
+    listed page, the same tradeoff Arena's leaderboard makes), see
+    `LeaderboardEntry`'s docstring for why this is `handle`, never `owner_sub`.
+    """
     _require_mode(mode)
     if not settings.RANKED_PUBLIC_LEADERBOARD_ENABLED:
         return LeaderboardResponse(
@@ -450,11 +464,24 @@ async def get_leaderboard(mode: str, rating_repo: RankedRatingRepoDep, cursor: s
         )
     after = _parse_leaderboard_cursor(cursor)
     ratings = await rating_repo.get_leaderboard(mode, limit, after)
-    entries = [
-        LeaderboardEntry(rank=i + 1, owner_sub=r.owner_sub, rating=r.rating, rd=r.rd, division=division_for_rating(r.rating, r.valid_rated_matches))
-        for i, r in enumerate(ratings)
-        if r.established
-    ]
+    entries: list[LeaderboardEntry] = []
+    for i, r in enumerate(ratings):
+        # `rank` is the position in the full page (1-based), matching the
+        # original established-only filtering's gap behavior — a
+        # non-established OR handle-less row leaves a gap rather than
+        # renumbering, same tradeoff Arena's leaderboard makes.
+        if not r.established:
+            continue
+        profile = await profile_repo.get_profile_by_auth_sub(r.owner_sub)
+        handle = getattr(profile, "handle", None) if profile else None
+        if not handle:
+            continue  # rated, but has not chosen a public name
+        entries.append(
+            LeaderboardEntry(
+                rank=i + 1, handle=handle, rating=r.rating, rd=r.rd,
+                division=division_for_rating(r.rating, r.valid_rated_matches),
+            )
+        )
     next_cursor = _build_leaderboard_cursor(ratings[-1]) if len(ratings) == limit else None
     return LeaderboardResponse(
         mode=mode, enabled=True, entries=entries, next_cursor=next_cursor,
@@ -464,7 +491,18 @@ async def get_leaderboard(mode: str, rating_repo: RankedRatingRepoDep, cursor: s
 
 
 @router.get("/ranked/queues/{mode}/leaderboard/me", response_model=SurroundingRankResponse)
-async def get_surrounding_rank(mode: str, auth: RequiredAuth, rating_repo: RankedRatingRepoDep) -> SurroundingRankResponse:
+async def get_surrounding_rank(
+    mode: str, auth: RequiredAuth, rating_repo: RankedRatingRepoDep, profile_repo: ProfileRepoDep
+) -> SurroundingRankResponse:
+    """The caller's own rank plus the handful of players around it.
+
+    `your_rank` is reported regardless of whether the caller has chosen a
+    handle yet (this route requires auth — it is the caller looking at their
+    own standing, not a public listing). The `entries` window excludes any
+    OTHER player without a public handle, same rule as `get_leaderboard`
+    above — this route must not let a signed-in caller see a neighbor's raw
+    subject id just because `/leaderboard` itself would have skipped them.
+    """
     _require_ranked_access(auth)
     _require_mode(mode)
     if not settings.RANKED_PUBLIC_LEADERBOARD_ENABLED:
@@ -478,10 +516,18 @@ async def get_surrounding_rank(mode: str, auth: RequiredAuth, rating_repo: Ranke
 
     window = established[max(0, idx - 2): idx + 3]
     start_rank = max(0, idx - 2) + 1
-    entries = [
-        LeaderboardEntry(rank=start_rank + i, owner_sub=r.owner_sub, rating=r.rating, rd=r.rd, division=division_for_rating(r.rating, r.valid_rated_matches))
-        for i, r in enumerate(window)
-    ]
+    entries: list[LeaderboardEntry] = []
+    for i, r in enumerate(window):
+        profile = await profile_repo.get_profile_by_auth_sub(r.owner_sub)
+        handle = getattr(profile, "handle", None) if profile else None
+        if not handle:
+            continue
+        entries.append(
+            LeaderboardEntry(
+                rank=start_rank + i, handle=handle, rating=r.rating, rd=r.rd,
+                division=division_for_rating(r.rating, r.valid_rated_matches),
+            )
+        )
     return SurroundingRankResponse(mode=mode, your_rank=idx + 1, entries=entries)
 
 

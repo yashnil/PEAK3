@@ -66,26 +66,60 @@ export default function RankedScreen({ mode }: Props) {
     if (!user) return;
     const storageKey = `peak3_ranked_match_${mode}`;
     const knownMatchId = typeof window !== "undefined" ? localStorage.getItem(storageKey) : null;
-    if (!knownMatchId) return;
 
+    if (knownMatchId) {
+      (async () => {
+        const token = await getAccessToken();
+        if (!token) return;
+        try {
+          const match = await rankedApi.getMatch(token, knownMatchId);
+          if (match.status === "settled") {
+            const result = await rankedApi.getSettlement(token, knownMatchId);
+            if ("outcome" in result) {
+              dispatch({ type: "MATCHED", matchId: knownMatchId });
+              dispatch({ type: "SETTLED", settlement: result as RankedSettlementView });
+            }
+          } else if (match.status !== "cancelled" && match.status !== "expired" && match.status !== "invalidated") {
+            dispatch({ type: "MATCHED", matchId: knownMatchId });
+          } else {
+            localStorage.removeItem(storageKey);
+          }
+        } catch {
+          localStorage.removeItem(storageKey);
+        }
+      })();
+      return;
+    }
+
+    // public-platform-readiness Batch P4: no matchId breadcrumb yet means
+    // either the player has never queued, OR they refreshed while still
+    // `queue_waiting` (the breadcrumb above is only ever written once a
+    // match exists — see the effect below). Without this check, a refresh
+    // during that window landed on the empty "Join queue" screen while the
+    // server still held a real, durable queue entry; clicking "Join queue"
+    // again then hit `409 already_in_queue` with no way back into the
+    // waiting screen — the poll that would have discovered the eventual
+    // match never started, because it only runs in `queue_waiting` phase.
+    // `GET /queues/{mode}/status` is the same durable, server-authoritative
+    // read the waiting-screen poll already uses; checking it once on mount
+    // costs nothing when the answer is `not_in_queue` (the common case) and
+    // recovers the correct phase when it isn't.
     (async () => {
       const token = await getAccessToken();
       if (!token) return;
       try {
-        const match = await rankedApi.getMatch(token, knownMatchId);
-        if (match.status === "settled") {
-          const result = await rankedApi.getSettlement(token, knownMatchId);
-          if ("outcome" in result) {
-            dispatch({ type: "MATCHED", matchId: knownMatchId });
-            dispatch({ type: "SETTLED", settlement: result as RankedSettlementView });
-          }
-        } else if (match.status !== "cancelled" && match.status !== "expired" && match.status !== "invalidated") {
-          dispatch({ type: "MATCHED", matchId: knownMatchId });
-        } else {
-          localStorage.removeItem(storageKey);
+        const status = await rankedApi.getQueueStatus(token, mode);
+        if (status.status === "matched" && status.match_id) {
+          dispatch({ type: "MATCHED", matchId: status.match_id });
+        } else if (status.status === "waiting") {
+          dispatch({
+            type: "QUEUE_JOINED",
+            result: { status: "waiting", mode, queue_entry_id: null, match_id: null },
+          });
         }
+        // "not_in_queue" / "cancelled" — nothing to recover, stay queue_idle.
       } catch {
-        localStorage.removeItem(storageKey);
+        // Recovery is best-effort; the player can still click "Join queue".
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

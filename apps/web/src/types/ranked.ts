@@ -137,9 +137,16 @@ export interface RatingHistoryResponse {
 
 // ── Leaderboard ─────────────────────────────────────────────────────────
 
+/**
+ * public-platform-readiness Batch P3: `handle`, never `owner_sub` — the raw
+ * Supabase auth subject is never returned by the leaderboard endpoint
+ * (apps/api/app/models/ranked.py's `LeaderboardEntry`), matching every
+ * sibling public leaderboard (Daily Grid, CourtBuilder, Arena) in this
+ * product.
+ */
 export interface LeaderboardEntry {
   rank: number;
-  owner_sub: string;
+  handle: string;
   rating: number;
   rd: number;
   division: string | null;
