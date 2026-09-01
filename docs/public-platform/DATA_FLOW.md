@@ -153,3 +153,16 @@ through this API — which is 100% of what a browser actually does — the
 response model, not RLS, is the last line of the trust boundary. See
 `PUBLIC_DATA_CONTRACT.md` for the full audit of that boundary across every
 public surface.
+
+## Batch P5 review — no data-flow change
+
+P5 (production deployment readiness) touched deployment configuration and
+its own test coverage only — no route, response model, or data-flow path
+changed. The trust-boundary shape described above (API's service-role
+connection → explicit response model → wire) is unchanged and re-confirmed
+accurate by this batch's public-URL/share-link audit
+(`PRODUCTION_CHECKLIST.md` §Public URL / share-link audit), which traced
+every share-URL-constructing code path and found the same
+relative-path-from-API + browser-`window.location.origin` pattern
+throughout — no code path bakes in or trusts a server-provided absolute
+host.

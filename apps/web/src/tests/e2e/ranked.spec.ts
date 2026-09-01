@@ -284,6 +284,94 @@ test.describe("Ranked duels", () => {
     }
   });
 
+  test("refresh while still queued (before pairing) recovers into the waiting screen, not an empty Join-queue screen", async ({
+    page,
+    context,
+  }) => {
+    // public-platform-readiness Batch P5: closes the P4 browser-verification
+    // gap for the exact bug fixed in RankedScreen.tsx that batch — a refresh
+    // during `queue_waiting` used to drop the UI back to the empty "Join
+    // queue" screen (the match-id localStorage breadcrumb is only written
+    // once a match exists), even though the server still held a real,
+    // durable queue entry. Clicking "Join queue" again then hit `409
+    // already_in_queue` with no way back in, and the poll that would have
+    // discovered the eventual match never started. The fix added a
+    // mount-time `GET /queues/{mode}/status` check; this test proves it
+    // recovers the waiting screen after a real browser refresh, not just at
+    // the reducer/unit level.
+    test.setTimeout(30_000);
+    const sub = `e2e-requeue-${Date.now()}`;
+    const token = await signInAs(context, page, sub);
+
+    try {
+      await joinRankedQueue(page, "prime_3y");
+      await expect(page.getByText(/Waiting for an opponent/i)).toBeVisible({ timeout: 10_000 });
+
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.waitForFunction(() => typeof window.__peak3TestAuth !== "undefined");
+      await page.evaluate(
+        ([t, s]) => {
+          window.__peak3TestAuth!.setSession(t as string, { id: s as string, email: `${s}@e2e.test`, isAnonymous: false });
+        },
+        [token, sub],
+      );
+
+      // Must recover straight into the waiting screen — never the bare
+      // "Join queue" button, which would mean the durable server-side queue
+      // entry was silently forgotten by the client.
+      await expect(page.getByText(/Waiting for an opponent/i)).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText(/^Join .* queue$/i)).not.toBeVisible();
+    } finally {
+      await leaveRankedQueue(page, token, "prime_3y");
+    }
+  });
+
+  test("refresh while matched but before either side has submitted recovers the live board, not a stale screen", async ({
+    browser,
+  }: {
+    browser: Browser;
+  }) => {
+    test.setTimeout(60_000);
+    const subA = `e2e-refresh-a-${Date.now()}`;
+    const subB = `e2e-refresh-b-${Date.now()}`;
+
+    const contextA = await browser.newContext();
+    const contextB = await browser.newContext();
+    const pageA = await contextA.newPage();
+    const pageB = await contextB.newPage();
+
+    const tokenA = await signInAs(contextA, pageA, subA);
+    const tokenB = await signInAs(contextB, pageB, subB);
+
+    try {
+      await joinRankedQueue(pageA, "foundation_5y");
+      await expect(pageA.getByText(/Waiting for an opponent/i)).toBeVisible({ timeout: 10_000 });
+      await joinRankedQueue(pageB, "foundation_5y");
+      await expect(pageA.getByText(/Matched|Round 1 of 5/i)).toBeVisible({ timeout: 10_000 });
+
+      // A refreshes before playing a single round. The match-id breadcrumb
+      // IS written by this point (state.matchId exists once MATCHED fires),
+      // so this exercises the pre-existing resume-by-match-id path rather
+      // than the new status-recovery path above — included alongside it so
+      // both halves of "matched but gameplay not started" reconnection
+      // (P4.10) are proven in one real browser, not just the queue-only half.
+      await pageA.reload({ waitUntil: "domcontentloaded" });
+      await pageA.waitForFunction(() => typeof window.__peak3TestAuth !== "undefined");
+      await pageA.evaluate(
+        ([t, s]) => {
+          window.__peak3TestAuth!.setSession(t as string, { id: s as string, email: `${s}@e2e.test`, isAnonymous: false });
+        },
+        [tokenA, subA],
+      );
+      await expect(pageA.getByText(/Round 1 of 5/i)).toBeVisible({ timeout: 10_000 });
+    } finally {
+      await leaveRankedQueue(pageA, tokenA, "foundation_5y");
+      await leaveRankedQueue(pageB, tokenB, "foundation_5y");
+      await contextA.close();
+      await contextB.close();
+    }
+  });
+
   test("a non-participant cannot view someone else's active match", async ({ browser }: { browser: Browser }) => {
     const subA = `e2e-owner-${Date.now()}`;
     const subStranger = `e2e-stranger-${Date.now()}`;

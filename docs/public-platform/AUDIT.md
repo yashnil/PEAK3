@@ -522,3 +522,21 @@ deliverable). Summary:
   handling exists; H2H has no cancellation feature. None of these leave the
   database in an ambiguous state — an abandoned match simply stays cleanly
   pending forever, which is inert, not corrupt.
+
+## Batch P5 review — deployment readiness, one real config-validator gap found and fixed
+
+P5 audited production deployment configuration (Railway/Vercel/Supabase),
+not schema or data flow — no migration, no RLS policy, and no response
+model changed as part of this batch. One real defect was found and fixed in
+`apps/api/app/core/config.py`'s production fail-closed contract:
+`PEAK3_DATABASE_URL=""` (defined but empty) was not caught by the earliest
+validator (`is None` check, not a truthy check) — two independent
+downstream layers already caught it, so it was never a live boot-into-memory
+risk, but the earliest/cheapest guard had a blind spot its own sibling
+checks didn't share. Fixed, and given permanent regression coverage for the
+first time (`apps/api/tests/test_production_deployability.py`, 13 tests —
+this validator had zero automated tests before this batch). The RLS suite
+was re-run against local Postgres this batch and reconfirmed at the exact
+same 244/244 passing baseline reported above — no drift. Full detail:
+`docs/public-platform/PRODUCTION_CHECKLIST.md` and
+`docs/public-platform/DEPLOYMENT_ARCHITECTURE.md`.

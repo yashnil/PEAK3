@@ -307,3 +307,19 @@ Five new migrations closed it:
 Final state, verified live: only `profiles` and `user_settings` still carry a
 client write grant — both intentional (`FOR ALL ... WITH CHECK` owner-write
 policies that legitimately allow a direct client write).
+
+## Batch P5 review — no schema change; the 6 migrations above are confirmed production-safe
+
+P5 added zero new migrations — the six listed above (all from Batch P2)
+remain the only migrations new on this branch since `main`. P5's
+contribution was verifying they are safe to apply to the hosted production
+database: all are additive `REVOKE`/`GRANT`/`CREATE POLICY` statements
+against existing tables/roles (no `ALTER TABLE`, no data migration, no lock
+beyond a brief catalog lock), none depend on a local-only assumption (same
+`supabase/migrations/` directory governs local and hosted), and applying
+them requires no downtime. See `PRODUCTION_CHECKLIST.md` §Migration
+inventory for the per-file breakdown, order, and rollback strategy, and
+`FOUNDER_LAUNCH_CHECKLIST.md` step 1 for the exact application steps. None
+of the six have been applied to the hosted production project as of this
+batch — that remains a founder action pending explicit approval, per this
+batch's constraint.
