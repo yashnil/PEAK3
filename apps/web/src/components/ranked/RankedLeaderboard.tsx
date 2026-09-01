@@ -112,14 +112,14 @@ export default function RankedLeaderboard({ mode }: Props) {
             <tbody>
               {data.entries.map((entry) => (
                 <tr
-                  key={entry.owner_sub}
+                  key={entry.handle}
                   className="border-b border-[var(--divider-strong)] transition-colors hover:bg-[var(--bg-surface-hover)]"
                 >
                   <td className="score-number px-3 py-2.5" style={{ color: "var(--text-secondary)" }}>
                     {entry.rank}
                   </td>
-                  <td className="score-number px-3 py-2.5" style={{ color: "var(--text-primary)" }}>
-                    {entry.owner_sub}
+                  <td className="px-3 py-2.5" style={{ color: "var(--text-primary)" }}>
+                    @{entry.handle}
                   </td>
                   <td
                     className="score-number px-3 py-2.5 text-right font-bold"

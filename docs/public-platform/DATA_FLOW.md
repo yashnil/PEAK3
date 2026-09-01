@@ -1,7 +1,7 @@
-# Data flow — auth / handle / profile
+# Data flow — auth / handle / profile / public data
 
-Status: Batch P1 scope only (auth + profile/handle). Other domains (saved
-runs, matchmaking, H2H, leaderboards) pending later batches.
+Status: Batch P1 (auth + profile/handle) + Batch P3 (public read flow, added
+below). Matchmaking/ranked-settlement internals remain Batch P4.
 
 ## Sign-in → session → authenticated request
 
@@ -100,3 +100,54 @@ startup. This is the single fork point for durability — not RLS, not the
 frontend, not the onboarding component. See `AUDIT.md` §2 for the
 confirmed root cause and fix, and `PRODUCTION_CHECKLIST.md` for what must be
 true of a real deployment.
+
+## Public read flow (Batch P3) — no cookies, no bearer token
+
+```
+Anonymous browser                              FastAPI                           Postgres
+------------------                              -------                           --------
+GET /u/handle  (Next.js Server Component,
+  no Authorization header at all)
+  → fetch(`${API}/api/v1/profiles/{handle}`)
+                                            → get_public_profile(handle, auth=None)
+                                                → profile_repo.get_profile_by_handle(handle)
+                                                                                → SELECT * FROM profiles
+                                                                                  WHERE normalized_handle = $1
+                                                                                  (service-role connection —
+                                                                                   bypasses RLS; ownership is
+                                                                                   enforced in this function,
+                                                                                   not by the database role)
+                                                → 404 if none / 403 if private
+                                                → PublicProfileResponse(...)
+                                                  (handle, display_name, bio,
+                                                   avatar_key, joined_at ONLY —
+                                                   never id/region/is_public/
+                                                   history_public/auth_sub)
+  ← JSON, minimal projection
+
+GET /arena/ranked/{mode}/leaderboard
+  → fetch(`${API}/api/v1/ranked/queues/{mode}/leaderboard`)
+                                            → get_leaderboard(mode, ...)
+                                                → rating_repo.get_leaderboard(...)
+                                                                                → SELECT ... FROM queue_ratings
+                                                → for each established rating:
+                                                    profile_repo.get_profile_by_auth_sub(owner_sub)
+                                                                                → SELECT ... FROM profiles
+                                                                                  WHERE auth_sub = $1
+                                                    skip if no handle
+                                                → LeaderboardEntry(handle=..., rating, rd, division)
+                                                  (owner_sub is never constructed into the response —
+                                                   Batch P3 fix, see PUBLIC_DATA_CONTRACT.md §7)
+  ← JSON, handle-identified entries only
+```
+
+Every public route in scope this batch follows the same two-step shape:
+resolve the row via the API's own service-role Postgres connection (which,
+per Batch P2's `AUDIT.md`, bypasses RLS by construction), then hand-narrow
+the result through an explicit response model before it ever reaches the
+wire. RLS is real defense-in-depth against a *direct* PostgREST/client
+connection (proven in `test_rls_policies.py`), but for traffic that goes
+through this API — which is 100% of what a browser actually does — the
+response model, not RLS, is the last line of the trust boundary. See
+`PUBLIC_DATA_CONTRACT.md` for the full audit of that boundary across every
+public surface.

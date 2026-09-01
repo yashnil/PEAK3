@@ -1,11 +1,12 @@
 # PEAK3 Arena — Public Platform Readiness Audit
 
-Status: **Batch P1 (auth/handle/profile) and Batch P2 (database/RLS contract
-+ saved runs) complete.** Batches P3–P5 (public results/leaderboards,
-matchmaking/ranked-settlement/realtime, production config) are pending and
-will extend this document rather than replace it. Batch P2's findings are in
-`§P2` below; `SCHEMA_MATRIX.md` carries the full per-table detail this
-document only summarizes.
+Status: **Batch P1 (auth/handle/profile), Batch P2 (database/RLS contract +
+saved runs), and Batch P3 (public data contract) complete.** Batches P4–P5
+(matchmaking/ranked-settlement/realtime, production config) are pending.
+Batch P2's findings are in `§P2` below; Batch P3's full findings live in
+`PUBLIC_DATA_CONTRACT.md` (the dedicated deliverable for that batch) —
+`§P3` here is a short pointer, not a duplicate. `SCHEMA_MATRIX.md` carries
+full per-table detail.
 
 Scope of this pass: `apps/web/src/lib/auth*.ts`, `apps/web/src/lib/supabase/`,
 `apps/web/src/components/auth/**`, `apps/web/src/components/profile/**`,
@@ -425,3 +426,41 @@ to expose correct state) or because they belong to a later named batch:
   exercise were instead proven directly against the database (§3). Left for
   whichever batch first stands up a running frontend dev server against this
   same database.
+
+---
+
+# §P3 — Public data contract
+
+Full findings, the taxonomy, the token-security review, and every fix are in
+`docs/public-platform/PUBLIC_DATA_CONTRACT.md` (this batch's primary
+deliverable, per the task's own instruction). Summary:
+
+- **`GET /profiles/{handle}` now returns an explicit `PublicProfileResponse`**
+  (5 fields: handle, display_name, bio, avatar_key, joined_at) instead of
+  reusing the private `ProfileResponse` model — closes a "serialize the
+  private model and hope it stays safe" pattern the task specifically
+  named, even though every field that model additionally carried (`id`,
+  `region`, `is_public`, `history_public`) turned out not to be sensitive.
+  Verified live (real JWTs, real Postgres): anonymous, cross-account, and
+  owner-via-public-route all get the identical minimal projection.
+- **Real defect found and fixed: Ranked's public leaderboard exposed the raw
+  Supabase `auth.uid()`** (`LeaderboardEntry.owner_sub`) to any
+  unauthenticated caller, and the frontend rendered it as the "Player"
+  name — the one leaderboard in the whole product that didn't follow the
+  handle-only convention every sibling (Daily Grid, CourtBuilder, Arena)
+  already used. Fixed to resolve and show `handle`, unlisting rated players
+  with no chosen handle (same tradeoff Arena's leaderboard already makes).
+  This was a privacy defect, not an integrity one — no client can set
+  rating/rank/wins/losses anywhere in the Ranked settlement chain, confirmed
+  by reading every relevant request body model.
+- Full taxonomy (static model rankings vs. four genuinely different user
+  leaderboards), token-security review, immutability classification, and
+  response-model/error-semantics audit across every public-reachable route
+  found no other live leak — several hardening opportunities (routes with no
+  explicit `response_model`, e.g. `/methodology`/`/meta`) were identified and
+  documented as backlog, not fixed, since none currently leaks anything and
+  this batch's principle is fixing proven defects, not manufacturing new
+  surface area.
+- New RLS tests proving a public profile is readable-but-not-writable by a
+  stranger and by `anon`, directly against Postgres (bypassing the API
+  entirely) — full suite now 227 tests.

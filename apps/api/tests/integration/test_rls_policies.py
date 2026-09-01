@@ -467,6 +467,49 @@ async def test_anonymous_can_read_a_public_profiles_safe_columns(db_pool, seeded
 
 
 @pytest.mark.asyncio
+async def test_a_stranger_cannot_update_another_users_public_profile(db_pool, seeded_profile) -> None:
+    """public-platform-readiness Batch P3 §3.14: a public profile being
+    readable by anyone must not imply it is writable by anyone. Unlike
+    games/daily_completions/etc, `profiles` genuinely has a client-writable
+    owner policy (`profiles_owner_write`, `WITH CHECK (auth_sub =
+    auth.uid()::text)`) — this proves that WITH CHECK actually excludes a
+    different authenticated user, not just an anonymous one."""
+    stranger_sub = str(uuid.uuid4())
+    conn = await _connection_as(db_pool, stranger_sub)
+    try:
+        result = await conn.execute(
+            "UPDATE profiles SET display_name = 'hacked' WHERE id = $1",
+            uuid.UUID(seeded_profile["id"]),
+        )
+        assert result == "UPDATE 0", "a stranger must not be able to update another user's profile row"
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+    async with db_pool.acquire() as service_conn:
+        row = await service_conn.fetchrow(
+            "SELECT display_name FROM profiles WHERE id = $1", uuid.UUID(seeded_profile["id"])
+        )
+        assert row["display_name"] is None, "the row must be unchanged"
+
+
+@pytest.mark.asyncio
+async def test_anonymous_cannot_update_a_public_profile(db_pool, seeded_profile) -> None:
+    """Same invariant as above, for the anonymous role specifically —
+    public readability must not imply anonymous writability either."""
+    conn = await _connection_as(db_pool, sub=None, role="anon")
+    try:
+        result = await conn.execute(
+            "UPDATE profiles SET display_name = 'hacked' WHERE id = $1",
+            uuid.UUID(seeded_profile["id"]),
+        )
+        assert result == "UPDATE 0"
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+
+@pytest.mark.asyncio
 async def test_anonymous_cannot_read_a_private_profiles_safe_columns(db_pool) -> None:
     """The row filter still applies on top of the column grant -- a
     non-public profile's safe columns are still invisible to anon."""

@@ -4,11 +4,19 @@ import { InitialsAvatar } from "@/components/auth/InitialsAvatar";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+/**
+ * The public profile projection served by `GET /api/v1/profiles/{handle}`
+ * (`PublicProfileResponse`, apps/api/app/models/profile.py) — every field
+ * here is a field this page actually renders below. `avatar_key` is part of
+ * the contract but not yet rendered (no curated avatar-image UI exists yet);
+ * kept here as an unused field is preferable to widening the interface
+ * again once one exists.
+ */
 interface Profile {
   handle: string | null;
   display_name: string | null;
   bio: string | null;
-  is_public: boolean;
+  avatar_key: string | null;
   joined_at: string;
 }
 

@@ -112,8 +112,26 @@ class RatingHistoryResponse(BaseModel):
 
 
 class LeaderboardEntry(BaseModel):
+    """One public leaderboard row.
+
+    public-platform-readiness Batch P3: `owner_sub` (the raw Supabase
+    `auth.uid()`) used to be the identity field here, served to any
+    unauthenticated caller of `GET /ranked/queues/{mode}/leaderboard` and
+    rendered directly as the "Player" column
+    (`apps/web/.../RankedLeaderboard.tsx`) — the same value every sibling
+    public leaderboard in this codebase deliberately withholds (see
+    `ArenaLeaderboardEntry`'s docstring, `apps/api/app/models/arena.py`:
+    "the same value withheld from `profiles` for anon/authenticated ... and
+    a leaderboard row carrying one would be a privacy leak dressed as an
+    identifier"). `handle` replaces it below, resolved the same way Arena's
+    leaderboard resolves it: a rated player with no chosen public handle is
+    unlisted, not shown with a raw subject id as a fallback. Their rating is
+    not lost — see `get_leaderboard`/`get_surrounding_rank` in
+    `app/api/v1/ranked.py` for the filter.
+    """
+
     rank: int
-    owner_sub: str          # stable pagination key only — never a competitive factor
+    handle: str
     rating: float
     rd: float
     division: Optional[str] = None

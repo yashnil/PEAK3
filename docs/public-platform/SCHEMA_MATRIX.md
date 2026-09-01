@@ -4,9 +4,13 @@ Status: Batch P1 (identity: `profiles`, `user_settings`, `anonymous_subjects`,
 `ownership_claims`) + Batch P2 (every remaining durable domain: game
 records/CourtBuilder/Peak Draft, progression/records/achievements/streaks,
 Ranked, H2H, Arena, Peak Duel Daily, RTT, Daily Grid) are covered. See
-`§P2 — remaining domains` below for the second pass. Public
-result/leaderboard *contracts* (as opposed to the tables themselves, already
-documented here) are Batch P3.
+`§P2 — remaining domains` below for the second pass. Batch P3 (public
+result/leaderboard *contracts* — the HTTP/response-model layer over these
+same tables, as opposed to the tables/RLS themselves, already documented
+here) made no schema changes; its full findings and the one fix it made
+(Ranked's `LeaderboardEntry` no longer serializes `owner_sub`, resolving a
+`handle` from `profiles` instead — the `queue_ratings`/`profiles` tables
+themselves are unchanged) are in `docs/public-platform/PUBLIC_DATA_CONTRACT.md`.
 
 None of these four tables have a Postgres-level foreign key to
 `auth.users(id)` — `auth_sub`/`real_user_sub` are plain `TEXT` columns holding

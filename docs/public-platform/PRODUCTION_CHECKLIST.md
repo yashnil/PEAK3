@@ -73,6 +73,15 @@ If `PEAK3_DEBUG` is unset there, it defaults to `true`, and:
   Google Cloud Console + Supabase dashboard pairing, tracked for Batch P5's
   manual dashboard checklist (Phase 16), not done this batch.
 
+## Batch P3 review — no new production configuration surfaced
+
+Batch P3 (public data contract — see `PUBLIC_DATA_CONTRACT.md`) was
+implemented entirely in application code (a new Pydantic response model, a
+route fix, frontend type/render fixes) — no new environment variable, no
+migration, no schema change. The `RANKED_PUBLIC_LEADERBOARD_ENABLED` flag
+this batch's fix depends on already existed and is already covered by
+existing configuration guidance; nothing new to add here.
+
 ## Explicitly deferred to Batch P5
 
 - Full LOCAL / PREVIEW / PRODUCTION variable-by-variable matrix (Phase 15).

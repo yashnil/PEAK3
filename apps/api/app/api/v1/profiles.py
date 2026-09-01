@@ -15,6 +15,7 @@ from app.core.auth import OptionalAuth, RequiredAuth
 from app.core.dependencies import ProfileRepoDep
 from app.models.profile import (
     ProfileResponse,
+    PublicProfileResponse,
     UpdateProfileRequest,
     UpdateSettingsRequest,
     UserSettingsResponse,
@@ -42,6 +43,19 @@ def _to_response(profile: Profile) -> ProfileResponse:
         avatar_key=profile.avatar_key,
         is_public=profile.is_public,
         history_public=profile.history_public,
+        joined_at=profile.joined_at.isoformat() if hasattr(profile.joined_at, "isoformat") else profile.joined_at,
+    )
+
+
+def _to_public_response(profile: Profile) -> PublicProfileResponse:
+    """The Batch P3 public projection — see `PublicProfileResponse`'s own
+    docstring for why this is a separate function/model from `_to_response`
+    rather than that model reused."""
+    return PublicProfileResponse(
+        handle=profile.handle,
+        display_name=profile.display_name,
+        bio=profile.bio,
+        avatar_key=profile.avatar_key,
         joined_at=profile.joined_at.isoformat() if hasattr(profile.joined_at, "isoformat") else profile.joined_at,
     )
 
@@ -108,20 +122,30 @@ async def update_my_settings(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/profiles/{handle}", response_model=ProfileResponse)
+@router.get("/profiles/{handle}", response_model=PublicProfileResponse)
 async def get_public_profile(
     handle: str,
     auth: OptionalAuth,
     profile_repo: ProfileRepoDep,
-) -> ProfileResponse:
+) -> PublicProfileResponse:
+    """The public profile contract (Batch P3 §3.2).
+
+    Always returns the same minimal `PublicProfileResponse` projection to
+    every caller, including the profile's own owner — an owner viewing their
+    public page sees exactly what a stranger would (their extended private
+    fields, `id`/`region`/`is_public`/`history_public`, are only ever served
+    by `GET /profiles/me`). The only thing owner identity changes here is
+    whether the `is_public` gate is bypassed, never the response shape.
+    """
     profile = await profile_repo.get_profile_by_handle(handle)
     if profile is None:
         raise HTTPException(status_code=404, detail="profile_not_found")
 
-    # Owner can always read their own profile
+    # Owner can always read their own profile, even while set to private —
+    # but still gets the public projection, not the private one.
     if auth and auth.sub == profile.auth_sub:
-        return _to_response(profile)
+        return _to_public_response(profile)
     # Non-owner: only if profile is public
     if profile.is_public:
-        return _to_response(profile)
+        return _to_public_response(profile)
     raise HTTPException(status_code=403, detail="profile_private")

@@ -64,6 +64,15 @@ def _client_as(sub: str) -> TestClient:
     return TestClient(app)
 
 
+def _give_handle(sub: str, handle: str) -> None:
+    """public-platform-readiness Batch P3: the public leaderboard now omits
+    any player with no chosen handle (§3.7 — `owner_sub` must never be the
+    public identity). Every sub this test file expects to see LISTED on a
+    leaderboard response needs a real profile+handle first, the same way a
+    real player would from /profile before appearing publicly."""
+    _client_as(sub).put("/api/v1/profiles/me", json={"handle": handle, "is_public": True})
+
+
 def _solve_round_plan(rounds_raw) -> dict[int, tuple[str, str]]:
     """Backtracking search returning one (card_id, role) choice per round
     that fills all 5 roles — mirrors nba_peak.lineup.board._can_fill_all_roles,
@@ -163,6 +172,8 @@ def test_placement_progress_shown_before_established():
 
 
 def test_leaderboard_excludes_provisional_and_includes_established():
+    _give_handle("established_player", "established_player")
+    _give_handle("provisional_player", "provisional_player")
     for i in range(7):
         _play_one_match("apex_1y", "established_player", f"filler_{i}")
     _play_one_match("apex_1y", "provisional_player", "another_filler")
@@ -170,9 +181,24 @@ def test_leaderboard_excludes_provisional_and_includes_established():
     client = _client_as("established_player")
     r = client.get("/api/v1/ranked/queues/apex_1y/leaderboard")
     body = r.json()
-    subs = {e["owner_sub"] for e in body["entries"]}
-    assert "established_player" in subs
-    assert "provisional_player" not in subs
+    handles = {e["handle"] for e in body["entries"]}
+    assert "established_player" in handles
+    assert "provisional_player" not in handles
+
+
+def test_leaderboard_omits_a_rated_player_with_no_chosen_handle():
+    """public-platform-readiness Batch P3 §3.7: an established, rated player
+    who has never chosen a public handle must be unlisted, not shown with
+    their raw auth subject as a fallback identity."""
+    for i in range(7):
+        _play_one_match("apex_1y", "no_handle_player", f"nh_filler_{i}")
+
+    client = _client_as("no_handle_player")
+    r = client.get("/api/v1/ranked/queues/apex_1y/leaderboard")
+    body = r.json()
+    assert all(e["handle"] != "no_handle_player" for e in body["entries"])
+    for entry in body["entries"]:
+        assert "owner_sub" not in entry
 
 
 def test_leaderboard_respects_public_flag():
@@ -207,6 +233,8 @@ def test_division_assignment_uses_configured_version():
 
 def test_cursor_pagination_is_stable():
     for i in range(3):
+        _give_handle(f"lb_player_{i}", f"lbplayer{i}")
+        _give_handle(f"lb_opp_{i}", f"lbopp{i}")
         _play_one_match("foundation_5y", f"lb_player_{i}", f"lb_opp_{i}")
     # each of the 6 users has 1 valid match -> none established yet with default
     # 7-match requirement; use direct repo access to force-establish for a
@@ -237,6 +265,6 @@ def test_cursor_pagination_is_stable():
 
     r2 = client.get(f"/api/v1/ranked/queues/foundation_5y/leaderboard?limit=2&cursor={cursor}")
     page2 = r2.json()
-    page1_subs = {e["owner_sub"] for e in page1["entries"]}
-    page2_subs = {e["owner_sub"] for e in page2["entries"]}
-    assert page1_subs.isdisjoint(page2_subs)
+    page1_handles = {e["handle"] for e in page1["entries"]}
+    page2_handles = {e["handle"] for e in page2["entries"]}
+    assert page1_handles.isdisjoint(page2_handles)
