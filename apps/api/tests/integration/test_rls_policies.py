@@ -888,6 +888,14 @@ _REVOKED_WRITE_TABLES = [
     "streak_states",
     "user_progress",
     "xp_policy_versions",
+    # public-platform-readiness Batch P4: head_to_head_matches/
+    # head_to_head_participants already had their client write grants
+    # revoked inline by their own creating migration
+    # (20260801160000_head_to_head.sql) — confirmed still correctly revoked
+    # live — but were never added to this parametrized list, so they had
+    # zero dedicated RLS test coverage of any kind (P4.20's explicit ask).
+    "head_to_head_matches",
+    "head_to_head_participants",
 ]
 
 
@@ -979,6 +987,253 @@ async def test_select_is_still_granted_on_owned_result_tables(db_pool, table):
     try:
         rows = await conn.fetch(f"SELECT 1 FROM {table} LIMIT 1")
         assert rows == [] or len(rows) == 1
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+
+# ---------------------------------------------------------------------------
+# public-platform-readiness Batch P4 — H2H self-only read, and "a REAL
+# participant cannot mutate their own match directly" (stronger than the
+# generic-stranger REVOKE tests above, which use a sub with no row at all).
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def seeded_h2h_match(db_pool):
+    """One real, fully-seated head-to-head match — a genuine creator and
+    opponent, not a stranger with no row — for tests that need to prove even
+    a legitimate PARTICIPANT cannot write directly."""
+    match_id = str(uuid.uuid4())
+    creator_sub = str(uuid.uuid4())
+    opponent_sub = str(uuid.uuid4())
+    async with db_pool.acquire() as service_conn:
+        await service_conn.execute(
+            """
+            INSERT INTO head_to_head_matches
+                (match_id, invite_hash, creator_sub, seed, source_run_type,
+                 engine_version, ruleset_version, card_pool_version, fairness,
+                 status, expires_at)
+            VALUES ($1, $2, $3, 42, 'standard', 'e1', 'r1', 'c1', '{}'::jsonb,
+                    'in_progress', NOW() + interval '14 days')
+            """,
+            match_id, f"hash-{uuid.uuid4().hex}", creator_sub,
+        )
+        await service_conn.execute(
+            """
+            INSERT INTO head_to_head_participants (match_id, participant_sub, role, run_id, status)
+            VALUES ($1, $2, 'creator', 'run-creator', 'in_progress')
+            """,
+            match_id, creator_sub,
+        )
+        await service_conn.execute(
+            """
+            INSERT INTO head_to_head_participants (match_id, participant_sub, role, run_id, status)
+            VALUES ($1, $2, 'opponent', 'run-opponent', 'in_progress')
+            """,
+            match_id, opponent_sub,
+        )
+    return {"match_id": match_id, "creator_sub": creator_sub, "opponent_sub": opponent_sub}
+
+
+@pytest.mark.asyncio
+async def test_h2h_participant_can_read_their_own_seat(db_pool, seeded_h2h_match):
+    conn = await _connection_as(db_pool, seeded_h2h_match["creator_sub"])
+    try:
+        rows = await conn.fetch(
+            "SELECT * FROM head_to_head_participants WHERE match_id = $1 AND participant_sub = $2",
+            uuid.UUID(seeded_h2h_match["match_id"]), seeded_h2h_match["creator_sub"],
+        )
+        assert len(rows) == 1
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+
+@pytest.mark.asyncio
+async def test_h2h_participant_cannot_read_the_opponents_seat_row(db_pool, seeded_h2h_match):
+    """The self-only read policy (deliberately not match-scoped, to avoid RLS
+    self-recursion — see head_to_head_postgres.py) means even a fellow
+    participant cannot read the OTHER seat's row directly; the server's own
+    `_match_view`/`_public_result` spoiler-safety logic is what mediates
+    cross-participant visibility, never a direct table read."""
+    conn = await _connection_as(db_pool, seeded_h2h_match["creator_sub"])
+    try:
+        rows = await conn.fetch(
+            "SELECT * FROM head_to_head_participants WHERE match_id = $1 AND participant_sub = $2",
+            uuid.UUID(seeded_h2h_match["match_id"]), seeded_h2h_match["opponent_sub"],
+        )
+        assert rows == [], "a participant must not be able to read the OTHER seat's row directly"
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+
+@pytest.mark.asyncio
+async def test_h2h_non_participant_cannot_read_any_seat(db_pool, seeded_h2h_match):
+    stranger = str(uuid.uuid4())
+    conn = await _connection_as(db_pool, stranger)
+    try:
+        rows = await conn.fetch(
+            "SELECT * FROM head_to_head_participants WHERE match_id = $1",
+            uuid.UUID(seeded_h2h_match["match_id"]),
+        )
+        assert rows == []
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+
+@pytest.mark.asyncio
+async def test_h2h_a_real_participant_cannot_settle_their_own_match_directly(db_pool, seeded_h2h_match):
+    """public-platform-readiness Batch P4.20: 'participant cannot mark match
+    settled directly.' Unlike the generic REVOKE tests (a random stranger
+    sub with no row at all), this is the actual creator of a real,
+    in-progress match attempting to write their OWN row's settlement —
+    proving the write-grant revoke holds even for the account with the
+    strongest possible claim to it."""
+    conn = await _connection_as(db_pool, seeded_h2h_match["creator_sub"])
+    try:
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await conn.execute(
+                "UPDATE head_to_head_matches SET settlement = '{\"outcome\":\"forged\"}'::jsonb, status='complete' WHERE match_id = $1",
+                uuid.UUID(seeded_h2h_match["match_id"]),
+            )
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+
+@pytest.mark.asyncio
+async def test_h2h_a_real_participant_cannot_rewrite_their_own_submitted_result(db_pool, seeded_h2h_match):
+    """Same invariant, for the participant's own result row — a client
+    holding a genuinely valid seat still cannot bypass 'first write wins' by
+    writing the column directly instead of going through the API."""
+    conn = await _connection_as(db_pool, seeded_h2h_match["creator_sub"])
+    try:
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await conn.execute(
+                "UPDATE head_to_head_participants SET result = '{\"table_cleared\":true}'::jsonb "
+                "WHERE match_id = $1 AND participant_sub = $2",
+                uuid.UUID(seeded_h2h_match["match_id"]), seeded_h2h_match["creator_sub"],
+            )
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+
+@pytest.mark.asyncio
+async def test_h2h_a_participant_cannot_seat_themself_into_the_other_role(db_pool, seeded_h2h_match):
+    """'participant cannot change opponent' — a seated creator attempting to
+    directly INSERT a second row claiming the opponent seat too (i.e. trying
+    to become both sides) must be denied by the write-grant revoke, the same
+    protection that stops a stranger, not by the role-uniqueness constraint
+    alone (which would only matter if writes were allowed at all)."""
+    conn = await _connection_as(db_pool, seeded_h2h_match["creator_sub"])
+    try:
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await conn.execute(
+                "INSERT INTO head_to_head_participants (match_id, participant_sub, role, run_id, status) "
+                "VALUES ($1, $2, 'opponent', 'forged-run', 'in_progress')",
+                uuid.UUID(seeded_h2h_match["match_id"]), seeded_h2h_match["creator_sub"],
+            )
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+
+# ---------------------------------------------------------------------------
+# public-platform-readiness Batch P4.20 — the same "a REAL participant, not
+# just a stranger, cannot mutate directly" strengthening for Ranked.
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def seeded_ranked_match(db_pool):
+    """One real, two-participant ranked match — reuses the same
+    ranked_queue_versions seed row every ranked RLS test in this file
+    depends on."""
+    match_id = str(uuid.uuid4())
+    sub_a, sub_b = str(uuid.uuid4()), str(uuid.uuid4())
+    async with db_pool.acquire() as service_conn:
+        await service_conn.execute(
+            """
+            INSERT INTO ranked_queue_versions (mode, queue_version, ruleset_version, lineup_model_version,
+                card_pool_version, board_generator_version, anchor_eligibility_version, rating_algorithm_version)
+            VALUES ('apex_1y', 'ranked_queue_v1', 'r', 'l', 'c', 'b', 'a', 'glicko2_v1')
+            ON CONFLICT DO NOTHING
+            """
+        )
+        await service_conn.execute(
+            """
+            INSERT INTO ranked_matches (id, mode, queue_version, board_snapshot, board_version_key,
+                rating_algorithm_version, deadline)
+            VALUES ($1, 'apex_1y', 'ranked_queue_v1', '{}'::jsonb, 'key-1', 'glicko2_v1', NOW() + interval '1 day')
+            """,
+            match_id,
+        )
+        for sub, slot in ((sub_a, 0), (sub_b, 1)):
+            await service_conn.execute(
+                """
+                INSERT INTO ranked_match_participants
+                    (id, match_id, owner_sub, slot, status, joined_at,
+                     pre_match_rating, pre_match_rd, pre_match_volatility)
+                VALUES (gen_random_uuid(), $1, $2, $3, 'board_ready', NOW(), 1500, 350, 0.06)
+                """,
+                match_id, sub, slot,
+            )
+    return {"match_id": match_id, "sub_a": sub_a, "sub_b": sub_b}
+
+
+@pytest.mark.asyncio
+async def test_ranked_a_real_participant_cannot_settle_their_own_match_directly(db_pool, seeded_ranked_match):
+    conn = await _connection_as(db_pool, seeded_ranked_match["sub_a"])
+    try:
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await conn.execute(
+                "UPDATE ranked_matches SET status = 'settled', settlement_status = 'settled' WHERE id = $1",
+                uuid.UUID(seeded_ranked_match["match_id"]),
+            )
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+
+@pytest.mark.asyncio
+async def test_ranked_a_real_participant_cannot_forge_their_own_post_match_rating(db_pool, seeded_ranked_match):
+    """'user cannot update rating directly' — the participant's own row,
+    attempted by that same participant, not a stranger."""
+    conn = await _connection_as(db_pool, seeded_ranked_match["sub_a"])
+    try:
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await conn.execute(
+                "UPDATE ranked_match_participants SET post_match_rating = 9999 "
+                "WHERE match_id = $1 AND owner_sub = $2",
+                uuid.UUID(seeded_ranked_match["match_id"]), seeded_ranked_match["sub_a"],
+            )
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+
+@pytest.mark.asyncio
+async def test_ranked_a_participant_cannot_forge_a_rating_ledger_entry_for_themself(db_pool, seeded_ranked_match):
+    """'user cannot add forged rating ledger entry' — attempted by the real
+    participant the forged entry would credit, not an unrelated stranger."""
+    conn = await _connection_as(db_pool, seeded_ranked_match["sub_a"])
+    try:
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await conn.execute(
+                """
+                INSERT INTO rating_ledger_entries
+                    (owner_sub, mode, match_id, rating_period_id, pre_rating, pre_rd, pre_volatility,
+                     opponent_sub, opponent_pre_rating, opponent_pre_rd, opponent_pre_volatility,
+                     outcome, post_rating, post_rd, post_volatility, algorithm_version, created_at)
+                VALUES ($1, 'apex_1y', $2, gen_random_uuid(), 1500, 350, 0.06,
+                        $3, 1500, 350, 0.06, 1.0, 9999, 50, 0.06, 'glicko2_v1', NOW())
+                """,
+                seeded_ranked_match["sub_a"], uuid.UUID(seeded_ranked_match["match_id"]), seeded_ranked_match["sub_b"],
+            )
     finally:
         await conn.execute("RESET ROLE")
         await db_pool.release(conn)

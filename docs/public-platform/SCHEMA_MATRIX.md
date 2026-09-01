@@ -11,6 +11,15 @@ here) made no schema changes; its full findings and the one fix it made
 (Ranked's `LeaderboardEntry` no longer serializes `owner_sub`, resolving a
 `handle` from `profiles` instead — the `queue_ratings`/`profiles` tables
 themselves are unchanged) are in `docs/public-platform/PUBLIC_DATA_CONTRACT.md`.
+Batch P4 (matchmaking/settlement/H2H concurrency) also made no schema
+changes — every fix was application-code-only (transaction/exception-handling
+corrections in `ranked_postgres.py`/`settlement.py`/`head_to_head.py`, plus
+a frontend reconnect fix). Full trace in
+`docs/public-platform/COMPETITIVE_STATE_MACHINE.md`; RLS coverage grew from
+227 to 244 tests, adding dedicated `head_to_head_matches`/
+`head_to_head_participants` coverage (previously zero) and — for both Ranked
+and H2H — tests proving even a match's own real participant, not just an
+unrelated stranger, cannot mutate settlement/rating/opponent state directly.
 
 None of these four tables have a Postgres-level foreign key to
 `auth.users(id)` — `auth_sub`/`real_user_sub` are plain `TEXT` columns holding

@@ -1,12 +1,12 @@
 # PEAK3 Arena — Public Platform Readiness Audit
 
-Status: **Batch P1 (auth/handle/profile), Batch P2 (database/RLS contract +
-saved runs), and Batch P3 (public data contract) complete.** Batches P4–P5
-(matchmaking/ranked-settlement/realtime, production config) are pending.
-Batch P2's findings are in `§P2` below; Batch P3's full findings live in
-`PUBLIC_DATA_CONTRACT.md` (the dedicated deliverable for that batch) —
-`§P3` here is a short pointer, not a duplicate. `SCHEMA_MATRIX.md` carries
-full per-table detail.
+Status: **Batches P1–P4 complete** (auth/handle/profile; database/RLS
+contract + saved runs; public data contract; matchmaking/settlement/H2H
+concurrency). Batch P5 (production config) is pending. Batch P2's findings
+are in `§P2` below; Batch P3's and P4's full findings live in their own
+dedicated deliverables — `PUBLIC_DATA_CONTRACT.md` and
+`COMPETITIVE_STATE_MACHINE.md` respectively — with only short pointers here.
+`SCHEMA_MATRIX.md` carries full per-table detail.
 
 Scope of this pass: `apps/web/src/lib/auth*.ts`, `apps/web/src/lib/supabase/`,
 `apps/web/src/components/auth/**`, `apps/web/src/components/profile/**`,
@@ -464,3 +464,61 @@ deliverable, per the task's own instruction). Summary:
 - New RLS tests proving a public profile is readable-but-not-writable by a
   stranger and by `anon`, directly against Postgres (bypassing the API
   entirely) — full suite now 227 tests.
+
+---
+
+# §P4 — Matchmaking, Ranked Settlement, Realtime, H2H Concurrency
+
+Full findings, the complete state-transition tables, and every fix are in
+`docs/public-platform/COMPETITIVE_STATE_MACHINE.md` (this batch's primary
+deliverable). Summary:
+
+- **Ranked matchmaking's exactly-one-match guarantee was already correct**
+  (`SELECT...FOR UPDATE SKIP LOCKED` inside one atomic transaction) — now
+  live-verified against real Postgres with genuine concurrent racing, not
+  just read and trusted.
+- **Three real, previously-undiscovered concurrency bugs found and fixed**,
+  all in the Ranked settlement path, all live-verified: (1) the
+  `record_submission` idempotency-key race flagged back in Batch P2/P3,
+  (2) settlement's four trailing match/participant writes living outside
+  the atomic `commit_settlement` transaction (a crash-window bug that could
+  permanently strand a match at `status='matched'` despite a correct rating
+  ledger), and (3) an unguarded `rating_periods.match_id UNIQUE` constraint
+  inside `commit_settlement` — found only by this batch's own live
+  concurrency test, not by reading the code, since three concurrent
+  settlement attempts against real Postgres surfaced an unhandled
+  `UniqueViolationError` no prior test (all memory-repo-only) could have
+  produced.
+- **One real H2H bug found and fixed**: a genuinely concurrent double-rematch
+  request could hand the losing request an HTTP 200 with a correct
+  `match_id` but a dead `invite_token` (derived from data never persisted
+  for that outcome). Fixed to return the same clean 409 the sequential case
+  already used.
+- **One real frontend reconnect bug found and fixed**: Ranked's
+  queue-waiting screen had no recovery path after a refresh — the server
+  state was always correct, the client just never checked it. Fixed with a
+  mount-time `GET /queues/{mode}/status` call, the same durable read the
+  waiting-screen poll already uses.
+- **New dedicated Postgres concurrency test file**
+  (`test_ranked_concurrency_postgres.py`) — every existing Ranked
+  concurrency test ran exclusively against the in-memory repositories
+  (whose single `asyncio.Lock` structurally cannot exhibit a real
+  transaction race), so none of them could have caught bugs 2–3 above. This
+  file re-runs the same class of race against the real
+  `PostgresRankedMatchmakingRepository`/`PostgresRankedRatingRepository`.
+- **Realtime: confirmed unused everywhere**, by design — Ranked/Arena poll,
+  H2H does not poll at all (documented as a known, likely-intentional gap,
+  not fixed). No "Realtime is not authority" violation found anywhere in
+  the app once the reconnect fix above landed.
+- RLS suite grew from 227 to 244 tests: full new coverage for
+  `head_to_head_matches`/`head_to_head_participants` (previously zero), plus
+  — for both Ranked and H2H — tests proving even a match's own real
+  participant cannot mutate settlement/rating/opponent state directly (not
+  just an unrelated stranger, which the existing generic tests already
+  covered).
+- Known, deliberately-deferred gaps (no invented abandonment/penalty
+  policy, per explicit instruction): Ranked's 48-hour match deadline is
+  write-only and never enforced; no active-match abandonment/forfeit
+  handling exists; H2H has no cancellation feature. None of these leave the
+  database in an ambiguous state — an abandoned match simply stays cleanly
+  pending forever, which is inert, not corrupt.

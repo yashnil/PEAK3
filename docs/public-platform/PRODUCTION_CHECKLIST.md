@@ -87,3 +87,43 @@ existing configuration guidance; nothing new to add here.
 - Full LOCAL / PREVIEW / PRODUCTION variable-by-variable matrix (Phase 15).
 - Manual Supabase-dashboard and Google-Cloud-Console click-paths (Phase 16).
 - Migration/deployment rollout order and rollback steps (Phase 17).
+
+## Batch P4 review — Realtime configuration: confirmed nothing to configure
+
+Batch P4 (matchmaking/settlement/H2H concurrency — see
+`COMPETITIVE_STATE_MACHINE.md`) included a full Realtime inventory
+(P4.14–17). Result: **this application uses zero Supabase Realtime anywhere**
+— Ranked, H2H, and Arena are all polling- or manual-refresh-driven by
+design, verified by exhaustive grep across backend and frontend. This is a
+genuine, checked "nothing required" rather than an unexamined gap:
+
+- No `ALTER PUBLICATION`/`supabase_realtime`/`REPLICA IDENTITY` statement
+  exists in any migration — no table needs to be added to a Realtime
+  publication for anything in this app to work.
+- No Realtime channel/authorization policy is needed — no frontend code
+  ever opens a `.channel()`.
+- No reconnect-interval/backoff tuning is needed for a transport that isn't
+  used.
+- The polling fallback IS the primary mechanism, not a fallback: Ranked
+  polls `GET /queues/{mode}/status` and `GET /matches/{id}/settlement`
+  every 2500ms while relevant; Arena polls `GET /arena/matches/{id}` every
+  2000ms (400ms during its reveal ceremony); H2H does not poll at all
+  (documented as a known, likely-intentional gap in
+  `COMPETITIVE_STATE_MACHINE.md`, not a production-config item).
+
+If a future batch decides to adopt real Realtime (e.g., to reduce H2H's
+staleness gap), the manual dashboard step would be: Supabase Dashboard →
+Database → Replication → add the specific table(s) to the
+`supabase_realtime` publication, plus an RLS-compatible channel
+authorization policy — not needed today. Fixes made in P4 (settlement
+atomicity, the H2H rematch race, and Ranked's queue-reconnect gap) reduce
+the actual staleness/incorrectness risk that would motivate this, so it is
+not currently recommended.
+
+## Batch P4 review — no new environment variables or infrastructure required
+
+Every P4 fix was application code (Python/TypeScript) and additive test
+coverage — no new migration, no new environment variable, no new Supabase
+project configuration. `RANKED_PUBLIC_LEADERBOARD_ENABLED` and the other
+existing Ranked/Arena feature flags are unchanged and already covered by
+prior guidance.

@@ -1,7 +1,9 @@
 # Data flow — auth / handle / profile / public data
 
 Status: Batch P1 (auth + profile/handle) + Batch P3 (public read flow, added
-below). Matchmaking/ranked-settlement internals remain Batch P4.
+below) + Batch P4 (matchmaking/settlement/H2H transaction flow — see the
+dedicated `COMPETITIVE_STATE_MACHINE.md` rather than duplicated here; this
+file stays scoped to auth/profile/public-read).
 
 ## Sign-in → session → authenticated request
 
