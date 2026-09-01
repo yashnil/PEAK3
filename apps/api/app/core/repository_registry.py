@@ -16,8 +16,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Every durable domain wired through core/dependencies.py's get_*_repo
-# functions. Keep in sync when a new domain/table is added.
+# Every durable domain, wherever its get_*_repo function is wired. Keep in
+# sync when a new domain/table is added.
 #
 # THIS LIST IS THE CHECK. `assert_production_ready` can only refuse to start on
 # a non-durable domain it has been told about, so a wired domain that is
@@ -27,8 +27,18 @@ logger = logging.getLogger(__name__)
 # reasoning that its feature was flagged off or still a vertical slice. A flag
 # can be turned on without anyone re-reading that reasoning, and the failure it
 # permits -- production serving a player's saved history out of a dict that
-# empties on restart -- is exactly the one being guarded against. Being wired
-# in core/dependencies.py is the only criterion for membership.
+# empties on restart -- is exactly the one being guarded against.
+#
+# public-platform-readiness Batch P2: `telemetry` and `contact` were also
+# missing. Not a live divergence risk -- both switch on the exact same
+# `request.app.state.db_pool is not None` flag as every domain here (their own
+# comments say so explicitly: "Same single-flag switch every other domain
+# uses"), just wired inline in their own route files
+# (app/api/v1/telemetry.py, app/api/v1/contact.py) rather than through
+# core/dependencies.py, which is why "wired in core/dependencies.py" was
+# previously stated as this list's membership criterion and silently excluded
+# them. Restated above without that qualifier: being a durable domain at all
+# is the actual criterion, matching what `assert_production_ready` is for.
 REPOSITORY_DOMAINS: list[str] = [
     "game",
     "court_lineup",
@@ -63,6 +73,8 @@ REPOSITORY_DOMAINS: list[str] = [
     # rating that silently reverted is a number a player watched go up and then
     # go back down, with nothing to point at.
     "arena_rating",
+    "telemetry",
+    "contact",
 ]
 
 

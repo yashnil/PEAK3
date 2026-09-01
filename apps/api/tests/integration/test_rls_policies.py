@@ -780,6 +780,71 @@ _REVOKED_WRITE_TABLES = [
     "perfect_season_runs",
     "perfect_season_saved_runs",
     "perfect_season_run_cards",
+    # public-platform-readiness Batch P2: these three predate
+    # 20260630130100_default_privileges.sql's blanket grant and were missed by
+    # every prior revoke migration as a result, but a live grant check against
+    # local Postgres showed they carry the identical
+    # INSERT/UPDATE/DELETE/TRUNCATE/TRIGGER over-grant anyway (real hosted
+    # Supabase projects grant base table privileges at provisioning time,
+    # independent of migration-file ordering). RLS alone already blocked every
+    # write attempted against them (verified live, including the row owner's
+    # own UPDATE) because `games_owner`/`result_snapshots_owner`/
+    # `daily_completions_owner` (20260630124900_rls.sql) are SELECT-only with
+    # no INSERT/UPDATE/DELETE policy at all — so this was a defence-in-depth
+    # gap, not a live breach. Closed by
+    # 20260901090000_game_records_client_write_revoke.sql, matching the
+    # REVOKE pattern already established for the tables above.
+    "games",
+    "daily_completions",
+    "result_snapshots",
+    # public-platform-readiness Batch P2: a full grant audit against local
+    # Postgres (every table, not just the ones a previous migration happened
+    # to name) found 33 more tables still carrying
+    # 20260630130100_default_privileges.sql's blanket INSERT/UPDATE/DELETE/
+    # TRUNCATE/TRIGGER grant, including ranked_match_settlements and
+    # rating_ledger_entries — rating integrity's two most safety-critical
+    # tables. None were exploitable (RLS's default-deny for a command with no
+    # matching policy already blocked every write; verified live with a real
+    # `authenticated`-role DELETE against ranked_match_settlements and UPDATE
+    # against rating_ledger_entries, both returning 0 rows affected rather
+    # than an error), but that silent zero is exactly the weaker of the two
+    # layers this codebase's own convention argues against — see
+    # 20260901120000_revoke_remaining_write_grants.sql. profiles/user_settings
+    # are correctly NOT in this list: both have a real owner `FOR ALL ... WITH
+    # CHECK` policy that intentionally allows a direct client write.
+    "achievement_awards",
+    "achievement_definitions",
+    "board_snapshots",
+    "card_pool_versions",
+    "challenge_participants",
+    "challenge_settlements",
+    "challenges",
+    "division_versions",
+    "game_actions",
+    "lineup_model_versions",
+    "personal_record_events",
+    "personal_records",
+    "placement_states",
+    "progression_events",
+    "queue_ratings",
+    "ranked_abort_allowances",
+    "ranked_integrity_events",
+    "ranked_match_participants",
+    "ranked_match_settlements",
+    "ranked_match_submissions",
+    "ranked_matches",
+    "ranked_opponent_history",
+    "ranked_queue_entries",
+    "ranked_queue_versions",
+    "rating_algorithm_versions",
+    "rating_ledger_entries",
+    "rating_periods",
+    "rating_snapshots",
+    "ruleset_versions",
+    "streak_events",
+    "streak_states",
+    "user_progress",
+    "xp_policy_versions",
 ]
 
 
@@ -832,6 +897,28 @@ async def test_run_the_table_snapshot_cannot_be_updated_by_a_client(db_pool):
             await conn.execute(
                 "UPDATE run_the_table_runs SET snapshot = '{}'::jsonb"
             )
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+
+@pytest.mark.asyncio
+async def test_games_status_cannot_be_updated_by_a_client(db_pool):
+    """public-platform-readiness Batch P2. `games.status` going straight to
+    'complete' via a direct client UPDATE would let a player fabricate a
+    finished CourtBuilder/Peak Draft session (and everything downstream that
+    trusts `status`) without ever playing it — the same class of forgery
+    `test_run_the_table_snapshot_cannot_be_updated_by_a_client` guards
+    against for its own table. Denied twice over: the REVOKE below fails
+    loudly at the privilege check, and even before this migration, RLS alone
+    already silently matched zero rows for this UPDATE (verified live,
+    including as the row's own owner) because `games_owner`
+    (20260630124900_rls.sql) is a SELECT-only policy."""
+    sub = str(uuid.uuid4())
+    conn = await _connection_as(db_pool, sub)
+    try:
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await conn.execute("UPDATE games SET status = 'complete'")
     finally:
         await conn.execute("RESET ROLE")
         await db_pool.release(conn)

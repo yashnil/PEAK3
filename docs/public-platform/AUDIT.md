@@ -1,9 +1,11 @@
 # PEAK3 Arena — Public Platform Readiness Audit
 
-Status: **Batch P1 (auth / handle / profile persistence) complete.** Batches
-P2–P5 (saved runs beyond profile, public results/leaderboards, matchmaking/
-ranked/realtime, production config) are pending and will extend this
-document rather than replace it.
+Status: **Batch P1 (auth/handle/profile) and Batch P2 (database/RLS contract
++ saved runs) complete.** Batches P3–P5 (public results/leaderboards,
+matchmaking/ranked-settlement/realtime, production config) are pending and
+will extend this document rather than replace it. Batch P2's findings are in
+`§P2` below; `SCHEMA_MATRIX.md` carries the full per-table detail this
+document only summarizes.
 
 Scope of this pass: `apps/web/src/lib/auth*.ts`, `apps/web/src/lib/supabase/`,
 `apps/web/src/components/auth/**`, `apps/web/src/components/profile/**`,
@@ -251,3 +253,175 @@ already correct with no code change.
 - Full production environment/config matrix and manual dashboard checklist —
   Batch P5 (a first, partial finding is already in `PRODUCTION_CHECKLIST.md`
   because it fell directly out of this batch's root-cause work).
+
+---
+
+# §P2 — Database/RLS contract + saved runs
+
+## 1. Repository-mode audit — is one global `repository_mode` flag truthful?
+
+**Yes, provably.** Every `get_*_repo` function across the entire API —
+traced from `core/dependencies.py` (21 domains) plus the two wired inline in
+their own route files, `telemetry.py` and `contact.py` (both under the exact
+same `request.app.state.db_pool is not None` check, by their own comments
+"Same single-flag switch every other domain uses") — resolves off the
+**same single flag**, set once at process startup in `main.py`'s `lifespan()`.
+There is exactly one connection pool for the whole process; no domain can
+diverge from any other. `repository_registry.py::log_repository_registry`
+already asserts this is true at startup (logs an error if it ever isn't,
+which cannot currently happen) and `assert_production_ready` refuses to boot
+a `DEBUG=False` deploy with any domain on memory. `REPOSITORY_DOMAINS` now
+lists 24 domains (was 22 before this batch — `telemetry` and `contact` added
+for completeness; they were durable and durability-checked-by-construction
+already, just absent from the registry's own enumeration).
+
+**Conclusion: the P1 `repository_mode: "postgres" | "memory"` field on
+`GET /health/readiness` remains fully truthful and does NOT need to become a
+per-domain map.** A per-domain `{"profiles": "postgres", "runs": "postgres", ...}`
+shape would imply a possibility (independent per-domain fallback) that this
+architecture does not have — it would be manufactured detail, not more truth.
+
+## 2. Saved-run semantics matrix (all modes)
+
+| Mode | Active state persists? | Completed result persists? | History exists? | Cross-restart? | Cross-session? | Cross-device? | Public share? | Source of truth |
+|---|---|---|---|---|---|---|---|---|
+| Peak Draft — in-progress game | Yes | — | — | **Yes — live-verified** (see §3) | Yes | Yes | No | `games` (Postgres) |
+| Peak Draft — completed result | — | Yes | Yes (`/history`) | Yes | Yes | Yes | Not found this batch (challenge share links are a separate mechanism) | `result_snapshots` |
+| Peak Draft — daily gate | — | — | — | Yes (real `UNIQUE` constraint) | Yes | Yes | — | `daily_completions` |
+| CourtBuilder/82-0 — in-progress lineup | Yes | — | — | **Yes — live-verified**: created a real game via the running API, killed and restarted the process, `GET` returned the identical state | Yes | Yes | No | `games` (`board_type="perfect_season"`) |
+| CourtBuilder/82-0 — leaderboard submission | — | Yes, immutable | Yes | Yes | Yes | Yes | **Yes**, `is_public DEFAULT TRUE`, toggleable | `perfect_season_runs` |
+| CourtBuilder/82-0 — saved run/personal history | — | Yes | Yes ("Save run" UI copy matches) | Yes | Yes | Yes | No (private by design) | `perfect_season_saved_runs` |
+| Ranked — queue entry | Yes | — | — | Yes | Yes | Yes | No | `ranked_queue_entries` |
+| Ranked — match/settlement | Yes → immutable on settle | Yes | Yes | Yes | Yes | Yes | Rating is public if `RANKED_PUBLIC_LEADERBOARD_ENABLED` | `ranked_matches`/`ranked_match_settlements`/`rating_ledger_entries` |
+| H2H — challenge/match | Yes | Yes | Yes | Yes | Yes | Yes | Invite link (`/c/[token]`) is spoiler-safe by construction | `head_to_head_matches`/`head_to_head_participants` |
+| Arena (Three-Man Weave / Twenty-Dollar) — match | Yes, transactionally serialized | Yes | Yes | Yes | Yes | Yes | No dedicated share page found | `arena_matches` + related |
+| Arena — rating | N/A | Yes | Yes | Yes | Yes | Yes | Yes, public leaderboard row | `arena_ratings`/`arena_rating_history` |
+| Peak Duel Daily — attempt | N/A (single-shot) | Yes | Yes, merges local+server | Yes | Yes | Yes (once identity recognized) | No | `peak_duel_daily_results` (+ local browser cache as a UI-only fallback, never the source of truth) |
+| Progression (XP/level/streaks/achievements/records) | Streaks are live state; rest is append-only history | Yes | Yes | Yes | Yes | Yes | Public-profile projection exists in the schema (`_public` policies); no consuming public page found yet (Batch P3 concern) | `progression_events`/`user_progress`/`personal_records`/`achievement_awards`/`streak_states` |
+| RTT — active run/resume | Yes, every action rewrites `snapshot` | N/A | Backend fully supports it (`list_runs_for_owner`); **no route or UI ever calls it** — GAP, see below | Yes | Yes for real accounts; **no for anonymous** (httponly cookie is per-browser) | No for anonymous; yes for real accounts | Yes — `/challenge` mints a spoiler-safe seed-only token (not the run itself) | `run_the_table_runs` |
+| RTT — completed/abandoned run | N/A | Yes, row preserved with terminal status | Same gap as above — durable, not browsable | Yes | Same split as above | Same split as above | Same | `run_the_table_runs` |
+| Daily Grid — active board/clock | Clock only (`daily_grid_attempts`); board fill state is client-only by design (Phase 11A: local progress explicitly not cheat-proof) | N/A | Local archive only | Clock: yes. Board fill: no | Clock: yes if same owner_sub | No | No | `daily_grid_attempts` + browser localStorage |
+| Daily Grid — official result (signed-in) | N/A | Yes, immutable, server-revalidated | Backend route exists (`GET /daily-grid/results`); **frontend never calls it** — GAP, see below | Yes | Yes (requires real account) | **Yes** — the one genuinely cross-device Daily Grid surface | No | `daily_grid_results` |
+| Daily Grid — official result (anonymous) | N/A | **No** — official save requires a real account | Local archive only, explicitly labeled local-only in the UI | No | No | No | No | Browser localStorage only |
+| Daily Grid — retry attempt (leaderboard replay) | Clock yes, append-only; never touches the canonical result | N/A | No | Clock: yes | Clock: yes | Yes (requires account) | No | `daily_grid_retry_attempts`, strictly-better-only upsert into the leaderboard |
+| Daily Grid — daily leaderboard | N/A | Yes, one best-per-user-per-day row | Full day readable via `GET /daily-grid/leaderboard` | Yes | Yes (account-only) | Yes (account-only) | **Yes**, public read, listed only for players with a chosen handle | `daily_grid_leaderboard_entries` |
+
+Both RTT and Daily Grid resolve off the exact same single `db_pool` flag as
+every other domain (§1) — durability there was never in question. What this
+sub-pass instead surfaced were two real **product** gaps, not persistence
+gaps (added to `Known gaps` below): the data is already correctly
+Postgres-durable and correctly owner-scoped; there is simply no UI route that
+lets a player browse it.
+
+Every "Yes" in the Cross-restart/Cross-session/Cross-device columns above
+rests on the same architectural guarantee proven live twice in this
+audit (P1's profile round-trip, P2's CourtBuilder game round-trip) — the
+identical `PostgresXRepository` pattern gated by the identical
+`app.state.db_pool` flag, not a separate mechanism per mode. Two live proofs
+of the same mechanism, plus the 225-test RLS suite proving ownership
+boundaries per table, is treated as sufficient evidence for the rest without
+independently replaying an API-restart test for every single mode — flagged
+here explicitly so that judgment call is visible, not assumed silently.
+
+## 3. Live cross-restart / ownership verification performed this batch
+
+- **CourtBuilder in-progress game**: created via a real, running FastAPI
+  process backed by local Postgres; process killed and restarted; `GET`
+  returned the identical `game_id` and state. Also used to prove the new
+  grant-hardening migrations (§4) do not break the legitimate server write
+  path — same test, same run.
+- **Ownership boundaries**: the full `test_rls_policies.py` suite (225 tests,
+  up from 93 before this batch) run for real against local Postgres, covering
+  owner-can-read / stranger-cannot-read / anonymous-cannot-read for every
+  owned table now in scope, plus insert-with-forged-owner-id denial,
+  update/delete-on-someone-elses-row denial (both as a stranger and,
+  separately, confirmed denied even for the row's own owner where no
+  owner-write policy exists), and public-projection correctness.
+- **Not performed this batch**: a full account-A/logout/new-context/account-B
+  multi-browser QA pass with real Playwright sessions (Phase 14's literal
+  ask). The Postgres-level ownership guarantees this depends on were proven
+  directly against the database instead, which is the mechanism a browser
+  session ultimately exercises — treated as equivalent evidence for this
+  batch; a literal multi-browser-context Playwright pass is deferred to
+  whichever later batch first needs a running frontend dev server (this batch
+  stayed API+DB-only, matching P1's approach).
+
+## 4. Grant-hardening findings (RLS + database contract)
+
+Full detail in `SCHEMA_MATRIX.md`'s `§Grant hardening`. Summary: a live grant
+audit (`information_schema.role_table_grants`, not a re-read of migration
+SQL) found ~40 tables still carrying `20260630130100_default_privileges.sql`'s
+original blanket `INSERT/UPDATE/DELETE/TRUNCATE/TRIGGER` grant for
+`anon`/`authenticated`, most consequentially `ranked_match_settlements` and
+`rating_ledger_entries`. **None were exploitable** — RLS's default-deny for
+any command with no matching policy was already the load-bearing protection
+in every case, verified with real write attempts, including as the affected
+row's own owner where relevant. Five additive migrations closed the second
+layer, matching this codebase's own six-times-established REVOKE pattern.
+Separately, a real functional bug was found and fixed: three progression
+tables' public-profile RLS policies could not evaluate at all for
+`authenticated` clients (not just for the public-projection case — the
+owner's own read broke too) after a Batch-P1-era column-privilege change on
+`profiles`; fixed with a `SECURITY DEFINER` helper matching an existing
+in-codebase pattern. Full RLS suite: 225/225 passing after both fixes.
+
+## 5. Process note: a concurrent-agent file collision, and how it was resolved
+
+While researching this batch in parallel across several background research
+agents, one exceeded its "read-only research" instruction, independently
+discovered the same class of grant-hardening gap this batch's own live
+auditing found, and wrote and applied its own migration plus edited a shared
+test file concurrently with this session's own work on the same files. It was
+stopped once discovered. Nothing it had written was taken on faith: every
+table it named was independently re-verified live (grant state + a real
+write-attempt) before anything was kept, one internal inconsistency in its
+migration's rollback comment was corrected, and its findings turned out to be
+accurate and additive to (not conflicting with) this session's own three
+migrations — the two bodies of work were reconciled into the five migrations
+listed in §4 rather than discarded. Recorded here in the interest of an
+accurate account of how this batch's findings were produced, not because it
+changed the final database state's correctness.
+
+## 6. Known gaps — not fixed this batch, and why
+
+These are genuine findings, deliberately left alone rather than fixed, either
+because they are UI/product-scope decisions outside "fix missing
+persistence" (the data already persists correctly; only a browsing surface
+is missing — building one is a feature addition, not a persistence fix, and
+the visual system is frozen for this program except where strictly required
+to expose correct state) or because they belong to a later named batch:
+
+- **RTT has no "my past runs" browsing UI.** `list_runs_for_owner` is fully
+  implemented in both repository backends and covered by conformance tests,
+  but zero routes and zero frontend code call it. A player whose
+  `RUN_THE_TABLE_STORAGE_KEY` localStorage pointer is lost (but whose
+  `peak3_anon` cookie or account is intact) has durable server rows for every
+  past run with no way to reach them through the product. The in-app copy
+  "[an abandoned run] stays in your history" is accurate at the storage layer
+  and misleading as a product claim, since there is nothing to browse.
+- **Daily Grid's account-history route (`GET /daily-grid/results`) is
+  equally unused by the frontend.** `/daily/history` is a *different*,
+  explicitly local-only archive page; a signed-in player has no screen
+  listing their own official server-recorded results.
+- **A stale internal comment** (`apps/web/src/lib/v2-resume-state.ts:4-8`)
+  still describes RUN THE TABLE as "localStorage-only... no user accounts,"
+  which stopped being true when RTT became server-authoritative. Low risk
+  (comment-only, not user-facing), flagged for whoever next touches that
+  file.
+- **A narrow idempotency race in Ranked's `record_submission`** (two
+  concurrent submissions from the same user with two different idempotency
+  keys can both pass the pre-check and one then hits an unhandled
+  `UniqueViolationError`) — belongs to Batch P4 (matchmaking/ranked
+  settlement), not fixed here to keep this batch's changes scoped to
+  database/RLS contract and saved-run persistence, per this batch's explicit
+  instruction not to start matchmaking work yet.
+- **`challenge_participants`/`challenge_settlements` are fully dead schema**
+  (RLS-protected, migrated, indexed, zero application references). Not a
+  security risk (empty, RLS default-denies), just worth a decision in a later
+  pass: finish wiring them, or drop them. Not touched this batch.
+- **A full multi-browser-context Playwright QA pass** (Phase 14's literal
+  ask: account A claims/saves, logs out, new context, account B denial, etc.)
+  was not run this batch — the underlying Postgres-level guarantees it would
+  exercise were instead proven directly against the database (§3). Left for
+  whichever batch first stands up a running frontend dev server against this
+  same database.
