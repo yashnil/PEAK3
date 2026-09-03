@@ -44,6 +44,12 @@ migration change rather than hand-editing this file.
 | 37 | `20260804140000_arena_ratings` | 2 | 4 | 0 | 1 | 2 | 2 | 2 |
 | 38 | `20260811090000_daily_grid_leaderboard` | 1 | 1 | 1 | 0 | 0 | 1 | 1 |
 | 39 | `20260811130000_daily_grid_retry_attempts` | 1 | 1 | 0 | 0 | 0 | 1 | 1 |
+| 40 | `20260901090000_game_records_client_write_revoke` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 41 | `20260901093000_progression_tables_client_write_revoke` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 42 | `20260901096000_ranked_tables_client_write_revoke` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 43 | `20260901120000_revoke_remaining_write_grants` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 44 | `20260901130000_fix_progression_public_policy_privilege` | 0 | 0 | 0 | 1 | 0 | 0 | 3 |
+| 45 | `20260901140000_anonymous_subjects_ownership_claims_revoke` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 
 ## Detail per migration
 
@@ -1122,3 +1128,159 @@ migration change rather than hand-editing this file.
 **External table dependencies (not created in this file):** none
 
 **Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY
+
+### `20260901090000_game_records_client_write_revoke.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected
+
+### `20260901093000_progression_tables_client_write_revoke.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected
+
+### `20260901096000_ranked_tables_client_write_revoke.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected
+
+### `20260901120000_revoke_remaining_write_grants.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected
+
+### `20260901130000_fix_progression_public_policy_privilege.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** is_public_profile_sub
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** personal_records_public_v2, achievement_awards_public_v2, streak_states_public_v2
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** policies: DROP POLICY IF EXISTS guard before CREATE POLICY
+
+### `20260901140000_anonymous_subjects_ownership_claims_revoke.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected

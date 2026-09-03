@@ -2417,5 +2417,128 @@
       "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
       "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
     ]
+  },
+  {
+    "filename": "20260901090000_game_records_client_write_revoke.sql",
+    "identifier": "20260901090000_game_records_client_write_revoke",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "none detected"
+    ]
+  },
+  {
+    "filename": "20260901093000_progression_tables_client_write_revoke.sql",
+    "identifier": "20260901093000_progression_tables_client_write_revoke",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "none detected"
+    ]
+  },
+  {
+    "filename": "20260901096000_ranked_tables_client_write_revoke.sql",
+    "identifier": "20260901096000_ranked_tables_client_write_revoke",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "none detected"
+    ]
+  },
+  {
+    "filename": "20260901120000_revoke_remaining_write_grants.sql",
+    "identifier": "20260901120000_revoke_remaining_write_grants",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "none detected"
+    ]
+  },
+  {
+    "filename": "20260901130000_fix_progression_public_policy_privilege.sql",
+    "identifier": "20260901130000_fix_progression_public_policy_privilege",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [],
+    "functions": [
+      "is_public_profile_sub"
+    ],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [
+      {
+        "name": "personal_records_public_v2",
+        "table": "personal_records"
+      },
+      {
+        "name": "achievement_awards_public_v2",
+        "table": "achievement_awards"
+      },
+      {
+        "name": "streak_states_public_v2",
+        "table": "streak_states"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
+    ]
+  },
+  {
+    "filename": "20260901140000_anonymous_subjects_ownership_claims_revoke.sql",
+    "identifier": "20260901140000_anonymous_subjects_ownership_claims_revoke",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "none detected"
+    ]
   }
 ]
