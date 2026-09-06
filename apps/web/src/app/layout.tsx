@@ -17,6 +17,7 @@ import "@/styles/v2/rtt-result.css";
 import "@/styles/v2/game-intro.css";
 import "@/styles/v2/arena-lobby.css";
 import "@/styles/v2/info-pages.css";
+import "@/styles/v2/duel.css";
 import "@/styles/game-feel.css";
 
 /* SELF-HOSTED, NOT `next/font/google`.

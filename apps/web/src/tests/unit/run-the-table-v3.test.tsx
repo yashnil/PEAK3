@@ -157,8 +157,19 @@ const VERSIONS = {
   peak3_model_version: "peak3_official_weights_v1",
 };
 
+/**
+ * Every snapshot the mocked server returns is NEWER than the one before it.
+ * The room applies a snapshot only when `action_count` (its version) has
+ * advanced (`isNewerRun`, the newer-wins guard every Arena game shares), so a
+ * fixture that reused the same count forever would be dropped as a stale
+ * read — exactly what the guard exists to do to a real late poll.
+ */
+let fixtureVersion = 0;
+
 function runState(over: Partial<RunPublicState> = {}): RunPublicState {
+  fixtureVersion += 1;
   return {
+    action_count: fixtureVersion,
     run_id: "run-v3",
     seed: 4242,
     run_type: "standard",
@@ -222,7 +233,6 @@ function runState(over: Partial<RunPublicState> = {}): RunPublicState {
       sink_spend_total: 0,
     },
     credit_sinks: [],
-    action_count: 0,
     receipt: null,
     versions: VERSIONS,
     created_at: "2026-08-01T00:00:00Z",
@@ -699,8 +709,7 @@ describe("RunTheTableGame — v3 flow", () => {
     expect(screen.getByTestId("rtt-reveal-start-roster")).toBeInTheDocument();
     expect(screen.queryByText(/Player \d/)).not.toBeInTheDocument();
 
-    mockPostAction.mockResolvedValue(
-      runState({ action_count: 1, reveal: { roster: rosterTrack(7), boss: null } }),
+    mockPostAction.mockImplementation(async () => runState({ reveal: { roster: rosterTrack(7), boss: null } }),
     );
     await userEvent.click(screen.getByTestId("rtt-reveal-start-roster"));
 
@@ -720,8 +729,7 @@ describe("RunTheTableGame — v3 flow", () => {
     // changes. Skip-all now only ever advances the local sequence to
     // `complete`; only an explicit "Continue" press dismisses the surface.
     await startAt(runState());
-    mockPostAction.mockResolvedValue(
-      runState({ action_count: 1, reveal: { roster: rosterTrack(7), boss: null } }),
+    mockPostAction.mockImplementation(async () => runState({ reveal: { roster: rosterTrack(7), boss: null } }),
     );
     await userEvent.click(screen.getByTestId("rtt-reveal-start-roster"));
     await userEvent.click(await screen.findByTestId("rtt-reveal-skip-roster"));
@@ -802,8 +810,7 @@ describe("RunTheTableGame — v3 flow", () => {
     // Pass 1 (gameplay correctness): the boss lineup reveal auto-starts the
     // instant this surface mounts, firing the same `reveal` action a click
     // used to — so the mock must resolve it or the run errors out.
-    mockPostAction.mockResolvedValue(
-      runState({
+    mockPostAction.mockImplementation(async () => runState({
         status: "boss_ready", act: 1,
         reveal: { roster: rosterTrack(7), boss: bossTrack(7) },
       }),
@@ -847,8 +854,7 @@ describe("RunTheTableGame — v3 flow", () => {
     // Set BEFORE the intro is dismissed: the boss reveal now auto-starts
     // (fires `reveal`) the instant its surface mounts, right after the intro
     // skip click below — there is no separate start press left to mock around.
-    mockPostAction.mockResolvedValue(
-      runState({
+    mockPostAction.mockImplementation(async () => runState({
         status: "boss_ready", act: 1, starters: myStarters,
         reveal: { roster: rosterTrack(7), boss: bossTrack(7) },
       }),
@@ -894,8 +900,7 @@ describe("RunTheTableGame — v3 flow", () => {
 
     // Boss 1's own auto-fired reveal response — set before it ever mounts,
     // same reason as the other boss-reveal tests in this pass.
-    mockPostAction.mockResolvedValue(
-      runState({
+    mockPostAction.mockImplementation(async () => runState({
         status: "boss_ready", act: 1,
         reveal: { roster: rosterTrack(7), boss: bossTrack(7) },
         next_boss: bossOne,
@@ -922,8 +927,7 @@ describe("RunTheTableGame — v3 flow", () => {
 
     // Resolve boss 1 and land straight on boss 2's fresh, UNREVEALED track —
     // the exact transition P5-F4 broke.
-    mockPostAction.mockResolvedValue(
-      runState({
+    mockPostAction.mockImplementation(async () => runState({
         status: "boss_ready", act: 2,
         reveal: { roster: rosterTrack(7), boss: bossTrack(0, { act: 2, boss_id: "strength-in-numbers", name: "Strength in Numbers" }) },
         next_boss: bossTwo,
@@ -938,8 +942,7 @@ describe("RunTheTableGame — v3 flow", () => {
 
     // Set for boss 2's own auto-fired reveal response — fires the instant
     // its intro is skipped and the reveal surface mounts, below.
-    mockPostAction.mockResolvedValue(
-      runState({
+    mockPostAction.mockImplementation(async () => runState({
         status: "boss_ready", act: 2,
         reveal: { roster: rosterTrack(7), boss: bossTrack(7, { act: 2, boss_id: "strength-in-numbers", name: "Strength in Numbers" }) },
         next_boss: bossTwo,
@@ -984,8 +987,7 @@ describe("RunTheTableGame — v3 flow", () => {
     // mocks that response explicitly rather than relying on the resolved
     // value a PRECEDING test happened to leave behind (`vi.clearAllMocks()`
     // resets call history, not `mockResolvedValue`).
-    mockPostAction.mockResolvedValue(
-      runState({
+    mockPostAction.mockImplementation(async () => runState({
         status: "boss_ready",
         act: 1,
         lane_profile: [],
@@ -1068,7 +1070,7 @@ describe("RunTheTableGame — v3 flow", () => {
     );
     expect(screen.getByTestId("rtt-sink-market_refresh")).toBeInTheDocument();
 
-    mockPostAction.mockResolvedValue(runState({ status: "node_select", credits: 43 }));
+    mockPostAction.mockImplementation(async () => runState({ status: "node_select", credits: 43 }));
     await userEvent.click(screen.getByTestId("rtt-sink-market_refresh"));
     await waitFor(() =>
       expect(mockPostAction).toHaveBeenCalledWith(
@@ -1102,7 +1104,7 @@ describe("RunTheTableGame — v3 flow", () => {
         },
       }),
     );
-    mockPostAction.mockResolvedValue(runState({ lives: 2, credits: 30 }));
+    mockPostAction.mockImplementation(async () => runState({ lives: 2, credits: 30 }));
     await userEvent.click(screen.getByTestId("rtt-sink-emergency_recovery"));
     await waitFor(() =>
       expect(mockPostAction).toHaveBeenCalledWith(
@@ -1123,7 +1125,7 @@ describe("RunTheTableGame — v3 flow", () => {
     // Not the generic written-choice surface.
     expect(screen.queryByTestId("rtt-choice-node")).not.toBeInTheDocument();
 
-    mockPostAction.mockResolvedValue(runState({ status: "node_select" }));
+    mockPostAction.mockImplementation(async () => runState({ status: "node_select" }));
     await userEvent.click(screen.getByTestId("rtt-scout-prepare-traditional_production"));
     await waitFor(() =>
       expect(mockPostAction).toHaveBeenCalledWith(
@@ -1167,8 +1169,7 @@ describe("RunTheTableGame — v3 flow", () => {
     // `next_boss` is still the same boss this report was about, so the pin
     // must survive into the Draft Room two nodes later, not just the node
     // scouting happened on.
-    mockPostAction.mockResolvedValue(
-      runState({
+    mockPostAction.mockImplementation(async () => runState({
         status: "node_active",
         reveal: { roster: rosterTrack(7), boss: null },
         active_node: { node_id: "n2", node_type: "draft_room", title: "Open tryouts", summary: "", offers: [], can_pass: true },
@@ -1183,8 +1184,7 @@ describe("RunTheTableGame — v3 flow", () => {
     // `scoutIntel` is still sitting in state (scouting only clears on a new
     // run), but it is no longer about the boss the player is about to face,
     // so the pin must disappear rather than misreport a stale opponent.
-    mockPostAction.mockResolvedValue(
-      runState({
+    mockPostAction.mockImplementation(async () => runState({
         status: "node_active",
         reveal: { roster: rosterTrack(7), boss: null },
         active_node: { node_id: "n3", node_type: "draft_room", title: "Open tryouts", summary: "", offers: [], can_pass: true },

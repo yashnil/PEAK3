@@ -1,3 +1,42 @@
+# Game-feel reconstruction pass 3 — progress
+
+Branch: `feature/game-feel-reconstruction` (checkpoint `4d590e1` = pass 2,
+2026-09-06). Design note: `docs/design/GAME_FEEL.md` ("Run the Table" section).
+Fact bank: `docs/implementation/NBA_FACT_BANK_AUDIT.md` §10.
+
+## Run the Table — rebuilt as a run
+- Orchestrator (`RunTheTableGame.tsx`) on `useCommandLane` + `isNewerRun`
+  (`action_count` as the version); every announcement derived from two
+  snapshots (`describeRunTransition`); projected credits while a card is
+  selected; act transitions and the failure ending (battle shown before the
+  receipt); tour never auto-starts (`How to play` button).
+- New: `PeakV2RTTShell` (header + `RunTrack` + decision/rail + phone bar),
+  `PeakV2RTTRoster`, `PeakV2RTTOfferCard`, `PeakV2RTTDecisionHead`,
+  `PeakV2RTTCoach` + `lib/run-the-table-coach.ts`; rebuilt draft room, fork,
+  perks, written choice, credit sinks, boss title card, paired deal, matchup
+  board, staged battle result, ending sequence; trade desk/scout re-headed.
+- Shared primitives: `LifeMeter`, `RunTrack` (`components/game-feel`),
+  `ResultReveal.startComplete`. CSS: `styles/v2/rtt.css` rewritten (class
+  roots renamed `rtt-run`/`rtt-stage`/`rtt-lineup`/`rtt-receipt` to avoid the
+  legacy `.rtt-shell` grid in globals.css), primitives in `game-feel.css`.
+- Start gate: four-line brief replaces the node grid; launcher = "How to play".
+- Tests: `run-the-table-run.test.tsx` (28), v3 fixtures versioned per call
+  (the newer-wins guard drops a fixture created before the board), e2e
+  `run-the-table.spec.ts`: tour test → teaches-itself; + game-feel, duplicate
+  press/resume, @mobile composition tests.
+- QA drivers (scratchpad): `rtt-drive.mjs` (strategies buy/best/pass,
+  viewport, throttle), `rtt-resume.mjs`. Before/after shots in
+  `scratchpad/before/*`, `scratchpad/after/*`.
+
+## Other workstreams (subagents, reports in scratchpad `REPORT_*.md`)
+- Showdown bot v5: see `REPORT_showdown_bot_v5.md`.
+- Fact bank spot-check: 62 checked, 4 false claims + 7 overstatements fixed,
+  44 URLs repointed, 0 removed; audit §10.
+- TMW flake: stale poll ceiling after the seatless briefing turn; test now
+  state-based + seed-pinned worst case (`apps/api/tests/test_arena_practice_e2e.py`).
+- Peak Duel Endless: `data-duel-mode`, `styles/v2/duel.css`, versus axis,
+  framed panels; Daily unchanged; `peak-duel-v2-question.test.tsx` (10).
+
 # Game-feel reconstruction pass 2 — progress
 
 Branch: `feature/game-feel-reconstruction` (continues from `4b2e9f5`, 2026-09-06).

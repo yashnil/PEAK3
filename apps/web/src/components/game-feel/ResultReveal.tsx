@@ -40,16 +40,19 @@ export interface ResultRevealProps {
   children: (state: ResultRevealRender) => ReactNode;
   /** Restart the sequence when this changes (a new result). */
   sequenceKey?: string | number;
+  /** Paint fully revealed from the first frame — a RESUMED ending is a fact
+   *  the player has already seen, never a replay. */
+  startComplete?: boolean;
   testId?: string;
   className?: string;
 }
 
-export default function ResultReveal({ steps, children, sequenceKey = "", testId = "result-reveal", className }: ResultRevealProps) {
+export default function ResultReveal({ steps, children, sequenceKey = "", testId = "result-reveal", className, startComplete = false }: ResultRevealProps) {
   const reduced = usePrefersReducedMotion();
-  const [stage, setStage] = useState<number>(reduced ? steps.length - 1 : -1);
+  const [stage, setStage] = useState<number>(reduced || startComplete ? steps.length - 1 : -1);
 
   useEffect(() => {
-    if (reduced) {
+    if (reduced || startComplete) {
       setStage(steps.length - 1);
       return;
     }
@@ -58,7 +61,7 @@ export default function ResultReveal({ steps, children, sequenceKey = "", testId
     return () => timers.forEach((id) => window.clearTimeout(id));
     // `steps` is expected to be a module constant; `sequenceKey` restarts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sequenceKey, reduced]);
+  }, [sequenceKey, reduced, startComplete]);
 
   const skip = useCallback(() => setStage(steps.length - 1), [steps.length]);
   const complete = stage >= steps.length - 1;

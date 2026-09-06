@@ -719,3 +719,254 @@ button[data-state="error"] {
 @media (prefers-reduced-motion: reduce) {
   .duel-side[data-pending="true"], .duel-reveal-card, .duel-reveal-verdict, .duel-reveal-lane, .duel-reveal-explanation { animation: none !important; }
 }
+
+/* ---------------------------------------------------------------
+   LifeMeter — lives as pieces; a lost one leaves a scar
+   --------------------------------------------------------------- */
+.gf-lives {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.gf-lives-label {
+  font-family: var(--v2-font-mono, monospace);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted, #838799);
+  white-space: nowrap;
+}
+.gf-lives-pips { display: inline-flex; align-items: center; gap: 0.3rem; }
+.gf-lives-pip {
+  position: relative;
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--v2-color-positive, #34d399);
+  background: var(--v2-color-positive, #34d399);
+  transition: background-color var(--gf-dur-event) var(--gf-ease), border-color var(--gf-dur-event) var(--gf-ease), transform var(--gf-dur-event) var(--gf-ease);
+}
+.gf-lives[data-size="sm"] .gf-lives-pip { width: 0.6rem; height: 0.6rem; }
+.gf-lives[data-size="lg"] .gf-lives-pip { width: 1.25rem; height: 1.25rem; border-width: 2px; }
+.gf-lives[data-size="lg"] .gf-lives-pips { gap: 0.5rem; }
+.gf-lives-pip[data-alive="false"] {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--v2-color-negative, #f87171) 55%, transparent);
+  border-style: dashed;
+}
+.gf-lives-pip[data-alive="false"]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 120%;
+  height: 1.5px;
+  background: color-mix(in srgb, var(--v2-color-negative, #f87171) 70%, transparent);
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+.gf-lives[data-danger="true"] .gf-lives-pip[data-alive="true"] {
+  background: var(--v2-color-negative, #f87171);
+  border-color: var(--v2-color-negative, #f87171);
+}
+.gf-lives[data-danger="true"][data-reduced-motion="false"] .gf-lives-pip[data-alive="true"] {
+  animation: gf-life-danger 2.2s ease-in-out infinite;
+}
+.gf-lives[data-beat="lost"][data-reduced-motion="false"] .gf-lives-pip[data-just-lost="true"] {
+  animation: gf-life-break 720ms var(--gf-ease-emphasized) 1;
+}
+.gf-lives[data-beat="lost"][data-reduced-motion="false"] .gf-lives-pip[data-alive="true"] {
+  animation: gf-life-survivor 900ms var(--gf-ease) 1;
+}
+.gf-lives[data-beat="gained"][data-reduced-motion="false"] .gf-lives-pip[data-alive="true"]:last-of-type {
+  animation: gf-life-gain 520ms var(--gf-ease-emphasized) 1;
+}
+.gf-lives-value {
+  font-family: var(--v2-font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  color: var(--v2-text-secondary, #b4b8c5);
+}
+.gf-lives[data-danger="true"] .gf-lives-value { color: var(--v2-color-negative, #f87171); }
+@keyframes gf-life-break {
+  0%   { transform: scale(1.35); background: var(--v2-color-negative, #f87171); border-color: var(--v2-color-negative, #f87171); box-shadow: 0 0 0 0 color-mix(in srgb, var(--v2-color-negative, #f87171) 70%, transparent); }
+  60%  { transform: scale(0.9); box-shadow: 0 0 0 10px transparent; }
+  100% { transform: scale(1); background: transparent; }
+}
+@keyframes gf-life-survivor {
+  0%, 100% { transform: scale(1); }
+  30%      { transform: scale(1.18); }
+  60%      { transform: scale(1); }
+}
+@keyframes gf-life-gain {
+  0%   { transform: scale(0.6); opacity: 0.3; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes gf-life-danger {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+/* ---------------------------------------------------------------
+   RunTrack — the run as chapters; the current mark is the brightest thing
+   --------------------------------------------------------------- */
+.gf-track { min-width: 0; }
+.gf-track-chapters {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.gf-track-chapters::-webkit-scrollbar { display: none; }
+.gf-track-chapter {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  border-top: 2px solid var(--v2-border-subtle, #2a2d35);
+  transition: border-color var(--gf-dur-event) var(--gf-ease);
+}
+.gf-track-chapter[data-state="done"] { border-top-color: color-mix(in srgb, var(--gf-accent) 55%, transparent); }
+.gf-track-chapter[data-state="current"] { border-top-color: var(--gf-accent); }
+.gf-track-chapter[data-state="locked"] { opacity: 0.6; }
+.gf-track-chapter-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  font-family: var(--v2-font-mono, monospace);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted, #838799);
+}
+.gf-track-chapter[data-state="current"] .gf-track-chapter-label { color: var(--gf-accent); }
+.gf-track-chapter-numeral {
+  font-family: var(--v2-font-display, serif);
+  font-size: 1rem;
+  letter-spacing: 0;
+  color: var(--v2-text-primary, #fff);
+}
+.gf-track-marks {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.gf-track-mark {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  flex: 1 1 0;
+  min-width: 0;
+  padding-top: 0.15rem;
+}
+.gf-track-mark::before {
+  content: "";
+  position: absolute;
+  top: 0.55rem;
+  left: 0.9rem;
+  right: -0.1rem;
+  height: 1px;
+  background: var(--v2-border-subtle, #2a2d35);
+}
+.gf-track-mark:last-child::before { display: none; }
+.gf-track-mark[data-row-state="done"]::before,
+.gf-track-mark[data-row-state="won"]::before,
+.gf-track-mark[data-row-state="lost"]::before,
+.gf-track-mark[data-row-state="drawn"]::before { background: color-mix(in srgb, var(--gf-accent) 45%, var(--v2-border-subtle, #2a2d35)); }
+.gf-track-dot {
+  position: relative;
+  z-index: 1;
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--v2-border, #3a3d45);
+  background: var(--v2-bg-page, #0b0c10);
+  transition: background-color var(--gf-dur-event) var(--gf-ease), border-color var(--gf-dur-event) var(--gf-ease), transform var(--gf-dur-event) var(--gf-ease);
+}
+.gf-track-mark[data-row-kind="boss"] .gf-track-dot {
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 3px;
+  transform: rotate(45deg);
+  border-width: 2px;
+  border-color: var(--v2-text-secondary, #b4b8c5);
+}
+.gf-track-mark[data-row-state="done"] .gf-track-dot,
+.gf-track-mark[data-row-state="won"] .gf-track-dot {
+  background: var(--gf-accent);
+  border-color: var(--gf-accent);
+}
+.gf-track-mark[data-row-state="won"] .gf-track-dot { background: var(--v2-color-positive, #34d399); border-color: var(--v2-color-positive, #34d399); }
+.gf-track-mark[data-row-state="lost"] .gf-track-dot { background: transparent; border-color: var(--v2-color-negative, #f87171); }
+.gf-track-mark[data-row-state="drawn"] .gf-track-dot { background: var(--v2-text-secondary, #b4b8c5); border-color: var(--v2-text-secondary, #b4b8c5); }
+.gf-track-mark[data-row-state="current"] .gf-track-dot {
+  border-color: var(--gf-accent);
+  background: color-mix(in srgb, var(--gf-accent) 30%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--gf-accent) 22%, transparent);
+}
+.gf-track-mark[data-row-kind="boss"][data-row-state="current"] .gf-track-dot {
+  background: var(--gf-accent);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--gf-accent) 25%, transparent);
+}
+.gf-track[data-reduced-motion="false"] .gf-track-mark[data-row-state="current"] .gf-track-dot {
+  animation: gf-track-now 2s ease-in-out infinite;
+}
+.gf-track-mark[data-life-lost="true"] .gf-track-dot::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  border: 1px solid color-mix(in srgb, var(--v2-color-negative, #f87171) 60%, transparent);
+}
+.gf-track-mark-label {
+  font-family: var(--v2-font-ui, sans-serif);
+  font-size: 0.6875rem;
+  line-height: 1.15;
+  color: var(--v2-text-muted, #838799);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 0.3rem;
+}
+.gf-track-mark[data-row-state="current"] .gf-track-mark-label { color: var(--v2-text-primary, #fff); font-weight: 600; }
+.gf-track-mark[data-row-kind="boss"] .gf-track-mark-label { text-transform: uppercase; letter-spacing: 0.04em; font-family: var(--v2-font-mono, monospace); font-size: 0.625rem; }
+.gf-track-mark[data-row-state="lost"] .gf-track-mark-label { color: var(--v2-color-negative, #f87171); }
+.gf-track-mark[data-row-state="won"] .gf-track-mark-label { color: var(--v2-color-positive, #34d399); }
+@keyframes gf-track-now {
+  0%, 100% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--gf-accent) 22%, transparent); }
+  50%      { box-shadow: 0 0 0 7px color-mix(in srgb, var(--gf-accent) 10%, transparent); }
+}
+/* Compact: every chapter but the current one collapses to its marks. */
+.gf-track[data-compact="true"] .gf-track-chapter:not([data-state="current"]) .gf-track-mark-label,
+.gf-track[data-compact="true"] .gf-track-chapter:not([data-state="current"]) .gf-track-chapter-eyebrow { display: none; }
+.gf-track[data-compact="true"] .gf-track-chapter:not([data-state="current"]) { flex: 0 0 auto; padding-right: 0.5rem; }
+.gf-track[data-compact="true"] .gf-track-chapter:not([data-state="current"]) .gf-track-mark { min-width: 1.1rem; }
+.gf-track[data-compact="true"] .gf-track-chapter[data-state="current"] { flex: 1 1 auto; min-width: 12rem; }
+@media (max-width: 1023.98px) {
+  .gf-track .gf-track-chapter:not([data-state="current"]) .gf-track-mark-label,
+  .gf-track .gf-track-chapter:not([data-state="current"]) .gf-track-chapter-eyebrow { display: none; }
+  .gf-track .gf-track-chapter:not([data-state="current"]) { flex: 0 0 auto; padding-right: 0.5rem; }
+  .gf-track .gf-track-chapter:not([data-state="current"]) .gf-track-mark { min-width: 1.1rem; }
+  .gf-track .gf-track-chapter[data-state="current"] { flex: 1 1 auto; min-width: 11rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gf-lives-pip, .gf-track-dot { animation: none !important; transition: none; }
+}

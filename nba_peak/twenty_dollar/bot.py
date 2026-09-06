@@ -59,6 +59,51 @@ v4 is a utility model with four moving parts, all read from the projection:
     ceiling = 1 + max(0, points - replacement) / rate, then fit, phase and
     endgame adjustments, then the reserve rule and `max_bid` as hard caps.
 
+v5: THE OPPORTUNITY COST OF MONEY, AND LESS PRECISION
+-----------------------------------------------------
+Simulated against a rank-aware human proxy, v4 won about four matches in
+five, and a tenth of its self-play matches were decided by lot four: two stars
+bought for most of the budget, then a wallet of two dollars while the second
+half of the board -- where a top-ten peak went for $2 -- played out without
+it. Two structural causes, both in the valuation rather than in the auction:
+
+  * THE EARLY REPLACEMENT LEVEL WAS TOO LOW. `_REPLACEMENT_EARLY` (64) was
+    only reached at nine expected chances per slot, which no board ever
+    offers; at lot 0 the level was about 51 points, below the 101-250 band's
+    own mean. Every top-100 candidate therefore looked 27-40 points better
+    than "what I could get otherwise", which is not true on a board that
+    draws four lots in ten from the top hundred. v5 reaches the early level
+    at about three chances per slot (`_REPLACEMENT_SPAN_CHANCES`).
+  * MONEY HAD NO OPTION VALUE. The discretionary budget was everything above
+    a dollar per open slot, so after one star the second was priced against
+    a fair share of what was left, never against the premium lots still to
+    come. v5 holds a LIQUIDITY RESERVE per other open slot
+    (`_liquidity_per_slot`): a fraction of a dollar or more early, decaying
+    to nothing as the market runs out, that a single lot may not spend. An
+    early star is still allowed -- the cap is a share of the liquid money,
+    not a prohibition -- but a second one is priced as what it costs the
+    rest of the roster.
+  * A RICH SEAT EXPECTED NO MORE THAN A POOR ONE. On a dry stretch of board
+    v4 filled slots with dollar players while holding fifteen dollars, then
+    met the first star with one slot left. The replacement level now rises
+    with the discretionary money per open slot (`_REPLACEMENT_MONEY_SLOPE`):
+    a seat that can outbid anyone for the next 51-100 peak should not settle
+    for a 101-250 one at a dollar.
+  * MONEY WAS PRICED THE SAME WITH NOBODY LEFT TO OUTBID. Once the opponent
+    is down to a slot or two, or to the reserve, every later lot costs a
+    dollar; `_contest_urgency` reads that from the public board and lets the
+    liquidity reserve and the money rate relax, so the money is spent while
+    there is still a contest to spend it in rather than left in the wallet.
+
+And LESS PRECISION, without less intelligence. A human's price for a player is
+an opinion held for the whole lot, not a fresh draw on every raise, so v5 forms
+a PER-LOT OPINION (`_opinion`) from a stream keyed on public lot facts -- the
+candidate, the lot index, both budgets -- that shifts the candidate's points up
+or down by a fraction of a band some of the time, scales the ceiling a little,
+and blurs the pacing cap. Deterministic, so a match replays exactly; keyed on
+nothing hidden, so it cannot leak; and it produces the two moments a good
+opponent produces: "it paid too much for that" and "it let that one go".
+
 OPPONENT AWARENESS, FROM PUBLIC FIELDS ONLY. The opponent's remaining budget,
 open slots and skips are on the board for everybody. The bot reads them to
 know whether a lot is contested and whether the opponent can afford to fight
@@ -109,10 +154,23 @@ from nba_peak.twenty_dollar.config import (
 COMMAND_BID = "bid"
 COMMAND_PASS = "pass"
 
-#: How far the bot's ceiling may drift between two matches on the same board.
-#: Small, and seeded by the driver, so a match still replays exactly while two
-#: bots on one board do not play an identical mirrored game.
-_JITTER = (0.90, 1.10)
+#: How far the bot's ceiling may drift from one RAISE to the next inside a
+#: lot. Small: the per-lot opinion below carries most of the variation, and a
+#: ceiling that wandered freely between raises would be walkable.
+_JITTER = (0.94, 1.06)
+
+#: THE PER-LOT OPINION. Formed once per lot from public facts (see
+#: `_opinion`), never from the score, never from the driver's stream.
+#:
+#:   * with `_MISJUDGE_CHANCE` the candidate is read as roughly half a band
+#:     better than the band says (a believable overvaluation), and with the
+#:     same chance half a band worse (a believable undervaluation);
+#:   * the ceiling is scaled by a factor inside `_OPINION_SCALE`;
+#:   * the pacing share is blurred by up to `_PACING_BLUR`.
+_MISJUDGE_CHANCE = 0.22
+_MISJUDGE_POINTS = 8.0
+_OPINION_SCALE = (0.80, 1.20)
+_PACING_BLUR = 0.14
 
 #: What a band is plausibly worth on the final scoreboard, in PEAK3 points.
 #: These are the published 1Y board's own band means, rounded; nothing here is
@@ -142,14 +200,50 @@ _DEFAULT_POINTS = 57.0
 #: ten are drawn from the top hundred and a seat that waits will see several.
 #: `_REPLACEMENT_LATE` is what autofill hands over. Between them the level
 #: falls with the chances left per open slot (`_REPLACEMENT_SPAN_CHANCES`).
-_REPLACEMENT_EARLY = 64.0
+#:
+#: v5: `_REPLACEMENT_SPAN_CHANCES` was 8, so the early level was never
+#: reached (a fresh board offers about three usable chances per slot) and the
+#: bot priced every early lot against a 251-500 replacement. Three chances
+#: per slot on a board that draws 40% of lots from the top hundred is worth
+#: about a 51-100 peak, so that is where the curve now tops out.
+_REPLACEMENT_EARLY = 57.0
 _REPLACEMENT_LATE = 47.0
-_REPLACEMENT_SPAN_CHANCES = 8.0
+_REPLACEMENT_SPAN_CHANCES = 2.5
+
+#: A RICH seat can expect more from the market than a poor one: with eight
+#: dollars a slot it will win the next 51-100 peak that comes along, with two
+#: it will not. So the replacement level rises with the discretionary money
+#: per open slot above the opening fair share, by this many points per
+#: dollar, capped. This is what stops a seat holding $15 filling two slots
+#: with dollar players on a dry stretch of board and finding, three lots
+#: later, that it has one slot for fifteen dollars.
+_REPLACEMENT_MONEY_SLOPE = 0.8
+_REPLACEMENT_MONEY_CAP = 8.0
+
+#: LIQUIDITY: the money a seat keeps per OTHER open slot, above the rules'
+#: one-dollar reserve, so that it can still answer a premium lot later.
+#: `_LIQUIDITY_PER_SLOT` dollars when there are plenty of chances left,
+#: falling to nothing as the chances per slot approach one -- the market is
+#: ending and money is about to score nothing. This is what makes a second
+#: early star cost what it costs the rest of the roster.
+_LIQUIDITY_PER_SLOT = 1.2
+_LIQUIDITY_SPAN_CHANCES = 2.5
+
+#: THE CONTEST: money only matters while somebody can bid against it. Once
+#: the opponent's roster is full, or their budget is down to the reserve,
+#: every remaining lot costs a dollar and liquidity held past that point is
+#: money left on the table. So as the opponent runs short of OPEN SLOTS, a
+#: dollar is worth less to keep (the money rate and the liquidity reserve
+#: are both scaled by `_CONTEST_URGENCY`, keyed by the opponent's open
+#: slots; the last entry also covers an opponent who is out of money or
+#: full). The replacement level is NOT scaled: what the market will still
+#: offer does not change when the opponent stops bidding.
+_CONTEST_URGENCY: dict[int, float] = {2: 0.75, 1: 0.5, 0: 0.5}
 
 #: PACING: the largest share of discretionary money one player may take while
 #: this many slots are still open. Stops the double blow-out -- two stars at
 #: nine dollars each by lot four, then nothing left to answer a bargain with.
-_PACING_SHARE = {5: 0.55, 4: 0.65, 3: 0.80}
+_PACING_SHARE = {5: 0.65, 4: 0.65, 3: 0.85}
 
 #: How many of the remaining lots a seat can expect to be usable AND worth
 #: opening on -- draws that fit the roster, are not skipped by both, and are
@@ -182,8 +276,8 @@ _OPEN_TOLERANCE_LOW_SKIPS = 6.0
 _OPEN_TOLERANCE_FREE_FOLLOW = 4.0
 
 #: How often the bot makes a small, bounded, deliberate error.
-_STRETCH_CHANCE = 0.10   # one dollar past the ceiling
-_FLINCH_CHANCE = 0.08    # steps away one dollar early
+_STRETCH_CHANCE = 0.14   # one dollar past the ceiling
+_FLINCH_CHANCE = 0.12    # steps away one dollar early
 _JUMP_CHANCE = 0.18      # answers a raise with a two-dollar jump
 
 
@@ -192,7 +286,7 @@ class TwentyDollarBot:
 
     def __init__(
         self,
-        bot_id: str = "twenty_dollar_v4",
+        bot_id: str = "twenty_dollar_v5",
         policy_version: str = BOT_POLICY_VERSION,
         rating: float = 1050.0,
     ) -> None:
@@ -243,11 +337,72 @@ class TwentyDollarBot:
         return (remaining * _USABLE_LOT_SHARE) / max(1, open_slots)
 
     @staticmethod
-    def _replacement_level(chances: float) -> float:
-        """What a slot can still expect from the market, given the chances left."""
+    def _replacement_level(chances: float, fair_share: float = _FAIR_SHARE_REFERENCE) -> float:
+        """What a slot can still expect from the market, given the chances
+        left and the money per slot this seat can bring to them."""
         span = _REPLACEMENT_EARLY - _REPLACEMENT_LATE
         fraction = max(0.0, min(1.0, (chances - 1.0) / _REPLACEMENT_SPAN_CHANCES))
-        return _REPLACEMENT_LATE + span * fraction
+        money = max(
+            0.0,
+            min(_REPLACEMENT_MONEY_CAP, (fair_share - _FAIR_SHARE_REFERENCE) * _REPLACEMENT_MONEY_SLOPE),
+        )
+        return _REPLACEMENT_LATE + span * fraction + money * fraction
+
+    @staticmethod
+    def _contest_urgency(public: dict, seat_index: int) -> float:
+        """How much a kept dollar is still worth, from the opponent's public
+        open slots and budget. 1.0 while they can keep bidding for a while."""
+        open_slots = 0
+        for seat in public.get("seats") or []:
+            if seat.get("seat_index") == seat_index or seat.get("roster_full"):
+                continue
+            slots = len(seat.get("open_slots") or [])
+            discretionary = int(seat.get("budget", 0)) - (slots - 1) * MIN_RESERVE_PER_SLOT
+            if slots <= 0 or discretionary < 2:
+                continue  # can only ever bid the reserve dollar: not a contest
+            open_slots += slots
+        if open_slots >= 3:
+            return 1.0
+        return _CONTEST_URGENCY.get(open_slots, 1.0)
+
+    @staticmethod
+    def _liquidity_per_slot(chances: float) -> float:
+        """Dollars kept liquid per OTHER open slot, above the rules' reserve."""
+        fraction = max(0.0, min(1.0, (chances - 1.0) / _LIQUIDITY_SPAN_CHANCES))
+        return _LIQUIDITY_PER_SLOT * fraction
+
+    @staticmethod
+    def _opinion(public: dict, private: dict) -> dict:
+        """This seat's opinion of THIS lot: a shift in points, a scale on the
+        ceiling and a blur on the pacing cap. Held for the whole lot.
+
+        Keyed on public facts that are fixed while the lot is live -- who is
+        up, which lot it is, which seat is deciding and what both budgets are
+        -- so every raise inside the lot is priced from the same opinion, a
+        replay reproduces it exactly, and two matches with different boards
+        form different opinions. Nothing hidden is in the key; there is
+        nothing hidden in the projection to put there.
+        """
+        candidate = public.get("candidate") or {}
+        budgets = ",".join(
+            str(int(seat.get("budget", 0))) for seat in public.get("seats") or []
+        )
+        key = (
+            f"tds-opinion:{candidate.get('player_slug', '')}:{public.get('lot_index', 0)}"
+            f":{private.get('seat_index', 0)}:{budgets}"
+        )
+        stream = random.Random(key)
+        roll = stream.random()
+        shift = 0.0
+        if roll < _MISJUDGE_CHANCE:
+            shift = _MISJUDGE_POINTS
+        elif roll < 2 * _MISJUDGE_CHANCE:
+            shift = -_MISJUDGE_POINTS
+        return {
+            "shift": shift,
+            "scale": stream.uniform(*_OPINION_SCALE),
+            "pacing_blur": stream.uniform(-_PACING_BLUR, _PACING_BLUR),
+        }
 
     @staticmethod
     def _points_per_dollar(discretionary: int, open_slots: int) -> float:
@@ -267,7 +422,8 @@ class TwentyDollarBot:
         me = _seat(public, seat_index)
         empty = {
             "points": 0.0, "replacement": 0.0, "rate": 0.0, "chances": 0.0,
-            "discretionary": 0, "want": -999.0, "ceiling": 0, "endgame": False,
+            "urgency": 1.0, "discretionary": 0, "liquid": 0, "want": -999.0,
+            "ceiling": 0, "endgame": False,
         }
         if max_bid < 1 or not private.get("can_acquire_candidate") or me is None:
             return empty
@@ -281,13 +437,25 @@ class TwentyDollarBot:
         budget = int(me.get("budget", 0))
         discretionary = max(0, budget - (remaining - 1) * MIN_RESERVE_PER_SLOT)
 
-        points = self.candidate_points(private)
+        opinion = self._opinion(public, private)
+        points = self.candidate_points(private) + opinion["shift"]
         chances = self._chances_per_slot(public, remaining)
-        replacement = self._replacement_level(chances)
-        rate = self._points_per_dollar(discretionary, remaining)
+        replacement = self._replacement_level(chances, discretionary / remaining)
+        # Money is only worth keeping while there is somebody to outbid.
+        urgency = self._contest_urgency(public, seat_index)
+        # THE LIQUID BUDGET: what this one lot may draw on once every other
+        # open slot keeps its reserve AND its share of future optionality.
+        liquid = max(
+            0,
+            int(
+                discretionary
+                - (remaining - 1) * self._liquidity_per_slot(chances) * urgency
+            ),
+        )
+        rate = self._points_per_dollar(discretionary, remaining) * urgency
         want = points - replacement
 
-        value = 1.0 + max(0.0, want) / rate
+        value = (1.0 + max(0.0, want) / rate) * opinion["scale"]
 
         usable = [slot for slot in fits if slot in open_slots] or fits
         if len(usable) == 1:
@@ -297,7 +465,9 @@ class TwentyDollarBot:
 
         pacing = _PACING_SHARE.get(remaining)
         if pacing is not None:
-            value = min(value, max(1.0, discretionary * pacing))
+            pacing = max(0.3, min(0.95, pacing + opinion["pacing_blur"]))
+            value = min(value, max(1.0, liquid * pacing))
+        value = min(value, max(1.0, float(liquid)))
 
         endgame = chances <= _ENDGAME_CHANCES
         if endgame and want > -8.0:
@@ -310,8 +480,8 @@ class TwentyDollarBot:
         ceiling = max(0, min(int(round(value)), discretionary, max_bid))
         return {
             "points": points, "replacement": replacement, "rate": rate,
-            "chances": chances, "discretionary": discretionary, "want": want,
-            "ceiling": ceiling, "endgame": endgame,
+            "chances": chances, "urgency": urgency, "discretionary": discretionary,
+            "liquid": liquid, "want": want, "ceiling": ceiling, "endgame": endgame,
         }
 
     def ceiling(self, public: dict, private: dict, rng: random.Random) -> int:
@@ -337,7 +507,7 @@ class TwentyDollarBot:
         open_slots = max(1, len(me.get("open_slots") or []))
         skips = int(private.get("market_skips", 0))
         tolerance = _OPEN_TOLERANCE
-        if skips <= open_slots:
+        if skips < open_slots:
             tolerance = _OPEN_TOLERANCE_LOW_SKIPS
         if private.get("lot_already_rejected") or not private.get("pass_consumes_skip", True):
             tolerance = max(tolerance, _OPEN_TOLERANCE_FREE_FOLLOW)
@@ -392,8 +562,14 @@ class TwentyDollarBot:
         amount = minimum
         # A JUMP RAISE, occasionally, when the ceiling is well clear of the
         # price: it ends a walk-up sooner and makes the ceiling harder to
-        # read. Never past the ceiling, never past the legal maximum.
-        if limit - minimum >= 3 and rng.random() < _JUMP_CHANCE:
+        # read. Never past the ceiling, never past the legal maximum -- and
+        # never against an opponent who could not answer the minimum anyway
+        # (their budget is public; raising against nobody is not a tactic).
+        if (
+            limit - minimum >= 3
+            and self._opponent_can_answer(public, private, minimum)
+            and rng.random() < _JUMP_CHANCE
+        ):
             amount = minimum + 1
         return COMMAND_BID, {"amount": max(1, min(amount, limit, max_bid))}
 
@@ -439,6 +615,27 @@ class TwentyDollarBot:
         if minimum > max_bid:  # pragma: no cover - the reserve guarantees $1
             return COMMAND_PASS, {}
         return COMMAND_BID, {"amount": minimum}
+
+    @staticmethod
+    def _opponent_can_answer(public: dict, private: dict, amount: int) -> bool:
+        """Could the other seat still legally raise over `amount`?
+
+        Read from the published budget and filled-slot count, through the
+        same reserve rule the server applies. Used only to decide whether a
+        jump raise has anyone to jump over.
+        """
+        seat_index = int(private.get("seat_index", 0))
+        for seat in public.get("seats") or []:
+            if seat.get("seat_index") == seat_index:
+                continue
+            if seat.get("roster_full") or not seat.get("in_lot", True):
+                continue
+            filled = int(seat.get("filled_slots", 0))
+            open_after = max(0, ROSTER_SIZE - filled - 1)
+            legal_max = int(seat.get("budget", 0)) - open_after * MIN_RESERVE_PER_SLOT
+            if legal_max >= amount + 1:
+                return True
+        return False
 
     @staticmethod
     def _opponent_could_use(public: dict, seat_index: int) -> bool:

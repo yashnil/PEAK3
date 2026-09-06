@@ -66,7 +66,7 @@ MODEL_VERSION: Final[str] = "peak3_v1"
 #: the market runs out, a money rate that moves with how much discretionary
 #: budget is left per open slot, and endgame spending so no money is stranded.
 #: See `bot.py`.
-BOT_POLICY_VERSION: Final[str] = "twenty_dollar_bot_v4"
+BOT_POLICY_VERSION: Final[str] = "twenty_dollar_bot_v5"
 
 #: What the product calls the house opponent. USER-FACING, and the only string
 #: any surface may show. `bot_id` / `policy_version` are implementation labels

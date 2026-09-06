@@ -2,17 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePrefersReducedMotion } from "@/lib/a11y";
 import { useDailyReset } from "@/lib/use-daily-reset";
-import {
-  CreditSink,
-  LaneField,
-  RevealSlot,
-  Role,
-  RulesetMeta,
-  RunPublicState,
-  RunReadiness,
-  RunType,
-  DailyDescriptor,
-} from "@/types/run-the-table";
+import { CreditSink, LaneField, RevealSlot, Role, RulesetMeta, RunPublicState, RunReadiness, RunType, DailyDescriptor } from "@/types/run-the-table";
 import {
   ChallengeDescriptor,
   RunTheTableAPIError,
@@ -28,9 +18,12 @@ import {
   runActions,
 } from "@/lib/run-the-table-api";
 import {
+  actNumeral,
   clearActiveRun,
   currentBattle,
+  describeRunTransition,
   draftOffers,
+  isNewerRun,
   isStaleDailyPointer,
   isTerminal,
   loadActiveRun,
@@ -45,25 +38,15 @@ import {
   shouldClearStoredRun,
   tradeIncoming,
   trackRunTheTable,
+  type RunMoment,
 } from "@/lib/run-the-table-state";
-import CreditSinks from "./CreditSinks";
-import RevealSequenceSurface, { revealSourceFor } from "./RevealSequenceSurface";
+import { useCommandLane } from "@/lib/game-feel/authoritative";
+import { revealSourceFor } from "./RevealSequenceSurface";
 import { useRevealSequence } from "./useRevealSequence";
-import ScoutPrepare from "./ScoutPrepare";
 import RunStartGate from "./RunStartGate";
 import RunSkeleton from "./RunSkeleton";
-import SystemSelect from "./SystemSelect";
-import NodeChoice from "./NodeChoice";
-import DraftRoom from "./DraftRoom";
-import TradeDesk from "./TradeDesk";
-import ChoiceNode from "./ChoiceNode";
 import RestartRunControl from "./RestartRunControl";
-import BossIntro from "./BossIntro";
-import BossPreview from "./BossPreview";
-import BattleReveal from "./BattleReveal";
-import RunResult from "./RunResult";
-import MobileTray from "./MobileTray";
-import PeakV2RTTShell from "@/components/v2/rtt/PeakV2RTTShell";
+import PeakV2RTTShell, { type ActTransitionMoment } from "@/components/v2/rtt/PeakV2RTTShell";
 import PeakV2RTTBossIntro from "@/components/v2/rtt/PeakV2RTTBossIntro";
 import PeakV2RTTBossLineup from "@/components/v2/rtt/PeakV2RTTBossLineup";
 import PeakV2RTTBattleResult from "@/components/v2/rtt/PeakV2RTTBattleResult";
@@ -82,50 +65,33 @@ import { RUN_THE_TABLE_TOUR, RUN_THE_TABLE_TOUR_ID, RUN_THE_TABLE_TOUR_VERSION }
 /**
  * RUN THE TABLE, top to bottom.
  *
- * SERVER-AUTHORITATIVE, the CourtBuilder.tsx way: every action POSTs and the
- * whole `RunPublicState` object is replaced from the response. There is no
- * optimistic update, no local score, no local price, and no local battle
- * resolution anywhere in this tree.
+ * SERVER-AUTHORITATIVE: every action POSTs through ONE command lane
+ * (`useCommandLane` — a press while a command is in flight is refused before
+ * any handler runs) and the whole `RunPublicState` is replaced from the
+ * response, but only when it is NEWER than what is on screen (`isNewerRun`,
+ * on `action_count`) — a stale read can never roll the board back. There is
+ * no local score, price or battle resolution anywhere in this tree; the one
+ * local number is the PROJECTED credits figure while a card is selected,
+ * which the authoritative snapshot reconciles.
  *
- * The active run's id is mirrored to localStorage so a refresh resumes at the
- * same screen — `screenForStatus` is the only thing that decides which screen
- * that is, and it reads the server's `status`, so resume can never disagree
- * with the engine about where the player is.
+ * The active run's id is mirrored to localStorage so a refresh resumes at
+ * the same screen — `screenForStatus` is the only thing that decides which
+ * screen that is.
+ *
+ * Every announcement (a signing, a life lost, an act cleared) is DERIVED
+ * from two consecutive snapshots in the same render the new one lands
+ * (`describeRunTransition`), never from a timer and never before the board
+ * it describes.
  */
 interface Props {
-  /** Free-play only — `?seed=`. Ignored for a daily run (server re-derives). */
   initialSeed?: number;
-  /** Daily only — `?date=` for replaying an earlier day. */
   initialDate?: string;
-  /** Challenge link token — starts a `challenge` run on the shared seed. */
   challengeToken?: string;
-  /** Emphasise one start button. Never auto-starts — see the route docstring. */
   preferredMode?: "daily";
 }
 
-/**
- * `?start=` values this component will act on. Anything else is ignored.
- *
- * `standard` ONLY. `daily` was removed after review: a standard run costs
- * nothing to create (random seed, start as many as you like), but the daily is
- * one shared board and one attempt per UTC day. With `?start=daily` the URL
- * itself spends that attempt, so copying the address bar into a group chat
- * would burn it for every recipient on navigation. The homepage launcher now
- * links to `?mode=daily`, which lands on the start gate with the daily button
- * emphasised — exactly what `/arena` has always linked to, and what this
- * route's own docstring promises.
- */
 const START_PARAM_VALUES: readonly RunType[] = ["standard"] as const;
 
-/**
- * Read `?start=` from the live URL, once.
- *
- * `window.location.search` rather than `useSearchParams()` deliberately: this
- * value is consumed exactly once and then removed, so there is nothing to
- * subscribe to, and reading it this way keeps the component free of the
- * Suspense boundary `useSearchParams` requires of any route Next tries to
- * prerender. Returns null during SSR and for every unrecognised value.
- */
 export function readStartParam(search?: string): RunType | null {
   const raw = search ?? (typeof window === "undefined" ? "" : window.location.search);
   if (!raw) return null;
@@ -133,7 +99,6 @@ export function readStartParam(search?: string): RunType | null {
   return START_PARAM_VALUES.includes(value as RunType) ? (value as RunType) : null;
 }
 
-/** The same URL with `start` removed, path and every other param preserved. */
 export function urlWithoutStartParam(pathname: string, search: string): string {
   const params = new URLSearchParams(search);
   params.delete("start");
@@ -141,101 +106,53 @@ export function urlWithoutStartParam(pathname: string, search: string): string {
   return rest ? `${pathname}?${rest}` : pathname;
 }
 
-/**
- * Remove `?start=` from the address bar, synchronously, in the current history
- * entry.
- *
- * WHY NOT `router.replace`. It was `router.replace`, and that is a *deferred*
- * operation: the App Router treats it as a navigation, fetches the RSC payload
- * for the new URL, and only calls `history.replaceState` once that response
- * lands. The CI trace for this exact failure shows the sequence plainly — the
- * run is created (`POST /run-the-table/runs` → 200), the game surface paints,
- * and the `?_rsc=` request for the stripped URL is still in flight. Anything
- * that reads `location.search` in that window — a refresh, a copied link, an
- * assertion — still sees `start=standard`. On a warm local dev server the gap
- * is a few milliseconds and invisible; on a cold CI dev server it is long
- * enough to lose. Nothing about the product wanted a navigation here: the route
- * is unchanged, the component must not remount (it is holding the run that was
- * just created), and no Server Component depends on the param.
- *
- * `history.replaceState` is the supported way to express that in Next 15 — it
- * rewrites the current entry in place, synchronously, with no refetch and no
- * re-render. The param is read once at mount from `window.location.search`
- * (see `readStartParam`) rather than through `useSearchParams`, so there is no
- * subscription for this to fall out of sync with.
- *
- * Idempotent by construction: with `start` already absent the rewritten URL
- * equals the current one, so a second call is a no-op, and back/forward
- * navigation cannot resurrect the param in this entry.
- */
+/** Synchronous `history.replaceState` — see the previous revision's note on
+ *  why a deferred `router.replace` lost a race on cold CI. Idempotent. */
 export function stripStartParamFromUrl(): void {
   if (typeof window === "undefined") return;
   const { pathname, search, hash } = window.location;
   if (!new URLSearchParams(search).has("start")) return;
-  window.history.replaceState(
-    window.history.state,
-    "",
-    `${urlWithoutStartParam(pathname, search)}${hash}`,
-  );
+  window.history.replaceState(window.history.state, "", `${urlWithoutStartParam(pathname, search)}${hash}`);
 }
 
-export default function RunTheTableGame({
-  initialSeed,
-  initialDate,
-  challengeToken,
-  preferredMode,
-}: Props) {
+const ACT_TRANSITION_MS = 1700;
+
+export default function RunTheTableGame({ initialSeed, initialDate, challengeToken, preferredMode }: Props) {
   const [state, setState] = useState<RunPublicState | null>(null);
   const [readiness, setReadiness] = useState<RunReadiness | null>(null);
   const [daily, setDaily] = useState<DailyDescriptor | null>(null);
-  /**
-   * The whole ruleset, so the start gate can state the run's real shape — five
-   * acts, three lives, the four sink prices — instead of hardcoding counts that
-   * a ruleset bump silently falsifies. Static and cacheable; a failure to fetch
-   * it is not fatal, the gate simply drops the count-bearing sentences.
-   */
   const [meta, setMeta] = useState<RulesetMeta | null>(null);
   const [challenge, setChallenge] = useState<ChallengeDescriptor | null>(null);
   const [challengeError, setChallengeError] = useState<string | null>(null);
   const [booting, setBooting] = useState(true);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resumeNotice, setResumeNotice] = useState<string | null>(null);
   const [liveMessage, setLiveMessage] = useState("");
-  // The last thing that failed, so "Try again" retries THAT rather than
-  // reloading the page and losing the player's place. Held in state, not a
-  // ref, because the retry button's presence depends on it.
-  const [retry, setRetry] = useState<{
-    fn: () => Promise<RunPublicState>;
-    announce?: string;
-  } | null>(null);
-  // Fires "offer viewed" once per node, not once per render.
+  const [retry, setRetry] = useState<{ fn: () => Promise<RunPublicState>; announce?: string } | null>(null);
   const seenNodeRef = useRef<string | null>(null);
   const reducedMotion = usePrefersReducedMotion();
+  const lane = useCommandLane();
+  const busy = lane.busy;
 
-  /**
-   * THE SHARED REVEAL CHOREOGRAPHY (PRODUCT_EXPERIENCE_CONTRACT.md §2/§3).
-   *
-   * Called unconditionally, every render (rules of hooks) — `items`/`total`
-   * default to empty/0 before a run exists or before that reveal's track is
-   * relevant, which is a legal, inert input to `useRevealSequence`.
-   *
-   * The roster instance is lifted here, rather than owned inside
-   * `RevealSequenceSurface`, specifically so `RunTray`'s roster dock can
-   * read the SAME `presentationCursor` the reveal stage is animating
-   * against — one number, two consumers, which is what makes "the dock
-   * shows nothing the stage hasn't shown yet" true by construction instead
-   * of by two components agreeing to stay in sync.
-   */
+  // --- game-feel state ------------------------------------------------------
+  const [moment, setMoment] = useState<RunMoment | null>(null);
+  const [actTransition, setActTransition] = useState<ActTransitionMoment | null>(null);
+  const [projectedCredits, setProjectedCredits] = useState<number | null>(null);
+  const [targetedSlots, setTargetedSlots] = useState<string[]>([]);
+  const [pendingSlot, setPendingSlot] = useState<string | null>(null);
+  /** True when the run on screen arrived by RESUME rather than by an action —
+   *  a resumed ending or battle shows its finished state, never a replay. */
+  const [resumed, setResumed] = useState(false);
+  /** The failure ending: the battle that ended the run is shown once before
+   *  the receipt; the receipt itself follows on a client-side acknowledgement. */
+  const [endingSeen, setEndingSeen] = useState<string | null>(null);
+  const stateRef = useRef<RunPublicState | null>(null);
+
   const rosterTrack = state?.reveal?.roster ?? null;
   const rosterSequence = useRevealSequence<RevealSlot>({
     items: rosterTrack?.revealed_slots ?? [],
     total: rosterTrack?.total ?? 0,
     reducedMotion,
-    // A new run's fresh, empty roster track must never inherit `started`/
-    // `complete` left over from a PREVIOUS run's reveal — this component
-    // does not remount between runs (see `runIdRef` below), and a session
-    // can start "another run" without a page reload.
     resetKey: state?.run_id ?? null,
   });
   const bossTrack = state?.reveal?.boss ?? null;
@@ -243,51 +160,12 @@ export default function RunTheTableGame({
     items: bossTrack?.revealed_slots ?? [],
     total: bossTrack?.total ?? 0,
     reducedMotion,
-    // P5-F4 (product-director): without this, the SECOND boss reveal in a
-    // run inherited `started`/`complete`/`skippedRef` from the FIRST boss's
-    // already-finished sequence and rendered fully complete with no start
-    // button — every boss after the first was unreachable as a cinematic.
     resetKey: bossTrack?.boss_id ?? null,
   });
 
-  /**
-   * DISMISSAL, separate from COMPLETION.
-   *
-   * The lead's ruling: "skip-all must land on all 7 slots FULLY RESOLVED and
-   * hold there, so the player sees the roster they were promised before the
-   * screen changes... requires an explicit continue." So `sequence.complete`
-   * (every card settled — from the hook) and "the player has left this
-   * screen" (from here) are now two different facts. The reveal surface's
-   * own "Continue" footer button is what flips these; skip-all only ever
-   * advances `sequence.complete`, never dismissal directly.
-   *
-   * Reset on a new run (`run_id` change) — plain React state has no idea a
-   * new run started, since `RunTheTableGame` does not remount between runs
-   * (`commit()` just replaces `state`). Boss dismissal is keyed by
-   * `boss_id`, not a bare boolean, because a five-act run meets five bosses
-   * in one session and each needs its own intro + reveal + dismissal cycle.
-   */
   const [rosterRevealDismissed, setRosterRevealDismissed] = useState(false);
   const [dismissedBossIntroId, setDismissedBossIntroId] = useState<string | null>(null);
   const [dismissedBossRevealId, setDismissedBossRevealId] = useState<string | null>(null);
-  /**
-   * SCOUT INTEL, remembered past the Scout & Prepare node it arrived on
-   * (brief §E: "scout information must visibly matter later — pin the
-   * discovered vulnerability into the HUD, highlight matching market
-   * cards"). `ScoutReport` (the boss's weakest/strongest lanes) is already
-   * on the wire the moment a `film_room` node is active — the same data
-   * `ScoutPrepare.tsx` already renders, computed by `bosses.scout_report()`,
-   * never anything this component derives. It exists ONLY on that one
-   * node's payload, though, and is gone from every subsequent
-   * `RunPublicState` the instant the player leaves it — so this is the one
-   * place in the whole surface that remembers a past node's data on
-   * purpose, purely for later PRESENTATION (a HUD pin, a market-card
-   * highlight), never as a second source of truth for anything
-   * server-authoritative: `legal_slots`/`selectable`/`blocked_reason` on
-   * every offer are still read fresh off `state` everywhere they matter.
-   * Declared here (not beside its effect below) so the run-reset effect
-   * can clear it without a forward reference.
-   */
   const [scoutIntel, setScoutIntel] = useState<ScoutIntel | null>(null);
   const runIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -296,168 +174,83 @@ export default function RunTheTableGame({
     setRosterRevealDismissed(false);
     setDismissedBossIntroId(null);
     setDismissedBossRevealId(null);
-    // Scout intel (below) is keyed off `active_node`, which has no memory of
-    // which run it came from — a fresh run's Act 1 must not open with a pin
-    // left over from the previous run's scouting. Cleared HERE, in the same
-    // effect that flips `runIdRef.current`, not a second effect watching
-    // `run_id` on its own: a second effect's `!== runIdRef.current` check
-    // would already see the ref this effect just updated in the same commit
-    // and never fire.
     setScoutIntel(null);
+    setEndingSeen(null);
   }, [state]);
 
-  /**
-   * Is the reveal surface still the thing on screen?
-   *
-   * `needsOpeningReveal(state)`/`needsBossReveal(state)` are the SERVER's
-   * truth (`!roster.complete`) — still correct for "has this reveal even
-   * started." But `SYNTHESIS_CONTRACT.md §2.2` batches the reveal into one
-   * POST, so the server's `complete` flips true the instant that single
-   * request resolves — long before the local, paced presentation has
-   * finished. `rosterSequence.started` covers exactly that gap: once the
-   * player's one press has fired the request, the surface stays up until
-   * the player explicitly continues past the fully-resolved roster, never
-   * the server's flag alone and never `sequence.complete` alone either.
-   */
-  const showRosterReveal =
-    !!state && (needsOpeningReveal(state) || rosterSequence.started) && !rosterRevealDismissed;
-
+  const showRosterReveal = !!state && (needsOpeningReveal(state) || rosterSequence.started) && !rosterRevealDismissed;
   const bossRevealDismissedNow = !!bossTrack && dismissedBossRevealId === bossTrack.boss_id;
   const bossActive =
     !!state &&
     !!bossTrack &&
-    (needsBossReveal(state) ||
-      bossSequence.started ||
-      // The boss reveal is ONE batched POST (SYNTHESIS_CONTRACT.md §2.2):
-      // `boss.complete` flips true server-side the instant it resolves, well
-      // before the local, paced presentation (`bossSequence.started`) has
-      // even had a chance to run — and `bossSequence.started` is plain
-      // component state, gone the instant a reload remounts this component.
-      // Without this clause, a reload in that narrow but real window (reveal
-      // already fired, presentation not yet dismissed) drops straight past
-      // the boss reveal into the briefing screen, silently skipping a
-      // presentation the player never actually saw. `bossTrack.revealed > 0`
-      // is the SERVER's proof the reveal has begun; `!bossRevealDismissedNow`
-      // stops this from re-opening a reveal the player already continued past
-      // in THIS session (dismissal just cannot survive a reload itself, same
-      // limitation the pre-existing roster reveal already has). Gated on
-      // `status === "boss_ready"` because `state.reveal.boss` keeps carrying
-      // the finished track's data long after the battle resolves (the
-      // "names the boss" HUD-objective test depends on exactly that) — this
-      // clause must never fire once play has moved past the boss_ready
-      // status the reveal belongs to.
-      (state.status === "boss_ready" && bossTrack.revealed > 0 && !bossRevealDismissedNow));
-  const bossIntroDone =
-    !bossTrack ||
-    dismissedBossIntroId === bossTrack.boss_id ||
-    // Same reload gap as above, one screen earlier: skip the intro once the
-    // server shows the reveal already began, rather than replaying it.
-    bossTrack.revealed > 0;
-  /** The pre-roll: name, philosophy, win condition, countdown, skip. */
+    (needsBossReveal(state) || bossSequence.started || (state.status === "boss_ready" && bossTrack.revealed > 0 && !bossRevealDismissedNow));
+  const bossIntroDone = !bossTrack || dismissedBossIntroId === bossTrack.boss_id || bossTrack.revealed > 0;
   const showBossIntro = bossActive && !bossIntroDone;
-  /** The paired lineup reveal, after the intro is dismissed. */
   const showBossReveal = bossActive && bossIntroDone && !bossRevealDismissedNow;
 
-  /**
-   * The in-run guided tour (W4), auto-starting for a genuine first-time
-   * player once a run actually exists.
-   *
-   * NOT on the start gate — `RunStartGate`'s own `TourLauncher` is
-   * `autoStart={false}` on purpose (same policy Daily Grid's start gate
-   * later copied, see `DailyGridGame.tsx`'s own comment): a walkthrough that
-   * opens by itself on top of a "press a button to begin" screen is a modal
-   * in front of a call to action. This hook call has to sit here,
-   * unconditionally, before the `if (!state) return <RunStartGate ... />`
-   * below — the Rules of Hooks forbid a conditional call — but the
-   * `<GuidedTour>` element itself only renders further down, in the
-   * post-gate JSX, so it is never mounted while the gate owns the screen.
-   *
-   * `blocked` while a reveal sequence is animating or an action is in
-   * flight, mirroring Daily Grid's `tourBlocked`: a spotlight over a
-   * split-flap reveal or a busy control is worse than no onboarding at all.
-   */
+  // The walkthrough never opens by itself any more — the run teaches itself
+  // (`PeakV2RTTCoach`). It is one press away behind "How to play".
   const tourBlocked = showRosterReveal || showBossIntro || showBossReveal || busy;
-  const tour = useGuidedTour({
-    tourId: RUN_THE_TABLE_TOUR_ID,
-    version: RUN_THE_TABLE_TOUR_VERSION,
-    blocked: tourBlocked,
-  });
+  const tour = useGuidedTour({ tourId: RUN_THE_TABLE_TOUR_ID, version: RUN_THE_TABLE_TOUR_VERSION, blocked: tourBlocked, autoStart: false });
 
-  /**
-   * Capture the scout report the moment it's on the wire (see the
-   * `scoutIntel` declaration above for why this survives past the node).
-   */
   useEffect(() => {
     const report = state?.active_node?.scout?.choices.find((c) => c.id === "scout_boss")?.report;
     if (!report) return;
-    setScoutIntel({
-      bossId: report.boss_id,
-      bossName: report.name,
-      weakestLane: report.weakest_lane,
-      weakestLabel: LANE_LABELS[report.weakest_lane],
-    });
+    setScoutIntel({ bossId: report.boss_id, bossName: report.name, weakestLane: report.weakest_lane, weakestLabel: LANE_LABELS[report.weakest_lane] });
   }, [state?.active_node]);
 
-  /**
-   * A run can have 0, 1, or 2 `film_room` visits per act (node types are
-   * rolled per stage, not guaranteed), and scouting only ever targets the
-   * CURRENT act's boss (`bosses.scout_report()` reads `boss.boss_id` off
-   * the same `blueprint.bosses[state.act - 1]` the rest of `state` uses).
-   * `scoutIntel` itself is only cleared on a new run, not on an act
-   * transition within one run — so a stale scout from Act 1 could
-   * otherwise keep "mattering" into Act 2's Draft Room. Every consumer
-   * reads THIS, not `scoutIntel` directly, so staleness is checked once
-   * rather than re-derived at every call site.
-   */
-  const activeScoutIntel =
-    scoutIntel && state?.next_boss && scoutIntel.bossId === state.next_boss.boss_id ? scoutIntel : null;
+  const activeScoutIntel = scoutIntel && state?.next_boss && scoutIntel.bossId === state.next_boss.boss_id ? scoutIntel : null;
 
-  /**
-   * `?start=` — read ONCE, at first render, before any effect can run.
-   *
-   * Two separate guards, because they defend against two different things:
-   *
-   *   * `startParamRef` freezes the value at mount. The param is stripped from
-   *     the URL once consumed, so a later read would see nothing — and a
-   *     re-render between the two must not see a different answer.
-   *   * `startConsumedRef` is set synchronously inside the effect BEFORE any
-   *     await, so React 18 strict mode's double-invoke, and every subsequent
-   *     re-render, both find it already true. This is what stops the launcher
-   *     link from creating two runs.
-   *
-   * A bare `/arena/run-the-table` with no `start` param still falls through to
-   * `RunStartGate` and creates nothing — `play-routing.spec.ts:112-134` and
-   * `run-the-table.spec.ts`'s "navigating to the route creates no run" both
-   * depend on that and are unaffected by this code path.
-   */
   const startParamRef = useRef<RunType | null | undefined>(undefined);
   if (startParamRef.current === undefined) startParamRef.current = readStartParam();
   const startConsumedRef = useRef(false);
-  // Focus management — see the effect below.
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const lastSurfaceKeyRef = useRef<string | null>(null);
 
-  const commit = useCallback((next: RunPublicState) => {
+  /**
+   * THE ONE WAY A SNAPSHOT REACHES THE SCREEN. Newer wins; the moment it
+   * announces is derived from the two snapshots in the same call.
+   */
+  const commit = useCallback((next: RunPublicState, options: { fromResume?: boolean } = {}) => {
+    const prev = stateRef.current;
+    if (!isNewerRun(prev, next)) return false;
+    stateRef.current = next;
     setState(next);
     saveActiveRun(next);
+    setResumed(options.fromResume === true);
+    if (!options.fromResume) {
+      const m = describeRunTransition(prev, next);
+      if (m) {
+        if (m.kind === "act_cleared") {
+          setActTransition({ id: m.id, numeral: actNumeral(prev?.act ?? next.act - 1), detail: `${next.lives} ${next.lives === 1 ? "life" : "lives"} · ${next.credits} credits · Act ${actNumeral(next.act)} begins` });
+        } else if (m.kind !== "life_lost" && m.kind !== "boss_won" && m.kind !== "boss_drawn") {
+          // A battle's consequence is staged by the battle surface itself
+          // (lanes → verdict → the life or the credits); a second banner over
+          // it would announce the same thing twice.
+          setMoment(m);
+        }
+      }
+    }
+    return true;
   }, []);
+
+  useEffect(() => {
+    if (!actTransition) return;
+    const id = window.setTimeout(() => setActTransition(null), ACT_TRANSITION_MS);
+    return () => window.clearTimeout(id);
+  }, [actTransition]);
 
   // --- boot: readiness + daily descriptor + resume -------------------------
   const boot = useCallback(async () => {
     setBooting(true);
     setError(null);
     setChallengeError(null);
-    const [readinessResult, dailyResult, challengeResult, metaResult] =
-      await Promise.allSettled([
-        getRunReadiness(),
-        getDailyRun(),
-        // Resolved eagerly so the gate can SHOW the seed the visitor was
-        // challenged to before they commit, and so an expired link says so up
-        // front instead of failing on the button press.
-        challengeToken ? getChallenge(challengeToken) : Promise.resolve(null),
-        // Optional: the gate degrades to count-free copy without it.
-        getRulesetMeta(),
-      ]);
+    const [readinessResult, dailyResult, challengeResult, metaResult] = await Promise.allSettled([
+      getRunReadiness(),
+      getDailyRun(),
+      challengeToken ? getChallenge(challengeToken) : Promise.resolve(null),
+      getRulesetMeta(),
+    ]);
     if (readinessResult.status === "fulfilled") setReadiness(readinessResult.value);
     if (dailyResult.status === "fulfilled") setDaily(dailyResult.value);
     if (metaResult.status === "fulfilled") setMeta(metaResult.value);
@@ -465,109 +258,47 @@ export default function RunTheTableGame({
       setChallenge(challengeResult.value);
     } else if (challengeToken) {
       const e = challengeResult.reason;
-      setChallengeError(
-        e instanceof RunTheTableAPIError && e.status !== 0
-          ? e.detail
-          : "Could not reach the PEAK3 API to check it.",
-      );
+      setChallengeError(e instanceof RunTheTableAPIError && e.status !== 0 ? e.detail : "Could not reach the PEAK3 API to check it.");
     }
-
-    // A readiness failure is the only fatal one here: without it we cannot say
-    // whether the mode is even enabled. The daily descriptor is optional.
     if (readinessResult.status === "rejected") {
       const e = readinessResult.reason;
-      setError(
-        e instanceof RunTheTableAPIError && e.status === 0
-          ? "Could not reach the PEAK3 API. Is it running?"
-          : "Could not load RUN THE TABLE. Try again.",
-      );
+      setError(e instanceof RunTheTableAPIError && e.status === 0 ? "Could not reach the PEAK3 API. Is it running?" : "Could not load RUN THE TABLE. Try again.");
     }
 
-    /**
-     * THE STALE-DAILY GATE (plan §4, path B).
-     *
-     * `StoredActiveRun` carried no date, `GET /runs/{id}` returns 200 for
-     * yesterday's daily (it is a perfectly valid run), and
-     * `shouldClearStoredRun` only fires on 404/409/410 — so an unfinished
-     * daily was silently resumed today, and every day after that, and the
-     * start gate never appeared again.
-     *
-     * The comparison is against the SERVER's daily key, taken from the daily
-     * descriptor fetched two statements above, never a browser-computed date:
-     * the reset is a timezone boundary the server owns (plan §2.1). If that
-     * fetch failed, `todayDailyKey` is null and nothing is discarded — a
-     * network blip must not throw away a run in progress.
-     *
-     * Track A's `useDailyReset` is wired below and calls `boot()` again when
-     * the window rolls over mid-session, so this gate is what a live rollover
-     * lands on as well as a cold start.
-     */
-    const todayDailyKey =
-      dailyResult.status === "fulfilled"
-        ? (dailyResult.value?.daily?.daily_key ?? dailyResult.value?.date ?? null)
-        : null;
-
+    const todayDailyKey = dailyResult.status === "fulfilled" ? (dailyResult.value?.daily?.daily_key ?? dailyResult.value?.date ?? null) : null;
     const stored = loadActiveRun();
     if (isStaleDailyPointer(stored, todayDailyKey)) {
       clearActiveRun();
-      setResumeNotice(
-        "That daily run was from an earlier day. Today's board is ready below.",
-      );
+      setResumeNotice("That daily run was from an earlier day. Today's board is ready below.");
       setBooting(false);
       return;
     }
     if (stored) {
       try {
-        const resumed = await getRun(stored.run_id);
-        setState(resumed);
-        // Claim the surface key WITHOUT focusing: a reload should land the
-        // player back where they were with focus still at the top of the
-        // document, not yanked into the middle of the page.
-        lastSurfaceKeyRef.current = surfaceKeyFor(resumed);
-        trackRunTheTable({
-          type: "rtt_run_resumed",
-          run_type: resumed.run_type,
-          status: resumed.status,
-        });
+        const restored = await getRun(stored.run_id);
+        lastSurfaceKeyRef.current = surfaceKeyFor(restored);
+        commit(restored, { fromResume: true });
+        if (!isTerminal(restored.status)) {
+          setMoment({ id: `${restored.run_id}:resumed`, kind: "credits", title: "Run resumed", detail: `Act ${actNumeral(restored.act)} · ${restored.lives} lives · ${restored.credits} credits`, tone: "neutral" });
+        }
+        trackRunTheTable({ type: "rtt_run_resumed", run_type: restored.run_type, status: restored.status });
       } catch (e) {
         const status = e instanceof RunTheTableAPIError ? e.status : 500;
         if (shouldClearStoredRun(status)) {
           clearActiveRun();
-          setResumeNotice(
-            status === 404
-              ? "Your last run has expired or no longer exists. Start a new one below."
-              : "The ruleset changed since your last run, so it can no longer be replayed. Start a new one below.",
-          );
+          setResumeNotice(status === 404 ? "Your last run has expired or no longer exists. Start a new one below." : "The ruleset changed since your last run, so it can no longer be replayed. Start a new one below.");
         } else {
           setResumeNotice("Could not reload your last run right now. You can start a new one.");
         }
       }
     }
     setBooting(false);
-  }, [challengeToken]);
+  }, [challengeToken, commit]);
 
   useEffect(() => {
     void boot();
   }, [boot]);
 
-  /**
-   * THE DAILY ROLLOVER, while the tab is already open (plan §2.1 / §4).
-   *
-   * Track A's `useDailyReset` fires when the server's window closes AND on
-   * `visibilitychange`/`focus`, which is the case that actually matters: a
-   * backgrounded tab's timers are throttled to a crawl and stop entirely while
-   * a machine is asleep, so a countdown alone comes back reading hours that
-   * never elapsed.
-   *
-   * ARMED ONLY WHEN A ROLLOVER COULD CHANGE ANYTHING: at the start gate, or
-   * during a daily run. Passing a null `dailyKey` disarms the hook, so a
-   * standard or challenge run — which belongs to no day — is never interrupted
-   * by a boundary that has nothing to do with it.
-   *
-   * `boot()` is the whole handler: it refetches the descriptor, and
-   * `isStaleDailyPointer` then sees yesterday's pointer against the new key and
-   * drops it, landing the player on today's start gate.
-   */
   const dailyWindow = daily?.daily ?? null;
   const watchDailyRollover = !state || state.run_type === "daily";
   useDailyReset({
@@ -580,19 +311,6 @@ export default function RunTheTableGame({
   });
 
   // --- analytics -----------------------------------------------------------
-  // Derived from the state the server sent, so an event can never describe a
-  // run that did not happen. Each fires once per identity change, never per
-  // render: `node_id` for the offer event, terminal status for the outcome
-  // events.
-  //
-  // `rtt_run_started` is DELIBERATELY NOT an effect. It used to key on
-  // `run_id`, which `boot()`'s resume path also sets — so resuming an existing
-  // run, and every subsequent page reload of that run, re-fired "started" for a
-  // run that had started once, hours earlier. Starting is an event, not a
-  // state, so it is emitted from the three code paths that actually create a
-  // run (`handleStart`, `handleRunItBack`, `handleReplaySeed`) once the server
-  // has confirmed the creation.
-
   const nodeId = state?.active_node?.node_id ?? null;
   const nodeType = state?.active_node?.node_type ?? null;
   const nodeOfferCount = state ? offerCountFor(state) : 0;
@@ -600,11 +318,7 @@ export default function RunTheTableGame({
     if (!nodeId || !nodeType) return;
     if (seenNodeRef.current === nodeId) return;
     seenNodeRef.current = nodeId;
-    trackRunTheTable({
-      type: "rtt_offer_viewed",
-      node_type: nodeType,
-      offer_count: nodeOfferCount,
-    });
+    trackRunTheTable({ type: "rtt_offer_viewed", node_type: nodeType, offer_count: nodeOfferCount });
   }, [nodeId, nodeType, nodeOfferCount]);
 
   const terminalStatus = state && isTerminal(state.status) ? state.status : null;
@@ -614,38 +328,20 @@ export default function RunTheTableGame({
   useEffect(() => {
     if (!terminalStatus || !receiptRecord) return;
     if (terminalStatus === "complete") {
-      trackRunTheTable({
-        type: "rtt_run_completed",
-        record: receiptRecord,
-        ran_the_table: ranTheTable,
-      });
+      trackRunTheTable({ type: "rtt_run_completed", record: receiptRecord, ran_the_table: ranTheTable });
     } else {
       trackRunTheTable({ type: "rtt_run_failed", record: receiptRecord, act: failedAct });
     }
   }, [terminalStatus, receiptRecord, ranTheTable, failedAct]);
 
   // --- focus management ----------------------------------------------------
-  /**
-   * Every action in this mode destroys keyboard focus: `busy` disables the
-   * button the player just pressed, then the whole decision surface unmounts
-   * and is replaced by the next one. A disabled-then-removed element cannot
-   * keep focus, so it falls back to `<body>` and the next Tab press restarts
-   * from the skip link at the top of the document — one Tab-from-the-top per
-   * decision, eight decisions and four battles per run.
-   *
-   * Fix: after each committed state change, move focus to the new surface's
-   * `<h2>` (its accessible title). `tabindex="-1"` is set at that moment rather
-   * than baked into the child components, both because this file does not own
-   * them and because a permanently focusable heading is itself a small a11y
-   * smell — it is focusable only for as long as it is the focus target.
-   *
-   * The key is `screen:node_id` (falling back to `act`), so it changes on every
-   * real transition and never re-fires on a re-render of the same surface. A
-   * resume claims the key in `boot()` without focusing, so merely reloading the
-   * page does not yank focus away from the top of the document.
-   */
+  const screen = state ? screenForStatus(state.status) : null;
+  const battle = state ? currentBattle(state) : null;
+  /** A run that just FAILED shows the battle that ended it before the receipt. */
+  const showEndingBattle = !!state && state.status === "failed" && !!battle && !resumed && endingSeen !== `${state.run_id}:${battle.act}`;
+
   const surfaceKey = state
-    ? surfaceKeyFor(state, { roster: showRosterReveal, bossIntro: showBossIntro, boss: showBossReveal })
+    ? surfaceKeyFor(state, { roster: showRosterReveal, bossIntro: showBossIntro, boss: showBossReveal, endingBattle: showEndingBattle })
     : null;
   useEffect(() => {
     if (!surfaceKey) {
@@ -657,100 +353,73 @@ export default function RunTheTableGame({
     if (previous === surfaceKey) return;
     const container = surfaceRef.current;
     if (!container) return;
-    const target = container.querySelector<HTMLElement>("h2") ?? container;
+    const target = container.querySelector<HTMLElement>("h1, h2") ?? container;
     target.setAttribute("tabindex", "-1");
-    target.focus();
+    target.focus({ preventScroll: true });
+    // A new decision starts at the top of the run — header, track and the
+    // decision in view — never wherever the previous, taller surface left
+    // the scroll position.
+    // 64px keeps the sticky site nav off the run header.
+    const top = container.getBoundingClientRect().top + window.scrollY - 64;
+    if (window.scrollY > top + 8) {
+      window.scrollTo({ top: Math.max(0, top), behavior: reducedMotion ? "auto" : "smooth" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [surfaceKey]);
 
   // --- action plumbing -----------------------------------------------------
-
-  /** Applies one server round-trip. Returns the committed state, or null if it
-   *  failed — so a caller that must only act on success (the start paths, which
-   *  emit `rtt_run_started`) can tell the difference without another effect. */
   const run = useCallback(
-    async (
-      fn: () => Promise<RunPublicState>,
-      announce?: string,
-    ): Promise<RunPublicState | null> => {
-      setBusy(true);
+    async (fn: () => Promise<RunPublicState>, announce?: string, kind = "action"): Promise<RunPublicState | null> => {
       setError(null);
-      try {
-        const next = await fn();
-        commit(next);
-        if (announce) setLiveMessage(announce);
-        setRetry(null);
-        return next;
-      } catch (e) {
-        // The same `fn` — and therefore the same idempotency key — so a retry
-        // of a half-applied action is a no-op on the server, not a second buy.
-        setRetry({ fn, announce });
-        if (e instanceof RunTheTableAPIError) {
-          setError(
-            e.status === 0
-              ? "Could not reach the PEAK3 API. Your run is safe — try again."
-              : e.detail,
-          );
-          if (shouldClearStoredRun(e.status)) {
-            clearActiveRun();
-            setState(null);
-            setResumeNotice(
-              "That run is no longer valid under the current ruleset. Start a new one below.",
-            );
+      const result = await lane.run(kind, async () => {
+        try {
+          const next = await fn();
+          commit(next);
+          if (announce) setLiveMessage(announce);
+          setRetry(null);
+          return next;
+        } catch (e) {
+          setRetry({ fn, announce });
+          if (e instanceof RunTheTableAPIError) {
+            setError(e.status === 0 ? "Could not reach the PEAK3 API. Your run is safe — try again." : e.detail);
+            if (shouldClearStoredRun(e.status)) {
+              clearActiveRun();
+              stateRef.current = null;
+              setState(null);
+              setResumeNotice("That run is no longer valid under the current ruleset. Start a new one below.");
+            }
+          } else {
+            setError("Something went wrong. Try again.");
           }
-        } else {
-          setError("Something went wrong. Try again.");
+          return null;
         }
-        return null;
-      } finally {
-        setBusy(false);
-      }
+      });
+      return result ?? null;
     },
-    [commit],
+    [commit, lane],
   );
 
-  function act(
-    body: Parameters<typeof postRunAction>[1],
-    label: string,
-    announce?: string,
-  ): void {
-    if (!state) return;
+  function act(body: Parameters<typeof postRunAction>[1], label: string, announce?: string): Promise<RunPublicState | null> {
+    if (!state) return Promise.resolve(null);
     const key = makeIdempotencyKey(state.run_id, label);
-    void run(() => postRunAction(state.run_id, body, key), announce);
+    return run(() => postRunAction(state.run_id, body, key), announce);
   }
 
-  /** The one place `rtt_run_started` is emitted, from a state the server has
-   *  confirmed. Never fires on a resume, and never fires twice for one run. */
   function announceStarted(next: RunPublicState | null): void {
     if (!next) return;
     trackRunTheTable({ type: "rtt_run_started", run_type: next.run_type, seed: next.seed });
   }
 
-  /**
-   * Abandon the run in progress SERVER-SIDE and switch to its successor.
-   *
-   * Deliberately not `clearActiveRun()` + `handleStart()`. Clearing the local
-   * pointer would leave the old run live on the server -- resumable from any
-   * other tab, and countable by anything that reads runs -- which is the exact
-   * defect this flow exists to close. `commit` then repoints local storage at
-   * whatever the server returned, so a refresh mid-flow lands on the new run
-   * and can never resurrect the abandoned one.
-   *
-   * Throws on failure so the dialog can stay open and say so; the run in
-   * progress is untouched in that case.
-   */
   const handleRestart = useCallback(async () => {
     if (!state) return;
     setError(null);
-    setBusy(true);
-    try {
-      const next = await restartRun(state.run_id, state.action_count);
+    const next = await lane.run("restart", () => restartRun(state.run_id, state.action_count));
+    if (next) {
       commit(next);
       setLiveMessage("New run started. The previous run was abandoned.");
       announceStarted(next);
-    } finally {
-      setBusy(false);
     }
-  }, [state, commit]);
+  }, [state, commit, lane]);
 
   const handleStart = useCallback(
     async (runType: RunType) => {
@@ -763,55 +432,38 @@ export default function RunTheTableGame({
             challengeToken: runType === "challenge" ? challengeToken : undefined,
           }),
         "Run started.",
+        "start",
       );
-      if (next) {
-        trackRunTheTable({ type: "rtt_run_started", run_type: next.run_type, seed: next.seed });
-      }
+      if (next) trackRunTheTable({ type: "rtt_run_started", run_type: next.run_type, seed: next.seed });
     },
     [run, initialSeed, initialDate, challengeToken],
   );
 
-  // --- `?start=` — the homepage launcher's deep link (plan §5.1) ------------
   useEffect(() => {
-    // Wait for boot: a stored run must be given the chance to resume first, or
-    // a shared link would silently abandon a run in progress.
     if (booting) return;
     if (startConsumedRef.current) return;
     const requested = startParamRef.current;
     if (!requested) return;
-
-    // Consume and strip BEFORE anything async. A refresh must not be able to
-    // start a second run, and neither must a strict-mode double-invoke.
     startConsumedRef.current = true;
     stripStartParamFromUrl();
-
-    // A resumed run wins outright. The param is still consumed and stripped —
-    // it just does not create anything.
     if (state) return;
-    // So does a challenge token. `?c=<token>&start=standard` must not quietly
-    // start a fresh random-seed run and drop the token: the recipient came for
-    // a specific shared board, and silently giving them a different one is the
-    // wrong-board failure the challenge button exists to prevent. Fall through
-    // to the gate, which offers the challenge explicitly.
     if (challengeToken) return;
     void handleStart(requested);
   }, [booting, state, handleStart, challengeToken]);
 
-  // A fresh run on a NEW seed (the server picks one) versus the same seed
-  // again — two genuinely different replays, so two buttons.
-  async function handleRunItBack() {
+  async function handleRunItBack(): Promise<RunPublicState | null> {
     const runType = state?.run_type ?? "standard";
     trackRunTheTable({ type: "rtt_run_it_back", run_type: runType });
     clearActiveRun();
-    announceStarted(await run(() => createRun("standard"), "New run started."));
+    const next = await run(() => createRun("standard"), "New run started.", "start");
+    announceStarted(next);
+    return next;
   }
 
   async function handleReplaySeed() {
     const seed = state?.seed;
     clearActiveRun();
-    announceStarted(
-      await run(() => createRun("standard", { seed }), "Replaying the same seed."),
-    );
+    announceStarted(await run(() => createRun("standard", { seed }), "Replaying the same seed.", "start"));
   }
 
   async function handleChallenge(): Promise<string | null> {
@@ -825,8 +477,19 @@ export default function RunTheTableGame({
     }
   }
 
-  // --- render --------------------------------------------------------------
+  const onProject = useCallback((cost: number | null, slots: string[]) => {
+    setProjectedCredits((current) => {
+      const s = stateRef.current;
+      if (!s || cost === null) return null;
+      const next = s.credits - cost;
+      return current === next ? current : next;
+    });
+    setTargetedSlots((current) => (current.join("|") === slots.join("|") ? current : slots));
+  }, []);
 
+  const momentDone = useCallback((id: string) => setMoment((m) => (m?.id === id ? null : m)), []);
+
+  // --- render --------------------------------------------------------------
   if (booting) return <RunSkeleton />;
 
   if (!state) {
@@ -851,16 +514,7 @@ export default function RunTheTableGame({
     );
   }
 
-  const screen = screenForStatus(state.status);
   const node = state.active_node;
-  const battle = currentBattle(state);
-
-  /**
-   * The HUD's one-line objective — RunHUD.tsx deliberately does not own this
-   * (it would be a second switch statement duplicating the one below). Kept
-   * as plain, short labels; the surface itself still carries the full title/
-   * summary/consequence copy this only summarises.
-   */
   const objective = showRosterReveal
     ? "Meet your roster"
     : showBossIntro || showBossReveal
@@ -873,451 +527,59 @@ export default function RunTheTableGame({
             ? "Choose your next stop"
             : screen === "boss_preview"
               ? `Boss briefing — ${state.next_boss?.name ?? ""}`
-              : screen === "battle"
-                ? // P5-F5 (platform): this rendered the raw snake_case
-                  // `boss_id` — `BattlePublic` (`battle`) never carries a
-                  // display name at all, only the id. `state.next_boss` is
-                  // the fix, not a new lookup: `action_resolve_boss` never
-                  // increments `state.act` (only `action_advance` does,
-                  // after this screen), so at the "battle" screen
-                  // `next_boss` is still, correctly, the boss this battle
-                  // was just fought against — the exact same source
-                  // `BattleReveal`'s own header already trusts for the
-                  // same reason. `battle.boss_id` stays only as the
-                  // last-resort fallback `next_boss` itself already uses
-                  // elsewhere in this file.
-                  `Boss battle — ${state.next_boss?.name ?? battle?.boss_id ?? ""}`
+              : screen === "battle" || showEndingBattle
+                ? `Boss battle — ${state.next_boss?.name ?? battle?.boss_id ?? ""}`
                 : screen === "result"
                   ? "Run complete"
                   : "Run the Table";
 
-  let surface: React.ReactNode = null;
-  let mobilePrimaryLabel: string | null = null;
-  let mobilePrimary: (() => void) | null = null;
+  const reveal = (target: "roster" | "boss", count: number): Promise<RunPublicState | null> =>
+    act(runActions.reveal(target, count), `reveal:${target}:${state.action_count}`, count > 1 ? "Roster revealed." : "Revealed.");
 
-  /**
-   * One `reveal` action — always called with `count = track.total` now
-   * (SYNTHESIS_CONTRACT.md §2.2: "one user action → one request → server
-   * returns all 7 authoritative `revealed_slots` in order"). The engine
-   * already saturates a count beyond what remains, which is what makes this
-   * legal and idempotent in one round trip; `RevealSequenceSurface` is what
-   * paces the CLIENT's presentation of the response afterward.
-   *
-   * The idempotency key includes `action_count`, so a double-click on
-   * "Reveal your roster" cannot fire the batch twice.
-   */
-  const reveal = (target: "roster" | "boss", count: number): void => {
-    act(
-      runActions.reveal(target, count),
-      `reveal:${target}:${state.action_count}`,
-      count > 1 ? "Roster revealed." : "Revealed.",
-    );
+  const spendSink = (sink: CreditSink): Promise<RunPublicState | null> => {
+    if (sink.id === "market_refresh") return act(runActions.marketRefresh(), `refresh:${nodeId}`, "Market refreshed.");
+    if (sink.id === "emergency_recovery") return act(runActions.emergencyRecovery(), `recovery:${state.run_id}`, "Life recovered.");
+    return Promise.resolve(null);
   };
 
-  /** Every priced control routes through here, so a sink is charged by exactly
-   *  one action type and the client never guesses which. */
-  const spendSink = (sink: CreditSink): void => {
-    if (sink.id === "market_refresh") {
-      act(runActions.marketRefresh(), `refresh:${nodeId}`, "Market refreshed.");
-      return;
-    }
-    if (sink.id === "emergency_recovery") {
-      act(
-        runActions.emergencyRecovery(),
-        `recovery:${state.run_id}`,
-        "Life recovered.",
-      );
-    }
-    // `role_focus` and `reserve_card` are Scout & Prepare branches, not
-    // standalone actions: they need a role or a card id before they mean
-    // anything, so `ScoutPrepare`'s panels call `act` directly and this
-    // function is never reached with either id.
-  };
+  const stageProps = { act: state.act, stage: state.stage, stagesPerAct: state.stages_per_act };
+  const bossEncounter = showBossIntro || showBossReveal || screen === "boss_preview" || screen === "battle" || showEndingBattle;
+
+  let content: React.ReactNode = null;
+  let layout: "live" | "focus" | "bare" = "live";
 
   if (showRosterReveal && rosterTrack) {
-    // Before act 1, and before the first decision: one press reveals all
-    // seven slots in a single batched round trip (SYNTHESIS_CONTRACT.md
-    // §2.2); the client then paces its OWN presentation of that
-    // already-authoritative data through `useRevealSequence` — see
-    // `showRosterReveal`'s docstring above for why this can no longer be
-    // gated on the server's `roster.complete` alone.
-    surface = (
-      <RevealSequenceSurface
-        track={rosterTrack}
-        sequence={rosterSequence}
-        kind="roster"
-        title="Meet your roster"
-        subtitle="Five starters and two bench players, revealed together."
-        sourceNote={revealSourceFor("roster")}
-        orderLabelFor={(slotId, label) => label ?? slotId.replace(/_/g, " ")}
-        cardLookup={(cardId) =>
-          [...state.starters, ...state.bench].find((s) => s.card?.card_id === cardId)?.card ?? null
-        }
-        reducedMotion={reducedMotion}
-        busy={busy}
-        onStartReveal={(count) => reveal("roster", count)}
-        footer={
-          // "Skip the animation" is not "skip the information" — skip-all
-          // lands on all 7 slots fully resolved and HOLDS there; only this
-          // explicit press leaves the screen (lead's ruling, see
-          // `rosterRevealDismissed`'s docstring above).
-          <button
-            type="button"
-            data-testid="rtt-reveal-continue-roster"
-            onClick={() => setRosterRevealDismissed(true)}
-            className="rtt-tap pk-lift pk-press self-start rounded-lg px-6 text-sm font-bold uppercase tracking-wide"
-            style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
-          >
-            Continue
-          </button>
-        }
-      />
-    );
-  } else if (showBossIntro && bossTrack && state.next_boss) {
-    surface = (
-      <BossIntro
-        boss={state.next_boss}
-        lanesToWin={state.next_boss.lanes_to_win ?? state.lanes_to_win}
-        reducedMotion={reducedMotion}
-        onComplete={() => setDismissedBossIntroId(bossTrack.boss_id)}
-      />
-    );
-  } else if (showBossReveal && bossTrack) {
-    surface = (
-      <RevealSequenceSurface
-        track={bossTrack}
-        sequence={bossSequence}
-        kind="boss"
-        title={bossTrack.name}
-        subtitle={bossTrack.tagline}
-        sourceNote={revealSourceFor("boss")}
-        orderLabelFor={(slotId, label) => label ?? slotId.replace(/_/g, " ")}
-        cardLookup={(cardId) =>
-          [...(state.next_boss?.starters ?? []), ...(state.next_boss?.bench ?? [])].find(
-            (c) => c.card_id === cardId,
-          ) ?? null
-        }
-        pairedCardLookup={(slotId) =>
-          [...state.starters, ...state.bench].find((s) => s.slot_id === slotId)?.card ?? null
-        }
-        reducedMotion={reducedMotion}
-        busy={busy}
-        onStartReveal={(count) => reveal("boss", count)}
-        footer={
-          <button
-            type="button"
-            data-testid="rtt-reveal-continue-boss"
-            onClick={() => setDismissedBossRevealId(bossTrack.boss_id)}
-            className="rtt-tap pk-lift pk-press self-start rounded-lg px-6 text-sm font-bold uppercase tracking-wide"
-            style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
-          >
-            Continue to the briefing
-          </button>
-        }
-      />
-    );
-  } else if (screen === "system_select") {
-    surface = (
-      <SystemSelect
-        offer={state.pending_system_offer ?? []}
-        active={state.systems}
-        act={state.act}
-        busy={busy}
-        onSelect={(systemId) => {
-          trackRunTheTable({ type: "rtt_system_selected", system_id: systemId });
-          // "Front Office Perk", not "System": this was the only surface in
-          // the game using the internal name as the primary term, and it was
-          // the one place a screen-reader user met it first.
-          act(
-            runActions.selectSystem(systemId),
-            `system:${systemId}`,
-            "Front Office Perk selected.",
-          );
-        }}
-      />
-    );
-  } else if (screen === "node_select") {
-    surface = (
-      <NodeChoice
-        options={state.stage_options ?? []}
-        act={state.act}
-        stage={state.stage}
-        stagesPerAct={state.stages_per_act}
-        busy={busy}
-        onChoose={(option) => {
-          trackRunTheTable({
-            type: "rtt_node_chosen",
-            node_type: option.node_type,
-            act: state.act,
-            stage: state.stage,
-          });
-          act(runActions.chooseNode(option.node_id), `node:${option.node_id}`, `${option.title} opened.`);
-        }}
-      />
-    );
-  } else if (screen === "node_active" && node) {
-    // Every node's priced controls, in one place, under the node's own
-    // decision. `credit_sinks` is empty on a node that offers none, and
-    // `CreditSinks` renders nothing for an empty list — so this composes with
-    // all four node types without a branch per type.
-    const sinks = (
-      <CreditSinks sinks={node.credit_sinks ?? []} busy={busy} onSpend={spendSink} />
-    );
-    if (node.node_type === "draft_room") {
-      surface = (
-        <>
-        <DraftRoom
-          node={node}
-          slots={[...state.starters, ...state.bench]}
-          credits={state.credits}
-          busy={busy}
-          onBuy={(offer, slotId, useVetMin) => {
-            trackRunTheTable({
-              type: "rtt_acquisition",
-              cost: useVetMin ? 0 : offer.cost,
-              veteran_minimum: useVetMin,
-              act: state.act,
-            });
-            act(
-              runActions.draftBuy(offer.card_id, slotId, useVetMin),
-              `buy:${offer.card_id}:${slotId}`,
-              `${offer.player_name} signed.`,
-            );
-          }}
-          onPass={() => {
-            trackRunTheTable({ type: "rtt_offer_passed", node_type: "draft_room", act: state.act });
-            act(runActions.draftPass(), "draft_pass", "Passed on the draft room.");
-          }}
-          scoutIntel={activeScoutIntel}
-        />
-        {sinks}
-        </>
-      );
-    } else if (node.node_type === "trade_desk") {
-      surface = (
-        <>
-        <TradeDesk
-          node={node}
-          credits={state.credits}
-          busy={busy}
-          scoutIntel={activeScoutIntel}
-          onTrade={(outgoingSlotId, incomingCardId, netCost) => {
-            trackRunTheTable({ type: "rtt_trade", net_cost: netCost, act: state.act });
-            act(
-              runActions.trade(outgoingSlotId, incomingCardId),
-              `trade:${outgoingSlotId}:${incomingCardId}`,
-              "Trade completed.",
-            );
-          }}
-          onDecline={() => {
-            trackRunTheTable({ type: "rtt_offer_passed", node_type: "trade_desk", act: state.act });
-            act(runActions.declineTrade(), "decline_trade", "Trade declined.");
-          }}
-        />
-        {sinks}
-        </>
-      );
-    } else if (node.node_type === "film_room") {
-      // Scout & Prepare gets its own surface: each of its three branches needs
-      // a second selection (a lane, a role, a card) before it is a legal
-      // action, and the outcome of each is data the player has to read first.
-      // Its two priced branches ARE the Role Focus and Reserve a Card sinks, so
-      // they are rendered inside the panel rather than duplicated below it.
-      surface = (
-        <ScoutPrepare
-          node={node}
-          credits={state.credits}
-          busy={busy}
-          onScoutBoss={(lane: LaneField) =>
-            act(
-              runActions.filmRoom("scout_boss", { lane }),
-              `scout:${node.node_id}:${lane}`,
-              "Boss scouted. One lane prepared.",
-            )
-          }
-          onShapeMarket={(role: Role) =>
-            act(
-              runActions.filmRoom("shape_market", { role }),
-              `focus:${node.node_id}:${role}`,
-              "Role Focus armed for the next market.",
-            )
-          }
-          onReserveCard={(cardId: string) =>
-            act(
-              runActions.filmRoom("reserve_card", { card_id: cardId }),
-              `reserve:${node.node_id}:${cardId}`,
-              "Card reserved at today's price.",
-            )
-          }
-        />
-      );
-    } else {
-      surface = (
-        <>
-        <ChoiceNode
-          node={node}
-          busy={busy}
-          onChoose={(choiceId) =>
-            act(
-              runActions.restBank(choiceId),
-              `${node.node_type}:${choiceId}`,
-              "Choice taken.",
-            )
-          }
-        />
-        {sinks}
-        </>
-      );
-    }
-  } else if (screen === "boss_preview" && state.next_boss) {
-    const boss = state.next_boss;
-    const resolve = () => {
-      trackRunTheTable({ type: "rtt_boss_started", act: state.act, boss_id: boss.boss_id });
-      act(runActions.resolveBoss(), `resolve:${boss.boss_id}`, "Battle resolved.");
-    };
-    mobilePrimaryLabel = "Resolve";
-    mobilePrimary = resolve;
-    surface = (
-      <BossPreview
-        boss={boss}
-        playerLanes={state.lane_profile}
-        playerTotal={state.roster_total}
-        benchWeight={state.bench_weight}
-        lives={state.lives}
-        busy={busy}
-        onResolve={resolve}
-        /* THIS BOSS's number, not the ruleset default. A boss rule may raise
-           the lanes an outright win takes for both sides
-           (`config.BOSS_LANES_TO_WIN` — v3's Final Boss does), so stating the
-           run-wide `lanes_to_win` here would print the wrong win condition on
-           the one battle where it matters most. Falls back to the run's value
-           for a payload that predates `boss.lanes_to_win`. */
-        lanesToWin={boss.lanes_to_win ?? state.lanes_to_win}
-      />
-    );
-  } else if (screen === "battle" && battle) {
-    const advance = () => {
-      trackRunTheTable({
-        type: "rtt_boss_completed",
-        act: battle.act,
-        boss_id: battle.boss_id,
-        outcome: battle.outcome,
-      });
-      act(runActions.advance(), `advance:${battle.act}`, "Moving on.");
-    };
-    mobilePrimaryLabel = "Continue";
-    mobilePrimary = advance;
-    surface = (
-      <BattleReveal
-        battle={battle}
-        boss={state.next_boss}
-        busy={busy}
-        onAdvance={advance}
-        advanceLabel={battle.act >= state.acts_total ? "See the receipt" : "Next act"}
-        /* The number THIS battle was actually decided against, recorded on the
-           result itself, so the reveal cannot narrate a threshold the fight did
-           not use. */
-        lanesToWin={battle.lanes_to_win ?? state.lanes_to_win}
-      />
-    );
-  } else if (screen === "result" && state.receipt) {
-    surface = (
-      <RunResult
-        receipt={state.receipt}
-        versions={state.versions}
-        actsTotal={state.acts_total}
-        map={state.map}
-        busy={busy}
-        onRunItBack={handleRunItBack}
-        onReplaySeed={handleReplaySeed}
-        onChallenge={handleChallenge}
-      />
-    );
-  } else {
-    // Reachable only if the server sends a status whose payload block is
-    // missing (e.g. `node_active` with no `active_node`). Say so plainly and
-    // offer a reload rather than rendering a blank column.
-    surface = (
-      <div
-        role="alert"
-        className="rounded-xl border p-4 flex flex-col gap-2"
-        style={{ background: "var(--bg-elevated)", borderColor: "var(--incorrect-dim)" }}
-        data-testid="rtt-inconsistent-state"
-      >
-        <p className="text-sm" style={{ color: "var(--text-primary)" }}>
-          This run came back in a state the board cannot draw ({state.status}).
-        </p>
-        <button
-          type="button"
-          onClick={() => void run(() => getRun(state.run_id))}
-          className="rtt-tap self-start rounded-lg px-4 text-xs font-semibold uppercase tracking-wide"
-          style={{
-            background: "var(--bg-surface)",
-            color: "var(--text-primary)",
-            border: "1px solid var(--border-default)",
-          }}
-        >
-          Reload the run
-        </button>
-      </div>
-    );
-  }
-
-  /**
-   * V2's presentation of the SAME screen this function just resolved into
-   * `surface` (Pass 3, product-direction). Four moments get a real V2
-   * rebuild — Draft Room (the flagship decision), the boss-reveal cinematic
-   * (`showBossIntro`/`showBossReveal`), the boss battle result, and the final
-   * run receipt (`PeakV2RTTResult` — added on the final-polish pass that
-   * closed the confirmed hard-stop where this branch fell through to
-   * legacy's `RunResult` with no V2 pixel at all) — because those are the
-   * surfaces the brief calls out by name. Every other node type (Trade Desk,
-   * Scout & Prepare, Choice/Rest Bank, System Select, Node Select, Boss
-   * Preview, the opening roster reveal) reuses the EXACT already-built
-   * `surface` node above rather than a second, divergent implementation of
-   * mechanics this pass does not need to redesign — `PeakV2RTTShell` still
-   * gives it the V2 status strip, run map and roster/lane rails around it.
-   */
-  let v2Content: React.ReactNode = surface;
-  let v2Layout: "live" | "cinematic" | "bare" = "live";
-
-  if (showRosterReveal && rosterTrack) {
-    // P3 polish gap fix: this branch was previously MISSING, so `v2Content`
-    // fell through to `surface` above — legacy's own `RevealSequenceSurface`
-    // (hardcoded `--peak-accent`/`--text-primary` tokens, no V2 grammar at
-    // all) — meaning every run under `?ui=v2` opened on a fully legacy-styled
-    // screen before a single V2 pixel had rendered. `PeakV2RTTBossLineup`'s
-    // `kind="roster"` (this pass) is the same cinematic card-grid reveal
-    // built for the boss, gated on the same explicit "Reveal your roster"
-    // press legacy also requires.
-    v2Layout = "cinematic";
-    v2Content = (
+    layout = "focus";
+    content = (
       <PeakV2RTTBossLineup
         kind="roster"
-        title="Meet your roster"
-        subtitle="Five starters and two bench players, revealed together."
+        title="Your opening seven"
+        subtitle="Five starters and two bench players, dealt together."
         sourceNote={revealSourceFor("roster")}
         track={rosterTrack}
         sequence={rosterSequence}
         reducedMotion={reducedMotion}
         busy={busy}
-        onStartReveal={(count) => reveal("roster", count)}
+        onStartReveal={(count) => void reveal("roster", count)}
         onContinue={() => setRosterRevealDismissed(true)}
+        brief={{ lives: state.max_lives, credits: state.starting_credits, acts: state.acts_total }}
       />
     );
   } else if (showBossIntro && bossTrack && state.next_boss) {
-    v2Layout = "cinematic";
-    v2Content = (
+    layout = "focus";
+    content = (
       <PeakV2RTTBossIntro
         boss={state.next_boss}
         lanesToWin={state.next_boss.lanes_to_win ?? state.lanes_to_win}
+        lives={state.lives}
+        maxLives={state.max_lives}
         reducedMotion={reducedMotion}
         onComplete={() => setDismissedBossIntroId(bossTrack.boss_id)}
       />
     );
   } else if (showBossReveal && bossTrack) {
-    v2Layout = "cinematic";
-    v2Content = (
+    layout = "focus";
+    content = (
       <PeakV2RTTBossLineup
         kind="boss"
         title={bossTrack.name}
@@ -1327,119 +589,99 @@ export default function RunTheTableGame({
         sequence={bossSequence}
         reducedMotion={reducedMotion}
         busy={busy}
-        onStartReveal={(count) => reveal("boss", count)}
+        onStartReveal={(count) => void reveal("boss", count)}
         onContinue={() => setDismissedBossRevealId(bossTrack.boss_id)}
-        pairedCardLookup={(slotId) =>
-          [...state.starters, ...state.bench].find((s) => s.slot_id === slotId)?.card ?? null
-        }
+        pairedCardLookup={(slotId) => [...state.starters, ...state.bench].find((s) => s.slot_id === slotId)?.card ?? null}
+      />
+    );
+  } else if (showEndingBattle && battle) {
+    layout = "focus";
+    content = (
+      <PeakV2RTTBattleResult
+        battle={battle}
+        boss={state.next_boss}
+        busy={busy}
+        lives={state.lives}
+        maxLives={state.max_lives}
+        actsTotal={state.acts_total}
+        lanesToWin={battle.lanes_to_win ?? state.lanes_to_win}
+        advanceLabel="See how it ended"
+        onAdvance={async () => {
+          setEndingSeen(`${state.run_id}:${battle.act}`);
+          return true;
+        }}
       />
     );
   } else if (screen === "node_active" && node && node.node_type === "draft_room") {
-    v2Content = (
+    content = (
       <>
         <PeakV2RTTDraftRoom
           node={node}
           slots={[...state.starters, ...state.bench]}
           credits={state.credits}
           busy={busy}
-          onBuy={(offer, slotId, useVetMin) => {
-            trackRunTheTable({
-              type: "rtt_acquisition",
-              cost: useVetMin ? 0 : offer.cost,
-              veteran_minimum: useVetMin,
-              act: state.act,
-            });
-            act(
-              runActions.draftBuy(offer.card_id, slotId, useVetMin),
-              `buy:${offer.card_id}:${slotId}`,
-              `${offer.player_name} signed.`,
-            );
+          {...stageProps}
+          scoutIntel={activeScoutIntel}
+          onProject={onProject}
+          onBuy={async (offer, slotId, useVetMin) => {
+            trackRunTheTable({ type: "rtt_acquisition", cost: useVetMin ? 0 : offer.cost, veteran_minimum: useVetMin, act: state.act });
+            setPendingSlot(slotId);
+            try {
+              return await act(runActions.draftBuy(offer.card_id, slotId, useVetMin), `buy:${offer.card_id}:${slotId}`, `${offer.player_name} signed.`);
+            } finally {
+              setPendingSlot(null);
+            }
           }}
           onPass={() => {
             trackRunTheTable({ type: "rtt_offer_passed", node_type: "draft_room", act: state.act });
-            act(runActions.draftPass(), "draft_pass", "Passed on the draft room.");
+            return act(runActions.draftPass(), "draft_pass", "Passed on the draft room.");
           }}
         />
-        {/* Every node's priced controls render below its own decision, same
-            as Trade Desk and the generic choice node below — this branch was
-            missing them entirely. */}
         <PeakV2RTTCreditSinks sinks={node.credit_sinks ?? []} busy={busy} onSpend={spendSink} />
       </>
     );
   } else if (screen === "node_active" && node && node.node_type === "trade_desk") {
-    v2Content = (
+    content = (
       <>
         <PeakV2RTTTradeDesk
           node={node}
           credits={state.credits}
           busy={busy}
+          {...stageProps}
           scoutIntel={activeScoutIntel}
           onTrade={(outgoingSlotId, incomingCardId, netCost) => {
             trackRunTheTable({ type: "rtt_trade", net_cost: netCost, act: state.act });
-            act(
-              runActions.trade(outgoingSlotId, incomingCardId),
-              `trade:${outgoingSlotId}:${incomingCardId}`,
-              "Trade completed.",
-            );
+            return act(runActions.trade(outgoingSlotId, incomingCardId), `trade:${outgoingSlotId}:${incomingCardId}`, "Trade completed.");
           }}
           onDecline={() => {
             trackRunTheTable({ type: "rtt_offer_passed", node_type: "trade_desk", act: state.act });
-            act(runActions.declineTrade(), "decline_trade", "Trade declined.");
+            return act(runActions.declineTrade(), "decline_trade", "Trade declined.");
           }}
         />
         <PeakV2RTTCreditSinks sinks={node.credit_sinks ?? []} busy={busy} onSpend={spendSink} />
       </>
     );
   } else if (screen === "node_active" && node && node.node_type === "film_room") {
-    v2Content = (
+    content = (
       <PeakV2RTTScoutPrepare
         node={node}
         credits={state.credits}
         busy={busy}
-        onScoutBoss={(lane: LaneField) =>
-          act(
-            runActions.filmRoom("scout_boss", { lane }),
-            `scout:${node.node_id}:${lane}`,
-            "Boss scouted. One lane prepared.",
-          )
-        }
-        onShapeMarket={(role: Role) =>
-          act(
-            runActions.filmRoom("shape_market", { role }),
-            `focus:${node.node_id}:${role}`,
-            "Role Focus armed for the next market.",
-          )
-        }
-        onReserveCard={(cardId: string) =>
-          act(
-            runActions.filmRoom("reserve_card", { card_id: cardId }),
-            `reserve:${node.node_id}:${cardId}`,
-            "Card reserved at today's price.",
-          )
-        }
+        {...stageProps}
+        onScoutBoss={(laneField: LaneField) => act(runActions.filmRoom("scout_boss", { lane: laneField }), `scout:${node.node_id}:${laneField}`, "Boss scouted. One lane prepared.")}
+        onShapeMarket={(role: Role) => act(runActions.filmRoom("shape_market", { role }), `focus:${node.node_id}:${role}`, "Role Focus armed for the next market.")}
+        onReserveCard={(cardId: string) => act(runActions.filmRoom("reserve_card", { card_id: cardId }), `reserve:${node.node_id}:${cardId}`, "Card reserved at today's price.")}
       />
     );
   } else if (screen === "node_active" && node) {
-    // Every other written-choice node type (rest_bank under v3) shares the
-    // exact `choices` payload shape ChoiceNode already renders for.
-    v2Content = (
+    content = (
       <>
-        <PeakV2RTTChoiceNode
-          node={node}
-          busy={busy}
-          onChoose={(choiceId) =>
-            act(
-              runActions.restBank(choiceId),
-              `${node.node_type}:${choiceId}`,
-              "Choice taken.",
-            )
-          }
-        />
+        <PeakV2RTTChoiceNode node={node} busy={busy} {...stageProps} onChoose={(choiceId) => act(runActions.restBank(choiceId), `${node.node_type}:${choiceId}`, "Choice taken.")} />
         <PeakV2RTTCreditSinks sinks={node.credit_sinks ?? []} busy={busy} onSpend={spendSink} />
       </>
     );
   } else if (screen === "system_select") {
-    v2Content = (
+    content = (
       <PeakV2RTTSystemSelect
         offer={state.pending_system_offer ?? []}
         active={state.systems}
@@ -1447,109 +689,91 @@ export default function RunTheTableGame({
         busy={busy}
         onSelect={(systemId) => {
           trackRunTheTable({ type: "rtt_system_selected", system_id: systemId });
-          act(
-            runActions.selectSystem(systemId),
-            `system:${systemId}`,
-            "Front Office Perk selected.",
-          );
+          return act(runActions.selectSystem(systemId), `system:${systemId}`, "Front Office Perk selected.");
         }}
       />
     );
   } else if (screen === "node_select") {
-    v2Content = (
+    content = (
       <PeakV2RTTNodeChoice
         options={state.stage_options ?? []}
-        act={state.act}
-        stage={state.stage}
-        stagesPerAct={state.stages_per_act}
+        {...stageProps}
         busy={busy}
         onChoose={(option) => {
-          trackRunTheTable({
-            type: "rtt_node_chosen",
-            node_type: option.node_type,
-            act: state.act,
-            stage: state.stage,
-          });
-          act(runActions.chooseNode(option.node_id), `node:${option.node_id}`, `${option.title} opened.`);
+          trackRunTheTable({ type: "rtt_node_chosen", node_type: option.node_type, act: state.act, stage: state.stage });
+          return act(runActions.chooseNode(option.node_id), `node:${option.node_id}`, `${option.title} opened.`);
         }}
       />
     );
   } else if (screen === "boss_preview" && state.next_boss) {
     const boss = state.next_boss;
-    v2Content = (
+    layout = "focus";
+    content = (
       <PeakV2RTTBossPreview
         boss={boss}
         playerLanes={state.lane_profile}
         playerTotal={state.roster_total}
         benchWeight={state.bench_weight}
         lives={state.lives}
+        maxLives={state.max_lives}
         busy={busy}
         onResolve={() => {
           trackRunTheTable({ type: "rtt_boss_started", act: state.act, boss_id: boss.boss_id });
-          act(runActions.resolveBoss(), `resolve:${boss.boss_id}`, "Battle resolved.");
+          return act(runActions.resolveBoss(), `resolve:${boss.boss_id}`, "Battle resolved.");
         }}
         lanesToWin={boss.lanes_to_win ?? state.lanes_to_win}
       />
     );
   } else if (screen === "battle" && battle) {
-    v2Layout = "cinematic";
-    v2Content = (
+    layout = "focus";
+    content = (
       <PeakV2RTTBattleResult
         battle={battle}
         boss={state.next_boss}
+        busy={busy}
+        lives={state.lives}
+        maxLives={state.max_lives}
+        actsTotal={state.acts_total}
+        lanesToWin={battle.lanes_to_win ?? state.lanes_to_win}
+        resumed={resumed}
         onAdvance={() => {
-          trackRunTheTable({
-            type: "rtt_boss_completed",
-            act: battle.act,
-            boss_id: battle.boss_id,
-            outcome: battle.outcome,
-          });
-          act(runActions.advance(), `advance:${battle.act}`, "Moving on.");
+          trackRunTheTable({ type: "rtt_boss_completed", act: battle.act, boss_id: battle.boss_id, outcome: battle.outcome });
+          return act(runActions.advance(), `advance:${battle.act}`, "Moving on.");
         }}
-        advanceLabel={battle.act >= state.acts_total ? "See the receipt" : "Next act"}
+        advanceLabel={battle.act >= state.acts_total ? "See the receipt" : `On to Act ${actNumeral(battle.act + 1)}`}
       />
     );
   } else if (screen === "result" && state.receipt) {
-    // P3 polish gap fix (mission §15, confirmed hard-stop item): this branch
-    // was previously MISSING its own content, so `v2Content` fell through to
-    // `surface` above — legacy's `RunResult` directly, no V2 rebuild at all —
-    // meaning every completed run under `?ui=v2` ended on a fully
-    // legacy-styled receipt. `PeakV2RTTResult` is the real V2 rebuild, same
-    // real `receipt`/`versions`/`map` data `RunResult` itself renders.
-    v2Layout = "bare";
-    v2Content = (
+    layout = "bare";
+    content = (
       <PeakV2RTTResult
         receipt={state.receipt}
         versions={state.versions}
         actsTotal={state.acts_total}
         map={state.map}
         busy={busy}
+        resumed={resumed}
         onRunItBack={handleRunItBack}
         onReplaySeed={handleReplaySeed}
         onChallenge={handleChallenge}
       />
     );
+  } else {
+    content = (
+      <div role="alert" className="rtt-inconsistent" data-testid="rtt-inconsistent-state">
+        <p>This run came back in a state the board cannot draw ({state.status}).</p>
+        <button type="button" onClick={() => void run(() => getRun(state.run_id), undefined, "reload")} className="rtt-help">
+          Reload the run
+        </button>
+      </div>
+    );
   }
-  // No `else if (screen === "result")` fallback to `"bare"` here: that layout
-  // is earned only by a REAL receipt-bearing result (`PeakV2RTTResult`,
-  // above), which supplies its own full composition. A "result" status with
-  // no receipt yet is the same inconsistent-payload edge case the generic
-  // `surface` fallback (bottom of the big if/else chain above) already
-  // handles — it still deserves the ordinary shell (HUD, restart control)
-  // around it, not a bare, chrome-less page.
 
   return (
-    <>
-      {/* Screen-reader announcer for every committed action — same
-          `liveMessage` legacy's shell carried, just no longer nested inside
-          a `.rtt-shell` div of its own. `sr-only`: never a visible element. */}
+    <div ref={surfaceRef}>
       <div aria-live="polite" className="sr-only" data-testid="rtt-live">
         {liveMessage}
       </div>
-      {/* The in-run guided tour — see the `tour`/`tourBlocked` hook call
-          above for why this mounts only here, past the start gate. Opening
-          it changes no run state: the server-authoritative `state` this
-          component holds is untouched either way. */}
       <GuidedTour
         steps={RUN_THE_TABLE_TOUR}
         tourId={RUN_THE_TABLE_TOUR_ID}
@@ -1563,118 +787,53 @@ export default function RunTheTableGame({
         data-testid="guided-tour"
       />
       <PeakV2RTTShell
-      state={state}
-      objective={objective}
-      layout={v2Layout}
-      content={v2Content}
-      scoutIntel={activeScoutIntel}
-      restartControl={
-        // Only while the run is still live — a concluded run already offers
-        // "Run it back" on the result screen, which creates a new run
-        // WITHOUT abandoning anything, so a finished run must never be
-        // relabelled. Same gate and the same `RestartRunControl` legacy's
-        // `RunHUD` rendered.
-        !isTerminal(state.status) ? (
-          <RestartRunControl
-            canRestart={state.can_restart !== false}
-            busy={busy}
-            onConfirm={handleRestart}
-          />
-        ) : null
-      }
-      mobileTray={
-        // Root cause of a mobile hit-testing regression (Playwright's
-        // elementFromPoint at the boss-intro Skip button's own on-screen
-        // center resolved to `.rtt-mobile-tray`/its row div, not the
-        // button): `mobilePrimaryLabel`/`mobilePrimary` above are derived
-        // from `screen` alone, and `screenForStatus` maps `"boss_ready"` to
-        // `"boss_preview"` -- the SAME status the roster-pairing and
-        // pre-battle intro ceremonies (`showRosterReveal`/`showBossIntro`/
-        // `showBossReveal`) also run under, before the real Boss Preview
-        // briefing is ever shown. The tray was therefore rendering a real,
-        // tappable "Resolve" button for a screen that was not actually on
-        // screen yet, sitting in the same sticky bottom band as the
-        // ceremony's own Skip control. Those three states already get their
-        // own `v2Content`/`v2Layout` override just above (the ceremony is
-        // its own moment, not the briefing) -- suppressing the tray for the
-        // exact same three states removes the stray control (and the
-        // sticky band's own hitbox) rather than papering over the overlap
-        // with a z-index. `screen === "battle"` is untouched: it is a real,
-        // correctly-matched screen with its own legitimate "Continue"
-        // action, not a ceremony masking a different status.
-        showRosterReveal || showBossIntro || showBossReveal ? null : (
-          <MobileTray
-            state={state}
-            primaryLabel={mobilePrimaryLabel}
-            onPrimary={mobilePrimary}
-            primaryDisabled={busy}
-          />
-        )
-      }
-      errorBanner={
-        error && (
-          <div
-            role="alert"
-            data-testid="rtt-error"
-            className="flex flex-wrap items-center gap-2 p-3"
-            style={{ background: "var(--v2-bg-plane)", border: "1px solid var(--v2-color-negative)", borderRadius: "var(--v2-radius-control)" }}
-          >
-            <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-color-negative)" }}>
-              {error}
-            </span>
-            {retry && (
-              <button
-                type="button"
-                data-testid="rtt-error-retry"
-                onClick={() => void run(retry.fn, retry.announce)}
-                className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-                style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", color: "var(--v2-text-secondary)", border: "1px solid var(--v2-border)", borderRadius: "var(--v2-radius-control)", padding: "0.375rem 0.75rem" }}
-              >
-                Try again
-              </button>
-            )}
-          </div>
-        )
-      }
+        state={state}
+        objective={objective}
+        layout={layout}
+        content={content}
+        scoutIntel={activeScoutIntel}
+        projectedCredits={projectedCredits}
+        targetedSlots={targetedSlots}
+        pendingSlot={pendingSlot}
+        moment={moment}
+        onMomentDone={momentDone}
+        actTransition={actTransition}
+        boss={bossEncounter}
+        onHelp={tour.start}
+        restartControl={!isTerminal(state.status) ? <RestartRunControl canRestart={state.can_restart !== false} busy={busy} onConfirm={handleRestart} /> : null}
+        errorBanner={
+          error && (
+            <div role="alert" data-testid="rtt-error" className="rtt-error">
+              <span>{error}</span>
+              {retry && (
+                <button type="button" data-testid="rtt-error-retry" onClick={() => void run(retry.fn, retry.announce, "retry")} className="rtt-help">
+                  Try again
+                </button>
+              )}
+            </div>
+          )
+        }
       />
-    </>
+    </div>
   );
 }
 
 /**
  * The identity of the decision surface currently on screen: one value per
  * distinct thing the player can be looking at. Exported for tests.
- *
- * `activeReveal` carries the CALLER's local `useRevealSequence` state
- * (`RunTheTableGame`'s `showRosterReveal`/`showBossReveal`) — since batching
- * the reveal into one POST (SYNTHESIS_CONTRACT.md §2.2) means the server's
- * own `roster.complete`/`boss.complete` flips true the instant that single
- * request resolves, long before the local paced presentation finishes, this
- * function can no longer answer "is a reveal surface showing" from `state`
- * alone. Omitting the second argument falls back to the server-only check
- * (`needsOpeningReveal`/`needsBossReveal`), which is still correct for a
- * caller with no local sequence state yet, such as the resume path in
- * `boot()` — see the call site there.
  */
 export function surfaceKeyFor(
   state: RunPublicState,
-  activeReveal?: { roster: boolean; bossIntro: boolean; boss: boolean },
+  activeReveal?: { roster: boolean; bossIntro: boolean; boss: boolean; endingBattle?: boolean },
 ): string {
-  // A reveal is a distinct surface that OCCUPIES another screen's slot, so the
-  // key has to say so — otherwise finishing the opening reveal would replace it
-  // with the System select under the identical key `system_select:1`, and the
-  // focus effect (which fires only on a key change) would never move focus to
-  // the surface that just arrived. The boss intro is likewise its own key —
-  // it occupies the same `boss_ready` status the reveal and the briefing
-  // also occupy, and needs its own focus-on-arrival moment.
   if (activeReveal ? activeReveal.roster : needsOpeningReveal(state)) return "reveal_roster:1";
   if (activeReveal?.bossIntro) return `boss_intro:${state.act}`;
   if (activeReveal ? activeReveal.boss : needsBossReveal(state)) return `reveal_boss:${state.act}`;
+  if (activeReveal?.endingBattle) return `ending_battle:${state.act}`;
   return `${screenForStatus(state.status)}:${state.active_node?.node_id ?? state.act}`;
 }
 
-/** Exported for tests: how many offers a node is showing, used to fire the
- *  "offer viewed" event exactly once per node rather than per render. */
+/** Exported for tests: how many offers a node is showing. */
 export function offerCountFor(state: RunPublicState): number {
   const node = state.active_node;
   if (!node) return 0;

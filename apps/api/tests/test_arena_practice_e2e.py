@@ -20,6 +20,7 @@ regression in registration fails HERE.
 """
 from __future__ import annotations
 
+import math
 from datetime import datetime, timedelta, timezone
 
 import anyio
@@ -33,11 +34,12 @@ from app.main import app
 from app.repositories.arena_protocols import COMMAND_TYPE_TIMEOUT, CommandRequest
 from app.services.arena import bots as bot_service
 from app.services.arena import clock
+from app.services.arena import matchmaking as mm
 from app.services.arena.modes import registry as mode_registry
 from app.services.three_man_weave import mode as tmw_module
 from app.services.twenty_dollar import mode as td_module
 
-from nba_peak.three_man_weave.config import ROUNDS
+from nba_peak.three_man_weave.config import BOT_THINK_SECONDS_MAX, ROUNDS
 
 TMW = "three_man_weave"
 TWENTY = "twenty_dollar"
@@ -98,6 +100,18 @@ def _real_modes_registered():
     app.dependency_overrides.clear()
 
 
+#: How much of a bot's think time ONE `_poll` lets elapse, in seconds.
+#:
+#: Three-Man Weave draws its think time from 4-10 seconds per (seat, turn)
+#: (`nba_peak.three_man_weave.config.bot_think_seconds`), so under this driver
+#: a bot pick legitimately costs `ceil(think / 5)` polls: one when the draw is
+#: under five seconds, two otherwise. A test that budgets polls per bot turn
+#: must budget from THIS number and the reply the server publishes, never from
+#: a flat "one poll per pick" -- see
+#: `test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock`.
+BOT_AGE_PER_POLL_SECONDS = 5.0
+
+
 def _age_open_turn(match_id: str, seconds: float) -> None:
     """Backdate the open turn so a bot's think delay has elapsed.
 
@@ -156,7 +170,7 @@ def _poll(client: TestClient, match_id: str) -> dict:
     foundation's own lazy sweep fire on the read. A bot's think delay is aged
     on the same call so a bot turn advances under polling alone.
     """
-    _age_open_turn(match_id, 5.0)
+    _age_open_turn(match_id, BOT_AGE_PER_POLL_SECONDS)
     _expire_ceremony(match_id)
     response = client.get(f"/api/v1/arena/matches/{match_id}")
     assert response.status_code == 200, response.text
@@ -504,34 +518,122 @@ def test_the_weaves_snake_order_is_exactly_the_published_one():
     assert order == expected
 
 
-def test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock():
+#: Practice seeds whose TWELVE bot picks ALL draw a think time above
+#: `BOT_AGE_PER_POLL_SECONDS`, one per human seat (`config.human_seat_index`).
+#: Found by an offline scan of `bot_think_seconds(seed, seat, turn_seq)` over
+#: the draft's turn schedule (intro = turn 0, then per round one ceremony turn
+#: and three picks in snake order); every draw is at least 5.5 s so none sits
+#: on the one-poll/two-poll boundary. This is the configuration that made the
+#: flat ceiling fail: two polls per pick, twelve picks, plus the briefing.
+WEAVE_SLOW_BOT_SEEDS = {0: 40, 1: 37, 2: 49}
+
+
+@pytest.mark.parametrize(
+    "seed",
+    [None, *WEAVE_SLOW_BOT_SEEDS.values()],
+    ids=["seed-drawn", *(f"slow-bots-human-seat-{i}" for i in WEAVE_SLOW_BOT_SEEDS)],
+)
+def test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock(monkeypatch, seed):
     """Bots must not stall. Two bot picks per round used to cost 90 seconds of
-    wall clock; here they resolve on consecutive polls."""
+    wall clock; here every one resolves inside the reply time the server
+    publishes for it.
+
+    THE GUARANTEE IS PER TURN, NOT A FLAT POLL COUNT. The server publishes
+    `bot_reply_in_seconds` -- how long until the bot on the clock is allowed
+    to move -- and `_poll` lets exactly `BOT_AGE_PER_POLL_SECONDS` of that
+    elapse per call. So the poll that first covers the published reply is the
+    one that must carry the move (the driver is lazy: the first read after
+    the think time has elapsed applies it). A bot needing even one poll more
+    than `ceil(reply / BOT_AGE_PER_POLL_SECONDS)` is a bot being held past
+    its own published clock, which is the regression this test exists for.
+
+    WHY THE OLD FLAT CEILING FLAKED. `polls_waiting_on_bots <= 24` was set when
+    a bot thought for 1-5 s and so always moved on the first aged poll (12
+    polls, 2x slack). Two things then changed underneath it: the think time
+    became 4-10 s (a pick now costs one poll or two, so twelve picks max out
+    at exactly 24), and the briefing became a seatless server turn
+    (`PHASE_INTRO`) whose one poll this driver was filing under "waiting on
+    bots". The count was therefore `1 + sum(ceil(think_i / 5))`, and for the
+    ~11% of seeds where all twelve draws land at or above 5 s it is 25. The
+    briefing now has its own bucket, the per-turn budget is derived from the
+    published reply, and the worst case is pinned by seed so it runs every
+    time rather than one run in nine.
+
+    Runs once on a production-drawn seed and once per human seat on a seed
+    whose every bot draw is slow -- the pinned cases are exactly the ones that
+    used to fail, and on them the bot count must land ON the derived ceiling,
+    which is what proves the arithmetic rather than merely tolerating it.
+    """
+    if seed is not None:
+        monkeypatch.setattr(mm, "_new_seed", lambda: seed)
     client = _client_as("user-a")
     view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
     match_id = view["match_id"]
     you = view["your_seat_index"]
+    if seed is not None:
+        assert _memory_arena_repo._matches[match_id].seed == seed
+        assert you == next(s for s, v in WEAVE_SLOW_BOT_SEEDS.items() if v == seed)
 
-    # THE TWO WAITS ARE COUNTED SEPARATELY, and that separation is the point.
-    # A seat other than yours holding the turn now means one of two completely
-    # different things: a bot is thinking, or the franchise x decade ceremony
-    # is running (which belongs to no seat at all). Adding them together would
-    # have let a bot regress all the way to needing a timeout while the total
-    # stayed under a ceiling loosened to accommodate six ceremonies -- so the
-    # budget this test exists to enforce is kept on the bot count alone.
+    # THE THREE WAITS ARE COUNTED SEPARATELY, and that separation is the point.
+    # A seat other than yours holding the turn now means one of three
+    # completely different things: a bot is thinking, the franchise x decade
+    # ceremony is running, or the pre-match briefing is up (the last two
+    # belong to no seat at all). Adding them together would let a bot regress
+    # all the way to needing a timeout while the total stayed under a ceiling
+    # loosened to accommodate the seatless phases -- so the budget this test
+    # exists to enforce is kept on the bot turns alone.
+    polls_waiting_on_briefing = 0
     polls_waiting_on_bots = 0
     polls_waiting_on_ceremony = 0
+    # One record per bot turn: the reply the server published the first time
+    # the turn was seen, and how many polls it then took to resolve. A bot
+    # turn is "the same turn" while `state_version` is unchanged -- the only
+    # command that can move the version during a bot's wait is the bot's own.
+    bot_turns: list[dict] = []
+    waiting: dict | None = None
     for _ in range(400):
         if view["public_state"]["is_complete"]:
             break
-        if view.get("turn_phase") == tmw_module.PHASE_REVEAL:
+        phase = view.get("turn_phase")
+        if phase == tmw_module.PHASE_INTRO:
+            assert view["current_turn_seat_index"] is None
+            polls_waiting_on_briefing += 1
+            view = _poll(client, match_id)
+            continue
+        if phase == tmw_module.PHASE_REVEAL:
+            assert view["current_turn_seat_index"] is None
             polls_waiting_on_ceremony += 1
             view = _poll(client, match_id)
             continue
-        if view["current_turn_seat_index"] != you:
+        seat = view["current_turn_seat_index"]
+        if seat != you:
             polls_waiting_on_bots += 1
+            reply = view["bot_reply_in_seconds"]
+            assert reply is not None, (
+                f"a bot seat {seat} is on the clock in phase {phase!r} with no "
+                "published reply time"
+            )
+            assert 0.0 <= reply <= BOT_THINK_SECONDS_MAX, reply
+            if waiting is None or waiting["version"] != view["state_version"]:
+                waiting = {
+                    "version": view["state_version"], "seat": seat,
+                    "reply": reply, "polls": 0,
+                }
+                bot_turns.append(waiting)
+            waiting["polls"] += 1
+            # EVERY BOT TURN RESOLVES WITHIN ITS PUBLISHED REPLY. The published
+            # value is rounded to the millisecond, so half a millisecond is
+            # allowed back before dividing; it never adds a poll except when
+            # the reply sits on an exact multiple of the aging step.
+            budget = max(1, math.ceil((waiting["reply"] + 0.0005) / BOT_AGE_PER_POLL_SECONDS))
+            assert waiting["polls"] <= budget, (
+                f"bot seat {seat} published a reply of {waiting['reply']}s "
+                f"(budget {budget} polls of {BOT_AGE_PER_POLL_SECONDS}s) and "
+                f"still held the turn on poll {waiting['polls']}"
+            )
             view = _poll(client, match_id)
             continue
+        waiting = None
         legal = view["private_state"].get("legal_picks") or {}
         slug = sorted(legal)[0]
         view = _command(
@@ -540,10 +642,25 @@ def test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock():
         )["match"]
 
     assert view["public_state"]["is_complete"]
-    # 12 bot picks in a 3-seat, 6-round draft. One poll each is the floor; a
-    # generous ceiling still fails loudly if a bot ever needs a timeout.
-    # UNCHANGED from before the ceremony existed -- that is the guarantee.
-    assert polls_waiting_on_bots <= 24, polls_waiting_on_bots
+    # The briefing is one seatless turn and `_poll` expires it on sight.
+    assert polls_waiting_on_briefing == 1, polls_waiting_on_briefing
+    # 12 bot picks in a 3-seat, 6-round draft, every one of them seen.
+    assert len(bot_turns) == ROUNDS * 2, [t["seat"] for t in bot_turns]
+    # The ceiling, DERIVED rather than declared: the longest think time the
+    # foundation lets a mode name, in polls, per bot pick. 6 x 2 x ceil(10/5)
+    # = 24 today, and it moves with the constants instead of going stale.
+    polls_per_pick_at_most = math.ceil(BOT_THINK_SECONDS_MAX / BOT_AGE_PER_POLL_SECONDS)
+    ceiling = ROUNDS * 2 * polls_per_pick_at_most
+    assert polls_waiting_on_bots <= ceiling, (polls_waiting_on_bots, ceiling)
+    if seed is not None:
+        # The pinned seeds are the worst case by construction: every reply
+        # is longer than one poll's aging, so every pick costs the maximum
+        # and the total lands exactly on the ceiling -- neither above it
+        # (a stalled bot) nor below it (the seed is not the case it claims).
+        assert all(t["reply"] > BOT_AGE_PER_POLL_SECONDS for t in bot_turns), (
+            [t["reply"] for t in bot_turns]
+        )
+        assert polls_waiting_on_bots == ceiling, (polls_waiting_on_bots, ceiling)
     # Six rounds, six ceremonies. Each costs the poll that expires it plus the
     # one that sees the pick turn; anything beyond that would mean a reveal was
     # being re-entered rather than resolved once.

@@ -1,141 +1,156 @@
 "use client";
 
 /**
- * PeakV2RTTBattleResult — the boss result (Pass 3): "large serif 3—2 /
- * Victory over [boss]" then a LIVE five-lane receipt (brief).
+ * PeakV2RTTBattleResult — the boss battle resolves in beats, then the
+ * consequence lands.
  *
- * Verified against the reference (E2 page 17): CINEMATIC scoreline headline
- * (`player_lanes_won`–`opponent_lanes_won`, "Victory over {boss}" in italic
- * gold), then LIVE lane-by-lane `PeakV2DataLane` rows in the engine's own
- * `0-100` lane-rating domain. Reuses `battleVerdict`/`laneColorVar` from
- * `lib/run-the-table-state.ts` — the exact same real fields/helpers
- * `BattleReveal.tsx` already uses, never a second interpretation of
- * `BattlePublic`. `roster_total` renders only as secondary receipt context,
- * per the existing convention (never implying it decided any one lane —
- * `decided_by` describes how the OVERALL battle resolved, not a lane).
+ * The lanes settle one at a time (the count runs beside them), the verdict
+ * stamps, then the consequence — a life lost, credits won, the act
+ * cleared — before the one action out. A click anywhere completes the
+ * sequence; reduced motion shows it complete. Every number is the engine's
+ * `BattlePublic`; `battleVerdict`/`runningSeries` only count what the
+ * server already decided.
  */
 
 import { useEffect } from "react";
-import PeakV2CinematicStage from "../PeakV2CinematicStage";
-import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
-import PeakV2DisplayEmphasis from "../PeakV2DisplayEmphasis";
-import PeakV2Rule from "../PeakV2Rule";
-import PeakV2DataLane from "../PeakV2DataLane";
-import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
-import { battleVerdict } from "@/lib/run-the-table-state";
+import ResultReveal, { RevealStep } from "@/components/game-feel/ResultReveal";
+import GameActionButton from "@/components/game-feel/GameActionButton";
+import LifeMeter from "@/components/game-feel/LifeMeter";
+import PeakV2ArenaLight from "../PeakV2ArenaLight";
+import { battleVerdict, decisiveLane, runningSeries, actNumeral } from "@/lib/run-the-table-state";
 import type { BattlePublic, BossPublic } from "@/types/run-the-table";
-import type { V2ComponentTone } from "../v2-tone";
+import { v2ToneVar, type V2ComponentTone } from "../v2-tone";
 
-const LANE_TOKEN_TO_TONE: Record<string, V2ComponentTone> = {
-  si: "si",
-  tp: "tp",
-  rec: "rec",
-  po: "po",
-  team: "team",
-};
+const LANE_TOKEN_TO_TONE: Record<string, V2ComponentTone> = { si: "si", tp: "tp", rec: "rec", po: "po", team: "team" };
+
+const STEPS = [
+  { name: "lane-0", at: 0 },
+  { name: "lane-1", at: 260 },
+  { name: "lane-2", at: 520 },
+  { name: "lane-3", at: 780 },
+  { name: "lane-4", at: 1040 },
+  { name: "verdict", at: 1400 },
+  { name: "consequence", at: 1950 },
+  { name: "actions", at: 2350 },
+] as const;
 
 export interface PeakV2RTTBattleResultProps {
   battle: BattlePublic;
   boss: BossPublic | null;
-  onAdvance: () => void;
+  busy: boolean;
+  lives: number;
+  maxLives: number;
+  actsTotal: number;
+  lanesToWin?: number;
+  onAdvance: () => Promise<unknown>;
   advanceLabel: string;
+  /** A resumed run shows the finished result at once. */
+  resumed?: boolean;
 }
 
-export default function PeakV2RTTBattleResult({ battle, boss, onAdvance, advanceLabel }: PeakV2RTTBattleResultProps) {
+export default function PeakV2RTTBattleResult({ battle, boss, busy, lives, maxLives, actsTotal, lanesToWin, onAdvance, advanceLabel, resumed = false }: PeakV2RTTBattleResultProps) {
   const verdict = battleVerdict(battle);
+  const needed = lanesToWin ?? battle.lanes_to_win ?? 3;
+  const decisive = decisiveLane(battle, needed);
+  const final = battle.act >= actsTotal;
+  const won = battle.outcome === "win";
+  const lost = battle.outcome === "loss";
+  const bossName = boss?.name ?? "the boss";
 
-  // See `PeakV2RTTBossIntro`'s comment: a cinematic surface can be much
-  // shorter than the boss-preview screen it follows, so reset scroll on
-  // mount rather than leaving this surface's own "Advance" action rendered
-  // above a still-scrolled-down viewport.
   useEffect(() => {
     window.scrollTo({ top: 0 });
   }, []);
 
   return (
-    <div data-testid="rtt-battle-reveal">
-      <PeakV2CinematicStage light={{ y: "-4%", tone: battle.outcome === "win" ? "positive" : battle.outcome === "loss" ? "negative" : "accent" }}>
-        <span
-          style={{
-            fontFamily: "var(--v2-font-mono)",
-            fontSize: "0.6875rem",
-            fontWeight: 700,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "var(--v2-text-muted)",
-          }}
-        >
-          Lanes won · first to three
-        </span>
-        <div className="mt-2 flex items-baseline gap-3">
-          <span style={{ fontFamily: "var(--v2-font-display)", fontSize: "var(--v2-display-size-hero)", color: "var(--v2-text-primary)" }}>
-            {battle.player_lanes_won}
-          </span>
-          <span style={{ fontFamily: "var(--v2-font-display)", fontSize: "var(--v2-display-size-line)", color: "var(--v2-text-muted)" }}>
-            —
-          </span>
-          <span style={{ fontFamily: "var(--v2-font-display)", fontSize: "var(--v2-display-size-hero)", color: "var(--v2-text-muted)" }}>
-            {battle.opponent_lanes_won}
-          </span>
-        </div>
-        <PeakV2ResultHeadline as="h1" scale="moment" className="mt-2">
-          {battle.outcome === "win" ? "Victory over " : battle.outcome === "loss" ? "Defeat to " : "Draw with "}
-          <PeakV2DisplayEmphasis>{boss?.name ?? "the boss"}</PeakV2DisplayEmphasis>
-        </PeakV2ResultHeadline>
-        <p className="mt-2" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}>
-          {verdict.detail}
-        </p>
-      </PeakV2CinematicStage>
+    <ResultReveal steps={STEPS} startComplete={resumed} sequenceKey={`${battle.boss_id}:${battle.act}`} testId="rtt-battle-reveal" className="rtt-battle">
+      {({ revealed, complete }) => {
+        const shown = STEPS.filter((s) => s.name.startsWith("lane-") && revealed(s.name)).length;
+        const series = runningSeries(battle.lanes, shown);
+        return (
+          <div className="rtt-battle-body" data-outcome={battle.outcome} data-final={final ? "true" : "false"} data-complete={complete ? "true" : "false"}>
+            <PeakV2ArenaLight y="-6%" tone={revealed("verdict") ? (won ? "positive" : lost ? "negative" : "accent") : "accent"} intensity="focus" />
+            <header className="rtt-battle-head">
+              <span className="rtt-eyebrow">
+                {final ? "Final boss" : `Act ${actNumeral(battle.act)} boss`} · {bossName} · first to {needed}
+              </span>
+              <span className="rtt-battle-series" data-testid="rtt-battle-series" aria-live="polite">
+                <span className="rtt-battle-series-you">{series.player}</span>
+                <span className="rtt-battle-series-dash">—</span>
+                <span className="rtt-battle-series-boss">{series.opponent}</span>
+              </span>
+            </header>
 
-      <PeakV2Rule spacing="md" />
+            <ol className="rtt-battle-lanes" data-testid="rtt-battle-lanes">
+              {battle.lanes.map((lane, i) => {
+                const tone = LANE_TOKEN_TO_TONE[lane.token] ?? "si";
+                const on = revealed(`lane-${i}`);
+                const isDecisive = decisive.lane?.lane === lane.lane;
+                return (
+                  <RevealStep key={lane.lane} name={`lane-${i}`} revealed={revealed} as="li" className="rtt-battle-lane" testId={`rtt-battle-lane-${lane.lane}`}>
+                    <span className="rtt-battle-lane-row" data-winner={lane.winner} data-decisive={isDecisive ? "true" : "false"} data-on={on ? "true" : "false"}>
+                      <span className="rtt-battle-lane-you">{lane.player_lineup_rating.toFixed(1)}</span>
+                      <span className="rtt-battle-lane-mid">
+                        <span className="rtt-battle-lane-label" style={{ color: v2ToneVar(tone) }}>
+                          {lane.label}
+                        </span>
+                        <span className="rtt-battle-lane-call">
+                          {lane.winner === "player" ? `You take it +${(lane.player_lineup_rating - lane.boss_lineup_rating).toFixed(1)}` : lane.winner === "opponent" ? `${bossName} +${(lane.boss_lineup_rating - lane.player_lineup_rating).toFixed(1)}` : "Tied"}
+                          {lane.tie_broken_by_rule ? " · rule" : ""}
+                          {isDecisive ? " · decisive" : ""}
+                        </span>
+                      </span>
+                      <span className="rtt-battle-lane-boss">{lane.boss_lineup_rating.toFixed(1)}</span>
+                    </span>
+                  </RevealStep>
+                );
+              })}
+            </ol>
 
-      <div>
-        <div className="mb-4 flex items-center justify-between">
-          <span
-            style={{
-              fontFamily: "var(--v2-font-mono)",
-              fontSize: "0.6875rem",
-              fontWeight: 700,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-              color: "var(--v2-text-muted)",
-            }}
-          >
-            Lane resolution
-          </span>
-          <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", color: "var(--v2-text-muted)" }}>
-            Engine lane rating 0-100
-          </span>
-        </div>
-        <div className="flex flex-col gap-4">
-          {battle.lanes.map((lane) => (
-            <PeakV2DataLane
-              key={lane.lane}
-              label={lane.label}
-              tone={LANE_TOKEN_TO_TONE[lane.token] ?? "accent"}
-              leftLabel=""
-              leftValue={lane.player_lineup_rating.toFixed(1)}
-              leftCaption={lane.winner === "player" ? `Lane won +${(lane.player_lineup_rating - lane.boss_lineup_rating).toFixed(1)}` : lane.winner === "tie" ? "Tied" : undefined}
-              rightLabel=""
-              rightValue={lane.boss_lineup_rating.toFixed(1)}
-              rightCaption={lane.winner === "opponent" ? `${boss?.name ?? "Boss"} +${(lane.boss_lineup_rating - lane.player_lineup_rating).toFixed(1)}` : undefined}
-              scaleMin={0}
-              scaleMax={100}
-            />
-          ))}
-        </div>
+            <RevealStep name="verdict" revealed={revealed} className="rtt-battle-verdict" testId="rtt-battle-verdict">
+              <span className="rtt-battle-stamp" data-outcome={battle.outcome}>
+                {verdict.stamp}
+              </span>
+              <span className="rtt-battle-verdict-detail">
+                {battle.player_lanes_won}–{battle.opponent_lanes_won} on lanes · {decisive.sentence}
+              </span>
+            </RevealStep>
 
-        <p className="mt-6" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
-          Roster total {battle.player_roster_total.toFixed(1)} · opponent {battle.opponent_roster_total.toFixed(1)} · bench
-          weight {battle.bench_weight.toFixed(2)} — a tiebreak only, never a lane decider.
-        </p>
+            <RevealStep name="consequence" revealed={revealed} className="rtt-battle-consequence" testId="rtt-battle-consequence">
+              {lost ? (
+                <div className="rtt-battle-life" data-testid="rtt-battle-life-lost">
+                  <span className="rtt-battle-consequence-title">Life lost</span>
+                  <LifeMeter lives={lives} max={maxLives} size="lg" testId="rtt-battle-lives" />
+                  <span className="rtt-battle-consequence-detail">
+                    {lives === 0 ? "No lives left. The run ends here." : `${lives} ${lives === 1 ? "life" : "lives"} left${battle.credits_awarded > 0 ? ` · +${battle.credits_awarded} comeback credits` : ""}`}
+                  </span>
+                </div>
+              ) : won ? (
+                <div className="rtt-battle-win" data-testid="rtt-battle-won">
+                  <span className="rtt-battle-consequence-title">{final ? "Table cleared" : `Act ${actNumeral(battle.act)} cleared`}</span>
+                  <span className="rtt-battle-consequence-detail">
+                    {battle.credits_awarded > 0 ? `+${battle.credits_awarded} credits` : "No credits awarded"}
+                    {!final ? ` · Act ${actNumeral(battle.act + 1)} ahead` : ""}
+                  </span>
+                </div>
+              ) : (
+                <div className="rtt-battle-draw" data-testid="rtt-battle-drawn">
+                  <span className="rtt-battle-consequence-title">Draw</span>
+                  <span className="rtt-battle-consequence-detail">No life lost. {!final ? `Act ${actNumeral(battle.act + 1)} ahead` : ""}</span>
+                </div>
+              )}
+              <p className="rtt-fineprint">
+                Roster total {battle.player_roster_total.toFixed(1)} · opponent {battle.opponent_roster_total.toFixed(1)} · bench weight {battle.bench_weight.toFixed(2)} — a tiebreak only, never a lane decider.
+              </p>
+            </RevealStep>
 
-        <div className="mt-6">
-          <PeakV2PrimaryAction data-testid="rtt-battle-advance" onClick={onAdvance}>
-            {advanceLabel}
-          </PeakV2PrimaryAction>
-        </div>
-      </div>
-    </div>
+            <RevealStep name="actions" revealed={revealed} className="rtt-battle-actions">
+              <GameActionButton data-testid="rtt-battle-advance" disabled={busy} pendingLabel="Moving on…" onAction={onAdvance}>
+                {advanceLabel}
+              </GameActionButton>
+            </RevealStep>
+          </div>
+        );
+      }}
+    </ResultReveal>
   );
 }

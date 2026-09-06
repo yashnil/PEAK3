@@ -632,14 +632,21 @@ def test_the_bot_makes_bounded_nonoptimal_decisions(pool):
     state = S.initial_state(seed=2024)
     opener = state["active_seat"]
     other = 1 - opener
-    # Walk the price up to roughly where a top-100 candidate is valued, so the
+    # Walk the price up to EXACTLY where the bot values the candidate, so the
     # stay/step-away decision is genuinely marginal. Below the ceiling the
     # answer is always "raise" and above it always "step away"; only at the
     # ceiling do the jitter and the stretch/flinch draws decide anything.
-    S.submit_action(state, opener, S.COMMAND_BID, 6, pool)
+    # v5 reads the ceiling off the policy rather than hard-coding "$6": the
+    # per-lot opinion moves the number, and a test pinned to one price would
+    # be measuring the calibration rather than the bounded mistakes.
+    public, private, _ = S.project(state, other, pool)
+    private = {**private, "candidate_tier": "1-100", "candidate_band": "11-25"}
+    ceiling = policy.valuation(public, private)["ceiling"]
+    assert ceiling >= 3, ceiling
+    S.submit_action(state, opener, S.COMMAND_BID, ceiling, pool)
 
     public, private, _ = S.project(state, other, pool)
-    private = {**private, "candidate_tier": "1-100"}
+    private = {**private, "candidate_tier": "1-100", "candidate_band": "11-25"}
 
     decisions = Counter()
     for index in range(500):

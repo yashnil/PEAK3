@@ -160,7 +160,7 @@ export default function PeakDuelV2Reveal({
       : null;
 
   return (
-    <div role="region" aria-label="Answer result" className="duel-reveal" data-outcome={answer.correct ? "correct" : "incorrect"} data-reduced-motion={reduced ? "true" : "false"}>
+    <div role="region" aria-label="Answer result" className="duel-reveal" data-duel-mode={mode} data-outcome={answer.correct ? "correct" : "incorrect"} data-reduced-motion={reduced ? "true" : "false"}>
       <EventMoment moment={streakMoment} testId="duel-streak-moment" className="duel-streak-moment" />
       <PeakV2LiveHeader
         as="h1"

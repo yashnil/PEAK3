@@ -59,6 +59,7 @@ import {
   RUN_THE_TABLE_TOUR_VERSION,
 } from "@/components/ui/tour-steps";
 import { TOUR_STORAGE_KEY, TOUR_STORAGE_SCHEMA_VERSION } from "@/lib/tour-state";
+import { RTT_COACH_STORAGE_KEY } from "@/lib/run-the-table-coach";
 
 /** Mark the RUN THE TABLE tour as already seen, as a returning player's browser
  *  would have it. Must be called after a same-origin navigation. */
@@ -888,48 +889,200 @@ test.describe("RUN THE TABLE challenge links", () => {
 // The gate is the only way in
 // ---------------------------------------------------------------------------
 
-test.describe("RUN THE TABLE guided tour", () => {
-  test("auto-starts for a genuine first-time player, and can be dismissed", async ({ page }) => {
+test.describe("RUN THE TABLE teaches itself", () => {
+  /**
+   * GAME-FEEL PASS 3: the seven-step walkthrough no longer opens by itself.
+   * A first-time player sees the four-line brief on the opening cover, then
+   * meets each rule as a one-line coach chip the first time it matters —
+   * never a modal in front of a call to action. The walkthrough is still
+   * one press away ("How to play"), and `suppressTour` above is now simply
+   * harmless for every other test.
+   */
+  test("never auto-starts the walkthrough; coaches the first draft and the first boss once", async ({ page }) => {
     test.setTimeout(FULL_RUN_TIMEOUT_MS);
-    // The counterweight to `suppressTour`. Every gameplay test above seeds
-    // "tour already seen" so the driver can reach the game; this test is the one
-    // that proves the tour really does appear when nothing is seeded, so that
-    // suppression removes no coverage.
     await page.goto(ROUTE, { waitUntil: "load" });
     await page.evaluate(
-      ({ run, tour }) => {
+      ({ run, tour, coach }) => {
         window.localStorage.removeItem(run);
         window.localStorage.removeItem(tour);
+        window.localStorage.removeItem(coach);
       },
-      { run: STORAGE_KEY, tour: TOUR_STORAGE_KEY },
+      { run: STORAGE_KEY, tour: TOUR_STORAGE_KEY, coach: RTT_COACH_STORAGE_KEY },
     );
     await page.goto(ROUTE, { waitUntil: "load" });
+    // The gate itself is the brief: four lines, then start.
+    await expect(page.locator('[data-testid="rtt-gate-brief"] li')).toHaveCount(4);
     await startRun(page, "rtt-start-standard");
 
+    // No modal, anywhere, at any point before the first decision.
+    await expect(page.getByTestId("guided-tour")).toHaveCount(0);
+    expect(await currentSurface(page)).toBe("rtt-opening-reveal");
+    await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toContainText("Build your roster.");
+    await skipOpeningReveal(page);
+    await expect(page.getByTestId("guided-tour")).toHaveCount(0);
+
+    // The first Draft Room carries the first-choice coach, and it is not in
+    // the way: the cards are pressable underneath it.
+    await driveTo(page, "rtt-draft-room");
+    const coach = page.getByTestId("rtt-coach-first_choice");
+    await expect(coach).toBeVisible();
+    await expect(coach).toContainText("Pick one. It joins your lineup.");
+    await page.locator('[data-testid="rtt-draft-offers"] button[aria-pressed]').first().click();
+    await expect(page.getByTestId("rtt-draft-commit")).toBeVisible();
+    // Picking a card is the lesson; the chip is gone and stays gone.
+    await expect(coach).toHaveCount(0);
+
+    // The first boss carries its own one-line coach on the title card.
+    await page.locator('[data-testid="rtt-draft-pass"]').click();
+    await driveTo(page, "rtt-boss-intro");
+    await expect(page.getByTestId("rtt-coach-first_boss")).toBeVisible();
+    await expect(page.getByTestId("guided-tour")).toHaveCount(0);
+
+    // "How to play" opens the full walkthrough on demand, and Escape closes it.
+    await page.locator('[data-testid="rtt-boss-intro-skip"]').click();
+    await page.getByTestId("rtt-help").click();
     const tour = page.getByTestId("guided-tour");
-    await expect(tour, "the tour auto-starts on a first run").toBeVisible({ timeout: 20_000 });
-    // Progress is stated, per the brief's "2 of 7".
+    await expect(tour).toBeVisible();
     await expect(tour).toContainText(/\bof\s+\d+\b/);
-
-    // Next advances; Back returns. The first step's Back is disabled, which is
-    // why the round trip starts with Next.
-    await page.getByTestId("guided-tour-next").click();
-    await expect(tour).not.toHaveAttribute("data-step", "run-map");
-    await page.getByTestId("guided-tour-back").click();
-    await expect(tour).toHaveAttribute("data-step", "run-map");
-
-    // Escape dismisses, and the game underneath is immediately playable — the
-    // exact interaction whose absence made the overlay swallow the driver's
-    // clicks and fail four specs.
     await page.keyboard.press("Escape");
     await expect(tour).toHaveCount(0);
-    const surface = await currentSurface(page);
-    await stepOnce(page, surface);
 
-    // And it does not come back on the next run in the same browser.
+    // A reload does not bring the draft coach back: it was seen.
     await page.reload({ waitUntil: "load" });
     await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("rtt-coach-first_choice")).toHaveCount(0);
+  });
+});
+
+test.describe("RUN THE TABLE game feel", () => {
+  /**
+   * The run reads as a run: the track advances, a signing lands on the
+   * roster with a moment, credits project before they are spent, and the
+   * boss encounter stages its consequence — a life lost or an act cleared.
+   */
+  test("track, roster, credits and the first boss's consequence all move with the run", async ({ page }) => {
+    test.setTimeout(FULL_RUN_TIMEOUT_MS);
+    await freshGate(page, `${ROUTE}?seed=11`);
+    await startRun(page, "rtt-start-standard");
+    await skipOpeningReveal(page);
+
+    // Identity: which board this is, on every screen.
+    await expect(page.getByTestId("rtt-run-identity")).toContainText("Practice run");
+    await expect(page.getByTestId("rtt-run-identity")).toContainText("seed 11");
+
+    // The track knows where we are: once the perk is chosen, act 1 stop 1 is the step.
+    await expect(page.locator('[data-testid="rtt-map-row-a1boss"]')).toHaveAttribute("data-row-kind", "boss");
+    await stepOnce(page, "rtt-system-select");
+    await expect(page.locator('[data-testid="rtt-map-row-a1s1"]')).toHaveAttribute("data-row-state", "current");
+
+    // Buy a card: the meter projects the cost before the press, the slot
+    // arrives on the roster after it, and the moment names the signing.
+    await driveTo(page, "rtt-draft-room");
+    const offer = page.locator('[data-testid="rtt-draft-offers"] button[aria-pressed]:not([aria-disabled="true"])').first();
+    const price = Number(((await offer.locator(".rtt-card-price").innerText()).match(/\d+/) ?? ["0"])[0]);
+    const creditsBefore = Number(await page.getByTestId("rtt-credits").innerText());
+    await offer.click();
+    if (price > 0 && price <= creditsBefore) {
+      await expect(page.getByTestId("rtt-credits-projected")).toContainText(String(creditsBefore - price));
+    }
+    const slotButton = page.locator('[data-testid="rtt-draft-commit"] button[data-testid^="rtt-draft-slot-"]:not([disabled])').first();
+    const slotId = (await slotButton.getAttribute("data-testid"))!.replace("rtt-draft-slot-", "");
+    const name = await offer.locator(".rtt-card-name").innerText();
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/actions") && r.request().method() === "POST" && r.status() === 200),
+      slotButton.click(),
+    ]);
+    await expect(page.locator(`[data-testid="rtt-roster-slot-${slotId}"]`)).toContainText(name);
+    await expect(page.getByTestId("rtt-moment")).toContainText(name);
+    if (price > 0) {
+      await expect(page.getByTestId("rtt-credits")).toHaveText(String(creditsBefore - price), { timeout: 5_000 });
+    }
+    // The stop is done on the track.
+    await expect(page.locator('[data-testid="rtt-map-row-a1s1"]')).toHaveAttribute("data-row-state", "done");
+
+    // The boss encounter: title card, the deal, the matchup board, the staged result.
+    await driveTo(page, "rtt-boss-intro");
+    await expect(page.getByTestId("rtt-boss-intro")).toContainText("Boss battle · Act I");
+    await expect(page.locator('[data-testid="rtt-map-row-a1boss"]')).toHaveAttribute("data-row-state", "current");
+    await page.locator('[data-testid="rtt-boss-intro-skip"]').click();
+    await stepOnce(page, "rtt-boss-reveal");
+    await expect(page.getByTestId("rtt-boss-stakes")).toContainText("1 of 3 lives");
+    const livesBefore = await page.getByTestId("rtt-lives").innerText();
+    await page.locator('[data-testid="rtt-resolve-boss"]').click();
+    const battleSurface = page.locator('[data-testid="rtt-battle-reveal"]');
+    await expect(battleSurface).toBeVisible({ timeout: 20_000 });
+    // Complete the staged sequence at once, then read the consequence.
+    await battleSurface.click();
+    await expect(battleSurface).toHaveAttribute("data-complete", "true");
+    const outcome = await battleSurface.locator(".rtt-battle-body").getAttribute("data-outcome");
+    if (outcome === "loss") {
+      await expect(page.getByTestId("rtt-battle-life-lost")).toContainText("Life lost");
+      await expect(page.getByTestId("rtt-lives")).not.toHaveText(livesBefore);
+      await expect(page.locator('[data-testid="rtt-map-row-a1boss"]')).toHaveAttribute("data-life-lost", "true");
+    } else if (outcome === "win") {
+      await expect(page.getByTestId("rtt-battle-won")).toContainText("Act I cleared");
+      await expect(page.locator('[data-testid="rtt-map-row-a1boss"]')).toHaveAttribute("data-row-state", "won");
+    } else {
+      await expect(page.getByTestId("rtt-battle-drawn")).toContainText("Draw");
+    }
+    // Advancing is one act transition: the card lands, the track moves to act 2.
+    await page.locator('[data-testid="rtt-battle-advance"]').click();
+    await expect(page.getByTestId("rtt-act-transition")).toContainText("Act I", { timeout: 10_000 });
+    await expect(page.locator('[data-testid^="rtt-map-row-a2"]').first()).toHaveAttribute("data-row-state", "current");
+  });
+
+  test("a double press sends ONE command, and a resumed run comes back as the same run with a moment, no tutorial", async ({ page }) => {
+    test.setTimeout(FULL_RUN_TIMEOUT_MS);
+    await freshGate(page);
+    await startRun(page, "rtt-start-standard");
+    await skipOpeningReveal(page);
+
+    const posts: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST" && request.url().includes("/actions")) posts.push(request.url());
+    });
+    const perk = page.locator('[data-testid="rtt-system-select"] button[data-testid^="rtt-system-"]').first();
+    await perk.dispatchEvent("click");
+    await perk.dispatchEvent("click");
+    await expect(page.locator('[data-testid="rtt-node-choice"]')).toBeVisible({ timeout: 20_000 });
+    expect(posts).toHaveLength(1);
+
+    const runBefore = await storedRun(page);
+    await page.reload({ waitUntil: "load" });
+    await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("rtt-moment")).toContainText("Run resumed");
     await expect(page.getByTestId("guided-tour")).toHaveCount(0);
+    expect((await storedRun(page))?.run_id).toBe(runBefore?.run_id);
+    await expect(page.locator('[data-testid="rtt-map-row-a1s1"]')).toHaveAttribute("data-row-state", "current");
+  });
+
+  test("@mobile the decision leads, resources stay in reach and the roster opens without covering the offers", async ({ page }) => {
+    test.setTimeout(FULL_RUN_TIMEOUT_MS);
+    await freshGate(page);
+    await startRun(page, "rtt-start-standard");
+    await skipOpeningReveal(page);
+    await driveTo(page, "rtt-draft-room");
+    await expectNoHorizontalOverflow(page);
+
+    // The sticky bar carries credits and lives on a phone.
+    const bar = page.getByTestId("rtt-mobile-tray");
+    await expect(bar).toBeVisible();
+    await expect(page.getByTestId("rtt-mobile-lives-meter")).toBeVisible();
+
+    // The first offer is in the first viewport-and-a-bit, above the roster.
+    const firstCard = page.locator('[data-testid="rtt-draft-offers"] button').first();
+    const cardBox = await firstCard.boundingBox();
+    const sheet = page.getByTestId("rtt-roster-sheet");
+    const sheetBox = await sheet.boundingBox();
+    expect(cardBox).not.toBeNull();
+    expect(sheetBox).not.toBeNull();
+    expect(cardBox!.y).toBeLessThan(sheetBox!.y);
+
+    // The roster is one tap away and does not cover the offers.
+    await sheet.locator("summary").first().click();
+    await expect(sheet.locator(".rtt-lineup")).toBeVisible();
+    await expect(firstCard).toBeVisible();
+    await expectNoHorizontalOverflow(page);
   });
 });
 

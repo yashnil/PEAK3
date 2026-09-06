@@ -20,3 +20,7 @@ export { default as BidTransition } from "./BidTransition";
 export type { BidTransitionProps } from "./BidTransition";
 export { default as ResultReveal, RevealStep } from "./ResultReveal";
 export type { ResultRevealProps, ResultRevealRender, ResultRevealStep } from "./ResultReveal";
+export { default as LifeMeter } from "./LifeMeter";
+export type { LifeMeterProps } from "./LifeMeter";
+export { default as RunTrack } from "./RunTrack";
+export type { RunTrackChapter, RunTrackMark, RunTrackMarkState, RunTrackProps } from "./RunTrack";

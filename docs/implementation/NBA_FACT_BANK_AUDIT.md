@@ -630,3 +630,119 @@ softened.
   rotation group. Further international additions should be balanced with
   rules, history or culture entries or the selector will start rejecting
   them for share rather than quality.
+
+## 10. Source spot-check (2026-09-06)
+
+§9.4 asked for every new entry's `source_url` to be opened and the specific
+claim confirmed before deploy. This pass did that for all 53 entries added in
+§9 plus nine older entries chosen to cover the same ground from the other
+side (shot clock, Biasone, the first three-pointer, Naismith 1891, EuroLeague
+titles, Berlin 1936, Oscar Schmidt, hand-checking, Bol/Bogues). Sample: 62
+entries. Method: fetch the `source_url`; where it was a home page, a 404 or
+refused automated fetches, find the specific page or document that carries
+the claim (governing-body rulebooks as PDF, Hall of Fame biographies, league
+releases, university archives) and hold the sentence against it; recompute
+every number. `checked_on` is `2026-09-06` on every entry below and on
+nothing else.
+
+Headline results: no entry was removed. Four claims were false and are
+corrected (`wnba-plays-quarters` "only league that plays 48 minutes" -- the
+G League and the PBA also do; `eurobasket-1935-latvia` "oldest continental
+championship" -- South America's began in 1930; `college-shot-clock-history`
+"nearly fifty years" -- 1954 to 1985 is 31; `first-womens-intercollegiate-game-1896`
+credited a scorer, "Frida Miller", who does not appear in any account).
+Seven more were overstated or wrong in a detail (Cathy Rush's age, the
+Lakers as "reigning champion" in February 1948, Berenson's "quarter century"
+of editing, the possession arrow reaching FIBA in 2004 not 2003, 3PA passing
+twenty in 2012-13 not 2013-14, "the most efficient shot", the WNBA ball's
+exact circumference). Two URLs were dead (`hoophall.com/history/`, which
+backed eight entries, and the H. V. Porter slug) and two nba.com URLs were
+404s; 44 entries now point at a document rather than a home page. The
+featured tier is unchanged: 257 facts, 136 featured, no entry entered or
+left the tier. `tests/test_nba_facts.py` (82) and the API fact-route tests
+(8) pass; `data/web/nba_facts.v1.json` was rebuilt.
+
+Verdict key: **confirmed** -- source supports the sentence as written;
+**corrected** -- headline or body changed to what the source supports;
+**URL replaced** -- claim stood, address did not (home page, 404, or hub);
+**removed** -- none.
+
+| Key | Category | What was checked | Verdict | Exact change |
+|---|---|---|---|---|
+| `first-game-nine-a-side` | obscure_history | Hall of Fame 'First Team' page: 18 players, nine to a side, 1-0, 21 Dec 1891; Springfield College on peach baskets keeping their bottoms | URL replaced | `hoophall.com/history/` (404) -> `hoophall.com/hall-of-famers/first-team` |
+| `naismith-declined-his-own-name` | culture | Springfield College Archives exhibit 'How Basketball was Named' (Mahan, 'Naismith ball', 'would kill the game') | URL replaced | Naismith HOF bio (does not mention the episode) -> Springfield College Archives exhibit |
+| `rules-printed-in-triangle-1892` | obscure_history | Springfield College: rules 'published in January 1892 in ... The Triangle'; 15 Jan / 'A New Game' per secondary accounts | confirmed | none |
+| `no-dribbling-in-thirteen-rules` | rules | NCAA 'Playing-Rules History': 1891-92 rule 3; 1900-01 dribbler may not shoot; 1908-09 'a dribbler became permitted to shoot' | corrected; URL replaced | "the rules caught up with it over the following decade" -> "the college rules did not let a dribbler shoot until 1908"; URL -> NCAA rules-history PDF |
+| `center-jump-until-1937` | rules | NCAA rules history 1937-38: 'the center jump after every goal scored was eliminated'; Sam Barry HOF bio | URL replaced | 404 -> NCAA rules-history PDF |
+| `goaltending-rule-1944` | rules | Mikan HOF bio: Mikan and Kurland 'swatted away so many shots that the NCAA introduced a rule that prohibited goaltending in 1944' | confirmed | source_detail quotes the page |
+| `lane-widened-twice` | rules | NBA.com Mikan legend profile: 'widened in 1951 from six to 12 feet'; Wilt profile: 'widening the lane'; FIBA PR 25 for the 2010 rectangle | URL replaced | `nba.com/news/nba-rules-history` (404) -> NBA.com Mikan profile |
+| `fiba-trapezoid-lane` | rules | FIBA press release No. 25 (2008): trapezoid 'in place since the 1950s' replaced by a rectangle, 3-point line to 6.75 m, effective Oct 2010 | URL replaced | `fiba.basketball/en/documents` (redirects to a resource hub) -> FIBA PR 25 |
+| `porter-fan-shaped-backboard` | culture | HOF H.V. Porter bio: designed 1933, adopted 1941; 29.5-inch moulded ball pushed 1935, adopted 1938 | URL replaced | `/hall-of-famers/h-v-porter/` (404) -> `/hall-of-famers/hv-porter` |
+| `march-madness-illinois-1939` | culture | HOF Porter bio: 'In March of 1939, the Illinois High School Association journal coined the phrase March Madness' | URL replaced | `ihsa.org` home page -> HOF Porter bio |
+| `breakaway-rim-1976` | culture | Smithsonian object nmah_1294158: 1976 prototype, John Deere cultivator spring, patent Dec 1982; NBA mandate 1981-82 | corrected; URL replaced | "built the first spring-loaded rim" -> "built a spring-loaded rim" (a competing Tyner claim exists); NBA requirement dated to the 1981-82 season; URL `americanhistory.si.edu` home -> object page |
+| `wnba-ball-is-smaller` | rules | 2026 WNBA rulebook Rule 1 II(f): circumference 28.5 to 29 in; FIBA equipment: size 7 is 749-780 mm, size 6 724-737 mm | corrected; URL replaced | "28.5 inches in circumference; the men's size 7 is 29.5 inches" -> "28.5 to 29 inches around; the men's size 7 starts at 29.5"; URL `wnba.com/rules` (404) -> 2026 rulebook PDF |
+| `three-point-line-older-than-nba-use` | rules | NBA.com 3-pointer history: ABL 1961, ABA five years later, NBA 1979-80; FIBA PR 25: line in place since 1984 | URL replaced | 404 -> NBA.com evolution-of-the-3-pointer page |
+| `fiba-thirty-second-clock` | rules | 1956 / 2000 dates; 8-second backcourt in the 2000 rules (secondary sources only; FIBA has no rules-history page) | URL replaced | `fiba.basketball/en/history` (hub with no content) -> Wikipedia 'Shot clock', with the 2000 rules named in source_detail |
+| `fourteen-second-reset-came-from-fiba` | rules | FIBA news 'NBA implements FIBA's 14-second shot clock rule' (Art. 29 amended 2014; NBA 2018-19); NBA Official release of 21 Sep 2018 | URL replaced | 404 -> FIBA news item |
+| `eight-second-backcourt` | rules | ESPN, April 2001 ('eight seconds instead of 10'); NCAA history for the 1932-33 ten-second line | URL replaced | 404 -> ESPN 4 April 2001 |
+| `possession-arrow-1981` | rules | NCAA history 1981-82 alternating arrow; FIBA adopted alternating possession in 2003 | corrected; URL replaced | "FIBA adopted the same system in 2004" -> "2003"; URL `ncaa.org ... playing-rules.aspx` (redirects home) -> NCAA rules-history PDF |
+| `designated-free-throw-shooter` | rules | NCAA history 1923-24: 'the player fouled must shoot' | URL replaced | 404 -> NCAA rules-history PDF |
+| `fiba-rim-touch-is-legal` | rules | FIBA 2024 rules Art. 31.2.3 (restrictions end when the ball 'has touched the ring') and 31.2.4 (interference is touching the basket or backboard while the ball is on the ring); NBA Rule 11 | corrected; URL replaced | body now says the ball may be played after ring contact 'as long as he does not touch the ring or backboard'; URL -> FIBA 2024 rules PDF |
+| `corner-three-geometry` | tactics | NBA Rule 1 Sec. I: lines 3 ft from the sidelines, arc 23 ft 9 in; 25 - 3 = 22 ft; 21 in | corrected; URL replaced | "the most efficient shot in the modern game" (dunks and free throws are better) -> "the shortest three-pointer on the floor"; URL rulebook index -> Rule 1 page |
+| `three-point-attempts-rise` | tactics | Basketball-Reference: 2.8 (1979-80), 15.3 (1994-95), 20.0 (2012-13), 21.5 (2013-14), 32.0 (2018-19), 34.1-37.6 every season since | corrected | "twenty in 2013-14" -> "twenty in 2012-13" |
+| `four-factors-dean-oliver` | tactics | Basketball-Reference 'Four Factors' (weights 40/25/20/15, order as stated); the 2004 first edition was Brassey's, later Potomac | confirmed | source_detail publisher corrected |
+| `effective-field-goal-percentage` | tactics | Basketball-Reference glossary formula (FG + 0.5*3P)/FGA; 40% on threes = 60% eFG | confirmed | none |
+| `elam-ending` | tactics | NBA.com official release, 30 Jan 2020: clock off in the fourth, Final Target Score | URL replaced | 404 -> `nba.com/news/2020-all-star-game-format-official-release` |
+| `triangle-offense-from-usc` | tactics | HOF Winter bio (triangle 'evolved in part from Barry's center-opposite offense') and Barry bio ('initial proponent of the triangle offense') | confirmed | source_detail expanded |
+| `alley-oop-from-football` | culture | 49ers 'NFL 100 Greatest No. 71: The Alley-Oop'; the phrase pre-dates 1957 (French 'allez-hop', the 1932 comic strip) | corrected; URL replaced | "The phrase was first used for" -> "The name was attached in 1957 to"; URL `profootballhof.com` home -> 49ers page |
+| `cagers-and-the-wire-cage` | culture | The Trentonian 'Capital Century' (12-foot cage; phased out by the 1920s; headline writers kept the word); SI 1991 (Trenton's last cage 1929) | corrected; URL replaced | "The cages disappeared by the 1930s" -> "were largely gone by the 1930s"; URL 404 -> Trentonian page |
+| `first-pro-league-1898` | obscure_history | APBR 'National Basket Ball League [1898-99 to 1903-04]': six seasons, Philadelphia/Trenton/Camden, disbanded Jan 1904 | URL replaced | 404 -> APBR page |
+| `rens-world-champions-1939` | obscure_history | HOF Rens page (1939 champion, enshrined 1963, no league would accept a Black team); Black Fives (final v Oshkosh, 28 Mar 1939); 34-25 | confirmed | source_detail names the Oshkosh source |
+| `globetrotters-beat-the-lakers-1948` | historic_games | ESPN: 19 Feb 1948, 61-59, Chicago Stadium; the Lakers 'had just arrived in Minneapolis that season' and won the NBL title in April 1948 | corrected; URL replaced | headline "the reigning champion Minneapolis Lakers" -> "George Mikan's Minneapolis Lakers"; body says they 'went on to win the NBL title that spring'; "helped push the professional leagues to integrate" -> "remembered as a landmark on the road to the NBA's integration"; URL HOF Globetrotters page (does not mention the game) -> ESPN |
+| `berenson-smith-college-1892` | womens | HOF Berenson bio: first game 1893, chaired the rules committee twelve years, wrote the first guide; Smith College Libraries: 22 Mar 1893 | corrected | "edited the women's rulebook for the next quarter century" -> "chaired the women's rules committee for twelve years and edited its official guide" |
+| `first-womens-intercollegiate-game-1896` | womens | Cal athletics history: 2-1, nine a side, Page Street Armory, men banned; scorers Mattie Clark and Frances Tucker | corrected; URL replaced | "Frida Miller ... first points" (no such player) -> "Mattie Clark scored the first basket and Frances Tucker's free throw ... won it"; URL `gostanford.com` home -> Cal history page |
+| `iowa-six-on-six-until-1993` | womens | University of Iowa Women's Archives exhibit: 1993 the final six-on-six tournament; Oklahoma 1995 (ESPN) | URL replaced | `ighsau.org` home -> Iowa Women's Archives exhibit |
+| `immaculata-first-three-titles` | womens | HOF Rush bio: began 1970 'less than two years after graduating' (born April 1947); three consecutive AIAW titles from 1972; CIAW national tournaments existed 1969-71 | corrected | headline "the first three national championships" -> "the first three AIAW national championships"; "who was 24 when she took the job" -> "hired in 1970 less than two years out of college" |
+| `womens-olympic-debut-1976` | olympics_fiba | Olympics.com Montreal 1976 women's results: six teams, USSR / USA / Bulgaria | URL replaced | `olympics.com/en/sports/basketball/` -> Montreal 1976 women's results page |
+| `first-wnba-dunk-2002` | womens | HOF Leslie bio (2002, first to dunk in a WNBA game); Guinness (30 Jul 2002 v Miami Sol, Staples Center) | URL replaced | `wnba.com/history` (generic) -> HOF Leslie bio |
+| `wnba-plays-quarters` | rules | WNBA rulebook Rule 5 II (ten-minute periods); FIBA Art. 8.1; the G League and PBA also play 48 minutes | corrected; URL replaced | headline "...and the NBA is the only league that plays 48 minutes" -> "...and plays the same 40 minutes as FIBA"; body "only the NBA plays four twelve-minute quarters" -> "the NBA's four twelve-minute quarters are the longest game among them"; URL `wnba.com/rules` (404) -> 2026 rulebook PDF |
+| `naismith-in-berlin-1936` | olympics_fiba | Olympics.com 'muddy beginnings': Naismith, 74, threw the jump ball for France-Estonia and 'presented the medals' | URL replaced | HOF Naismith bio (mentions Berlin, not the medals) -> Olympics.com article |
+| `fiba-founded-by-eight-nations-1932` | olympics_fiba | FIBA 85th-anniversary release: 18 June 1932, the eight members named; FIBA Hall of Fame '8 Founding Federations' (Geneva) | corrected; URL replaced | "until 1989" -> "until FIBA voted in 1989 to admit them"; URL hub -> FIBA release |
+| `first-world-championship-1950` | olympics_fiba | FIBA 75th-anniversary release: Argentina 64-50 USA, Luna Park | URL replaced | hub -> FIBA release |
+| `eurobasket-1935-latvia` | olympics_fiba | FIBA '90 years ago' article: Geneva, 10 teams, Latvia 24-18 Spain; the South American Championship dates from 1930 | corrected; URL replaced | "It is the oldest continental championship in basketball and it is still played every four years" -> "It was FIBA's first continental championship -- South America's, begun in 1930, predates FIBA itself -- and it is still played today"; URL hub -> FIBA article |
+| `euroleague-riga-first-three` | international_leagues | ASK Riga 1958, 1958-59, 1959-60 under Gomelsky; Real Madrid's 11 still the record after Olympiacos won the 2026 title | URL replaced | `euroleaguebasketball.net` home -> Wikipedia competition history (EuroLeague's own champions PDF refuses automated fetches) |
+| `pba-asias-first-pro-league` | international_leagues | pba.ph 'About' and 'Retro' pages via search excerpts and Rappler: nine teams, 9 April 1975, Araneta Coliseum (pba.ph refuses automated fetches) | URL replaced | `pba.ph` home -> `pba.ph/about-us`; source_detail records the fetch limit |
+| `wheelchair-basketball-first-paralympics` | global | IPC page: 1945 veterans' hospitals; 'one of eight sports at the inaugural Rome 1960 Paralympic Games'; same court and hoop | confirmed | source_detail quotes the page |
+| `wheelchair-classification-fourteen-points` | global | IWBF classification page: 1.0-4.5, 'total number of points allowed on court at any time is 14.0' | URL replaced | `iwbf.org` home -> classification page |
+| `threexthree-first-to-twenty-one` | global | FIBA 3x3 rules PDF: Art. 8 (10 minutes; clock stopped only for dead balls and free throws; 21 ends the game), Art. 16 (1 and 2 points), Art. 29 (12 seconds) | corrected; URL replaced | "no clock stoppage after a score" -> "the clock stops only for dead balls and free throws, not after a basket"; URL home -> rules PDF |
+| `threexthree-ball` | rules | FIBA 3x3 'Official 3x3 ball' page: Size 6, Weight 7, 'a smaller ball spec ... grip and control' | corrected; URL replaced | the wind rationale, which no source gives, replaced by FIBA's own ('grip and control a fast outdoor game demands'); URL home -> ball page |
+| `threexthree-to-the-olympics` | global | 2007 Asian Indoor Games, 2010 YOG Singapore, IOC June 2017, Tokyo | URL replaced | `fiba3x3.com` home -> Olympics.com 3x3 sport page |
+| `first-ncaa-tournament-eight-teams` | obscure_history | NCAA.com tournament-evolution article: '1939 - 8 teams', Oregon over Ohio State in Evanston, '1975 - 32 teams'; the 1939 NIT had six teams, so it was not 'bigger' | corrected; URL replaced | headline "was not the biggest tournament in the country" -> "was a year younger than the NIT"; body "drew the stronger field for years" -> "for years attracted many of the top-ranked teams"; URL -> NCAA.com article |
+| `college-shot-clock-history` | rules | NCAA history: 45 seconds 1985-86, 35 in 1993-94; NCAA.com 2015 for 30; 1954 to 1985 is 31 years | corrected; URL replaced | headline "nearly fifty years" -> "more than thirty years"; URL redirect -> NCAA rules-history PDF |
+| `draft-lottery-ping-pong-balls` | draft | NBA.com lottery explainer: 14 balls, 1,001 combinations, 1,000 assigned, 14 percent for the three worst since 2019 | confirmed | none |
+| `court-length-fiba-versus-nba` | rules | FIBA 2024 rules Art. 2.1 (28 m by 15 m); NBA Rule 1 (94 by 50; free-throw line 15 ft) | URL replaced | hub -> FIBA 2024 rules PDF |
+| `free-throw-line-fifteen-feet-since-1895` | rules | NCAA history: set at 20 feet, moved to 15 (the document dates the move 1895-96 in one section and 1894-95 in another) | URL replaced | 404 -> NCAA rules-history PDF; the discrepancy is recorded in source_detail |
+| `shot-clock-1954` | rules (2026-08-07) | Basketball-Reference 79.5 -> 93.1 (+13.6); HOF Biasone bio gives the same figures | confirmed | `checked_on` only |
+| `biasone-arithmetic` | rules (2026-08-07) | HOF Biasone bio: 'teams averaged 60 shots per game' (120 for two); 2,880 / 120 = 24 | confirmed | `checked_on` only |
+| `first-three-pointer` | rules (2026-08-07) | URL live; NBA.com: rules committee approved the shot for 1979-80 after the 1976 merger | confirmed | `checked_on` only |
+| `naismith-1891` | culture (2026-08-07) | Springfield College page: peach baskets on the ten-foot balcony rail, thirteen rules | confirmed | `checked_on` only |
+| `euroleague-titles` | international_leagues (2026-08-07) | Olympiacos beat Real Madrid in the 2026 final, so Real Madrid 11, CSKA 8, Panathinaikos 7 all stand | confirmed | `checked_on` only |
+| `olympics-1936-mud` | olympics_fiba (2026-08-07) | Olympics.com: outdoor clay, heavy rain, USA 19-8 Canada | confirmed | `checked_on` only |
+| `oscar-schmidt-never-nba` | global (2026-08-07) | Wikipedia list: 49,737; 'James broke Schmidt's record on April 2, 2024' (all competitions counted) | confirmed | `checked_on` only |
+| `hand-check-2004` | rules (2026-08-07) | Basketball-Reference: 93.4 (2003-04), 97.2 (2004-05) | confirmed | `checked_on` only |
+| `tallest-and-shortest` | connections (2026-08-07) | Basketball-Reference: Bol played 5 games for Golden State in 1994-95; Bogues 14 seasons | confirmed | `checked_on` only |
+
+### 10.1 Limits of this pass
+
+- Five sites refuse automated fetches (hoophall.com, basketball-reference.com,
+  pba.ph, si.edu collections, olympics.com sport pages). The Hall of Fame and
+  Basketball-Reference pages were read with a browser user agent; the
+  Smithsonian object, PBA and Olympics pages were checked through their
+  indexed excerpts, and `source_detail` says so where it matters.
+- `fiba-thirty-second-clock` and `euroleague-riga-first-three` now cite
+  Wikipedia because neither FIBA nor EuroLeague publishes a fetchable page
+  carrying the claim; the underlying documents are named in `source_detail`.
+- Sports Illustrated's 1991 cage article is indexed but returns 404 to every
+  fetcher tried; the Trentonian's series was used instead.
+- Nine of the 91 entries from the 2026-08-07 audit were re-checked here; the
+  other 82 keep their `checked_on: 2026-08-07`.
