@@ -37,6 +37,7 @@ import PeakV2Shell from "../PeakV2Shell";
 import PeakV2CinematicStage from "../PeakV2CinematicStage";
 import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
 import PeakV2Rule from "../PeakV2Rule";
+import { ScoreTransition } from "@/components/game-feel";
 import PeakV2CourtSlot from "../PeakV2CourtSlot";
 import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
 import CourtLayout from "@/components/court/CourtLayout";
@@ -371,9 +372,21 @@ export default function PeakV2CourtResult({ state, result, onPlayAgain, playAgai
               {resultTier(result.wins)}
             </span>
             <div className="mt-2 flex items-start justify-center gap-2">
+              {/* THE RECORD ASSEMBLES rather than appearing: a Level-3
+                  moment, once per result, counting up from 0-0 to the
+                  server's wins-losses. Reduced motion shows it directly.
+                  A shared/read-only receipt is a document, not a reveal. */}
               <span data-testid="season-record">
                 <PeakV2ResultHeadline as="h1" scale="hero" tone={showPerfectStyling ? "accent" : "primary"}>
-                  {result.wins}-{result.losses}
+                  {readOnly ? (
+                    `${result.wins}-${result.losses}`
+                  ) : (
+                    <>
+                      <ScoreTransition value={result.wins} from={0} durationMs={1100} testId="season-record-wins" />
+                      -
+                      <ScoreTransition value={result.losses} from={0} durationMs={1100} testId="season-record-losses" />
+                    </>
+                  )}
                 </PeakV2ResultHeadline>
               </span>
               {isIncomplete && (

@@ -165,7 +165,7 @@ export interface TmwTurnSlot {
  * rotation; the residual seat advantage is intentional.
  */
 export function turnOrder(state: TmwPublicState | null, seatCount = 3): TmwTurnSlot[] {
-  if (!state) return [];
+  if (!state || !state.rosters) return [];
   const rounds = state.total_rounds ?? 0;
   const played = state.rosters.reduce(
     (total, roster) => total + Object.values(roster.slots).filter(Boolean).length,
@@ -217,7 +217,8 @@ export function filledCount(roster: TmwRoster): number {
 
 /** Every pick made so far, newest first — the shared draft feed. */
 export function pickFeed(state: TmwPublicState | null): TmwPick[] {
-  if (!state) return [];
+  // A `forming` match projects no rosters at all -- see `ThreeManWeaveLoader`.
+  if (!state || !state.rosters) return [];
   const picks = state.rosters.flatMap((roster) =>
     TMW_SLOT_TYPES.map((slotType) => roster.slots[slotType]).filter(
       (pick): pick is TmwPick => !!pick,

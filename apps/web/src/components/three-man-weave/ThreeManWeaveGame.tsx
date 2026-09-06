@@ -4,22 +4,25 @@ import { useRouter } from "next/navigation";
 import type {
   ArenaResultView,
   TmwMatchView,
+  TmwPublicState,
   TmwSlotType,
 } from "@/types/three-man-weave";
 import {
   TMW_COMMAND_PICK,
   TMW_COMMAND_REARRANGE,
-  TMW_COMMAND_SKIP_INTRO,
-  TMW_COMMAND_SKIP_REVEAL,
   TMW_COMMAND_STAGE_PICK,
-  TMW_OPENING_REVEAL_SECONDS,
+  TMW_INTRO_SECONDS,
+  TMW_MODE,
   TMW_REVEAL_SECONDS,
+  TMW_SLOT_TYPES,
   TMW_TURN_PHASE_INTRO,
   TMW_TURN_PHASE_REVEAL,
+  TMW_TURN_SECONDS,
 } from "@/types/three-man-weave";
 import {
   ArenaAPIError,
   commandIdempotencyKey,
+  createPracticeMatch,
   getMatch,
   getMatchResults,
   submitCommand,
@@ -30,15 +33,18 @@ import {
   canPick,
   connectionState,
   identityLock,
+  isBriefing,
   isRevealing,
   isYourTurn,
   phaseOf,
   seatLabel,
+  slotAbbrev,
 } from "@/lib/three-man-weave-state";
+import { isNewer, useCommandLane } from "@/lib/game-feel/authoritative";
+import { EventMoment, type EventMomentData } from "@/components/game-feel";
 import { modeMeta } from "@/lib/arena-modes";
 import HowToPlay from "@/components/arena/HowToPlay";
 import { deadlineFromSeconds } from "@/components/shared/ArenaTimer";
-import GameIntro from "@/components/shared/GameIntro";
 import PickOverlay from "./PickOverlay";
 import IdentityLockPanel from "./IdentityLockPanel";
 import PeakV2TMWCourts from "@/components/v2/tmw/PeakV2TMWCourts";
@@ -47,127 +53,207 @@ import PeakV2TMWResult from "@/components/v2/tmw/PeakV2TMWResult";
 import PeakV2Shell from "@/components/v2/PeakV2Shell";
 import { StatusChip } from "@/components/ui/StatusChip";
 
-const TMW_INTRO_RULES = [
-  { label: "Shared roll", detail: "one real franchise and decade, rolled once for all three drafters" },
-  { label: "Snake order", detail: "pick order reverses every round, so nobody drafts last twice" },
-  { label: "Beat the clock", detail: "click a legal player before time runs out, or a weak fallback is assigned for you" },
-];
+/**
+ * POLL CADENCE, BY WHAT THE ROOM IS WAITING FOR.
+ *
+ * Polling is RECOVERY AND RECONCILIATION, never the channel a player's own
+ * action is confirmed on -- every command's response is applied the instant
+ * it lands (`applyView`). What polling carries is the OTHER seats' moves and
+ * the server's own phase transitions, and its rate follows how soon one of
+ * those can happen:
+ *
+ *   - a seatless phase (briefing, ceremony) ends on the server's own
+ *     deadline, swept lazily on reads, so the room polls fast to observe the
+ *     handoff crisply -- and this is also what ENDS the phase;
+ *   - somebody else's turn can end at any moment, so one second;
+ *   - the room's own turn changes only on its own command or on a timeout
+ *     sweep, so two seconds is plenty.
+ */
+const POLL_SEATLESS_MS = 400;
+const POLL_OPPONENT_MS = 1000;
+const POLL_OWN_TURN_MS = 2000;
+/** How long one command may stay unanswered before the press reads as an error. */
+const COMMAND_TIMEOUT_MS = 15_000;
 
 /**
- * Has this browser already dismissed the briefing for this specific match?
+ * THE ROOM'S WHOLE STATE, AS ONE OBJECT.
  *
- * Scoped to `matchId` rather than to the mode in general, so it reads
- * exactly once per match (round 1 of a fresh draft) and never again on a
- * reload/resume mid-draft -- the same "resume is safe" guarantee the rest
- * of this component already gives the server-driven state. Resilient to
- * blocked storage the same way `twenty-dollar-seen.ts` is: a read failure
- * is "not seen yet" (never crashes into showing nothing), a write failure
- * is silently swallowed (the intro just reappears next visit, not a
- * functional bug).
+ * A command's response used to fan out into four `useState` setters, and a
+ * poll's into two more, so "the swap landed" could paint as a message on one
+ * render and a roster on the next. Everything derived from one server
+ * snapshot now lands in one `setRoom`, so a render is always ONE match
+ * snapshot: rosters, bench, positions, pick number, round, on-the-clock seat,
+ * every clock, and the moment that snapshot announces.
  */
-const TMW_INTRO_SEEN_PREFIX = "peak3.tmw.intro-seen.";
-
-function hasSeenIntro(matchId: string): boolean {
-  try {
-    return window.localStorage.getItem(TMW_INTRO_SEEN_PREFIX + matchId) === "1";
-  } catch {
-    return false;
-  }
+interface Room {
+  match: TmwMatchView;
+  /** YOUR clock: a local monotonic deadline, or null when you cannot act. */
+  deadlineAt: number | null;
+  /** THE OPEN TURN's clock, whoever is on it. */
+  turnDeadlineAt: number | null;
+  /** When the open turn began, on the local monotonic clock. */
+  turnStartedAt: number | null;
+  /** The open turn's full length. The denominator for every bar. */
+  turnTotalSeconds: number | null;
+  /** What this snapshot just did, for `EventMoment`. */
+  moment: EventMomentData | null;
 }
 
-function markIntroSeen(matchId: string): void {
-  try {
-    window.localStorage.setItem(TMW_INTRO_SEEN_PREFIX + matchId, "1");
-  } catch {
-    // Blocked storage: the intro will simply show again next visit.
-  }
+type Source = "initial" | "command" | "poll";
+
+function nominalPhaseSeconds(match: TmwMatchView): number | null {
+  if (match.turn_phase === TMW_TURN_PHASE_INTRO) return TMW_INTRO_SECONDS;
+  if (match.turn_phase === TMW_TURN_PHASE_REVEAL) return TMW_REVEAL_SECONDS;
+  if (match.turn_phase) return TMW_TURN_SECONDS;
+  return null;
 }
 
-/** How often to re-read the match while it is someone else's turn. */
-const POLL_MS = 2000;
+/** Everything a snapshot says about time, converted ONCE, at the instant it
+ *  lands -- never re-derived from a duration held in state. */
+function roomFrom(match: TmwMatchView, moment: EventMomentData | null): Room {
+  // A seatless phase publishes its clock to every seat as `seconds_remaining`
+  // even on an API build that sends no `turn_seconds_remaining`.
+  const remaining = match.turn_seconds_remaining ?? match.seconds_remaining;
+  const turnDeadlineAt = deadlineFromSeconds(remaining);
+  const total = match.turn_total_seconds ?? nominalPhaseSeconds(match);
+  const elapsed =
+    match.turn_elapsed_seconds ??
+    (total !== null && remaining !== null && remaining !== undefined
+      ? Math.max(0, total - remaining)
+      : null);
+  const turnStartedAt =
+    elapsed !== null && typeof performance !== "undefined" ? performance.now() - elapsed * 1000 : null;
+  return {
+    match,
+    deadlineAt: deadlineFromSeconds(match.seconds_remaining),
+    turnDeadlineAt,
+    turnStartedAt,
+    turnTotalSeconds: total,
+    moment,
+  };
+}
 
 /**
- * How often to re-read the match WHILE THE CEREMONY IS RUNNING.
- *
- * The reveal is 3.2 seconds and the ordinary poll is 2 seconds, so at the
- * normal rate the handoff from ceremony to pick panel could be observed up to a
- * full poll late -- a second of dimmed board with nothing happening on it. The
- * faster rate is bounded twice over: it applies only while `turn_phase` is
- * `reveal`, and that phase is at most a few seconds long by the server's own
- * deadline. The interval reverts the moment the phase changes.
- *
- * It is also what ENDS the ceremony. The foundation's clock is swept lazily, on
- * reads (`clock.enforce`), so the player waiting on the reveal is the one whose
- * own polling fires its expiry.
+ * How far two conversions of the same live deadline may differ before the
+ * newer one is worth applying, in milliseconds. Below this the "correction"
+ * would move the displayed number by less than the tick it is drawn at,
+ * while re-rendering every consumer of the deadline. Above it something real
+ * happened -- a suspended tab, a slow request -- and the server's number wins.
  */
-const REVEAL_POLL_MS = 400;
+const DEADLINE_DRIFT_MS = 750;
 
-/** The human decision window, in seconds. Matches the mode's own
- *  `turn_seconds`; used only to draw the timer's progress arc, never to decide
- *  anything — the deadline itself is always the server's. */
-const TURN_SECONDS = 45;
+function driftExceeded(current: number | null, next: number | null): boolean {
+  if (current === null || next === null) return current !== next;
+  return Math.abs(next - current) > DEADLINE_DRIFT_MS;
+}
+
+/**
+ * WHAT JUST HAPPENED, read off the two snapshots -- never off a timer, and
+ * never off what the client thinks it asked for.
+ *
+ * A moment is only ever announced for a change the SAME render is drawing,
+ * which is the whole point: the "John Stockton ↔ Trae Young" notice cannot
+ * appear over a roster that still shows them un-swapped, because both come
+ * from `next`.
+ */
+function describeTransition(
+  prev: TmwMatchView,
+  next: TmwMatchView,
+  source: Source,
+  kind: string | null,
+): EventMomentData | null {
+  if (source === "initial" || next.public_state.is_complete) return null;
+  const you = next.your_seat_index;
+  const id = `v${next.state_version}`;
+
+  // A rearrangement of your own roster: one move, or one swap.
+  if (source === "command" && kind === "rearrange" && you !== null) {
+    const before = prev.public_state.rosters.find((r) => r.seat_index === you);
+    const after = next.public_state.rosters.find((r) => r.seat_index === you);
+    if (before && after) {
+      const changed = TMW_SLOT_TYPES.filter(
+        (slot) => (before.slots[slot]?.player_slug ?? null) !== (after.slots[slot]?.player_slug ?? null),
+      );
+      const names = changed.map((slot) => after.slots[slot]?.player_name).filter(Boolean) as string[];
+      if (names.length === 2) {
+        return { id, kind: "swap", title: `${names[0]} ↔ ${names[1]}`, detail: "Positions swapped", tone: "accent" };
+      }
+      if (names.length === 1) {
+        const slot = changed.find((s) => after.slots[s]) as TmwSlotType | undefined;
+        return { id, kind: "move", title: `${names[0]} → ${slot ? slotAbbrev(slot) : "new slot"}`, detail: "Moved", tone: "accent" };
+      }
+    }
+  }
+
+  // Picks that landed in this snapshot, in every roster. Prefer the viewer's
+  // own if it is among them (it is the one they just committed); otherwise
+  // the newest by round order.
+  const arrivals: { seat: number; slot: TmwSlotType; name: string; round: number; timedOut: boolean }[] = [];
+  for (const after of next.public_state.rosters) {
+    const before = prev.public_state.rosters.find((r) => r.seat_index === after.seat_index);
+    for (const slot of TMW_SLOT_TYPES) {
+      const pick = after.slots[slot];
+      if (pick && !before?.slots[slot]) {
+        arrivals.push({
+          seat: after.seat_index,
+          slot,
+          name: pick.player_name,
+          round: pick.round_number,
+          // A pick that arrived for YOUR seat on a poll is the server's
+          // timeout drafting for you -- you never sent it.
+          timedOut: source === "poll" && after.seat_index === you,
+        });
+      }
+    }
+  }
+  if (arrivals.length === 0) return null;
+  const yours = arrivals.find((a) => a.seat === you);
+  const pick = source === "command" && yours ? yours : arrivals[arrivals.length - 1];
+  const who = pick.seat === you ? "You" : seatLabel(next.seats, pick.seat);
+  return {
+    id,
+    kind: pick.timedOut ? "timeout" : "pick",
+    title: `${pick.name} → ${slotAbbrev(pick.slot)}`,
+    detail: pick.timedOut ? "Time ran out · drafted for you" : `${who} · Round ${pick.round}`,
+    tone: pick.timedOut ? "negative" : pick.seat === you ? "accent" : "neutral",
+  };
+}
+
+function picksIn(state: TmwPublicState): number {
+  return state.rosters.reduce(
+    (total, roster) => total + Object.values(roster.slots).filter(Boolean).length,
+    0,
+  );
+}
 
 /**
  * THREE-MAN WEAVE, driven entirely by the server.
  *
  * SERVER-AUTHORITATIVE: every action POSTs and this component replaces its
- * whole match object with the response. Nothing here decides legality, scores a
- * roster, ranks a seat or advances a turn -- it renders what the server
+ * whole room object with the response. Nothing here decides legality, scores
+ * a roster, ranks a seat or advances a turn -- it renders what the server
  * projected for THIS seat and sends back commands.
  *
- * THE LAYOUT IS THE PRODUCT DECISION. The three teams are the page; the turn
- * status sits above them and the pick surface above that. There is now exactly
- * ONE turn-status region (TMW-07): the spinner banner, the "X is selecting"
- * band, the "X is scouting / X drafted" tray and the eighteen-chip snake strip
- * (TMW-08) are all gone, and `TurnStatus` carries what they collectively said.
+ * THE INTERACTION CONTRACT (game-feel reconstruction), in four rules:
  *
- * ================================================================
- * THE REVEAL IS A SERVER PHASE (SHARED-01, TMW-06)
- * ================================================================
- * WHAT THE DEFECT WAS. `WeaveSpinner` owned a client `setTimeout` for the
- * ~2270ms ceremony and this component gated the pick overlay on the callback it
- * fired, while the server had stamped the 45-second turn deadline when the turn
- * OPENED. On the first pick of every round the player lost the whole ceremony,
- * plus up to one 2000ms poll, off a clock that was visibly counting down behind
- * an overlay that would not open.
- *
- * WHAT THE FIRST REPAIR WAS, AND WHY IT IS GONE. It gated the ceremony on
- * `!yourTurn`: mount it only while no human decision window is open. That did
- * remove the race, by removing the product requirement -- on every round the
- * human led, the ceremony simply never played. It was a workaround for a client
- * timer, and there is no client timer any more.
- *
- * WHAT IT IS NOW. The mode opens a real turn in `phase="reveal"`
- * (`three_man_weave/mode.py`): it belongs to no seat, accepts no command from
- * anybody -- human or bot -- and carries its own deadline. When it expires the
- * foundation's sweep fires a timeout and the mode answers by opening the pick
- * turn with a FULL `TURN_SECONDS` measured from the END of the reveal. So the
- * rule this room follows is now a single line of state:
- *
- *     THE CEREMONY IS OPEN EXACTLY WHILE `turn_phase === "reveal"`.
- *
- * Which means, and each of these is a property the workaround did not have:
- *
- *   * it plays on EVERY round, including round 1 and including the rounds the
- *     human leads, because it no longer costs them a second of their clock;
- *   * it is the same ceremony for all three seats -- `seconds_remaining` is
- *     published to every seat when a turn names none, so all three count the
- *     same beat down;
- *   * a RELOAD MID-CEREMONY resumes it with the time the server says is left.
- *     It is state, not an animation this client happens to be part-way
- *     through, so it is never restarted from full and never skipped;
- *   * the pick overlay cannot open over it, because the phase that opens the
- *     overlay is the phase the ceremony is not.
- *
- * WHY POLLING RATHER THAN A SOCKET. The foundation exposes the match and its
- * event log over plain HTTP and stamps `seconds_remaining` as a DURATION so a
- * client with a skewed clock still counts down correctly.
- *
- * TIMEOUTS ARE THE SERVER'S. This component never resolves one. It shows the
- * countdown the server sent; when a turn expires the server's sweep commits the
- * deterministic fallback and the next poll shows a board where that seat has
- * picked. Reaching zero locks the local controls (`PickOverlay`) and asks for a
- * refresh, and does nothing else.
+ *   1. ONE SNAPSHOT PER RENDER. See `Room`.
+ *   2. NEWER WINS, OLDER IS DROPPED. `applyView` applies a response only if
+ *      its `state_version` is newer than what is on screen (`isNewer`), so a
+ *      poll that was issued before a command and lands after it cannot roll
+ *      the board back -- the race that used to make the NEXT command fail
+ *      with a stale version.
+ *   3. COMMANDS ARE SERIALIZED, NEVER DROPPED. Every command goes through one
+ *      `useCommandLane`. A "Draft" press issued while a background stage
+ *      request is still in flight waits for it and then runs against the
+ *      version current at THAT moment; it is never silently ignored (the
+ *      root cause of "the first click does nothing"). An exclusive command
+ *      (pick, rearrange, replay) cannot be queued twice, which is what "one
+ *      click, one action" means at the transport layer.
+ *   4. THE TIMELINE IS THE SERVER'S. The briefing and the ceremony are short
+ *      seatless server turns; the room renders whichever is open against the
+ *      turn's published `turn_elapsed_seconds`, never against a local timer,
+ *      and offers no way to end either early. A late-joining client lands at
+ *      the correct point in the sequence.
  */
 export default function ThreeManWeaveGame({
   initialMatch,
@@ -175,131 +261,77 @@ export default function ThreeManWeaveGame({
   initialMatch: TmwMatchView;
 }) {
   const router = useRouter();
-  const [match, setMatch] = useState<TmwMatchView>(initialMatch);
-  // Gameplay-polish: the shared briefing, shown once per match regardless of
-  // how the player reached it (this mode's own lobby, the Arena hub's quick-
-  // practice flow, a direct link, a resume). Rendered as an OVERLAY on top of
-  // the room below, not as a gate on what mounts -- `WeaveSpinner`'s opening
-  // reveal is a real, already-ticking server turn (`TMW_OPENING_REVEAL_
-  // SECONDS`), and delaying its mount behind this dialog would decouple its
-  // visual ceremony from that clock, exactly the class of bug this pass was
-  // told not to recreate. The dialog's focus trap and backdrop already
-  // prevent any actual interaction with the room while it's open; the
-  // ceremony underneath is free to keep running its own real clock.
-  const [introOpen, setIntroOpen] = useState(() => !hasSeenIntro(initialMatch.match_id));
+  const [room, setRoom] = useState<Room>(() => roomFrom(initialMatch, null));
+  /** The last room applied, readable synchronously inside a command. */
+  const latest = useRef<Room>(room);
   const [results, setResults] = useState<ArenaResultView[] | null>(null);
-  const [busy, setBusy] = useState(false);
   const [rejection, setRejection] = useState<string | null>(null);
   const [failures, setFailures] = useState(0);
-  // A LOCAL MONOTONIC DEADLINE, not a duration in state. A duration re-seeded
-  // from a two-second poll and ticked down locally drifts, so a control could
-  // read "3" on a turn the server had already closed. See `ArenaTimer`.
-  const [deadlineAt, setDeadlineAt] = useState<number | null>(
-    deadlineFromSeconds(initialMatch.seconds_remaining),
+  const lane = useCommandLane();
+  const match = room.match;
+  const state = match.public_state;
+
+  const applyView = useCallback(
+    (next: TmwMatchView, source: Source, kind: string | null = null): boolean => {
+      const prev = latest.current;
+      const newer = isNewer(
+        { version: prev.match.state_version, phase: prev.match.turn_phase },
+        { version: next.state_version, phase: next.turn_phase },
+      );
+      if (!newer) {
+        // A poll that changed nothing changes nothing -- except a clock that
+        // has drifted far enough (a suspended tab) to be worth correcting.
+        const fresh = deadlineFromSeconds(next.seconds_remaining);
+        const freshTurn = deadlineFromSeconds(next.turn_seconds_remaining);
+        if (driftExceeded(prev.deadlineAt, fresh) || driftExceeded(prev.turnDeadlineAt, freshTurn)) {
+          const corrected = { ...prev, deadlineAt: fresh, turnDeadlineAt: freshTurn };
+          latest.current = corrected;
+          setRoom(corrected);
+        }
+        return false;
+      }
+      const nextRoom = roomFrom(next, describeTransition(prev.match, next, source, kind));
+      latest.current = nextRoom;
+      setRoom(nextRoom);
+      return true;
+    },
+    [],
   );
-  // THE MATCH CLOCK, as opposed to YOUR clock.
-  //
-  // `seconds_remaining` is only populated when the open turn is yours or
-  // belongs to nobody, which is correct for "can I still act" — but it is
-  // the wrong field for the pick clock everyone watches. With seat 3 on the
-  // clock, seats 1 and 2 received null and therefore rendered NO countdown
-  // at all (design-review/14: "On the clock — Stretch Five" with no timer
-  // anywhere on the page). `turn_seconds_remaining` is the open turn's own
-  // clock and the server publishes it to EVERY seat, so all three watch the
-  // same number tick. It was already being read here — but only into the
-  // drift-comparison ref, never into state and never rendered.
-  const [turnDeadlineAt, setTurnDeadlineAt] = useState<number | null>(
-    deadlineFromSeconds(initialMatch.turn_seconds_remaining),
-  );
-  // Guards a poll landing while a command is in flight from overwriting the
-  // newer state the command already returned.
-  const inFlight = useRef(false);
-  /**
-   * The last state the client applied, readable without re-arming the poll.
-   *
-   * `refresh` must be able to compare the response against what is already on
-   * screen, and it must NOT take `match` as a dependency to do it: that would
-   * re-create the callback on every state change and restart the poll interval
-   * with it, so the interval would never actually run to completion during an
-   * active turn.
-   */
-  const applied = useRef<{
-    version: number;
-    phase: string | null;
-    deadlineAt: number | null;
-    turnDeadlineAt: number | null;
-  }>({
-    version: initialMatch.state_version,
-    phase: initialMatch.turn_phase ?? null,
-    deadlineAt: deadlineFromSeconds(initialMatch.seconds_remaining),
-    turnDeadlineAt: deadlineFromSeconds(initialMatch.turn_seconds_remaining),
-  });
 
   const phase = phaseOf(match);
   const complete = phase === "complete";
+  const briefing = isBriefing(match);
   const revealing = isRevealing(match);
-  const state = match.public_state;
+  const yourTurn = isYourTurn(match);
 
-  /**
-   * A POLL THAT CHANGED NOTHING MUST CHANGE NOTHING. (TMW-D3)
-   *
-   * The match object was replaced wholesale on every 2s poll, so `candidates`
-   * — a `useMemo` on `match` — produced a brand new array of brand new
-   * candidate objects, and the entire pick list re-rendered twice a minute-long
-   * turn, under a clock, while the player was aiming at a row. Re-seeding
-   * `deadlineAt` from every response did the same thing a second way: a fresh
-   * number every two seconds re-ran `ArenaTimer`'s effect and re-rendered every
-   * consumer of the deadline.
-   *
-   * Neither is needed. `state_version` is the server's own answer to "did
-   * anything happen", and the deadline is a duration converted at the instant
-   * it lands, so two conversions of the same live turn differ only by the round
-   * trip. So: replace the match only when the version or the phase actually
-   * moved, and re-seed the deadline only when it has drifted far enough to be
-   * worth a repaint.
-   *
-   * THIS IS NOT A CACHE AND IT CANNOT GO STALE. Every real transition — a pick,
-   * a timeout sweep, the reveal ending — increments `state_version`, so it is
-   * exactly the no-op polls that are dropped.
-   */
+  // -- polling: recovery and reconciliation -------------------------------
   const refresh = useCallback(async () => {
-    if (inFlight.current) return;
+    // Never race a command: its response is newer by construction and is
+    // applied the instant it lands.
+    if (lane.busyNow()) return;
     try {
-      const next = (await getMatch(match.match_id)) as TmwMatchView;
-      if (!inFlight.current) {
-        const phase = next.turn_phase ?? null;
-        const moved =
-          next.state_version !== applied.current.version || phase !== applied.current.phase;
-        if (moved) {
-          applied.current = { ...applied.current, version: next.state_version, phase };
-          setMatch(next);
-        }
-        const fresh = deadlineFromSeconds(next.seconds_remaining);
-        if (driftExceeded(applied.current.deadlineAt, fresh) || moved) {
-          applied.current = { ...applied.current, deadlineAt: fresh };
-          setDeadlineAt(fresh);
-        }
-        const freshTurn = deadlineFromSeconds(next.turn_seconds_remaining);
-        if (driftExceeded(applied.current.turnDeadlineAt, freshTurn) || moved) {
-          applied.current = { ...applied.current, turnDeadlineAt: freshTurn };
-          setTurnDeadlineAt(freshTurn);
-        }
-      }
+      const next = (await getMatch(latest.current.match.match_id)) as TmwMatchView;
+      applyView(next, "poll");
       setFailures(0);
     } catch {
       // Counted, not thrown: a transport failure must not clear the board.
       setFailures((count) => count + 1);
     }
-  }, [match.match_id]);
+  }, [applyView, lane]);
+
+  const pollMs = complete
+    ? null
+    : briefing || revealing
+      ? POLL_SEATLESS_MS
+      : yourTurn
+        ? POLL_OWN_TURN_MS
+        : POLL_OPPONENT_MS;
 
   useEffect(() => {
-    if (complete) return;
-    // Faster while the ceremony is running, so the handoff to the pick panel is
-    // crisp rather than up to a poll late. Bounded by the phase itself: this
-    // effect re-arms at the ordinary rate the moment `revealing` goes false.
-    const timer = window.setInterval(refresh, revealing ? REVEAL_POLL_MS : POLL_MS);
+    if (pollMs === null) return;
+    const timer = window.setInterval(refresh, pollMs);
     return () => window.clearInterval(timer);
-  }, [complete, refresh, revealing]);
+  }, [pollMs, refresh]);
 
   useEffect(() => {
     if (!complete || results) return;
@@ -316,322 +348,184 @@ export default function ThreeManWeaveGame({
     };
   }, [complete, results, match.match_id]);
 
+  // -- commands: one lane, one snapshot per response -----------------------
   const send = useCallback(
-    async (commandType: string, payload: Record<string, unknown>) => {
-      if (match.your_seat_index === null) return null;
-      inFlight.current = true;
-      try {
-        const response = await submitCommand(
-          match.match_id,
+    async (commandType: string, payload: Record<string, unknown>, kind: string) => {
+      // READ AT SEND TIME, NOT AT PRESS TIME. A command queued behind another
+      // executes against the version that is current when it actually runs.
+      const current = latest.current.match;
+      if (current.your_seat_index === null) return null;
+      // A COMMAND THAT NEVER ANSWERS MUST NOT HOLD THE LANE FOREVER. The lane
+      // is exclusive while a pick is pending, and polling pauses behind it;
+      // a request lost to the network would otherwise leave "Drafting…" on
+      // screen for good. After the guard the press reads as an error, the
+      // lane frees, and the next poll reconciles whatever actually landed
+      // (the idempotency key makes a retry a replay, never a second draft).
+      const response = await Promise.race([
+        submitCommand(
+          current.match_id,
           commandType,
           payload,
-          match.state_version,
+          current.state_version,
           // Derived from the action rather than random, so a retry after a
           // dropped response is recognised as a replay instead of acting twice.
-          commandIdempotencyKey(
-            match.match_id,
-            match.your_seat_index,
-            match.state_version,
-            commandType,
-            payload,
+          commandIdempotencyKey(current.match_id, current.your_seat_index, current.state_version, commandType, payload),
+        ),
+        new Promise<never>((_, reject) =>
+          window.setTimeout(
+            () => reject(new ArenaAPIError(0, "The server took too long to answer.", "network_error")),
+            COMMAND_TIMEOUT_MS,
           ),
-        );
-        const next = response.match as TmwMatchView;
-        const fresh = deadlineFromSeconds(next.seconds_remaining);
-        const freshTurn = deadlineFromSeconds(next.turn_seconds_remaining);
-        applied.current = {
-          version: next.state_version,
-          phase: next.turn_phase ?? null,
-          deadlineAt: fresh,
-          turnDeadlineAt: freshTurn,
-        };
-        setMatch(next);
-        setDeadlineAt(fresh);
-        setTurnDeadlineAt(freshTurn);
-        setFailures(0);
-        return response;
-      } finally {
-        inFlight.current = false;
-      }
+        ),
+      ]);
+      applyView(response.match as TmwMatchView, "command", kind);
+      setFailures(0);
+      return response;
     },
-    [match.match_id, match.state_version, match.your_seat_index],
+    [applyView],
   );
 
+  const describe = (error: unknown, action: string): string => {
+    if (error instanceof ArenaAPIError) {
+      return error.code === "network_error" ? `Could not reach the server — ${action}.` : error.detail;
+    }
+    return "Something went wrong.";
+  };
+
+  /**
+   * COMMIT A PICK. Exclusive: a second press while one is pending is refused
+   * by the lane before anything runs. Queued behind any in-flight stage, so
+   * the press is never dropped -- it waits, then drafts exactly what is on
+   * screen. Resolves `true` on acceptance so the button can lock.
+   */
   const pick = useCallback(
-    async (candidate: TmwCandidate, slotType: TmwSlotType) => {
-      // ONE ACTIVE REQUEST AT A TIME (SHARED-02). The controls disable on
-      // `busy`, and this is the second half of that promise: a double-submit
-      // through a keyboard repeat or a fast double-click cannot start a second
-      // command while the first is unresolved.
-      if (busy || inFlight.current) return;
-      setBusy(true);
+    async (candidate: TmwCandidate, slotType: TmwSlotType): Promise<boolean> => {
       setRejection(null);
       const payload: Record<string, unknown> = {
         player_slug: candidate.player_slug,
         slot_type: slotType,
       };
       // THE SERVER'S OWN PLAN, ECHOED BACK. When a pick needs a rearrangement
-      // the arrangement committed is the one the projection said was legal --
-      // never a client re-derivation, which could differ and would then be
-      // refused at the exact moment a player expected a pick to land.
+      // the arrangement committed is the one the projection said was legal.
       if (candidate.fit.plan) payload.placements = candidate.fit.plan;
       try {
-        const response = await send(TMW_COMMAND_PICK, payload);
-        if (!response) return;
-        if (response.accepted || response.replayed) {
-          // V2's courts re-render from the server's own updated roster
-          // immediately — no separate "just picked" flash state to track.
-        } else {
-          setRejection(response.message ?? "That pick was refused.");
-        }
+        const response = await lane.run("pick", () => send(TMW_COMMAND_PICK, payload, "pick"));
+        if (response === null) return false;
+        if (response.accepted || response.replayed) return true;
+        setRejection(response.message ?? "That pick was refused.");
+        return false;
       } catch (error) {
         setRejection(describe(error, "your pick was not sent"));
         setFailures((count) => count + 1);
-      } finally {
-        setBusy(false);
+        return false;
       }
     },
-    [busy, send],
+    [lane, send],
   );
 
   /**
-   * Record (or clear) the not-yet-committed choice, server-side.
-   *
-   * NOT A COMMIT. `pick` below is the only thing that drafts. This exists so
-   * a timeout can safely prefer whatever the player last staged instead of
-   * the deliberately-weak `autopick` fallback -- see
-   * `mode._reduce_timeout`'s docstring in the API for why that closes the
-   * original defect (a visibly-selected pick silently overwritten by the
-   * fallback) rather than reintroducing it.
-   *
-   * DELIBERATELY DOES NOT SET `busy`. Staging happens on every candidate and
-   * slot click, and gating the whole panel on each one's round trip would
-   * make selection itself feel laggy -- the property this pass exists to
-   * fix. `inFlight.current` (set inside `send`) still prevents it from
-   * overlapping a real command, so a fast "select then Draft" can, in the
-   * rare case the stage request is still in flight, need one extra click;
-   * nothing incorrect can commit from that, since `pick` itself always
-   * gates on `busy`/`inFlight` and only ever submits what is on screen.
-   * Failures are swallowed on purpose: staging is a convenience for the
-   * timeout path, not the commit, so nothing here needs a rejection banner.
+   * STAGE (or clear) the not-yet-committed choice, server-side. NOT A COMMIT.
+   * Non-exclusive and coalesced: rapid selection changes send at most the
+   * latest intent, and a pick pressed meanwhile queues behind it rather than
+   * being refused. Skipped entirely when the server already holds this exact
+   * intent. Failures are swallowed: staging is a convenience for the timeout
+   * path (`mode._reduce_timeout`), never the commit.
    */
+  const lastStageIntent = useRef<string>("");
   const stage = useCallback(
     async (candidate: TmwCandidate | null, slotType: TmwSlotType | null) => {
-      if (busy || inFlight.current) return;
+      const intent = candidate && slotType ? `${candidate.player_slug}@${slotType}` : "clear";
+      if (intent === lastStageIntent.current) return;
+      lastStageIntent.current = intent;
       const payload: Record<string, unknown> =
-        candidate && slotType
-          ? { player_slug: candidate.player_slug, slot_type: slotType }
-          : { clear: true };
+        candidate && slotType ? { player_slug: candidate.player_slug, slot_type: slotType } : { clear: true };
       try {
-        await send(TMW_COMMAND_STAGE_PICK, payload);
+        await lane.run(
+          "stage",
+          async () => {
+            const staged = latest.current.match.private_state.staged_pick ?? null;
+            const already = staged ? `${staged.player_slug}@${staged.slot_type}` : "clear";
+            if (already === intent) return null;
+            if (!canPick(latest.current.match)) return null;
+            return send(TMW_COMMAND_STAGE_PICK, payload, "stage");
+          },
+          { exclusive: false, coalesce: "stage" },
+        );
       } catch {
         // Best-effort -- see docstring above.
       }
     },
-    [busy, send],
+    [lane, send],
   );
+
+  // A new turn is a new decision: forget the last staged intent so the same
+  // selection can be staged again next turn.
+  useEffect(() => {
+    lastStageIntent.current = "";
+  }, [match.turn_seq, match.current_turn_seat_index, state.current_round]);
 
   const rearrange = useCallback(
-    async (placements: Record<string, string>) => {
-      if (busy || inFlight.current) return;
-      setBusy(true);
+    async (placements: Record<string, string>): Promise<boolean> => {
       setRejection(null);
       try {
-        const response = await send(TMW_COMMAND_REARRANGE, { placements });
-        if (!response) return;
-        if (!response.accepted && !response.replayed) {
-          // `message` is the field the API actually sends.
-          setRejection(response.message ?? "That move was refused.");
-        }
+        const response = await lane.run("rearrange", () => send(TMW_COMMAND_REARRANGE, { placements }, "rearrange"));
+        if (response === null) return false;
+        if (response.accepted || response.replayed) return true;
+        setRejection(response.message ?? "That move was refused.");
+        return false;
       } catch (error) {
         setRejection(describe(error, "the move was not sent"));
-      } finally {
-        setBusy(false);
+        return false;
       }
     },
-    [busy, send],
+    [lane, send],
   );
 
-  /**
-   * END THE CEREMONY EARLY.
-   *
-   * A REAL COMMAND, not a local dismiss: the pick turn does not exist until the
-   * reveal turn closes, so hiding the overlay here would hand the player a
-   * board that refuses every action. The RESPONSE is returned to the caller
-   * rather than swallowed here -- `dismissIntro` is the one place that decides
-   * whether a rejection or a dropped request is safe to ignore, because only
-   * it knows whether the phase this call was trying to end is gating the only
-   * entry point into the room. See `dismissIntro` for why that distinction
-   * matters.
-   */
-  const skipReveal = useCallback(async () => {
-    if (busy || inFlight.current) return null;
-    setBusy(true);
-    try {
-      return await send(TMW_COMMAND_SKIP_REVEAL, {});
-    } catch {
-      return null;
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, send]);
+  const hasBots = match.seats.some((seat) => seat.is_bot);
 
   /**
-   * END THE PRE-MATCH BRIEFING EARLY -- THE AUTHORITATIVE HALF OF THE FIX.
+   * PLAY AGAIN IS ANOTHER GAME, NOT A UTILITY SCREEN.
    *
-   * Every match now opens on `TMW_TURN_PHASE_INTRO` (see `apps/api/app/
-   * services/three_man_weave/mode.py::PHASE_INTRO`): a real, seatless server
-   * turn that nothing else -- not the ceremony, not any pick turn -- can
-   * begin until it ends. `OPENING_REVEAL_SECONDS` being generously sized was
-   * an earlier, INSUFFICIENT attempt at this: it protected a normal-length
-   * read and nothing else, whereas the actual requirement is that no length
-   * of time spent on this dialog -- one second or arbitrarily long -- may
-   * ever consume any of it. This command is a real server call, not a local
-   * dismiss, for the same reason `skipReveal` is: hiding the dialog without
-   * it would leave the client believing a game had started that the server
-   * had not yet begun. The response is returned rather than swallowed -- see
-   * `dismissIntro`.
+   * Against bots: a fresh practice match is created and the route is
+   * REPLACED with its own id, so the loader mounts a brand-new room (keyed by
+   * match id -- nothing from this one survives: no selection, no moment, no
+   * poll). The new match opens on its own server-timed briefing, so the
+   * next thing on screen is the intro, then the first roll. A multiplayer
+   * table has no rematch primitive yet, so Play Again returns everyone to
+   * the lobby with this game preselected -- the rematch-ready room.
    */
-  const skipIntro = useCallback(async () => {
-    if (busy || inFlight.current) return null;
-    setBusy(true);
-    try {
-      return await send(TMW_COMMAND_SKIP_INTRO, {});
-    } catch {
-      return null;
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, send]);
-
-  /**
-   * DISMISSING THE DIALOG SENDS WHICHEVER SEATLESS PHASE IS ACTUALLY OPEN --
-   * AND DOES NOT CLOSE THE DIALOG UNTIL THE SERVER CONFIRMS IT MOVED.
-   *
-   * THE DEADLOCK THIS FIXES (production regression). `markIntroSeen` writes to
-   * localStorage FOREVER for this match id, and the dialog's own initial-open
-   * state (`useState(() => !hasSeenIntro(...))`) only ever reads that flag
-   * once, on mount. The previous version called `markIntroSeen` and closed the
-   * dialog THE INSTANT the button was pressed, before the server had answered
-   * at all: `skipIntro`/`skipReveal` fired the command and swallowed whatever
-   * came back, success or not. A single dropped response, a stale
-   * `expected_state_version`, or the `busy`/`inFlight` guard above simply
-   * declining to send (a fast double-press) all left `PHASE_INTRO` (or
-   * `PHASE_REVEAL`) open on the SERVER while the CLIENT had already thrown
-   * away its only door out of it -- the dialog will not reopen on this
-   * browser, ever, for this match, and nothing else in the room can act
-   * during a seatless phase (`isBriefing`/`isRevealing` gate `canPick`
-   * unconditionally). The room then sits exactly as reported: the roll
-   * already visible (drawn at match creation), "Rolling the next franchise
-   * and decade" (`current_turn_seat_index` is null throughout both seatless
-   * phases), "Standing by", and no legal command anywhere -- for up to
-   * `INTRO_SECONDS` (30 minutes) until the server's own backstop abandons the
-   * match outright.
-   *
-   * THE FIX. Closing the dialog is now conditioned on the SERVER'S answer,
-   * read off the response's own `match.turn_phase` rather than off whether
-   * this particular command was the one `accepted`: a rejection can still
-   * carry proof the match already moved past the gate (a resolved race with
-   * another seat's dismiss, or a replay of an earlier attempt that actually
-   * landed), and that must close the dialog exactly as a fresh acceptance
-   * would. Only when the authoritative phase is STILL a seatless one does the
-   * dialog stay open and mounted -- with `starting` disabling its buttons
-   * while a request is in flight, never leaving the player with no door at
-   * all. A retry press is always available, and because the mode never
-   * caches a REJECTION under a request that never reached the server (a
-   * dropped/timed-out fetch), a genuine transport failure heals on the very
-   * next press.
-   */
-  const dismissIntro = useCallback(() => {
-    const phaseAtDismiss = match.turn_phase;
-    const request =
-      phaseAtDismiss === TMW_TURN_PHASE_INTRO
-        ? skipIntro()
-        : phaseAtDismiss === TMW_TURN_PHASE_REVEAL
-          ? skipReveal()
-          : null;
-    if (request === null) {
-      // Nothing to gate on -- the dialog should not normally still be open
-      // once the match has left both seatless phases, but closing it is
-      // always safe in that case.
-      markIntroSeen(initialMatch.match_id);
-      setIntroOpen(false);
-      return;
-    }
-    void request.then((response) => {
-      // THE DIALOG GATES `PHASE_INTRO` ONLY. Once the authoritative phase has
-      // left it -- for "reveal" exactly as much as for "pick" or anything
-      // past it -- `GameIntro` has nothing left to do: `WeaveSpinner` already
-      // renders the ceremony on its own, gated by `turn_phase` alone (see
-      // `ceremonyOpen` below), so leaving this dialog open through "reveal"
-      // would stack a second gate over the same phase for no reason.
-      const settledPhase = response?.match.turn_phase ?? match.turn_phase;
-      if (settledPhase !== TMW_TURN_PHASE_INTRO) {
-        markIntroSeen(initialMatch.match_id);
-        setIntroOpen(false);
-      } else {
-        setRejection(
-          response?.message ??
-            "Could not enter the draft room — check your connection and try again.",
-        );
+  const playAgain = useCallback(async (): Promise<boolean> => {
+    const result = await lane.run("replay", async () => {
+      if (hasBots) {
+        const created = await createPracticeMatch(TMW_MODE);
+        router.replace(`/arena/three-man-weave/${created.match_id}`);
+        return true;
       }
+      router.push("/arena/lobby?game=three_man_weave");
+      return true;
     });
-  }, [initialMatch.match_id, match.turn_phase, skipIntro, skipReveal]);
+    return result === true;
+  }, [hasBots, lane, router]);
 
   const connection = connectionState(failures);
-  const yourTurn = isYourTurn(match);
   const candidates = useMemo(() => candidatesForSeat(match), [match]);
   const lockedEntries = useMemo(() => identityLock(state), [state]);
-  // SERVER-VISIBLE, SURVIVES A REFRESH. Read straight off the current
-  // projection rather than local state -- a reload re-fetches the match and
-  // this is part of that response, so a player who staged a choice and then
-  // reloaded the page sees it still staged, not blank.
   const stagedPick = match.private_state.staged_pick ?? null;
   const yourRoster =
-    state.rosters.find((roster) => roster.seat_index === match.your_seat_index) ??
-    null;
-  const picksMade = state.rosters.reduce(
-    (total, roster) => total + Object.values(roster.slots).filter(Boolean).length,
-    0,
-  );
+    state.rosters.find((roster) => roster.seat_index === match.your_seat_index) ?? null;
+  const picksMade = picksIn(state);
 
-  // THE WHOLE RULE. Not "unless it is your turn", not "unless we already showed
-  // it": the ceremony is open exactly while the server says the open turn is
-  // the reveal. Every seat, every round.
-  const ceremonyOpen = revealing && !complete;
-  /** Round one, before anybody has drafted: the ceremony that runs the matchup
-   *  card first, and therefore the one the server gave a longer window. */
-  const openingCeremony = picksMade === 0 && state.current_round === 1;
+  // THE WHOLE RULE: the ceremony surface is open exactly while the server
+  // says a seatless phase is -- the briefing or the reveal. Every seat.
+  const ceremonyOpen = (briefing || revealing) && !complete;
+  const overlayOpen = !ceremonyOpen && yourTurn && !complete && canPick(match);
 
-  // ...and therefore the decision surface is closed while it is. `canPick`
-  // already subtracts the reveal phase; `revealing` is repeated here because
-  // this is the line a future reader will check, and it should state the rule
-  // rather than depend on a helper doing so.
-  const overlayOpen = !revealing && yourTurn && !complete && canPick(match);
+  const meta = modeMeta(TMW_MODE);
+  const pendingKind = lane.pending;
+  const busy = pendingKind === "pick" || pendingKind === "rearrange" || pendingKind === "replay";
 
-  const meta = modeMeta("three_man_weave");
-  const hasBots = match.seats.some((seat) => seat.is_bot);
-  const introVisual = (
-    <div className="tmw-intro-visual" aria-hidden="true">
-      {match.seats.map((seat) => (
-        <div
-          className="tmw-intro-seat"
-          key={seat.seat_index}
-          data-you={seat.seat_index === match.your_seat_index}
-        >
-          <span className="tmw-intro-seat-order">{seat.seat_index + 1}</span>
-          <span className="tmw-intro-seat-name">
-            {seat.seat_index === match.your_seat_index ? "You" : seat.display_name}
-          </span>
-        </div>
-      ))}
-      <span className="tmw-intro-clock">⏱</span>
-    </div>
-  );
-  // WHO PICKS WHEN THE CEREMONY ENDS. The reveal turn names no seat, so
-  // `current_turn_seat_index` is null throughout it -- and the handoff line is
-  // most useful precisely then. The snapshot's `current_seat` is the seat the
-  // server will hand the pick turn to, so it answers for both phases.
+  // WHO PICKS WHEN THE CEREMONY ENDS. The seatless turns name no seat; the
+  // snapshot's `current_seat` is the seat the server will hand the pick to.
   const upNextSeat = match.current_turn_seat_index ?? state.current_seat;
   const nextUp =
     upNextSeat === null || complete
@@ -640,22 +534,8 @@ export default function ThreeManWeaveGame({
         ? "You're up"
         : `${seatLabel(match.seats, upNextSeat)} is up`;
 
-  // Final closure pass, task "TMW viewport containment": the V2 arena shell
-  // (`tmw-v2-arena-shell` below) used to take whatever height its content
-  // naturally wanted, which at 1280x800 and 390x844 pushed the bottom of the
-  // active task surface below the viewport -- confirmed by measurement
-  // (1280x800: 55px below; 390x844: ~177px below). The fix reserves the
-  // REAL available height up front rather than guessing a breakpoint-keyed
-  // constant: measure this wrapper's own distance from the top of the
-  // viewport (whatever sits above it -- nav, this room's own legacy header,
-  // etc. -- without needing to touch or know about any of those files) and
-  // publish it as a CSS custom property the wrapper's descendants can read
-  // via `var()` (custom properties inherit). `100dvh` (not `100vh`) so a
-  // mobile browser's collapsing/expanding address bar is accounted for
-  // exactly as the requirement calls for. This runs identically regardless
-  // of reveal stage, so it cannot itself introduce any geometry diff across
-  // intro/spinning/resolved/picker -- only the viewport and whatever sits
-  // above this wrapper can change it.
+  // Viewport containment: publish the real remaining height as a CSS
+  // variable the courts cap themselves to (see PeakV2TMWCourts).
   const arenaShellRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = arenaShellRef.current;
@@ -675,36 +555,20 @@ export default function ThreeManWeaveGame({
     };
   }, []);
 
+  const clearMoment = useCallback((id: string) => {
+    setRoom((current) => (current.moment?.id === id ? { ...current, moment: null } : current));
+    if (latest.current.moment?.id === id) latest.current = { ...latest.current, moment: null };
+  }, []);
+
   return (
     <div
-      // `.pk-atmosphere` is the arena's lighting rig as a class: two
-      // floodlights and the court grid, defined once in globals.css. The room
-      // is where it belongs -- a draft happens IN a building, and every panel
-      // below now sits on a lit floor rather than on a flat page. The grid
-      // pitch is widened for this room in `three-man-weave.css`.
       className="ar-room tmw-room pk-atmosphere"
       data-testid="tmw-room"
       // The server's own phase, on the room, so a browser test can assert what
       // is on screen AGAINST what the server said rather than against a timer.
       data-turn-phase={match.turn_phase ?? "none"}
+      data-turn-seq={match.turn_seq ?? undefined}
     >
-      <GameIntro
-        open={introOpen}
-        onStart={dismissIntro}
-        onSkip={dismissIntro}
-        eyebrow="Multiplayer · Rapid draft"
-        title="Three-Man Weave"
-        objective="Three drafters, six rounds, one shared franchise and decade per round — build the best three-player lineup PEAK3 can rate."
-        rules={TMW_INTRO_RULES}
-        visual={introVisual}
-        accent="var(--comp-rec)"
-        startLabel="Enter the draft room"
-        // Disabled while `dismissIntro`'s request is in flight -- a second
-        // press before the server confirms the phase moved must not fire a
-        // second command (see `dismissIntro`).
-        starting={busy}
-        testId="tmw-game-intro"
-      />
       <PeakV2Shell width="live-wide">
         <header
           className="flex flex-wrap items-center justify-between gap-3 pb-3"
@@ -717,9 +581,7 @@ export default function ThreeManWeaveGame({
             >
               Three-Man Weave
             </h1>
-            <StatusChip tone="neutral">
-              {match.rated ? "Rated" : "Unrated"}
-            </StatusChip>
+            <StatusChip tone="neutral">{match.rated ? "Rated" : "Unrated"}</StatusChip>
             {hasBots && (
               <StatusChip tone="neutral" data-testid="tmw-bot-badge">
                 vs bots
@@ -727,11 +589,7 @@ export default function ThreeManWeaveGame({
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {/* "How to play" is always available, which is what lets the opening
-                sequence stay a matchup rather than become a tutorial (TMW-13). */}
-            {meta ? (
-              <HowToPlay title={meta.name} rules={meta.rules} testId="tmw-rules" />
-            ) : null}
+            {meta ? <HowToPlay title={meta.name} rules={meta.rules} testId="tmw-rules" /> : null}
           </div>
         </header>
 
@@ -762,50 +620,35 @@ export default function ThreeManWeaveGame({
       </PeakV2Shell>
 
       {complete && results ? (
-            <PeakV2TMWResult
-              results={results}
-              rosters={state.rosters}
-              yourSeatIndex={match.your_seat_index}
-              seed={match.match_id}
-              onPlayAgain={() => router.push("/arena/three-man-weave")}
-            />
+        <PeakV2TMWResult
+          results={results}
+          rosters={state.rosters}
+          yourSeatIndex={match.your_seat_index}
+          seed={match.match_id}
+          onPlayAgain={playAgain}
+          playAgainPending={pendingKind === "replay"}
+          multiplayer={!hasBots}
+        />
       ) : (
-        // `relative` so `PeakV2TMWReveal`'s overlay is `absolute inset-0`
-        // to THIS box (final closure pass, task §1) -- courts stay
-        // mounted and drive this wrapper's only size contribution (the
-        // overlay is absolutely positioned, so it contributes none),
-        // making this one persistent element the same "outer shell" from
-        // match-open intro through the picker: nothing to reserve, since
-        // nothing here ever changes size across reveal stages.
+        // `relative` so the ceremony overlay and every moment are anchored to
+        // THIS box: the courts stay mounted and are its only size contributor.
         <div ref={arenaShellRef} className="relative" data-testid="tmw-v2-arena-shell">
           <PeakV2TMWCourts
             state={state}
             seats={match.seats}
             yourSeatIndex={match.your_seat_index}
             currentTurnSeatIndex={match.current_turn_seat_index}
-            deadlineAt={deadlineAt}
-            turnDeadlineAt={turnDeadlineAt}
-            // The roll is not the board's to state until it has actually
-            // been shown. BOTH gates matter and the first fix only had one:
-            // `ceremonyOpen` covers the spin, but the shared pre-game
-            // BRIEFING (`introOpen`, the "Enter the draft room" card) sits
-            // over the board before the first ceremony has even started, and
-            // round one's franchise and decade were legible behind it
-            // (design-review/13, and reproduced again in this pass's own
-            // E01 capture after the first, partial fix).
-            rollRevealed={!ceremonyOpen && !introOpen}
+            deadlineAt={room.deadlineAt}
+            turnDeadlineAt={room.turnDeadlineAt}
+            turnTotalSeconds={room.turnTotalSeconds}
+            // The roll is not the board's to state until the ceremony has
+            // actually shown it.
+            rollRevealed={!ceremonyOpen}
             picksMade={picksMade}
             totalPicks={state.total_rounds * match.seat_count}
             onMove={rearrange}
             busy={busy}
           >
-            {/* THE RECENT-PICKS RAIL (restored — the V2 cutover deleted the
-                legacy JSX branch that rendered this without carrying it into
-                the V2 layout, even though the data (`lockedEntries`) was
-                still being computed and fed to `PickOverlay`'s own empty-state
-                copy). Presentation only: still the same component, the same
-                real server-derived entries, just mounted here between the
-                courts and the pick surface, exactly where it always was. */}
             <IdentityLockPanel entries={lockedEntries} seats={match.seats} />
             <PickOverlay
               open={overlayOpen}
@@ -819,9 +662,10 @@ export default function ThreeManWeaveGame({
               yourSeatIndex={match.your_seat_index}
               lockedEntries={lockedEntries}
               stagedPick={stagedPick}
-              deadlineAt={deadlineAt}
-              turnSeconds={TURN_SECONDS}
+              deadlineAt={room.deadlineAt}
+              turnSeconds={room.turnTotalSeconds ?? TMW_TURN_SECONDS}
               busy={busy}
+              pendingKind={pendingKind}
               onPick={pick}
               onStage={stage}
               onMove={rearrange}
@@ -830,47 +674,22 @@ export default function ThreeManWeaveGame({
           </PeakV2TMWCourts>
           <PeakV2TMWReveal
             open={ceremonyOpen}
+            phase={briefing ? "intro" : "reveal"}
+            turnKey={`${match.match_id}:${match.turn_seq ?? state.current_roll?.roll_id ?? "none"}:${match.turn_phase ?? ""}`}
             roll={state.current_roll}
             roundNumber={state.current_round}
             totalRounds={state.total_rounds}
             seats={match.seats}
             yourSeatIndex={match.your_seat_index}
             handoffLabel={nextUp ?? undefined}
-            showIntro={openingCeremony}
-            deadlineAt={deadlineAt}
-            revealSeconds={openingCeremony ? TMW_OPENING_REVEAL_SECONDS : TMW_REVEAL_SECONDS}
-            onSkip={skipReveal}
-            skipping={busy}
+            startedAt={room.turnStartedAt}
+            totalSeconds={room.turnTotalSeconds ?? (briefing ? TMW_INTRO_SECONDS : TMW_REVEAL_SECONDS)}
           />
+          {/* THE MOMENT THIS SNAPSHOT ANNOUNCES -- never over the ceremony,
+              which has its own round card. */}
+          {!ceremonyOpen ? <EventMoment moment={room.moment} onDone={clearMoment} testId="tmw-moment" /> : null}
         </div>
       )}
     </div>
   );
-}
-
-/**
- * How far two conversions of the same live deadline may differ before the
- * newer one is worth applying, in milliseconds.
- *
- * Both are `performance.now() + seconds_remaining * 1000`, computed one poll
- * apart, so on a healthy connection they differ only by the round trip. Below
- * this the "correction" would move the displayed number by less than the tick
- * it is drawn at, while re-rendering every consumer of the deadline. Above it
- * something real happened — a new turn, a suspended tab, a slow request — and
- * the server's number wins.
- */
-const DEADLINE_DRIFT_MS = 750;
-
-function driftExceeded(current: number | null, next: number | null): boolean {
-  if (current === null || next === null) return current !== next;
-  return Math.abs(next - current) > DEADLINE_DRIFT_MS;
-}
-
-function describe(error: unknown, action: string): string {
-  if (error instanceof ArenaAPIError) {
-    return error.code === "network_error"
-      ? `Could not reach the server — ${action}.`
-      : error.detail;
-  }
-  return "Something went wrong.";
 }

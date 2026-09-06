@@ -340,11 +340,14 @@ are also used by the unrelated `GuidedTour.tsx`, so the shared CSS itself
 was never touched); `IdentityLockPanel.tsx` (added `pk-depth pk-crown` to
 its exclusive `.tmw-ledger` class).
 
-**Must not change:** the state machine (`loading` → `PHASE_INTRO` →
-`PHASE_REVEAL` per round → pick turn with stage-then-commit → timeout
+**Must not change:** the state machine (`loading` → `PHASE_INTRO` (a
+4.0s server-timed briefing, no client dismiss) → `PHASE_REVEAL` per round
+(3.0s, no skip) → pick turn with stage-then-commit → timeout
 `lastCall`/`expired` → `complete`), snake order reversal, the global
-identity lock, `PickOverlay`'s stage-then-commit pattern. All untouched
-by Batch 11 — visual-only.
+identity lock, `PickOverlay`'s stage-then-commit pattern. Game-feel
+reconstruction (2026-09-05, `docs/design/GAME_FEEL.md`) changed the
+briefing/reveal from click-dismissed to server-timed and routed every
+command through `useCommandLane`; those are the current contracts.
 
 - **Tests:** `three-man-weave-components.test.tsx`, `three-man-weave-state.test.ts`, `three-man-weave-v2-geometry.test.tsx` — all pre-existing, one assertion corrected (see Batch 11's PROGRESS.md section: `.btn-primary` classname check → `tagName === "BUTTON"`, the actual invariant its own test name describes).
 - **Polish category:** DONE. Narrow convergence — most of this route was already mature going in.

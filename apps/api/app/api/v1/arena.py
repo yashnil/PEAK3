@@ -359,6 +359,9 @@ async def _build_view(repo, mode, match: ArenaMatch, seat: Optional[ArenaSeat]):
     turn = await repo.get_open_turn(match.match_id)
     seconds_remaining = None
     turn_seconds_remaining = None
+    turn_seq = None
+    turn_elapsed_seconds = None
+    turn_total_seconds = None
     turn_phase = turn.phase if turn is not None else None
     if turn is not None:
         from app.repositories.arena_protocols import _utc
@@ -366,8 +369,21 @@ async def _build_view(repo, mode, match: ArenaMatch, seat: Optional[ArenaSeat]):
         # THE OPEN TURN'S CLOCK, FOR EVERY SEAT. See
         # `ArenaMatchView.turn_seconds_remaining` for why a turn deadline is
         # public and why this is not folded into `seconds_remaining`.
+        now = _now()
         turn_seconds_remaining = max(
-            0.0, (_utc(turn.deadline_at) - _now()).total_seconds()
+            0.0, (_utc(turn.deadline_at) - now).total_seconds()
+        )
+        # THE SAME CLOCK, AS A TIMELINE. `opened_at` is stored (it is what the
+        # bot driver enforces think time against), so every client derives
+        # "how far into this phase are we" from one server instant rather than
+        # from when its own fetch happened to land. See `ArenaMatchView`.
+        turn_seq = turn.turn_seq
+        turn_total_seconds = max(
+            0.0, (_utc(turn.deadline_at) - _utc(turn.opened_at)).total_seconds()
+        )
+        turn_elapsed_seconds = min(
+            turn_total_seconds,
+            max(0.0, (now - _utc(turn.opened_at)).total_seconds()),
         )
         if seat_index is not None and (
             turn.seat_index is None or turn.seat_index == seat_index
@@ -405,6 +421,9 @@ async def _build_view(repo, mode, match: ArenaMatch, seat: Optional[ArenaSeat]):
         seconds_remaining=seconds_remaining,
         turn_seconds_remaining=turn_seconds_remaining,
         turn_phase=turn_phase,
+        turn_seq=turn_seq,
+        turn_elapsed_seconds=turn_elapsed_seconds,
+        turn_total_seconds=turn_total_seconds,
         latest_event_seq=latest_seq,
         # The room code goes only to a seat holder, and only while the room is
         # still filling -- it is how they invite the second player. Once the

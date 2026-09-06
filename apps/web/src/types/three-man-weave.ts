@@ -64,6 +64,20 @@ export interface ArenaMatchView<TPublic = TmwPublicState, TPrivate = TmwPrivateS
    * seat and an opponent's wait is now a countdown like any other.
    */
   turn_seconds_remaining: number | null;
+  /**
+   * THE OPEN TURN'S IDENTITY AND TIMELINE, published to every seat.
+   *
+   * `turn_seq` keys a phase's presentation to one exact server turn (a
+   * reconnect resumes rather than replays); `turn_elapsed_seconds` and
+   * `turn_total_seconds` say how far into the phase the SERVER is at the
+   * instant of the response, so two clients that fetched at different
+   * moments derive the same stage of the same ceremony. Optional because an
+   * older API build does not send them; every reader falls back to
+   * `turn_seconds_remaining` and the mode's nominal constants.
+   */
+  turn_seq?: number | null;
+  turn_elapsed_seconds?: number | null;
+  turn_total_seconds?: number | null;
   latest_event_seq: number;
   room_code: string | null;
 }
@@ -149,74 +163,47 @@ export const TMW_COMMAND_REARRANGE = "tmw_rearrange";
  */
 export const TMW_COMMAND_STAGE_PICK = "tmw_stage_pick";
 /**
- * End the pre-match briefing early.
- *
- * A SERVER COMMAND, not a client dismiss -- the ceremony does not open until
- * the briefing turn closes, so hiding the dialog locally would leave the
- * client believing a game had started that the server had not yet begun.
- * This is the authoritative half of the fix for "a player who leaves
- * `GameIntro` open must never lose pick time to it, for any duration": every
- * match opens on this phase (`TMW_TURN_PHASE_INTRO`) and nothing else can
- * begin until it ends, by this command or by its own very long backstop
- * timeout (`INTRO_SECONDS` in `apps/api/app/services/three_man_weave/mode.py`
- * -- a "the tab was truly abandoned" backstop, not a reading-time budget).
- * Ends the briefing for the table, the same choice `TMW_COMMAND_SKIP_REVEAL`
- * already makes for the ceremony.
+ * FORMER commands, kept as names only. The briefing and the ceremony are
+ * short, server-timed phases every seat watches on the same clock; neither
+ * can be ended early by anyone, and the server refuses both of these with
+ * `shared_timeline`. No surface sends them.
  */
 export const TMW_COMMAND_SKIP_INTRO = "tmw_skip_intro";
-/**
- * End the round-opening ceremony early.
- *
- * A SERVER COMMAND, not a client dismiss, because the pick turn does not open
- * until the reveal turn closes — hiding the overlay locally would show a board
- * that still refuses every action. It ends the ceremony for the table (the roll
- * is one shared fact) and grants no extra decision time: the pick turn opens
- * with a full `TURN_SECONDS` measured from the moment it lands, exactly as the
- * ceremony's own expiry would.
- */
 export const TMW_COMMAND_SKIP_REVEAL = "tmw_skip_reveal";
+/** The server's refusal code for either of the above. */
+export const TMW_REJECT_SHARED_TIMELINE = "shared_timeline";
 
 /**
  * THE OPEN TURN'S PHASE, and the three values this mode publishes.
  *
- * `intro` is a REAL SERVER TURN and the phase EVERY match opens on: it
- * belongs to no seat, accepts no command but `TMW_COMMAND_SKIP_INTRO`, and
- * nothing else -- not the ceremony, not any pick turn -- can begin while it
- * is open, for however long that is. `reveal` is the franchise x decade
- * ceremony, likewise a real server turn belonging to no seat; the pick
- * window does not start until IT ends either. `pick` is the 45-second
- * decision window. Everything the room does with either seatless phase is
- * derived from this field, so a reload mid-briefing or mid-ceremony resumes
- * it from server state rather than restarting a client timer.
+ * `intro` is the pre-match briefing: a REAL, SHORT, SERVER-TIMED turn every
+ * match opens on. It belongs to no seat, accepts no command, and ends on its
+ * own deadline (`TMW_INTRO_SECONDS`) by opening round one's ceremony.
+ * `reveal` is the franchise x decade ceremony, likewise a real seatless
+ * server turn (`TMW_REVEAL_SECONDS`); the pick window does not start until
+ * it ends. `pick` is the 45-second decision window. Everything the room
+ * does with either seatless phase is derived from this field plus the
+ * turn's published timeline, so a reload mid-briefing or mid-ceremony
+ * resumes it from server state rather than restarting a client timer.
  */
 export const TMW_TURN_PHASE_INTRO = "intro";
 export const TMW_TURN_PHASE_REVEAL = "reveal";
 export const TMW_TURN_PHASE_PICK = "pick";
 
 /**
- * The reveal window's nominal length, mirroring `REVEAL_SECONDS` in
+ * The seatless phases' nominal lengths, mirroring `INTRO_SECONDS`,
+ * `REVEAL_SECONDS` and `OPENING_REVEAL_SECONDS` in
  * `apps/api/app/services/three_man_weave/mode.py`.
  *
- * USED ONLY AS THE DENOMINATOR for "how far into the ceremony are we", and only
- * when the server sent no duration at all. The instant the ceremony ends is
- * always the server's, never this number.
+ * USED ONLY AS DENOMINATORS for "how far into the phase are we", and only
+ * when the server sent no `turn_total_seconds`. The instant a phase ends is
+ * always the server's, never one of these numbers.
  */
-export const TMW_REVEAL_SECONDS = 4.6;
-
-/**
- * The opening ceremony's window, mirroring `OPENING_REVEAL_SECONDS`.
- *
- * Round one runs the matchup card before the reel, so it gets a longer
- * window -- but this is sized purely for THAT content (the matchup card plus
- * the reel), same as it always was. It briefly grew to 20.0s so the client's
- * SEPARATE pre-match briefing dialog (`GameIntro`) would not be cut off
- * underneath it; that only protected a normal-length read, not "the dialog
- * is left open arbitrarily long", which is the actual requirement. The real
- * fix is `TMW_TURN_PHASE_INTRO` -- a genuinely gating phase with no bound on
- * how long a player may sit on it -- so this constant went back to its
- * original, content-appropriate value once that existed.
- */
-export const TMW_OPENING_REVEAL_SECONDS = 9.2;
+export const TMW_INTRO_SECONDS = 4.0;
+export const TMW_REVEAL_SECONDS = 3.0;
+export const TMW_OPENING_REVEAL_SECONDS = TMW_REVEAL_SECONDS;
+/** The human decision window, mirroring `TURN_SECONDS`. A denominator only. */
+export const TMW_TURN_SECONDS = 45;
 
 export const TMW_STARTER_SLOTS = ["PG", "SG", "SF", "PF", "C"] as const;
 export const TMW_BENCH_SLOTS = ["bench_1"] as const;

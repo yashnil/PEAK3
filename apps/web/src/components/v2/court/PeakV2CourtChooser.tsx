@@ -26,6 +26,9 @@ import PeakV2DockedPanel from "../PeakV2DockedPanel";
 import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
 import PeakV2DisplayEmphasis from "../PeakV2DisplayEmphasis";
 import PeakV2SecondaryAction from "../PeakV2SecondaryAction";
+import { GameActionButton, RoundReveal } from "@/components/game-feel";
+import { usePrefersReducedMotion } from "@/lib/a11y";
+import { useEffect, useState } from "react";
 import SpinStage from "@/components/court/SpinStage";
 import EligiblePlayerSearch from "@/components/court/EligiblePlayerSearch";
 import type { CurrentSpin, SpinCandidate } from "@/types/perfect-season";
@@ -51,14 +54,21 @@ export interface PeakV2CourtChooserProps {
   candidates: SpinCandidate[] | null;
   onSelectCandidate: (playerSlug: string) => void;
   busy: boolean;
+  /** Which command the builder's lane holds, and which candidate row it is
+   *  about -- the row shows pending, the others stay disabled buttons. */
+  pendingKind?: string | null;
+  pendingSlug?: string | null;
+  /** Changes per new round (and per new game): the round card lands once
+   *  per key, over the reels, for the first beat only. */
+  roundKey?: string;
   respinPending: boolean;
 
   canRespinTeam: boolean;
   canRespinSeason: boolean;
   teamRespinsLeft: number;
   seasonRespinsLeft: number;
-  onRespinTeam: () => void;
-  onRespinSeason: () => void;
+  onRespinTeam: () => Promise<unknown> | void;
+  onRespinSeason: () => Promise<unknown> | void;
 
   difficulty: "easy" | "hard";
   hintUsed: boolean;
@@ -67,7 +77,7 @@ export interface PeakV2CourtChooserProps {
    *  `highlightSlug` marker — same identity legacy's search list marks,
    *  never a score (ADR-005 Decision 6 has none to leak). */
   hintSlug?: string | null;
-  onHint: () => void;
+  onHint: () => Promise<unknown> | void;
 }
 
 export default function PeakV2CourtChooser({
@@ -90,6 +100,9 @@ export default function PeakV2CourtChooser({
   candidates,
   onSelectCandidate,
   busy,
+  pendingKind = null,
+  pendingSlug = null,
+  roundKey,
   respinPending,
   canRespinTeam,
   canRespinSeason,
@@ -103,6 +116,20 @@ export default function PeakV2CourtChooser({
   hintSlug = null,
   onHint,
 }: PeakV2CourtChooserProps) {
+  // ROUND START: the round identifier lands over the reels for one short
+  // beat (Level 2), then the spin -- which has ALREADY started underneath --
+  // takes over. Adds no time to the ceremony: the reels' own clock is
+  // untouched. Under reduced motion the card is skipped entirely.
+  const reduced = usePrefersReducedMotion();
+  const [roundCardFor, setRoundCardFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (!roundKey || reduced || !open) return;
+    setRoundCardFor(roundKey);
+    const id = window.setTimeout(() => setRoundCardFor(null), 620);
+    return () => window.clearTimeout(id);
+  }, [roundKey, reduced, open]);
+  const roundCardOpen = roundCardFor !== null && roundCardFor === roundKey;
+
   return (
     <PeakV2DockedPanel
       open={open}
@@ -222,9 +249,18 @@ export default function PeakV2CourtChooser({
               of the list's height for a single button. */}
           <div className="flex flex-wrap items-center gap-2">
             {difficulty === "easy" && !collapsed && ceremonyRevealed ? (
-              <PeakV2SecondaryAction data-testid="hint-btn" size="sm" className="whitespace-nowrap" onClick={onHint} disabled={busy || respinPending || hintUsed}>
+              <GameActionButton
+                variant="secondary"
+                data-testid="hint-btn"
+                size="sm"
+                className="whitespace-nowrap"
+                onAction={onHint}
+                pending={pendingKind === "hint"}
+                pendingLabel="Asking PEAK3…"
+                disabled={busy || respinPending || hintUsed}
+              >
                 {hintUsed ? "Hint used" : "Give me a suggestion"}
-              </PeakV2SecondaryAction>
+              </GameActionButton>
             ) : null}
             <PeakV2SecondaryAction data-testid="minimize-overlay-btn" size="sm" className="whitespace-nowrap" onClick={onClose}>
               View court
@@ -232,7 +268,15 @@ export default function PeakV2CourtChooser({
           </div>
         </div>
 
-        <div className="mt-4">
+        <div className="relative mt-4" data-testid="spin-stage-frame">
+          <RoundReveal
+            open={roundCardOpen}
+            eyebrow="82-0 PEAK Season"
+            title={`Round ${roundNumber}`}
+            detail={`of ${totalRounds} · a real team-season is being drawn`}
+            testId="court-round-reveal"
+            className="court-round-reveal"
+          />
           <SpinStage
             key={roundNumber}
             spin={spin}
@@ -249,16 +293,16 @@ export default function PeakV2CourtChooser({
             collapsed={collapsed}
             teamAction={
               !collapsed && ceremonyRevealed && spin.spin_type === "team_year" ? (
-                <PeakV2SecondaryAction data-testid="respin-team-btn" size="sm" className="whitespace-nowrap" disabled={busy || !canRespinTeam} onClick={onRespinTeam}>
+                <GameActionButton variant="secondary" data-testid="respin-team-btn" size="sm" className="whitespace-nowrap" disabled={busy || !canRespinTeam} pending={pendingKind === "respin_team"} pendingLabel="Respinning…" onAction={onRespinTeam}>
                   Respin team ({teamRespinsLeft} left)
-                </PeakV2SecondaryAction>
+                </GameActionButton>
               ) : null
             }
             seasonAction={
               !collapsed && ceremonyRevealed && spin.spin_type === "team_year" ? (
-                <PeakV2SecondaryAction data-testid="respin-season-btn" size="sm" className="whitespace-nowrap" disabled={busy || !canRespinSeason} onClick={onRespinSeason}>
+                <GameActionButton variant="secondary" data-testid="respin-season-btn" size="sm" className="whitespace-nowrap" disabled={busy || !canRespinSeason} pending={pendingKind === "respin_season"} pendingLabel="Respinning…" onAction={onRespinSeason}>
                   Respin season ({seasonRespinsLeft} left)
-                </PeakV2SecondaryAction>
+                </GameActionButton>
               ) : null
             }
           />
@@ -296,7 +340,7 @@ export default function PeakV2CourtChooser({
               </p>
             ) : null}
             <div>
-              <EligiblePlayerSearch candidates={candidates} onSelect={onSelectCandidate} disabled={busy || respinPending} highlightSlug={hintSlug} />
+              <EligiblePlayerSearch candidates={candidates} onSelect={onSelectCandidate} disabled={busy || respinPending} pendingSlug={pendingSlug} highlightSlug={hintSlug} />
             </div>
           </div>
         ) : null}

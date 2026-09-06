@@ -60,7 +60,7 @@ import PeakV2CinematicStage from "../PeakV2CinematicStage";
 import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
 import PeakV2Rule from "../PeakV2Rule";
 import PeakV2Score from "../PeakV2Score";
-import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
+import { GameActionButton, ScoreTransition } from "@/components/game-feel";
 import PeakV2SecondaryAction from "../PeakV2SecondaryAction";
 import type { V2Tone } from "../v2-tone";
 import Celebration from "@/components/shared/Celebration";
@@ -183,6 +183,8 @@ export default function PeakV2TMWResult({
   yourSeatIndex,
   seed = "",
   onPlayAgain,
+  playAgainPending = false,
+  multiplayer = false,
 }: {
   results: ArenaResultView[];
   rosters: TmwRoster[];
@@ -190,7 +192,13 @@ export default function PeakV2TMWResult({
   /** Match id. Keys the response bank so repeat plays vary and a reload of
    *  the SAME result says the same thing — see `resultLine()`. */
   seed?: string;
-  onPlayAgain: () => void;
+  /** Starts another game. A promise so the button can hold its pending
+   *  state for exactly as long as the new match takes to create. */
+  onPlayAgain: () => Promise<boolean> | void;
+  playAgainPending?: boolean;
+  /** A multiplayer table: Play Again returns to the rematch-ready lobby
+   *  rather than creating a bot match, and says so. */
+  multiplayer?: boolean;
 }) {
   const rows = podium(results);
   const unrankableReason =
@@ -287,7 +295,7 @@ export default function PeakV2TMWResult({
           {yours && yours.score.kind === "scored" ? (
             <div className="mt-5" data-testid="tmw-your-score">
               <PeakV2Score
-                value={yours.score.value.toFixed(1)}
+                value={<ScoreTransition value={yours.score.value} from={0} durationMs={1100} format={(n) => n.toFixed(1)} testId="tmw-hero-score-value" />}
                 label={`Your ${RANKING_BASIS_LABEL}`}
                 tone="accent"
                 role="moment"
@@ -298,7 +306,7 @@ export default function PeakV2TMWResult({
           ) : winner && winner.score.kind === "scored" ? (
             <div className="mt-5" data-testid="tmw-winner-score" data-winner-is-you={winnerIsYou}>
               <PeakV2Score
-                value={winner.score.value.toFixed(1)}
+                value={<ScoreTransition value={winner.score.value} from={0} durationMs={1100} format={(n) => n.toFixed(1)} testId="tmw-hero-score-value" />}
                 label={winnerScoreLabel}
                 tone="accent"
                 role="moment"
@@ -386,10 +394,22 @@ export default function PeakV2TMWResult({
 
         <PeakV2Rule spacing="lg" />
 
+        {/* PLAY AGAIN IS ANOTHER GAME. Against bots it creates the next match
+            and enters it directly -- intro, first roll, first pick -- rather
+            than returning to the mode's landing page; that page is one
+            explicit click away instead. */}
         <div className="flex flex-wrap items-center gap-3">
-          <PeakV2PrimaryAction onClick={onPlayAgain} data-testid="tmw-play-again">
-            Play again
-          </PeakV2PrimaryAction>
+          <GameActionButton
+            onAction={onPlayAgain}
+            pending={playAgainPending}
+            pendingLabel={multiplayer ? "Opening the lobby…" : "Dealing a new draft…"}
+            data-testid="tmw-play-again"
+          >
+            {multiplayer ? "Play again · rematch lobby" : "Play again"}
+          </GameActionButton>
+          <PeakV2SecondaryAction href="/arena/three-man-weave" data-testid="tmw-back-to-mode">
+            Back to Three-Man Weave
+          </PeakV2SecondaryAction>
           <PeakV2SecondaryAction href="/arena" data-testid="tmw-back-to-arena">
             Back to Arena
           </PeakV2SecondaryAction>

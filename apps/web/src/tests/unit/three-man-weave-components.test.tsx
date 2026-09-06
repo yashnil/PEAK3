@@ -23,7 +23,6 @@ import PeakV2TMWResult from "@/components/v2/tmw/PeakV2TMWResult";
 import PickOverlay from "@/components/three-man-weave/PickOverlay";
 import IdentityLockPanel from "@/components/three-man-weave/IdentityLockPanel";
 import TurnStatus from "@/components/three-man-weave/TurnStatus";
-import WeaveSpinner from "@/components/three-man-weave/WeaveSpinner";
 import ThreeManWeaveGame from "@/components/three-man-weave/ThreeManWeaveGame";
 import type { TmwCandidate } from "@/lib/three-man-weave-state";
 import type {
@@ -449,172 +448,99 @@ describe("the ceremony is the server's reveal phase, and nothing else", () => {
 });
 
 // ---------------------------------------------------------------------------
-// THE PRE-MATCH BRIEFING DISMISSAL, PRODUCTION REGRESSION
+// THE PRE-MATCH BRIEFING IS A SERVER-TIMED PHASE (game-feel reconstruction)
 //
-// A fresh match opens on `PHASE_INTRO` (`turn_phase: "intro"`), and
-// `GameIntro` is the ONLY thing that can end it before its own 1800-second
-// backstop -- see `three_man_weave/mode.py::PHASE_INTRO`. `dismissIntro` used
-// to mark the briefing "seen" in localStorage and close the dialog the
-// instant a button was pressed, before the server had answered at all. If
-// that `tmw_skip_intro` command was then rejected or its response dropped,
-// the dialog -- gone for this match id, forever, even across a reload -- was
-// the only door out of a match that was, from the server's point of view,
-// still sitting on the briefing: no ceremony, no pick turn, no legal command
-// anywhere, "Rolling the next franchise and decade" / "Standing by" with the
-// franchise and decade already visible (round one's roll is drawn at match
-// creation). This is the exact defect reported from manual testing.
+// It used to be a client dialog whose "Enter the draft room" button sent
+// `tmw_skip_intro` and ended the phase for the whole table on ONE player's
+// click. It is now a short, seatless server turn (`turn_phase: "intro"`)
+// that every seat renders against the same published timeline and that
+// nobody can end early. No dialog, no button, no localStorage, no command.
 // ---------------------------------------------------------------------------
 
-describe("the pre-match briefing never becomes a dead end", () => {
+describe("the pre-match briefing is the server's intro phase, and nobody can skip it", () => {
   beforeEach(() => {
     mockMatchMedia(false);
     getMatch.mockReset();
     getMatchResults.mockReset();
     submitCommand.mockReset();
-    getMatch.mockImplementation(async () => introView());
     getMatchResults.mockResolvedValue({ results: [] });
-    window.localStorage.clear();
   });
 
   function introView(overrides: Partial<TmwMatchView> = {}): TmwMatchView {
     return matchView({
       turn_phase: TMW_TURN_PHASE_INTRO,
       current_turn_seat_index: null,
-      seconds_remaining: null,
-      turn_seconds_remaining: 1800,
+      seconds_remaining: 4,
+      turn_seconds_remaining: 4,
+      turn_elapsed_seconds: 0,
+      turn_total_seconds: 4,
+      turn_seq: 0,
       legal_commands: [],
       ...overrides,
     });
   }
 
-  it("keeps the briefing open and offers a retry when the dismiss command is rejected, instead of vanishing", async () => {
-    const matchId = "m-intro-rejected";
-    // THE SERVER'S ANSWER SAYS NOTHING MOVED: still `intro`, exactly the
-    // shape a stale `expected_state_version` or a genuine `not_your_turn`
-    // rejection would carry.
-    submitCommand.mockResolvedValueOnce({
-      accepted: false,
-      replayed: false,
-      rejection_code: "not_your_turn",
-      message: "There is no briefing to skip.",
-      match: introView({ match_id: matchId, state_version: 1 }),
-    });
+  it("renders the briefing from the server phase, with no way to dismiss it and no command sent", () => {
+    getMatch.mockImplementation(async () => introView());
+    render(<ThreeManWeaveGame initialMatch={introView()} />);
 
-    render(<ThreeManWeaveGame initialMatch={introView({ match_id: matchId })} />);
-    expect(screen.getByTestId("tmw-game-intro")).toBeInTheDocument();
-
-    await userEvent.click(screen.getByTestId("game-intro-start"));
-    await waitFor(() => expect(submitCommand).toHaveBeenCalledTimes(1));
-
-    // THE DOOR IS STILL THERE. A rejected command must not have thrown away
-    // the only way to leave `PHASE_INTRO`.
-    await waitFor(() =>
-      expect(screen.getByTestId("tmw-game-intro")).toBeInTheDocument(),
-    );
-    expect(screen.getByTestId("tmw-rejection")).toHaveTextContent(
-      "There is no briefing to skip.",
-    );
-    // Never marked "seen" -- a reload of this browser must still show the
-    // briefing rather than silently skipping straight to a stuck room.
-    expect(
-      window.localStorage.getItem(`peak3.tmw.intro-seen.${matchId}`),
-    ).toBeNull();
-    // And still genuinely stuck server-side: no ceremony, no pick surface.
-    expect(screen.queryByTestId("tmw-ceremony-scrim")).toBeNull();
+    expect(screen.getByTestId("tmw-room")).toHaveAttribute("data-turn-phase", "intro");
+    expect(screen.getByTestId("tmw-ceremony-scrim")).toHaveAttribute("data-phase", "intro");
+    expect(screen.getByTestId("tmw-intro")).toBeVisible();
+    // The seats are named, the viewer is marked.
+    expect(screen.getByTestId("tmw-intro-seats")).toHaveTextContent("You");
+    // NO DOOR, NO SKIP. Nothing on this surface ends the phase.
+    expect(screen.queryByTestId("game-intro-start")).toBeNull();
+    expect(screen.queryByTestId("game-intro-skip")).toBeNull();
+    expect(screen.queryByRole("button", { name: /skip|enter|draft now/i })).toBeNull();
+    expect(submitCommand).not.toHaveBeenCalled();
+    // And the decision surface is shut.
     expect(screen.queryByTestId("tmw-pick-overlay")).toBeNull();
-
-    // A SECOND PRESS -- the real recovery path -- now succeeds, and the
-    // briefing closes onto the ceremony it gates.
-    submitCommand.mockResolvedValueOnce({
-      accepted: true,
-      replayed: false,
-      rejection_code: null,
-      message: null,
-      match: matchView({
-        match_id: matchId,
-        turn_phase: TMW_TURN_PHASE_REVEAL,
-        current_turn_seat_index: null,
-        state_version: 2,
-      }),
-    });
-    await userEvent.click(screen.getByTestId("game-intro-start"));
-    await waitFor(() =>
-      expect(screen.queryByTestId("tmw-game-intro")).toBeNull(),
-    );
-    expect(
-      window.localStorage.getItem(`peak3.tmw.intro-seen.${matchId}`),
-    ).toBe("1");
-    expect(screen.getByTestId("tmw-ceremony-scrim")).toBeInTheDocument();
   });
 
-  it("closes the briefing on a rejection whose OWN response already shows the phase moved on", async () => {
-    // A rejection is not always a failure to progress: another seat's
-    // dismiss (or a replay of an earlier attempt that actually landed) can
-    // resolve the race first, and the response the server sends back with
-    // this rejection already carries the true, moved-on phase. The dialog
-    // must close on THAT evidence, not only on `accepted`.
-    const matchId = "m-intro-already-moved";
-    submitCommand.mockResolvedValueOnce({
-      accepted: false,
-      replayed: false,
-      rejection_code: "not_your_turn",
-      message: "There is no briefing to skip.",
-      match: matchView({
-        match_id: matchId,
-        turn_phase: TMW_TURN_PHASE_REVEAL,
-        current_turn_seat_index: null,
-        state_version: 5,
-      }),
-    });
+  it("moves from the briefing to the ceremony when the SERVER's phase does, via the poll", async () => {
+    vi.useFakeTimers();
+    try {
+      let phase: "intro" | "reveal" = "intro";
+      getMatch.mockImplementation(async () =>
+        phase === "intro"
+          ? introView()
+          : ceremonyView({
+              state_version: 5,
+              turn_seq: 1,
+              turn_elapsed_seconds: 0.1,
+              turn_total_seconds: TMW_REVEAL_SECONDS,
+              turn_seconds_remaining: TMW_REVEAL_SECONDS - 0.1,
+            }),
+      );
+      render(<ThreeManWeaveGame initialMatch={introView()} />);
+      expect(screen.getByTestId("tmw-ceremony-scrim")).toHaveAttribute("data-phase", "intro");
 
-    render(<ThreeManWeaveGame initialMatch={introView({ match_id: matchId })} />);
-    await userEvent.click(screen.getByTestId("game-intro-start"));
-
-    await waitFor(() =>
-      expect(screen.queryByTestId("tmw-game-intro")).toBeNull(),
-    );
-    expect(
-      window.localStorage.getItem(`peak3.tmw.intro-seen.${matchId}`),
-    ).toBe("1");
-    expect(screen.getByTestId("tmw-ceremony-scrim")).toBeInTheDocument();
+      phase = "reveal";
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(450);
+      });
+      expect(screen.getByTestId("tmw-room")).toHaveAttribute("data-turn-phase", "reveal");
+      expect(screen.getByTestId("tmw-ceremony-scrim")).toHaveAttribute("data-phase", "reveal");
+      expect(screen.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "false");
+      expect(submitCommand).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("survives a dropped request (thrown network error) without losing the door, and recovers on retry", async () => {
-    const matchId = "m-intro-network-error";
-    submitCommand.mockRejectedValueOnce(new Error("network error"));
-
-    render(<ThreeManWeaveGame initialMatch={introView({ match_id: matchId })} />);
-    await userEvent.click(screen.getByTestId("game-intro-start"));
-    await waitFor(() => expect(submitCommand).toHaveBeenCalledTimes(1));
-
-    expect(screen.getByTestId("tmw-game-intro")).toBeInTheDocument();
-    expect(
-      window.localStorage.getItem(`peak3.tmw.intro-seen.${matchId}`),
-    ).toBeNull();
-
-    submitCommand.mockResolvedValueOnce({
-      accepted: true,
-      replayed: false,
-      rejection_code: null,
-      message: null,
-      match: matchView({
-        match_id: matchId,
-        turn_phase: TMW_TURN_PHASE_REVEAL,
-        current_turn_seat_index: null,
-        state_version: 2,
-      }),
-    });
-    await userEvent.click(screen.getByTestId("game-intro-start"));
-    await waitFor(() =>
-      expect(screen.queryByTestId("tmw-game-intro")).toBeNull(),
+  it("a client that reconnects mid-briefing lands mid-briefing, not at its start", () => {
+    getMatch.mockImplementation(async () => introView());
+    render(
+      <ThreeManWeaveGame
+        initialMatch={introView({ turn_elapsed_seconds: 3.5, turn_seconds_remaining: 0.5, seconds_remaining: 0.5 })}
+      />,
     );
-    expect(screen.getByTestId("tmw-ceremony-scrim")).toBeInTheDocument();
+    // Still the briefing -- the server says so -- and nothing was sent.
+    expect(screen.getByTestId("tmw-ceremony-scrim")).toHaveAttribute("data-phase", "intro");
+    expect(submitCommand).not.toHaveBeenCalled();
   });
 });
-
-// ---------------------------------------------------------------------------
-// The three-team board
-// ---------------------------------------------------------------------------
 
 describe("RosterBoard", () => {
   it("renders all three teams at once, not one at a time", () => {
@@ -1570,6 +1496,9 @@ describe("PeakV2TMWResult — score ownership and a single ordinal", () => {
   function renderV2Result(
     overrides: Partial<React.ComponentProps<typeof PeakV2TMWResult>> = {},
   ) {
+    // The hero score counts up (a Level-3 reveal); reduced motion shows the
+    // settled value so these assertions read the number, not the tween.
+    mockMatchMedia(true);
     render(
       <PeakV2TMWResult
         results={[result()]}
@@ -1649,274 +1578,91 @@ describe("PeakV2TMWResult — score ownership and a single ordinal", () => {
 // Chrome
 // ---------------------------------------------------------------------------
 
-describe("WeaveSpinner", () => {
-  beforeEach(() => {
-    mockMatchMedia(false);
-  });
-
-  it("carries the server's answer from the first frame", () => {
-    render(
-      <WeaveSpinner
-        roll={ROLL}
-        roundNumber={1}
-        totalRounds={6}
-        revealSeconds={TMW_REVEAL_SECONDS}
-      />,
-    );
-    // The reel cannot resolve to anything else: the value is decided before
-    // the animation starts and is exposed as data from t=0.
-    expect(screen.getByTestId("tmw-roll-franchise")).toHaveAttribute(
-      "data-final-value",
-      "Toronto Raptors",
-    );
-    expect(screen.getByTestId("tmw-roll-decade")).toHaveAttribute(
-      "data-final-value",
-      "2010s",
-    );
-  });
-
-  it("renders nothing at all when the room has closed it", () => {
-    // The room closes it whenever the server's turn phase is not `reveal`, so
-    // "closed" has to mean absent, not hidden.
-    const { container } = render(
-      <WeaveSpinner
-        open={false}
-        roll={ROLL}
-        roundNumber={1}
-        totalRounds={6}
-        revealSeconds={TMW_REVEAL_SECONDS}
-      />,
-    );
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it("opens round one on the matchup: the three competitors and the objective", () => {
-    render(
-      <WeaveSpinner
-        roll={ROLL}
-        roundNumber={1}
-        totalRounds={6}
-        seats={SEATS}
-        yourSeatIndex={0}
-        showIntro
-        revealSeconds={TMW_REVEAL_SECONDS}
-      />,
-    );
-    expect(screen.getByTestId("tmw-intro")).toBeInTheDocument();
-    expect(screen.getByTestId("tmw-intro-seat-0")).toHaveAttribute("data-is-you", "true");
-    expect(screen.getByTestId("tmw-intro-seat-1")).toHaveTextContent("Floor General");
-    expect(screen.getByTestId("tmw-intro-objective")).toHaveTextContent(
-      /6 franchise × decade rounds/i,
-    );
-  });
-
-  it("says it is rolling when there is no roll yet", () => {
-    render(
-      <WeaveSpinner
-        roll={null}
-        roundNumber={null}
-        totalRounds={6}
-        revealSeconds={TMW_REVEAL_SECONDS}
-      />,
-    );
-    expect(screen.getByTestId("tmw-roll-rolling")).toBeInTheDocument();
-  });
-
-  it("fits its whole sequence inside the server's window", () => {
-    // THE CEREMONY'S LENGTH IS NOT THIS COMPONENT'S TO CHOOSE any more. Every
-    // stage boundary is a fraction of the window the server published, so the
-    // reel cannot still be spinning when the phase ends -- which is what would
-    // put a live pick panel on top of a moving wheel.
-    vi.useFakeTimers();
-    try {
-      render(
-        <WeaveSpinner
-          roll={ROLL}
-          roundNumber={1}
-          totalRounds={6}
-          revealSeconds={TMW_REVEAL_SECONDS}
-        />,
-      );
-      expect(screen.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "false");
-      // One millisecond before the window closes it has resolved...
-      act(() => {
-        vi.advanceTimersByTime(TMW_REVEAL_SECONDS * 1000 - 1);
-      });
-      expect(screen.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "true");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("holds the matchup card long enough to read it", () => {
-    // D1. The intro used to be a 30% share of a 3.2s window — under a second
-    // for three seat names and an objective. It gets `INTRO_SHARE` (half) of
-    // `TMW_OPENING_REVEAL_SECONDS` (9.2s -> 4.6s here), and none of it comes
-    // out of anybody's decision clock: the reveal is its own server turn and
-    // the pick turn opens afterwards with a full one.
-    //
-    // gameplay-experience-polish (final verification pass): an earlier
-    // version of this pass lengthened the opening window to 20.0s so a
-    // player reading the pre-match briefing (`GameIntro`) would not be cut
-    // off underneath it. A compliance review correctly rejected that -- it
-    // only protected a normal-length read, not "the dialog is left open
-    // arbitrarily long" -- so the real fix is `PHASE_INTRO`, a genuinely
-    // gating server phase with no bound on how long a player may sit on it
-    // (see `apps/api/app/services/three_man_weave/mode.py`). Once that
-    // phase exists, `OPENING_REVEAL_SECONDS` has no more reading-time
-    // obligation and is restored to its original, content-appropriate
-    // value, and so is this test's own checkpoints.
-    vi.useFakeTimers();
-    try {
-      render(
-        <WeaveSpinner
-          roll={ROLL}
-          roundNumber={1}
-          totalRounds={6}
-          seats={SEATS}
-          yourSeatIndex={0}
-          showIntro
-          revealSeconds={TMW_OPENING_REVEAL_SECONDS}
-        />,
-      );
-      expect(screen.getByTestId("tmw-intro")).toBeInTheDocument();
-      // Four seconds in it is STILL readable.
-      act(() => {
-        vi.advanceTimersByTime(4000);
-      });
-      expect(screen.getByTestId("tmw-intro")).toBeInTheDocument();
-      // ...and then it hands over to the reel rather than outstaying it.
-      act(() => {
-        vi.advanceTimersByTime(1000);
-      });
-      expect(screen.queryByTestId("tmw-intro")).toBeNull();
-      expect(screen.getByTestId("tmw-roll-franchise")).toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("holds the resolved roll long enough to perceive it", () => {
-    // D2. The settled franchise × decade is the one fact the round is played
-    // against, and it used to hold for the last 22% of a 3.2s window — about
-    // 0.7s, which read as a flash. It now takes the majority of a 4.6s window.
-    vi.useFakeTimers();
-    try {
-      render(
-        <WeaveSpinner
-          roll={ROLL}
-          roundNumber={2}
-          totalRounds={6}
-          revealSeconds={TMW_REVEAL_SECONDS}
-        />,
-      );
-      const section = screen.getByTestId("tmw-roll");
-      const windowMs = TMW_REVEAL_SECONDS * 1000;
-      // Walk the window and find the instant the pair actually settles, rather
-      // than asserting against a fraction this test would have to restate.
-      let resolvedAt: number | null = null;
-      for (let t = 0; t <= windowMs; t += 50) {
-        if (section.getAttribute("data-revealed") === "true") {
-          resolvedAt = t;
-          break;
-        }
-        act(() => {
-          vi.advanceTimersByTime(50);
-        });
-      }
-      expect(resolvedAt, "the roll never resolved inside the server's window").not.toBeNull();
-      expect(
-        windowMs - resolvedAt!,
-        "the resolved franchise × decade is on screen for less than 2.5s",
-      ).toBeGreaterThanOrEqual(2500);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("offers a way out of the ceremony, labelled for the moment it is in", async () => {
-    const onSkip = vi.fn();
-    vi.useFakeTimers();
-    try {
-      render(
-        <WeaveSpinner
-          roll={ROLL}
-          roundNumber={1}
-          totalRounds={6}
-          seats={SEATS}
-          yourSeatIndex={0}
-          showIntro
-          revealSeconds={TMW_OPENING_REVEAL_SECONDS}
-          onSkip={onSkip}
-        />,
-      );
-      const skip = screen.getByTestId("tmw-ceremony-skip");
-      expect(skip).toHaveTextContent("Skip intro");
-      act(() => {
-        vi.advanceTimersByTime(TMW_OPENING_REVEAL_SECONDS * 1000);
-      });
-      // Once the roll has landed the same control starts the draft.
-      expect(screen.getByTestId("tmw-ceremony-skip")).toHaveTextContent("Draft now");
-    } finally {
-      vi.useRealTimers();
-    }
-    await userEvent.click(screen.getByTestId("tmw-ceremony-skip"));
-    expect(onSkip).toHaveBeenCalled();
-  });
-
-  it("renders no skip control for a seat that cannot command the match", () => {
-    render(
-      <WeaveSpinner
-        roll={ROLL}
-        roundNumber={1}
-        totalRounds={6}
-        revealSeconds={TMW_REVEAL_SECONDS}
-      />,
-    );
-    expect(screen.queryByTestId("tmw-ceremony-skip")).toBeNull();
-  });
-
-  it("keeps the SAME beat under prefers-reduced-motion, and drops only the movement", () => {
-    // REDUCED MOTION IS NOT A SHORTER CEREMONY. The pair still has to be READ,
-    // and the phase is the server's either way -- cutting the hold would give a
-    // reduced-motion player less time to take in the same information. So the
-    // schedule is identical and only the travel is removed: the reels show
-    // their value instead of spinning to it.
-    vi.useFakeTimers();
+describe("PeakV2TMWResult — score ownership and a single ordinal", () => {
+  function renderV2Result(
+    overrides: Partial<React.ComponentProps<typeof PeakV2TMWResult>> = {},
+  ) {
+    // The hero score counts up (a Level-3 reveal); reduced motion shows the
+    // settled value so these assertions read the number, not the tween.
     mockMatchMedia(true);
-    try {
-      render(
-        <WeaveSpinner
-          roll={ROLL}
-          roundNumber={1}
-          totalRounds={6}
-          revealSeconds={TMW_REVEAL_SECONDS}
-        />,
-      );
-      const section = screen.getByTestId("tmw-roll");
-      expect(section).toHaveAttribute("data-reduced-motion", "true");
-      // No strip to travel -- the answer is simply there.
-      expect(screen.getByTestId("tmw-roll-franchise")).toHaveAttribute(
-        "data-stage",
-        "reduced",
-      );
-      expect(screen.getByTestId("tmw-roll-franchise")).toHaveTextContent(
-        "Toronto Raptors",
-      );
-      // ...and the beat is NOT collapsed: a second in, it has not resolved.
-      act(() => {
-        vi.advanceTimersByTime(1000);
-      });
-      expect(section).toHaveAttribute("data-revealed", "false");
-      act(() => {
-        vi.advanceTimersByTime(TMW_REVEAL_SECONDS * 1000);
-      });
-      expect(section).toHaveAttribute("data-revealed", "true");
-    } finally {
-      vi.useRealTimers();
-    }
+    render(
+      <PeakV2TMWResult
+        results={[result()]}
+        rosters={[roster(0, { SF: pick() })]}
+        yourSeatIndex={0}
+        seed="m-1"
+        onPlayAgain={vi.fn()}
+        {...overrides}
+      />,
+    );
+  }
+
+  it("the hero score is the VIEWER'S own, labelled as theirs, when they won", () => {
+    renderV2Result();
+    const heroScore = screen.getByTestId("tmw-your-score");
+    expect(heroScore).toHaveTextContent(/Your PEAK3 lineup score/i);
+    expect(heroScore).toHaveTextContent("72.4");
+  });
+
+  it("the hero score is STILL the viewer's own when they did not win — never the winner's", () => {
+    // The rule this replaces: the hero used to print the WINNER's number
+    // directly beneath the viewer's own placement, so a player who came
+    // second read "2nd" and then 91.0 — a number belonging to somebody
+    // else. An earlier fix disambiguated it by naming the seat; the
+    // product-UX-recovery pass changed WHICH number the hero shows, because
+    // the one a player wants from their own result is their own. The
+    // winner's score is still on screen, in the standings, where it is
+    // comparable instead of confusable.
+    const results = [
+      result({ seat_index: 0, display_name: "You", placement: 2, score: 70.5, outcome: "loss" }),
+      result({
+        seat_index: 1,
+        display_name: "Floor General",
+        placement: 1,
+        score: 91.0,
+        outcome: "win",
+        detail: { ...result().detail, lineup_score: 91.0 },
+      }),
+    ];
+    renderV2Result({
+      results,
+      rosters: [roster(0, { SF: pick() }), roster(1)],
+    });
+
+    const heroScore = screen.getByTestId("tmw-your-score");
+    expect(heroScore).toHaveTextContent(/Your PEAK3 lineup score/i);
+    expect(heroScore).toHaveTextContent("70.5");
+    // The winner's number must NOT be the hero number.
+    expect(heroScore).not.toHaveTextContent("91.0");
+    // Nothing is lost: both seats' real scores are still on the page.
+    expect(screen.getByTestId("tmw-result-0")).toHaveTextContent("70.5");
+    expect(screen.getByTestId("tmw-result-1")).toHaveTextContent("91.0");
+  });
+
+  it("renders the placement ordinal exactly ONCE, never a numeral beside its own ordinal", () => {
+    // design-review/16 rendered a mono "3" immediately left of the display
+    // "3rd", and design-review/17 rendered "1  1st · The Closer".
+    const results = [
+      result({ seat_index: 0, display_name: "You", placement: 3, score: 55.3, outcome: "loss" }),
+      result({ seat_index: 1, display_name: "The Closer", placement: 1, score: 64.3, outcome: "win" }),
+    ];
+    renderV2Result({ results, rosters: [roster(0, { SF: pick() }), roster(1)] });
+
+    const hero = screen.getByTestId("tmw-your-placement");
+    expect(hero).toHaveTextContent("3rd");
+    // The bare numeral is gone: the hero's whole text is the ordinal.
+    expect(hero.textContent?.trim()).toBe("3rd");
+
+    // Same rule in the per-seat roster header.
+    const winnerBlock = screen.getByTestId("tmw-result-1");
+    expect(winnerBlock).toHaveTextContent("1st · The Closer");
+    expect(winnerBlock.textContent).not.toMatch(/(^|[^\d])1\s+1st/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Chrome
+// ---------------------------------------------------------------------------
 
 describe("IdentityLockPanel", () => {
   function entries(count: number) {

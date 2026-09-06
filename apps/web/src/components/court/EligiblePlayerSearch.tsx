@@ -14,6 +14,11 @@ interface Props {
    * this component: an outline/badge is all this ever adds, never a score,
    * a rank, or any comparison of the OTHER candidates. */
   highlightSlug?: string | null;
+  /** The candidate whose selection request is in flight: that ROW shows
+   *  pressed-and-pending ("Choosing…") the instant it is clicked, while the
+   *  rest are merely disabled. Game-feel reconstruction: a click is always
+   *  acknowledged by the thing that was clicked. */
+  pendingSlug?: string | null;
 }
 
 /**
@@ -46,7 +51,7 @@ interface Props {
  * tech. Plain buttons + native Tab order match the convention already used
  * by the existing Peak Draft offer cards (components/draft/DraftCard.tsx).
  */
-export default function EligiblePlayerSearch({ candidates, onSelect, disabled, highlightSlug }: Props) {
+export default function EligiblePlayerSearch({ candidates, onSelect, disabled, highlightSlug, pendingSlug = null }: Props) {
   const [query, setQuery] = useState("");
 
   const filtered = candidates.filter((c) =>
@@ -102,6 +107,7 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled, h
           // decision actually turns on.
           const teamAccent = getTeamColors(c.team_name).primary;
           const isHinted = !!highlightSlug && c.player_slug === highlightSlug;
+          const isPending = !!pendingSlug && c.player_slug === pendingSlug;
           return (
             <button
               key={c.player_slug}
@@ -121,6 +127,8 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled, h
               data-score-source={c.score_source ?? undefined}
               data-identity-pool-status={c.identity_pool_status ?? undefined}
               data-hinted={isHinted || undefined}
+              data-state={isPending ? "pending" : undefined}
+              aria-busy={isPending || undefined}
               disabled={disabled}
               onClick={() => onSelect(c.player_slug)}
               className="candidate-row-v3"
@@ -136,6 +144,11 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled, h
                 borderBottom: isHinted ? "1px solid var(--peak-accent, #f5c842)" : "1px solid var(--border-default)",
                 borderLeft: `3px solid color-mix(in srgb, ${teamAccent} 55%, transparent)`,
                 color: "var(--text-primary)",
+                // THE PRESSED ROW STAYS LIT while its request is in flight;
+                // `disabled` dims the others, not the one that was chosen.
+                opacity: isPending ? 1 : undefined,
+                outline: isPending ? "2px solid var(--peak-accent, #f5c842)" : undefined,
+                outlineOffset: isPending ? 1 : undefined,
               }}
             >
               {/* Name first in DOM order so the button's accessible/
@@ -188,7 +201,7 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled, h
                 className="shrink-0 text-[10px] font-bold uppercase tracking-wide rounded-full px-2.5 py-1"
                 style={{ color: "var(--text-inverse)", background: "var(--peak-accent, #f5c842)" }}
               >
-                Choose
+                {isPending ? "Choosing…" : "Choose"}
               </span>
             </button>
           );

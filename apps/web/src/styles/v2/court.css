@@ -633,30 +633,9 @@
 }
 
 /* ---- 3. PICK LOCK ----
-   A drafted player ARRIVES, LOCKS, SETTLES. 240ms, inside the contract's
-   150-300ms card-lock band. Triggered by an empty->filled diff of the real
-   roster snapshot, never by a timer, and nothing waits on it: the next
-   server action is not gated behind this. */
-[data-ui-version="v2"] [data-locking="true"] > * {
-  animation: tmw-pick-lock 240ms var(--v2-ease-emphasized, ease-out) 1;
-}
-
-@keyframes tmw-pick-lock {
-  0%   { transform: translateY(-5px) scale(0.985); opacity: 0.55; }
-  60%  { transform: translateY(0) scale(1.012); opacity: 1; }
-  100% { transform: translateY(0) scale(1); opacity: 1; }
-}
-
-/* The same beat on the tile's edge, so the lock reads as the slot CLOSING
-   around the player rather than only as the card moving. */
-[data-ui-version="v2"] [data-locking="true"] [data-testid="peak-v2-court-slot"] {
-  animation: tmw-pick-lock-edge 240ms var(--v2-ease-out, ease-out) 1;
-}
-
-@keyframes tmw-pick-lock-edge {
-  0%   { border-color: var(--v2-color-accent); }
-  100% { border-color: inherit; }
-}
+   Now the SHARED beat in styles/game-feel.css (`[data-gf-lock]`, driven by
+   `useArrivals`): the same lock every court in the Arena uses, so a drafted
+   player arrives the same way here as a placed card does in 82-0. */
 
 /* ---- 4. ROUND TRANSITION ----
    The ceremony scrim arrives instead of appearing: a short fade so the draft
@@ -683,8 +662,6 @@
 @media (prefers-reduced-motion: reduce) {
   [data-ui-version="v2"] .tmw-thinking::after,
   [data-ui-version="v2"] .tmw-court-active[data-v2-court-presentation="lit"],
-  [data-ui-version="v2"] [data-locking="true"] > *,
-  [data-ui-version="v2"] [data-locking="true"] [data-testid="peak-v2-court-slot"],
   [data-ui-version="v2"] [data-testid="tmw-ceremony-scrim"],
   [data-ui-version="v2"] [data-testid="tmw-ceremony-scrim"] .tmw-ceremony {
     animation: none;

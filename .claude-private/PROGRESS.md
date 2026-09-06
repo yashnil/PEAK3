@@ -1,3 +1,85 @@
+# Interaction, synchronization & game-feel reconstruction — progress
+
+Branch: `feature/game-feel-reconstruction` (from `main` @ `a51bbf7`, 2026-09-05).
+Design note: `docs/design/GAME_FEEL.md`.
+
+## Root causes fixed
+- TMW "Draft X at Y" needed several clicks: candidate/slot clicks fired a server
+  `tmw_stage_pick` that set `inFlight`, and `pick()` silently returned while it
+  was in flight. Now: `useCommandLane` serializes commands; the pick queues
+  behind the stage and runs against the version current at execution.
+- Stale poll overwrite: `refresh` applied any response whose version differed
+  (`!==`). Now `isNewer` (strictly newer version) guards every apply.
+- Swap notice written before the server answered. Now the moment is derived
+  from the response snapshot in the same render (`describeTransition`).
+- Intro was a per-player client dialog ending the phase for the table on one
+  click, with a 30-min abandon backstop. Now `PHASE_INTRO` is a 4.0s timed
+  server turn whose timeout opens the ceremony; `tmw_skip_intro`/`tmw_skip_reveal`
+  refused (`shared_timeline`). `REVEAL_SECONDS` 4.6 → 3.0.
+- Play Again pushed the mode landing page. Now bot mode creates a fresh match
+  and `router.replace`s into it; loader keys the game by match id.
+- 82-0: an open slot became a dead `<div>` while `busy` (the double click).
+  Now slots stay buttons (pending / inert), rows show pending on press.
+
+## Server
+- `ArenaMatchView` += `turn_seq`, `turn_elapsed_seconds`, `turn_total_seconds`.
+- `three_man_weave/mode.py`: timed intro, refused skips, shorter reveal;
+  `_abandon_match`/`_reduce_skip_*` removed. Tests rewritten in
+  `test_three_man_weave_mode.py`, `test_arena_practice_e2e.py`.
+
+## Client
+- New: `lib/game-feel/{authoritative,arrivals}.ts`, `components/game-feel/*`,
+  `styles/game-feel.css` (imported in `app/layout.tsx`).
+- TMW: `ThreeManWeaveGame.tsx` rewritten (Room snapshot, lane, moments, replay);
+  `PeakV2TMWReveal.tsx` rewritten (server timeline, RoundReveal beat, no skip);
+  `PeakV2TMWCourts/Court` (ActiveSeat, per-seat TurnClock, useArrivals);
+  `PickOverlay` (GameActionButton); `PeakV2TMWResult` (count-up, Back to mode);
+  `ThreeManWeaveLoader` (keyed game). `WeaveSpinner.tsx` (dead) deleted.
+- 82-0: `CourtBuilder` on the lane with pending targets + moments; `PeakV2CourtLive`
+  (arrivals lock, ScoreTransition record, EventMoment); `PeakV2CourtSlotCard`
+  (pending/inert); `PeakV2CourtChooser` (RoundReveal, GameActionButtons);
+  `EligiblePlayerSearch` (pending row); `PeakV2CourtResult` (record count-up);
+  `PlayAgainPanel` (GameActionButton).
+
+## Tests added
+- `game-feel.test.tsx` (19), `three-man-weave-game-feel.test.tsx` (8),
+  `court-builder-game-feel.test.tsx` (3); briefing tests rewritten in
+  `three-man-weave-components.test.tsx`; e2e: three-human synchronized intro,
+  `@slow` bot-match replay; `dismissTmwIntro` now asserts no skip exists.
+
+## Manual QA (Playwright-driven, real servers, 2026-09-05)
+- Bot match, 6 rounds: confirm → pending immediately; overlay closed on the
+  command response in 118–275 ms; Play Again → new match at intro in 482 ms.
+- 3 humans in a private room: identical `turn_seq` at intro/reveal/pick on
+  every client; backgrounded tab caught up; reload landed on the same pick
+  turn; double-click sent one draft (119 ms).
+- 82-0, two full games: row/slot pending immediately; placement ready 57–210 ms
+  after candidate click; slot filled 99–1150 ms after slot click (server time);
+  Play Again → fresh round 1.
+- Not yet observed live: a legal between-turn swap (random rosters had no
+  legal target); covered by unit test.
+
+## Verification (2026-09-05)
+- API unit: 1820 passed (scripts/ci/api-unit-tests.sh).
+- Web unit: 2350+ passed (vitest), typecheck clean, lint 0 warnings.
+- e2e chromium-multiplayer "Three-Man Weave": 8/8 (incl. new sync-intro test,
+  which first exposed a pre-existing crash when a guest lands on a still-
+  forming private room -- fixed with `FormingRoom` in the loader; and the
+  @slow full-match replay test, ~4 min).
+- e2e chromium-courtbuilder: 99/99. First run had 4 failures: 2 were the
+  documented `.env` vs CI `PEAK3_COURTBUILDER_LEADERBOARD_ENABLED` divergence
+  (API restarted with the CI value → pass); 2 were the E2 "court geometry is
+  immutable" contract catching the shared swap beat's `transform` -- the base
+  `[data-gf-lock]` beat is now paint-only (opacity/box-shadow) and the moving
+  variant is scoped to `.tmw-court-seat`.
+- e2e chromium-multiplayer (Showdown + two-tab): 22/22; mobile-chrome: 3/3.
+- scripts/ci/frontend-verify.sh: typecheck, lint 0 warnings, 2351 vitest, clean production build -- green.
+
+## Status: COMPLETE, uncommitted on the branch, awaiting founder review.
+
+
+---
+
 # Arena Archive visual-polish program — progress
 
 Branch: `feature/arena-archive-visual-polish`. Started from `4534534`

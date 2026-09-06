@@ -23,8 +23,11 @@ import {
   SLOT_LABELS,
   STARTER_SLOT_TYPES,
   BENCH_SLOT_TYPES,
+  fitLabel,
 } from "@/types/perfect-season";
 import ActionToast from "./ActionToast";
+import { useCommandLane } from "@/lib/game-feel/authoritative";
+import type { EventMomentData } from "@/components/game-feel";
 import PeakV2CourtLive from "@/components/v2/court/PeakV2CourtLive";
 import PeakV2CourtChooser from "@/components/v2/court/PeakV2CourtChooser";
 import PeakV2CourtResult from "@/components/v2/court/PeakV2CourtResult";
@@ -52,7 +55,28 @@ export default function CourtBuilder({
 }: Props) {
   const [state, setState] = useState<CourtLineupPublicState>(initialGameState);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  /**
+   * EVERY ACTION GOES THROUGH ONE LANE (game-feel reconstruction). A plain
+   * `busy` boolean used to disable everything at once and, worse, drop the
+   * click handler off an open slot while a request was in flight -- the
+   * slot flipped from a `<button>` to a dead `<div>` for the round trip, so
+   * a second click landed on nothing. The lane serializes commands, refuses
+   * a duplicate exclusive command before any handler runs, and publishes
+   * WHICH command is pending so the exact control that owns it can show
+   * its pending state while everything else stays a real, merely-disabled
+   * control.
+   */
+  const lane = useCommandLane();
+  const busy = lane.busy;
+  const pendingKind = lane.pending;
+  /** The candidate row / slot the pending command is about, for its own
+   *  pressed-and-pending treatment. */
+  const [pendingTarget, setPendingTarget] = useState<{ kind: string; key: string } | null>(null);
+  /** What the latest snapshot just did -- a placed card, the fifth starter,
+   *  a completed roster. Derived from the server's response, never timed. */
+  const [moment, setMoment] = useState<EventMomentData | null>(null);
+  /** Bumped per new round and per new game, for the round card. */
+  const roundKey = `${state.game_id}:${state.current_round}`;
   // Which round the spin ceremony has finished revealing for, or null.
   // Derived comparison (`revealedRound === state.current_round`) rather
   // than a resettable boolean + effect: an effect that reset a boolean on
@@ -229,22 +253,56 @@ export default function CourtBuilder({
       ? { team: lastRespinEntry.from_team, season: lastRespinEntry.from_season }
       : null;
 
-  async function withBusy<T>(fn: () => Promise<T>): Promise<T | undefined> {
-    setBusy(true);
-    setError(null);
-    try {
-      return await fn();
-    } catch (e) {
-      const msg = e instanceof PerfectSeasonAPIError ? e.message : "Something went wrong. Please try again.";
-      setError(msg);
-      return undefined;
-    } finally {
-      setBusy(false);
+  /**
+   * Run one command through the lane. `undefined` means it did not produce a
+   * state: refused as a duplicate (`null` from the lane) or failed (the
+   * message lands in the error banner). Exclusive by default: one decision
+   * at a time, and a second press of the same decision is inert.
+   */
+  const runCommand = useCallback(
+    async <T,>(kind: string, fn: () => Promise<T>, target?: string): Promise<T | undefined> => {
+      if (lane.pendingNow() !== null) return undefined;
+      setError(null);
+      if (target !== undefined) setPendingTarget({ kind, key: target });
+      try {
+        const result = await lane.run(kind, fn);
+        return result === null ? undefined : result;
+      } catch (e) {
+        const msg = e instanceof PerfectSeasonAPIError ? e.message : "Something went wrong. Please try again.";
+        setError(msg);
+        return undefined;
+      } finally {
+        setPendingTarget(null);
+      }
+    },
+    [lane],
+  );
+
+  /**
+   * WHAT A PLACEMENT JUST DID, read off the two snapshots. The moment is
+   * announced by the same render that draws the new slot, so it can never
+   * describe a roster the screen is not yet showing. Rare moments earn more:
+   * the fifth starter and the finished roster hold longer than a routine
+   * placement.
+   */
+  function momentForPlacement(before: CourtLineupPublicState, after: CourtLineupPublicState): EventMomentData | null {
+    const placed = after.slots.find((slot) => slot.filled && !before.slots.find((b) => b.slot_type === slot.slot_type)?.filled);
+    if (!placed) return null;
+    const starters = after.slots.filter((slot) => slot.filled && STARTER_SLOT_TYPES.includes(slot.slot_type)).length;
+    const filled = after.slots.filter((slot) => slot.filled).length;
+    const id = `v${after.state_version}`;
+    if (filled === after.slots.length) {
+      return { id, kind: "roster-complete", title: "Roster complete", detail: `${placed.player_name} → ${SLOT_LABELS[placed.slot_type]} · lock it in`, tone: "accent", durationMs: 1800 };
     }
+    if (starters === STARTER_SLOT_TYPES.length && STARTER_SLOT_TYPES.includes(placed.slot_type)) {
+      return { id, kind: "starting-five", title: "Starting five set", detail: `${placed.player_name} → ${SLOT_LABELS[placed.slot_type]}`, tone: "accent", durationMs: 1600 };
+    }
+    const fit = placed.role_fit ? fitLabel(placed.role_fit, placed.role_fit_severity) : null;
+    return { id, kind: "pick", title: `${placed.player_name} → ${SLOT_LABELS[placed.slot_type]}`, detail: fit ? `Round ${before.current_round} · ${fit}` : `Round ${before.current_round}`, tone: "neutral" };
   }
 
   async function handleSelect(playerSlug: string) {
-    const next = await withBusy(() => selectPlayer(state.game_id, playerSlug));
+    const next = await runCommand("select", () => selectPlayer(state.game_id, playerSlug), playerSlug);
     if (next) setState(next);
   }
 
@@ -266,22 +324,25 @@ export default function CourtBuilder({
   const performUndo = useCallback(
     async (gameId: string, expectedVersion: number) => {
       const key = undoIdempotencyKey(gameId, expectedVersion);
-      const next = await withBusy(() => undoLastPlacement(gameId, expectedVersion, key));
+      const next = await runCommand("undo", () => undoLastPlacement(gameId, expectedVersion, key));
       // Dismissed either way. A rejection here is always one of three
       // server-authoritative, already-player-legible reasons (surfaced
-      // through the ordinary `error` banner by `withBusy` itself, same as
+      // through the ordinary `error` banner by `runCommand` itself, same as
       // any other action): the window expired, an intervening action
       // superseded it, or the caller fell out of sync -- re-showing the
       // same Undo button would just fail again the same way.
       dismissToast();
       if (next) setState(next);
     },
-    [dismissToast],
+    [dismissToast, runCommand],
   );
 
   async function handlePlace(slotType: SlotType) {
-    const next = await withBusy(() => placeCard(state.game_id, slotType));
+    const before = state;
+    const next = await runCommand("place", () => placeCard(state.game_id, slotType), slotType);
     if (next) {
+      // ONE RENDER: the roster, and what it just did.
+      setMoment(momentForPlacement(before, next));
       setState(next);
       // Launch-polish LP2-2: a REAL Undo now exists
       // (state.py::action_undo_last_placement), so the toast offers exactly
@@ -304,7 +365,7 @@ export default function CourtBuilder({
   }
 
   async function handleCancel() {
-    const next = await withBusy(() => cancelSelection(state.game_id));
+    const next = await runCommand("cancel", () => cancelSelection(state.game_id));
     if (next) setState(next);
   }
 
@@ -313,7 +374,7 @@ export default function CourtBuilder({
   // across the open slots) entirely itself; this only stores the identity it
   // returns for the highlight/confirmation, never a number.
   async function handleHint() {
-    const result = await withBusy(() => requestHint(state.game_id));
+    const result = await runCommand("hint", () => requestHint(state.game_id));
     if (result) {
       setState(result.state);
       setHint({ playerSlug: result.hint.player_slug, playerName: result.hint.player_name });
@@ -333,7 +394,7 @@ export default function CourtBuilder({
       state.game_id, state.current_round, "team", state.team_respins_used_total,
     );
     setRespinPending(true);
-    const next = await withBusy(() => respinTeam(state.game_id, key));
+    const next = await runCommand("respin_team", () => respinTeam(state.game_id, key));
     if (next) {
       setState(next);
       setRespinKind("team");
@@ -348,7 +409,7 @@ export default function CourtBuilder({
       state.game_id, state.current_round, "season", state.season_respins_used_total,
     );
     setRespinPending(true);
-    const next = await withBusy(() => respinSeason(state.game_id, key));
+    const next = await runCommand("respin_season", () => respinSeason(state.game_id, key));
     if (next) {
       setState(next);
       setRespinKind("season");
@@ -380,7 +441,7 @@ export default function CourtBuilder({
       // needs to know who was where beforehand.
       const beforeFrom = state.slots.find((s) => s.slot_type === from);
       const beforeTo = state.slots.find((s) => s.slot_type === to);
-      const next = await withBusy(() => swapSlots(state.game_id, from, to));
+      const next = await runCommand("swap", () => swapSlots(state.game_id, from, to), to);
       if (!next) return next;
       setState(next);
       if (next.undo.available) {
@@ -393,7 +454,7 @@ export default function CourtBuilder({
       }
       return next;
     },
-    [state.game_id, state.slots, showToast, performUndo],
+    [state.game_id, state.slots, showToast, performUndo, runCommand],
   );
 
   /** The click on a destination slot while a card is being moved (E3).
@@ -415,7 +476,7 @@ export default function CourtBuilder({
   }
 
   async function handleComplete() {
-    const next = await withBusy(() => completeCourtGame(state.game_id));
+    const next = await runCommand("complete", () => completeCourtGame(state.game_id));
     if (next) setState(next);
   }
 
@@ -427,9 +488,16 @@ export default function CourtBuilder({
   // un-skipped spin ceremony rather than inheriting stale state from the
   // finished game (e.g. revealedRound already matching round 1 would skip
   // straight to "revealed" with no ceremony at all).
-  async function handlePlayAgain() {
-    const next = await withBusy(() => createCourtGame(state.mode));
+  async function handlePlayAgain(): Promise<boolean> {
+    const next = await runCommand("play_again", () => createCourtGame(state.mode));
     if (next) {
+      // NOTHING LEAKS FROM THE FINISHED RUN: every piece of local ceremony
+      // and moment state goes back to its initial value before the new
+      // game's own round 1 opens with a real, un-skipped round card + spin.
+      setMoment(null);
+      setMovingSlot(null);
+      setOverlayMinimized(false);
+      dismissToast();
       setState(next);
       setRevealedRound(null);
       setRespinFlashKey(0);
@@ -438,7 +506,14 @@ export default function CourtBuilder({
       setHint(null);
       lastSpinRef.current = null;
       revealedSpinRef.current = null;
+      try {
+        window.scrollTo({ top: 0, behavior: "auto" });
+      } catch {
+        // jsdom has no scrolling; the new run still mounts at the top.
+      }
+      return true;
     }
+    return false;
   }
 
   const starterSlots = state.slots.filter((s) => STARTER_SLOT_TYPES.includes(s.slot_type));
@@ -480,6 +555,10 @@ export default function CourtBuilder({
             state={state}
             phase={phase}
             busy={busy}
+            pendingKind={pendingKind}
+            pendingSlot={pendingTarget && (pendingTarget.kind === "place" || pendingTarget.kind === "swap") ? (pendingTarget.key as SlotType) : null}
+            moment={moment}
+            onMomentDone={(id) => setMoment((current) => (current?.id === id ? null : current))}
             starterSlots={starterSlots}
             benchSlots={benchSlots}
             movingSlot={movingSlot}
@@ -535,6 +614,9 @@ export default function CourtBuilder({
               candidates={displaySpin?.candidates ?? null}
               onSelectCandidate={handleSelect}
               busy={busy}
+              pendingKind={pendingKind}
+              pendingSlug={pendingTarget?.kind === "select" ? pendingTarget.key : null}
+              roundKey={roundKey}
               respinPending={respinPending}
               canRespinTeam={state.team_respins_remaining_total > 0}
               canRespinSeason={state.season_respins_remaining_total > 0}
@@ -562,7 +644,7 @@ export default function CourtBuilder({
           state={state}
           result={state.simulation_result}
           onPlayAgain={handlePlayAgain}
-          playAgainBusy={busy}
+          playAgainBusy={pendingKind === "play_again"}
         />
       )}
 

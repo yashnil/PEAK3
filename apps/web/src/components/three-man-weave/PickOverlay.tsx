@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
 import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
+import { GameActionButton } from "@/components/game-feel";
 import type {
   ArenaSeatPublic,
   TmwRoll,
@@ -112,6 +112,7 @@ export default function PickOverlay({
   deadlineAt,
   turnSeconds,
   busy,
+  pendingKind = null,
   onPick,
   onStage,
   onMove,
@@ -136,15 +137,19 @@ export default function PickOverlay({
   deadlineAt: number | null;
   turnSeconds: number;
   busy: boolean;
-  /** COMMITS. Only ever called from an explicit "Draft {name} at {slot}" press. */
-  onPick: (candidate: TmwCandidate, slot: TmwSlotType) => void;
+  /** Which exclusive command the room's lane currently holds, for the
+   *  button that owns it to show its pending state. */
+  pendingKind?: string | null;
+  /** COMMITS. Only ever called from an explicit "Draft {name} at {slot}"
+   *  press. Resolves `true` when the server accepted the pick. */
+  onPick: (candidate: TmwCandidate, slot: TmwSlotType) => Promise<boolean> | void;
   /** STAGES (or, with both arguments null, CLEARS). Never drafts -- see this
    *  module's docstring. Fired on every candidate/slot click so the server
    *  can prefer the staged choice if the clock runs out. */
   onStage: (candidate: TmwCandidate | null, slot: TmwSlotType | null) => void;
   /** Commit a rearrangement of the existing roster. The COMPLETE final
    *  assignment, slot -> player_slug, which is the only shape the server takes. */
-  onMove: (placements: Record<string, string>) => void;
+  onMove: (placements: Record<string, string>) => Promise<boolean> | void;
   onClose: () => void;
 }) {
   const headingId = useId();
@@ -387,11 +392,12 @@ export default function PickOverlay({
     [chosen, expired, onStage],
   );
 
-  const commitMove = useCallback(() => {
-    if (!movingFrom || !slot || !roster || !movingPick) return;
-    onMove(placementsAfterMove(roster, movingFrom, slot));
+  const commitMove = useCallback(async () => {
+    if (!movingFrom || !slot || !roster || !movingPick) return false;
+    const outcome = await onMove(placementsAfterMove(roster, movingFrom, slot));
     setMovingFrom(null);
     setSlot(null);
+    return outcome !== false;
   }, [movingFrom, slot, roster, movingPick, onMove]);
 
   if (!open) return null;
@@ -713,20 +719,18 @@ export default function PickOverlay({
             <div className="tmw-place-actions">
               {mode === "moving" ? (
                 <>
-                  <PeakV2PrimaryAction
-                    type="button"
+                  <GameActionButton
                     data-testid="tmw-move-confirm"
                     disabled={!canCommitMove || busy}
-                    data-loading={busy ? "true" : "false"}
-                    onClick={commitMove}
+                    pending={pendingKind === "rearrange"}
+                    pendingLabel="Moving…"
+                    onAction={commitMove}
                   >
                     {/* THE LABEL NAMES WHAT IS MISSING, not just the verb. */}
-                    {busy
-                      ? "Moving…"
-                      : canCommitMove
-                        ? `Move ${movingPick!.player_name} to ${TMW_SLOT_LABELS[slot!]}`
-                        : `Choose where ${movingPick!.player_name} goes`}
-                  </PeakV2PrimaryAction>
+                    {canCommitMove
+                      ? `Move ${movingPick!.player_name} to ${TMW_SLOT_LABELS[slot!]}`
+                      : `Choose where ${movingPick!.player_name} goes`}
+                  </GameActionButton>
                   <PeakV2SecondaryAction
                     type="button"
                     data-testid="tmw-move-cancel"
@@ -740,20 +744,25 @@ export default function PickOverlay({
                 </>
               ) : mode === "placing" ? (
                 <>
-                  <PeakV2PrimaryAction
-                    type="button"
+                  {/* ONE PRESS, ONE DRAFT. `GameActionButton` acknowledges the
+                      press on pointer-down, shows "Drafting…" for exactly as
+                      long as the command is in flight, refuses a second
+                      press meanwhile, and locks on acceptance. The command
+                      itself is queued behind any in-flight stage request by
+                      the room's lane rather than dropped -- the root cause of
+                      "the first click does nothing". */}
+                  <GameActionButton
                     data-testid="tmw-confirm-pick"
                     disabled={!canCommitPlacement || busy}
-                    data-loading={busy ? "true" : "false"}
-                    onClick={() => canCommitPlacement && onPick(chosen!, slot!)}
+                    pending={pendingKind === "pick"}
+                    pendingLabel="Drafting…"
+                    onAction={() => (canCommitPlacement ? onPick(chosen!, slot!) : false)}
                   >
                     {/* THE BUTTON NAMES THE WHOLE DECISION — who, and where. */}
-                    {busy
-                      ? "Drafting…"
-                      : slot
-                        ? `Draft ${chosen!.player_name} at ${TMW_SLOT_LABELS[slot]}`
-                        : `Choose a slot for ${chosen!.player_name}`}
-                  </PeakV2PrimaryAction>
+                    {slot
+                      ? `Draft ${chosen!.player_name} at ${TMW_SLOT_LABELS[slot]}`
+                      : `Choose a slot for ${chosen!.player_name}`}
+                  </GameActionButton>
                   <PeakV2SecondaryAction
                     type="button"
                     data-testid="tmw-cancel-pick"

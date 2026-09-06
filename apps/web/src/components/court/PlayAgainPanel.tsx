@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { getAccessToken } from "@/lib/auth";
 import { getLeaderboard, getMyRuns } from "@/lib/perfect-season-api";
 import { CourtMode, PerfectSeasonRunPublic } from "@/types/perfect-season";
-import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
+import { GameActionButton } from "@/components/game-feel";
 import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
 
 interface Props {
@@ -13,7 +13,7 @@ interface Props {
   wins: number;
   losses: number;
   lineupPeakScore: number | null;
-  onPlayAgain: () => void;
+  onPlayAgain: () => Promise<unknown> | void;
   busy: boolean;
   /**
    * The caller already shows a "sign in to save this run" ask immediately
@@ -133,16 +133,16 @@ export default function PlayAgainPanel({ mode, wins, losses, lineupPeakScore, on
         <span style={{ color: "var(--text-muted)" }}>
           {wins}-{losses} this run. Ready to run it back?
         </span>
-        <PeakV2PrimaryAction
-          type="button"
+        <GameActionButton
           data-testid="play-again-btn"
-          onClick={onPlayAgain}
-          disabled={busy}
+          onAction={onPlayAgain}
+          pending={busy}
+          pendingLabel="Starting a new run…"
           size="sm"
           className="shrink-0"
         >
-          {busy ? "Starting a new run…" : "Play again"}
-        </PeakV2PrimaryAction>
+          Play again
+        </GameActionButton>
       </div>
     </div>
   );
