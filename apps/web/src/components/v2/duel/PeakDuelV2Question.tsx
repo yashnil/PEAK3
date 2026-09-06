@@ -85,9 +85,11 @@ function DuelSidePanel({
       disabled={disabled}
       aria-pressed={selected}
       aria-label={`Select ${card.player_name}, ${card.duration_years}-year peak, ${card.start_season}${card.start_season !== card.end_season ? ` to ${card.end_season}` : ""}`}
-      className={`relative flex w-full flex-col items-start gap-4 p-2 text-left transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:cursor-not-allowed ${
+      className={`duel-side relative flex w-full flex-col items-start gap-4 p-2 text-left transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:cursor-not-allowed ${
         side === "right" ? "sm:items-end sm:text-right" : ""
       }`}
+      data-selected={selected ? "true" : "false"}
+      data-pending={selected && disabled ? "true" : "false"}
       style={{ opacity: selected ? 1 : 0.92 }}
     >
       <span

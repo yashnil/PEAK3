@@ -1,10 +1,12 @@
 import Link from "next/link";
 
 /**
- * NBA Fact of the Day.
+ * Basketball Fact of the Day.
  *
- * GENERAL BASKETBALL TRIVIA, AND NOT A PEAK3 CLAIM. The heading says "NBA Fact
- * of the Day" and never "PEAK3 Fact of the Day", and no fact's text depends on
+ * GENERAL BASKETBALL KNOWLEDGE, AND NOT A PEAK3 CLAIM. The heading says
+ * "Basketball Fact of the Day" -- basketball, not NBA, since game-feel pass 2
+ * widened the bank to the whole sport -- and never "PEAK3 Fact of the Day",
+ * and no fact's text depends on
  * the model's weights, calibration or component scores. That is a product rule
  * with a practical edge: this panel sits above the game catalogue, so most of
  * the people who read it have not yet been told what PEAK3 is, and a line they
@@ -188,7 +190,7 @@ export default function NbaFactOfTheDay({ fact }: { fact: NbaFactView | null }) 
   // checkout is a normal state.
   if (!fact) return null;
 
-  const label = CATEGORY_LABELS[fact.category] ?? "NBA history";
+  const label = CATEGORY_LABELS[fact.category] ?? "Basketball history";
   const place = fact.geography ? GEOGRAPHY_LABELS[fact.geography] : undefined;
   // A v1 payload has `text` and no split; render it as the headline rather
   // than dropping it.
@@ -250,7 +252,7 @@ export default function NbaFactOfTheDay({ fact }: { fact: NbaFactView | null }) 
         <div className="fotd-main">
           <div className="fotd-eyebrow">
             <h2 id="fotd-heading" className="fotd-title">
-              NBA Fact of the Day
+              Basketball Fact of the Day
             </h2>
             <span className="fotd-rule" aria-hidden="true" />
             <span className="fotd-tag fotd-tag-category" data-testid="fotd-category">

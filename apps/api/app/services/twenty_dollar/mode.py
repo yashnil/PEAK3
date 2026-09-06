@@ -68,12 +68,14 @@ from nba_peak.twenty_dollar import receipt as receipt_builder
 from nba_peak.twenty_dollar import state as rules_state
 from nba_peak.twenty_dollar.bot import TwentyDollarBot
 from nba_peak.twenty_dollar.config import (
+    BOT_THINK_KIND_ORDINARY,
     MODE_ID,
     MODEL_VERSION,
     RULESET_VERSION,
     SEAT_COUNT,
     TURN_SECONDS,
     bot_think_seconds,
+    rank_band,
 )
 
 #: Warm the committed candidate pool at import. See the module docstring's
@@ -212,27 +214,55 @@ class TwentyDollarMode:
         """
         return INTRO_SECONDS if phase == PHASE_INTRO else self.turn_seconds
 
-    def bot_think_seconds(self, seed: int, seat_index: int, turn_seq: int) -> float:
-        """How long the bot seat appears to deliberate before its bid lands.
+    def bot_think_seconds(
+        self,
+        seed: int,
+        seat_index: int,
+        turn_seq: int,
+        snapshot: Optional[dict] = None,
+    ) -> float:
+        """How long the bot seat appears to deliberate before its move lands.
 
-        WITHOUT THIS HOOK the platform fell back to `arena.bots.
-        BOT_THINK_SECONDS` (1.2s), which is BELOW this room's 2000ms poll
-        interval -- so the bot's raise routinely arrived in the same poll that
-        opened its turn and the player never saw an opponent thinking. The
-        opponent read as a synchronous function call rather than as another
-        bidder at the table.
+        CALCULATE FIRST, PRESENT SECOND. The move itself is already decided
+        by the policy from the board; this only chooses how long the reply
+        waits to LAND, so it reads as another bidder and not as a function
+        call. The wait is a function of the KIND of decision (see
+        `TwentyDollarBot.decision_kind` and `config.BOT_THINK_RANGES`): an
+        uninterested pass lands almost at once, an ordinary raise takes a
+        short beat, a call right at the bot's ceiling occasionally takes a
+        long one, and a bidding war accelerates.
 
-        The range lives in `nba_peak.twenty_dollar.config` beside the rest of
-        this mode's timing, and is deliberately far shorter than Three-Man
-        Weave's -- see that constant's docstring for why an auction cannot
-        borrow a draft's pacing.
+        `snapshot` is the match's stored state, passed by the foundation's
+        driver (`bots.bot_think_seconds_for`) when the hook accepts it. From it
+        the bot's OWN projection is rebuilt -- exactly the dicts `choose` will
+        see, band included -- so the classification and the decision agree.
+        Without a snapshot (an older caller) the ordinary range applies.
 
-        Presentation only: the bid itself is already decided by the policy, and
-        the foundation enforces this against the turn's stored `opened_at`, so
-        nothing here delays an action the server has already committed and no
-        client can hurry it along.
+        Presentation only. The foundation enforces the result against the
+        turn's stored `opened_at`, so every poller agrees on when the move
+        lands and a fast client cannot hurry it along.
         """
-        return bot_think_seconds(seed, seat_index, turn_seq)
+        kind = BOT_THINK_KIND_ORDINARY
+        if snapshot:
+            try:
+                public, private, _ = rules_state.project(snapshot, seat_index)
+                private = self._bot_private(snapshot, private)
+                kind = bot.decision_kind(public, private)
+            except Exception:  # pragma: no cover - presentation must not wedge a turn
+                kind = BOT_THINK_KIND_ORDINARY
+        return bot_think_seconds(seed, seat_index, turn_seq, kind)
+
+    @staticmethod
+    def _bot_private(snapshot: dict, private: dict) -> dict:
+        """The two coarse quality hints a BOT seat -- and only a bot seat --
+        is told about the live candidate. See `project`."""
+        private["candidate_tier"] = snapshot.get("current_candidate_tier")
+        slug = snapshot.get("current_candidate")
+        if slug:
+            pool = rules_state.warm_pool()
+            if pool.has(slug):
+                private["candidate_band"] = rank_band(pool.get(slug).rank)
+        return private
 
     def phase_accepts_action(self, phase: str) -> bool:
         """Whether a seat -- human or bot -- may play on a turn in this phase.
@@ -842,24 +872,25 @@ class TwentyDollarMode:
         public["seat_names"] = [seat.display_name for seat in seats]
         public["seat_is_bot"] = [seat.is_bot for seat in seats]
 
-        # A COARSE TIER, FOR BOT SEATS ONLY.
+        # A COARSE TIER AND A COARSE RANK BAND, FOR BOT SEATS ONLY.
         #
         # A human bidder brings knowledge the projection cannot carry -- they
-        # know roughly where a candidate sits among all-time peaks. A bot has
-        # none, so without some proxy it either bids the same for everyone or
-        # has to be given the hidden score, and the second of those would make
-        # the auction unwinnable rather than merely hard.
+        # know roughly where a candidate sits among all-time peaks, and the
+        # rankings page is public. A bot has none, so without some proxy it
+        # either bids the same for everyone or has to be given the hidden
+        # score, and the second of those would make the auction unwinnable
+        # rather than merely hard.
         #
         # What crosses is the three-band draw label (`1-100` / `101-250` /
-        # `251-500`) the lot was already drawn from. It cannot rank two players
-        # inside a band, so between two top-100 peaks the bot is guessing
-        # exactly as a casual human would; and it is added HERE, at the
-        # foundation boundary where seat occupancy is known, rather than in
+        # `251-500`) the lot was drawn from, and the six-way rank band from
+        # `config.BOT_RANK_BANDS`. Neither can rank two players inside a band,
+        # neither is the score, and both are added HERE, at the foundation
+        # boundary where seat occupancy is known, rather than in
         # `state.project`, so the rules package has no code path that could
-        # give it to a person.
+        # give them to a person.
         seat = next((s for s in seats if s.seat_index == seat_index), None)
         if seat is not None and seat.is_bot:
-            private["candidate_tier"] = snapshot.get("current_candidate_tier")
+            private = self._bot_private(snapshot, private)
         if match.status == MATCH_STATUS_COMPLETED:
             # The receipt is built from the same settled snapshot the results
             # rows came from, so the two cannot disagree.

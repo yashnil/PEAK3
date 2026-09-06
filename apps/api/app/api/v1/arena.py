@@ -363,6 +363,7 @@ async def _build_view(repo, mode, match: ArenaMatch, seat: Optional[ArenaSeat]):
     turn_elapsed_seconds = None
     turn_total_seconds = None
     turn_phase = turn.phase if turn is not None else None
+    bot_reply_in_seconds = None
     if turn is not None:
         from app.repositories.arena_protocols import _utc
 
@@ -389,6 +390,13 @@ async def _build_view(repo, mode, match: ArenaMatch, seat: Optional[ArenaSeat]):
             turn.seat_index is None or turn.seat_index == seat_index
         ):
             seconds_remaining = turn_seconds_remaining
+        # WHEN THE BOT ON THE CLOCK WILL MOVE, so the room can read the reply
+        # the moment it is due rather than a poll interval late. See
+        # `ArenaMatchView.bot_reply_in_seconds`.
+        if mode is not None and settings.ARENA_BOTS_ENABLED:
+            bot_reply_in_seconds = bot_service.bot_reply_in_seconds(
+                mode, match, turn, seats, now
+            )
 
     visible = await repo.list_events(match.match_id, for_seat=seat_index)
     latest_seq = max((e.seq for e in visible), default=-1)
@@ -424,6 +432,7 @@ async def _build_view(repo, mode, match: ArenaMatch, seat: Optional[ArenaSeat]):
         turn_seq=turn_seq,
         turn_elapsed_seconds=turn_elapsed_seconds,
         turn_total_seconds=turn_total_seconds,
+        bot_reply_in_seconds=bot_reply_in_seconds,
         latest_event_seq=latest_seq,
         # The room code goes only to a seat holder, and only while the room is
         # still filling -- it is how they invite the second player. Once the

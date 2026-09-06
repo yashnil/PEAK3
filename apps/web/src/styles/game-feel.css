@@ -314,6 +314,324 @@ button[data-state="error"] {
 }
 
 /* ---------------------------------------------------------------
+   ResourceMeter — a resource that visibly changes (budget, credits)
+   --------------------------------------------------------------- */
+.gf-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.gf-meter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.gf-meter-label {
+  font-family: var(--v2-font-mono, monospace);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted, #838799);
+  white-space: nowrap;
+}
+.gf-meter-value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-family: var(--v2-font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 1.375rem;
+  line-height: 1;
+  color: var(--v2-text-primary, #fff);
+}
+.gf-meter[data-tone="accent"] .gf-meter-value > :first-child { color: var(--gf-accent); }
+.gf-meter[data-size="sm"] .gf-meter-value { font-size: 1.0625rem; }
+.gf-meter-projection {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--v2-text-secondary, #b4b8c5);
+  animation: gf-fade-in var(--gf-dur-micro) var(--gf-ease) both;
+}
+.gf-meter-track {
+  position: relative;
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--v2-text-muted, #838799) 22%, transparent);
+  overflow: hidden;
+}
+.gf-meter-fill,
+.gf-meter-projected {
+  position: absolute;
+  inset: 0 auto 0 0;
+  height: 100%;
+  border-radius: inherit;
+  transition: width var(--gf-dur-event) var(--gf-ease-emphasized);
+}
+.gf-meter-fill {
+  width: calc(var(--gf-meter-fraction, 0) * 100%);
+  background: var(--gf-accent);
+  z-index: 2;
+}
+.gf-meter[data-tone="neutral"] .gf-meter-fill { background: var(--v2-text-secondary, #b4b8c5); }
+.gf-meter-projected {
+  width: calc(var(--gf-meter-projected, 0) * 100%);
+  background: color-mix(in srgb, var(--gf-accent) 38%, transparent);
+  z-index: 1;
+}
+.gf-meter[data-projecting="true"] .gf-meter-fill {
+  width: calc(var(--gf-meter-projected, 0) * 100%);
+}
+.gf-meter[data-projecting="true"] .gf-meter-projected {
+  width: calc(var(--gf-meter-fraction, 0) * 100%);
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--gf-accent) 55%, transparent) 0 3px,
+    transparent 3px 6px
+  );
+}
+.gf-meter-reserve {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: calc(var(--gf-meter-reserve, 0) * 100%);
+  width: 2px;
+  background: var(--v2-text-primary, #fff);
+  opacity: 0.55;
+  z-index: 3;
+}
+.gf-meter-aside {
+  font-family: var(--v2-font-ui, sans-serif);
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary, #b4b8c5);
+}
+@keyframes gf-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ---------------------------------------------------------------
+   CardArrival — a new object enters
+   --------------------------------------------------------------- */
+.gf-arrival[data-reduced-motion="false"] {
+  animation: gf-arrive-up var(--gf-dur-event) var(--gf-ease-emphasized) both;
+}
+/* The stage variant never drops below a painted opacity: a hero object that
+   is live must be visible in EVERY frame (the auction's continuity contract),
+   so the entrance is travel and scale with only a light fade. */
+.gf-arrival[data-reduced-motion="false"][data-variant="stage"] {
+  animation-name: gf-arrive-stage;
+  animation-duration: 440ms;
+}
+@keyframes gf-arrive-stage {
+  0%   { opacity: 0.45; transform: translateY(16px) scale(0.975); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.gf-arrival[data-reduced-motion="false"][data-direction="down"] { animation-name: gf-arrive-down; }
+.gf-arrival[data-reduced-motion="false"][data-direction="left"] { animation-name: gf-arrive-left; }
+.gf-arrival[data-reduced-motion="false"][data-direction="right"] { animation-name: gf-arrive-right; }
+@keyframes gf-arrive-up {
+  0%   { opacity: 0; transform: translateY(14px) scale(0.985); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes gf-arrive-down {
+  0%   { opacity: 0; transform: translateY(-14px) scale(0.985); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes gf-arrive-left {
+  0%   { opacity: 0; transform: translateX(18px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+@keyframes gf-arrive-right {
+  0%   { opacity: 0; transform: translateX(-18px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+/* ---------------------------------------------------------------
+   RosterSlotLock — goal / target / pending / piece
+   --------------------------------------------------------------- */
+.gf-slot {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--v2-radius-control, 10px);
+  border: 1px dashed color-mix(in srgb, var(--v2-text-muted, #838799) 45%, transparent);
+  background: transparent;
+  transition:
+    border-color var(--gf-dur-micro) var(--gf-ease),
+    background-color var(--gf-dur-micro) var(--gf-ease),
+    box-shadow var(--gf-dur-event) var(--gf-ease);
+}
+.gf-slot[data-size="sm"] { min-height: 2.25rem; padding: 0.2rem 0.4rem; }
+.gf-slot[data-align="end"] {
+  grid-template-columns: auto minmax(0, 1fr) 2rem;
+  text-align: right;
+}
+.gf-slot[data-align="end"] .gf-slot-position { order: 3; }
+.gf-slot[data-align="end"] .gf-slot-body { order: 2; }
+.gf-slot[data-align="end"] .gf-slot-figure { order: 1; }
+.gf-slot-position {
+  font-family: var(--v2-font-mono, monospace);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--v2-text-muted, #838799);
+}
+.gf-slot-body {
+  min-width: 0;
+  font-family: var(--v2-font-ui, sans-serif);
+  font-size: 0.8125rem;
+  color: var(--v2-text-primary, #fff);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gf-slot-placeholder { color: var(--v2-text-muted, #838799); font-size: 0.75rem; }
+.gf-slot-figure {
+  font-family: var(--v2-font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--v2-text-secondary, #b4b8c5);
+  white-space: nowrap;
+}
+.gf-slot[data-state="targeted"] {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--gf-accent) 70%, transparent);
+  background: color-mix(in srgb, var(--gf-accent) 7%, transparent);
+}
+.gf-slot[data-state="targeted"] .gf-slot-placeholder { color: var(--gf-accent); }
+.gf-slot[data-state="pending"] {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--gf-accent) 50%, transparent);
+  background: color-mix(in srgb, var(--gf-accent) 10%, transparent);
+}
+.gf-slot[data-state="filled"] {
+  border-style: solid;
+  border-color: var(--v2-border-subtle, #2a2d35);
+  background: var(--v2-bg-raised, color-mix(in srgb, var(--v2-text-primary, #fff) 5%, transparent));
+}
+.gf-slot[data-state="filled"] .gf-slot-position { color: var(--gf-accent); }
+.gf-slot[data-state="filled"] .gf-slot-figure { color: var(--gf-accent); }
+.gf-slot[data-tone="rival"][data-state="filled"] .gf-slot-position,
+.gf-slot[data-tone="bot"][data-state="filled"] .gf-slot-position,
+.gf-slot[data-tone="rival"][data-state="filled"] .gf-slot-figure,
+.gf-slot[data-tone="bot"][data-state="filled"] .gf-slot-figure { color: var(--v2-text-secondary, #b4b8c5); }
+.gf-slot[data-gf-lock="arrived"][data-reduced-motion="false"] {
+  animation: gf-slot-lock 420ms var(--gf-ease-emphasized) 1;
+}
+.gf-slot[data-gf-lock="swapped"][data-reduced-motion="false"] {
+  animation: gf-swap-paint 380ms var(--gf-ease-emphasized) 1;
+}
+@keyframes gf-slot-lock {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--gf-accent) 75%, transparent); border-color: var(--gf-accent); background-color: color-mix(in srgb, var(--gf-accent) 22%, transparent); }
+  100% { box-shadow: 0 0 0 10px transparent; }
+}
+/* Override the generic arrival paint on the slot's children: the slot
+   itself carries the beat. */
+.gf-slot[data-gf-lock="arrived"] > * { animation: none; }
+
+/* ---------------------------------------------------------------
+   BidTransition — the standing figure changes hands
+   --------------------------------------------------------------- */
+.gf-bid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  text-align: center;
+}
+.gf-bid-figure {
+  position: relative;
+  display: inline-grid;
+  grid-template-areas: "figure";
+  align-items: center;
+  justify-items: center;
+  font-family: var(--v2-font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 3.25rem;
+  line-height: 1;
+  color: var(--gf-accent);
+}
+.gf-bid[data-size="md"] .gf-bid-figure { font-size: 2rem; }
+.gf-bid[data-holder="rival"] .gf-bid-figure,
+.gf-bid[data-holder="bot"] .gf-bid-figure { color: var(--v2-text-primary, #fff); }
+.gf-bid[data-holder="none"] .gf-bid-figure { color: var(--v2-text-muted, #838799); }
+.gf-bid-value,
+.gf-bid-outgoing { grid-area: figure; }
+.gf-bid-outgoing { opacity: 0; }
+.gf-bid[data-reduced-motion="false"][data-swapping="true"] .gf-bid-outgoing {
+  animation: gf-bid-out 380ms var(--gf-ease-emphasized) both;
+}
+.gf-bid[data-reduced-motion="false"][data-swapping="true"] .gf-bid-value {
+  animation: gf-bid-in 380ms var(--gf-ease-emphasized) both;
+}
+.gf-bid[data-reduced-motion="false"][data-swapping="true"][data-direction="up"] .gf-bid-figure {
+  animation: gf-bid-flash 380ms var(--gf-ease) 1;
+}
+@keyframes gf-bid-out {
+  0%   { opacity: 0.8; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-0.6em) scale(0.92); }
+}
+@keyframes gf-bid-in {
+  0%   { opacity: 0; transform: translateY(0.55em) scale(0.94); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes gf-bid-flash {
+  0%   { text-shadow: 0 0 0 transparent; }
+  30%  { text-shadow: 0 0 24px color-mix(in srgb, var(--gf-accent) 55%, transparent); }
+  100% { text-shadow: 0 0 0 transparent; }
+}
+.gf-bid-pending {
+  position: absolute;
+  left: 100%;
+  margin-left: 0.5rem;
+  font-size: 0.375em;
+  color: var(--v2-text-secondary, #b4b8c5);
+  white-space: nowrap;
+  animation: gf-fade-in var(--gf-dur-micro) var(--gf-ease) both;
+}
+.gf-bid-caption {
+  font-family: var(--v2-font-ui, sans-serif);
+  font-size: 0.8125rem;
+  color: var(--v2-text-secondary, #b4b8c5);
+}
+.gf-bid[data-holder="you"] .gf-bid-caption { color: var(--gf-accent); }
+
+/* ---------------------------------------------------------------
+   ResultReveal — the ending resolves in steps
+   --------------------------------------------------------------- */
+.gf-result { outline: none; }
+.gf-result-step[data-revealed="false"] {
+  opacity: 0;
+  visibility: hidden;
+}
+.gf-result[data-reduced-motion="false"] .gf-result-step[data-revealed="true"] {
+  animation: gf-arrive-up 520ms var(--gf-ease-emphasized) both;
+}
+
+/* Big turn clock: the auction / scoreboard treatment. */
+.gf-clock[data-size="lg"] {
+  min-width: 14rem;
+  row-gap: 0.45rem;
+}
+.gf-clock[data-size="lg"] .gf-clock-value { font-size: 2.75rem; }
+.gf-clock[data-size="lg"] .gf-clock-label { font-size: 0.75rem; }
+.gf-clock[data-size="lg"] .gf-clock-track { height: 6px; }
+.gf-clock[data-size="lg"][data-state="warning"][data-reduced-motion="false"] .gf-clock-track {
+  animation: v2-arena-light-pulse 1.1s ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------
    Reduced motion: everything above is decoration over state
    --------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
@@ -328,9 +646,18 @@ button[data-state="error"] {
   .tmw-court-seat [data-gf-lock="arrived"] > *,
   .tmw-court-seat [data-gf-lock="swapped"] > *,
   .gf-seat[data-gf-complete="true"]::after,
-  .gf-clock-ellipsis::after {
+  .gf-clock-ellipsis::after,
+  .gf-arrival,
+  .gf-slot,
+  .gf-bid-outgoing,
+  .gf-bid-value,
+  .gf-bid-figure,
+  .gf-result-step,
+  .gf-meter-projection,
+  .gf-bid-pending {
     animation: none !important;
   }
+  .gf-meter-fill, .gf-meter-projected { transition: none; }
   .gf-seat[data-gf-complete="true"]::after { opacity: 0.6; }
   .gf-clock-ellipsis::after { content: "..."; }
   [data-state="pressed"] { transform: none; }
@@ -347,4 +674,48 @@ button[data-state="error"] {
 }
 .gf-round.court-round-reveal .gf-round-title {
   font-size: clamp(1.5rem, 4vw, 2.25rem);
+}
+
+/* ---------------------------------------------------------------
+   Peak Duel · the face-off and the staged reveal
+   --------------------------------------------------------------- */
+.duel-side {
+  border-radius: var(--v2-radius-control, 10px);
+  transition: transform var(--gf-dur-micro) var(--gf-ease), background-color var(--gf-dur-micro) var(--gf-ease), box-shadow var(--gf-dur-micro) var(--gf-ease);
+}
+.duel-side:not(:disabled):hover { background: color-mix(in srgb, var(--gf-accent) 5%, transparent); }
+.duel-side:not(:disabled):active { transform: scale(0.985); }
+.duel-side[data-pending="true"] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gf-accent) 60%, transparent);
+  animation: gf-duel-lock var(--gf-dur-event) var(--gf-ease-emphasized) 1;
+}
+@keyframes gf-duel-lock {
+  0%   { box-shadow: inset 0 0 0 1px var(--gf-accent), 0 0 0 0 color-mix(in srgb, var(--gf-accent) 50%, transparent); }
+  100% { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gf-accent) 60%, transparent), 0 0 0 10px transparent; }
+}
+.duel-reveal { position: relative; }
+.duel-reveal-card { position: relative; transition: transform var(--gf-dur-event) var(--gf-ease); }
+.duel-reveal[data-reduced-motion="false"] .duel-reveal-card[data-winner="true"] {
+  animation: gf-duel-winner 620ms var(--gf-ease-emphasized) 1;
+}
+@keyframes gf-duel-winner {
+  0%   { transform: scale(0.98); }
+  55%  { transform: scale(1.025); }
+  100% { transform: scale(1); }
+}
+.duel-reveal[data-reduced-motion="false"] .duel-reveal-verdict {
+  animation: gf-arrive-up 380ms var(--gf-ease-emphasized) both;
+  animation-delay: 420ms;
+}
+.duel-reveal[data-reduced-motion="false"] .duel-reveal-lane {
+  animation: gf-arrive-right 320ms var(--gf-ease-out) both;
+  animation-delay: calc(760ms + var(--duel-lane-index, 0) * 90ms);
+}
+.duel-reveal[data-reduced-motion="false"] .duel-reveal-explanation {
+  animation: gf-fade-in 320ms var(--gf-ease) both;
+  animation-delay: 1250ms;
+}
+.duel-streak-moment { top: 4.5rem; }
+@media (prefers-reduced-motion: reduce) {
+  .duel-side[data-pending="true"], .duel-reveal-card, .duel-reveal-verdict, .duel-reveal-lane, .duel-reveal-explanation { animation: none !important; }
 }

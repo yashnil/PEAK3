@@ -907,7 +907,7 @@ describe("the clock", () => {
    */
   it("never renders an empty band when there is no deadline", () => {
     const { unmount } = render(
-      <ShowdownClock {...clockProps} phase="reveal" deadlineAt={null} />,
+      <ShowdownClock {...clockProps} phase="intro" deadlineAt={null} />,
     );
     expect(screen.getByTestId("td-clock")).toHaveAttribute("data-mode", "held");
     expect(screen.getByTestId("td-clock").textContent?.trim().length).toBeGreaterThan(30);

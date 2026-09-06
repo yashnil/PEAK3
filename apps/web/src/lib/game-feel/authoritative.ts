@@ -25,7 +25,7 @@
  * promises, which is the whole point of sharing them.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /** May `next` replace `current` on screen? Strictly newer by version, or the
  *  same version with a different phase (a defensive allowance for a server
@@ -153,5 +153,8 @@ export function useCommandLane(): CommandLane {
     [pendingNow, pump],
   );
 
-  return { run, pending, busy, pendingNow, busyNow };
+  // A STABLE OBJECT for a stable state. Callers list the lane as a hook
+  // dependency; a fresh object every render made every dependent callback
+  // fresh every render, and one room's "first read" effect fired on each.
+  return useMemo(() => ({ run, pending, busy, pendingNow, busyNow }), [run, pending, busy, pendingNow, busyNow]);
 }

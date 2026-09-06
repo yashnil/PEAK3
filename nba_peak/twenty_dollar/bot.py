@@ -2,7 +2,7 @@
 
 WHY THIS MODE MUST SHIP ONE
 ---------------------------
-`RandomLegalBot` emits an EMPTY payload (`bots.py:75-83`) and its own docstring
+`RandomLegalBot` emits an EMPTY payload (`bots.py`) and its own docstring
 says so plainly: "a mode whose only legal commands need arguments will get a
 rejected command from this bot, and should ship its own policy." A bid needs an
 amount.
@@ -13,71 +13,78 @@ WHAT IT IS ALLOWED TO KNOW, AND WHY THAT IS STRUCTURAL
 and a seeded `random.Random`. That is the whole input. It cannot see the next
 candidate, an action the human has not submitted, or -- crucially -- the
 candidate's exact hidden PEAK3 score, because none of those is in a `SeatView`
-and a `SeatView` carries no path back to the authoritative state
-(`arena_protocols.py:540-578`).
+and a `SeatView` carries no path back to the authoritative state.
 
 The bot is not trusted to avoid cheating; it is unable to. The cheating version
 does not fail review, it fails to have anywhere to read from.
 
-THE ONE CONCESSION: A COARSE TIER, NEVER THE SCORE
+THE ONE CONCESSION: A COARSE BAND, NEVER THE SCORE
 ---------------------------------------------------
 A human bidder brings knowledge the projection does not carry -- they know
-roughly where a 2016-17 Kawhi Leonard sits among all-time peaks. A bot has
-none, so the mode's adapter puts a THREE-BAND TIER (top 100 / 101-250 /
-251-500) into a BOT seat's private projection and nowhere else.
+roughly where a 2016-17 Kawhi Leonard sits among all-time peaks, and the
+rankings page is public. So the mode's adapter puts a COARSE RANK BAND
+(`config.BOT_RANK_BANDS`: 1-10 / 11-25 / 26-50 / 51-100 / 101-250 / 251-500)
+into a BOT seat's private projection and nowhere else, alongside the three-way
+draw tier v3 used. A band cannot rank two candidates inside it, cannot be turned
+back into a price without the roster context below, and is absent for a human
+seat, so no human ever sees a rank either.
 
-That is deliberately coarse and deliberately not the score:
+v4: WHAT IT VALUES, AND HOW THAT BECOMES A PRICE
+-------------------------------------------------
+v3 priced a candidate by tier value minus a fixed replacement value, times a
+few multipliers. Simulated against a rank-aware opponent it ended matches with
+seven dollars unspent on average, let a top-100 player go for $2 in a sixth
+of matches, and could not tell the fifth-best peak from the ninety-fifth.
 
-  * A tier cannot rank two candidates inside it, so the bot still cannot tell
-    the 8th-best peak from the 80th. Between two top-100 players it is
-    guessing exactly as a casual human would.
-  * It cannot be turned back into a price. Every valuation below multiplies
-    the tier by roster context, so the same tier produces very different
-    ceilings depending on what the bot still needs.
-  * It is absent for a human seat, so no human ever sees a rank either.
+v4 is a utility model with four moving parts, all read from the projection:
 
-WHAT IT ACTUALLY VALUES: MARGINAL ROSTER IMPROVEMENT
------------------------------------------------------
-The previous policy priced a candidate by "fair share of remaining budget"
-times a scarcity nudge. That produced the reported behaviour: Scottie Barnes
-escalating to a high bid purely because he fit, and money spent on modest
-players early because early money is plentiful. Fair share is a BUDGET fact,
-not a ROSTER fact, so it could not distinguish an upgrade from a duplicate.
+  * POINTS         what the band is plausibly worth on the final scoreboard,
+                   in PEAK3 points (`_BAND_POINTS`, the published board's
+                   own band means).
+  * REPLACEMENT    what this seat can still expect to get for a slot from
+                   the remaining market. It FALLS as the chances to fill the
+                   slot run out (`_replacement_level`): early, a modest
+                   101-250 player for a dollar; in the last lots, whatever
+                   autofill would hand over.
+  * MONEY RATE     how many points a marginal dollar buys, from how much
+                   discretionary budget is left per open slot
+                   (`_points_per_dollar`). Rich and nearly full: a dollar is
+                   cheap and the ceiling rises. Poor and empty: a dollar is
+                   dear and the ceiling falls. Unspent money scores nothing,
+                   so this is what stops the bot finishing with a wallet.
+  * ROSTER FIT     a candidate who fills exactly one of the open slots is
+                   worth a little more than one with several ways in; a
+                   candidate who fills nothing is worth nothing.
 
-v3 prices the DELTA this candidate makes to the roster:
+    ceiling = 1 + max(0, points - replacement) / rate, then fit, phase and
+    endgame adjustments, then the reserve rule and `max_bid` as hard caps.
 
-  * TIER VALUE      how good they plausibly are, from the coarse band.
-  * MARGINAL GAIN   tier value minus what this seat can already expect to get
-                    for the slot from the remaining market. A player who is
-                    only as good as the replacement the market will hand over
-                    for $1 is worth about $1.
-  * NEED            zero if they fill nothing; full if they fill a slot that
-                    is open and hard to fill.
-  * SCARCITY        how narrow their position set is against the slots this
-                    seat still has to fill.
-  * CONTEST         whether the opponent could plausibly use them, inferred
-                    only from published budgets, rosters and open slots.
-  * BUDGET PRESSURE the reserve floor is respected absolutely, and the ceiling
-                    rises as slots fill because unspent money scores nothing.
-  * MARKET PHASE    a closeout lot for a slot the bot still needs is worth
-                    more than the same player in lot three, because the
-                    remaining chances to fill it are running out.
+OPPONENT AWARENESS, FROM PUBLIC FIELDS ONLY. The opponent's remaining budget,
+open slots and skips are on the board for everybody. The bot reads them to
+know whether a lot is contested and whether the opponent can afford to fight
+for it; it never reads a feasibility oracle for the other seat.
 
-Then it plays a normal ascending auction against that ceiling: raise by the
-minimum legal increment while the standing bid is under it, and step away when
-it is not.
+THE SKIP ECONOMY. Opening at $1 on a candidate the bot does not want risks
+winning them for $1 and burning a slot; passing burns a market skip. The bot
+opens when the candidate is at or near replacement level, opens more readily
+when its skips are running out, and follows the opponent's rejection for free
+when a near-replacement player is on offer for a dollar.
 
-IMPERFECT ON PURPOSE
---------------------
-A seeded jitter moves the ceiling by up to about 12%, and with a small seeded
-probability the bot either stretches one dollar past its ceiling or steps away
-one dollar short. Both are things real bidders do, both are bounded, and
-neither can produce an illegal bid: every amount is clamped to
-`private["max_bid"]`, which the server recomputes from the persisted budget.
+IMPERFECT ON PURPOSE. A seeded jitter moves the ceiling by up to about 10%,
+and with a small seeded probability the bot either stretches one dollar past
+its ceiling, steps away one dollar short, or answers a raise with a two-dollar
+jump. All are things real bidders do, all are bounded, and none can produce an
+illegal bid: every amount is clamped to `private["max_bid"]`, which the server
+recomputes from the persisted budget.
 
 INDEPENDENCE FROM THE HUMAN'S ACTION IS THE POINT. `decide` never asks what the
 other seat just did; it asks what the CURRENT board is worth to it. A human
 pass therefore leaves the bot free to open at $1 and take the player.
+
+`decision_kind` is the PRESENTATION hook: it classifies the decision the bot
+is about to make (a quick pass, an ordinary raise, a contested call, a bidding
+war) so the mode can pick a think time that reads like the decision. It never
+changes what the bot decides.
 """
 from __future__ import annotations
 
@@ -88,10 +95,15 @@ from nba_peak.twenty_dollar.config import (
     BOT_DIFFICULTY_LABEL,
     BOT_DISPLAY_NAME,
     BOT_POLICY_VERSION,
+    BOT_THINK_KIND_CONTESTED,
+    BOT_THINK_KIND_ORDINARY,
+    BOT_THINK_KIND_QUICK,
+    BOT_THINK_KIND_WAR,
+    HARD_MAX_LOTS,
     MARKET_CLOSEOUT,
     MIN_RESERVE_PER_SLOT,
     ROSTER_SIZE,
-    STARTING_BUDGET,
+    STANDARD_MARKET_LOTS,
 )
 
 COMMAND_BID = "bid"
@@ -100,32 +112,79 @@ COMMAND_PASS = "pass"
 #: How far the bot's ceiling may drift between two matches on the same board.
 #: Small, and seeded by the driver, so a match still replays exactly while two
 #: bots on one board do not play an identical mirrored game.
-_JITTER = (0.88, 1.12)
+_JITTER = (0.90, 1.10)
 
-#: What a coarse tier is plausibly worth, as a fraction of the whole budget, to
-#: a seat with all five slots to fill. Calibrated so a top-100 peak is worth
-#: about a third of the bank and a rank-400 player is worth close to the $1
-#: floor -- which is the shape the price distribution has to have for "spend
-#: most of your money on a weak marginal upgrade" to be irrational rather than
-#: merely discouraged.
-_TIER_VALUE = {
-    "1-100": 0.34,
-    "101-250": 0.16,
-    "251-500": 0.07,
+#: What a band is plausibly worth on the final scoreboard, in PEAK3 points.
+#: These are the published 1Y board's own band means, rounded; nothing here is
+#: recomputed from the model.
+_BAND_POINTS: dict[str, float] = {
+    "1-10": 93.0,
+    "11-25": 88.0,
+    "26-50": 78.0,
+    "51-100": 67.0,
+    "101-250": 57.0,
+    "251-500": 47.0,
 }
-#: Used when no tier reached the projection at all (a human seat's policy in a
-#: test, a future tier label). Deliberately the middle band: guessing high
-#: would make an unknown candidate expensive, which is the failure mode.
-_DEFAULT_TIER_VALUE = 0.16
+#: Used when only the three-way draw tier reached the projection (an older
+#: adapter, a test built the v3 way). The top tier is deliberately valued at
+#: its band-weighted mean rather than its ceiling: guessing high would make an
+#: unknown candidate expensive, which is the failure mode.
+_TIER_POINTS: dict[str, float] = {
+    "1-100": 72.0,
+    "101-250": 57.0,
+    "251-500": 47.0,
+}
+_DEFAULT_POINTS = 57.0
 
-#: What the bot assumes it can still get for a slot from the remaining market,
-#: as a fraction of budget. Subtracted from tier value to give the MARGINAL
-#: gain -- the reason a merely-fine player is cheap.
-_REPLACEMENT_VALUE = 0.06
+#: Replacement level, in points, at the two ends of the market.
+#: `_REPLACEMENT_EARLY` is what a patient seat can still expect for a slot
+#: with plenty of lots to come: roughly a 51-100 peak, because four lots in
+#: ten are drawn from the top hundred and a seat that waits will see several.
+#: `_REPLACEMENT_LATE` is what autofill hands over. Between them the level
+#: falls with the chances left per open slot (`_REPLACEMENT_SPAN_CHANCES`).
+_REPLACEMENT_EARLY = 64.0
+_REPLACEMENT_LATE = 47.0
+_REPLACEMENT_SPAN_CHANCES = 8.0
+
+#: PACING: the largest share of discretionary money one player may take while
+#: this many slots are still open. Stops the double blow-out -- two stars at
+#: nine dollars each by lot four, then nothing left to answer a bargain with.
+_PACING_SHARE = {5: 0.55, 4: 0.65, 3: 0.80}
+
+#: How many of the remaining lots a seat can expect to be usable AND worth
+#: opening on -- draws that fit the roster, are not skipped by both, and are
+#: not walked away from. Calibrated from bot-vs-bot sweeps rather than chosen.
+_USABLE_LOT_SHARE = 0.55
+
+#: The money rate: points per dollar when a seat holds the opening fair share
+#: of discretionary money per slot ($16 over five slots). The exponent says how
+#: quickly a dollar gets cheaper as the seat gets richer per slot.
+_BASE_POINTS_PER_DOLLAR = 4.2
+_FAIR_SHARE_REFERENCE = 3.2
+_MONEY_ELASTICITY = 0.85
+
+#: A candidate who fills exactly one open slot is worth this much more than
+#: one with several ways in.
+_SINGLE_FIT_PREMIUM = 1.10
+#: The closeout market is the last chance to fill a slot competitively.
+_CLOSEOUT_PREMIUM = 1.25
+
+#: Below this many expected usable lots PER OPEN SLOT the bot treats the
+#: market as ending: money is about to be worthless, so the ceiling becomes
+#: the whole discretionary budget.
+_ENDGAME_CHANCES = 1.25
+
+#: How far below replacement a candidate may sit and still be opened on at $1
+#: rather than skipped, in points. Widened when skips are running out and when
+#: the opponent has already declined (a free follow).
+_OPEN_TOLERANCE = 2.0
+_OPEN_TOLERANCE_LOW_SKIPS = 6.0
+_OPEN_TOLERANCE_FREE_FOLLOW = 4.0
 
 #: How often the bot makes a small, bounded, deliberate error.
 _STRETCH_CHANCE = 0.10   # one dollar past the ceiling
 _FLINCH_CHANCE = 0.08    # steps away one dollar early
+_JUMP_CHANCE = 0.18      # answers a raise with a two-dollar jump
 
 
 class TwentyDollarBot:
@@ -133,7 +192,7 @@ class TwentyDollarBot:
 
     def __init__(
         self,
-        bot_id: str = "twenty_dollar_v3",
+        bot_id: str = "twenty_dollar_v4",
         policy_version: str = BOT_POLICY_VERSION,
         rating: float = 1050.0,
     ) -> None:
@@ -160,6 +219,101 @@ class TwentyDollarBot:
 
     # -- the valuation -----------------------------------------------------
 
+    @staticmethod
+    def candidate_points(private: dict) -> float:
+        """What the candidate is plausibly worth on the scoreboard, in points."""
+        band = str(private.get("candidate_band") or "")
+        if band in _BAND_POINTS:
+            return _BAND_POINTS[band]
+        tier = str(private.get("candidate_tier") or "")
+        return _TIER_POINTS.get(tier, _DEFAULT_POINTS)
+
+    @staticmethod
+    def _chances_per_slot(public: dict, open_slots: int) -> float:
+        """Expected usable lots still to come, per slot this seat has to fill."""
+        lot_index = int(public.get("lot_index", 0))
+        standard = int(public.get("standard_market_lots", STANDARD_MARKET_LOTS))
+        hard_max = int(public.get("max_lots", HARD_MAX_LOTS))
+        if public.get("market_phase") == MARKET_CLOSEOUT:
+            remaining = max(0, hard_max - lot_index)
+        else:
+            # The standard market plus a conservative slice of the closeout
+            # that follows it when a roster is still short.
+            remaining = max(0, standard - lot_index) + min(4, max(0, hard_max - standard))
+        return (remaining * _USABLE_LOT_SHARE) / max(1, open_slots)
+
+    @staticmethod
+    def _replacement_level(chances: float) -> float:
+        """What a slot can still expect from the market, given the chances left."""
+        span = _REPLACEMENT_EARLY - _REPLACEMENT_LATE
+        fraction = max(0.0, min(1.0, (chances - 1.0) / _REPLACEMENT_SPAN_CHANCES))
+        return _REPLACEMENT_LATE + span * fraction
+
+    @staticmethod
+    def _points_per_dollar(discretionary: int, open_slots: int) -> float:
+        """How many points a marginal dollar has to buy to be worth spending."""
+        fair_share = max(0.5, discretionary / max(1, open_slots))
+        return _BASE_POINTS_PER_DOLLAR * (_FAIR_SHARE_REFERENCE / fair_share) ** _MONEY_ELASTICITY
+
+    def valuation(self, public: dict, private: dict) -> dict:
+        """Every intermediate the ceiling is built from, for tests and reports.
+
+        Deterministic: no RNG is consulted here. `ceiling` is the pre-jitter
+        ceiling in whole dollars; `decide` applies the seeded jitter and the
+        bounded mistakes on top.
+        """
+        max_bid = int(private.get("max_bid", 0))
+        seat_index = int(private.get("seat_index", 0))
+        me = _seat(public, seat_index)
+        empty = {
+            "points": 0.0, "replacement": 0.0, "rate": 0.0, "chances": 0.0,
+            "discretionary": 0, "want": -999.0, "ceiling": 0, "endgame": False,
+        }
+        if max_bid < 1 or not private.get("can_acquire_candidate") or me is None:
+            return empty
+
+        fits = list(private.get("candidate_fits") or [])
+        if not fits:
+            return empty  # fills nothing on this roster; worth nothing, whoever they are
+
+        open_slots = list(me.get("open_slots") or [])
+        remaining = max(1, len(open_slots))
+        budget = int(me.get("budget", 0))
+        discretionary = max(0, budget - (remaining - 1) * MIN_RESERVE_PER_SLOT)
+
+        points = self.candidate_points(private)
+        chances = self._chances_per_slot(public, remaining)
+        replacement = self._replacement_level(chances)
+        rate = self._points_per_dollar(discretionary, remaining)
+        want = points - replacement
+
+        value = 1.0 + max(0.0, want) / rate
+
+        usable = [slot for slot in fits if slot in open_slots] or fits
+        if len(usable) == 1:
+            value *= _SINGLE_FIT_PREMIUM
+        if public.get("market_phase") == MARKET_CLOSEOUT:
+            value *= _CLOSEOUT_PREMIUM
+
+        pacing = _PACING_SHARE.get(remaining)
+        if pacing is not None:
+            value = min(value, max(1.0, discretionary * pacing))
+
+        endgame = chances <= _ENDGAME_CHANCES
+        if endgame and want > -8.0:
+            # Money is about to be worthless. Anything at or near replacement
+            # is worth the whole discretionary budget; a genuinely poor
+            # candidate still gets the ordinary price, because autofill would
+            # hand over one just as poor for a dollar.
+            value = max(value, float(discretionary))
+
+        ceiling = max(0, min(int(round(value)), discretionary, max_bid))
+        return {
+            "points": points, "replacement": replacement, "rate": rate,
+            "chances": chances, "discretionary": discretionary, "want": want,
+            "ceiling": ceiling, "endgame": endgame,
+        }
+
     def ceiling(self, public: dict, private: dict, rng: random.Random) -> int:
         """The most this bot will pay for the candidate on the board.
 
@@ -167,67 +321,29 @@ class TwentyDollarBot:
         function of it: a ceiling that moved with the price is a bot that can
         be walked up indefinitely by an opponent who has noticed.
         """
+        base = self.valuation(public, private)["ceiling"]
+        if base <= 0:
+            return 0
         max_bid = int(private.get("max_bid", 0))
-        if max_bid < 1 or not private.get("can_acquire_candidate"):
-            return 0
+        return max(0, min(int(round(base * rng.uniform(*_JITTER))), max_bid))
 
+    def _wants_to_open(self, public: dict, private: dict) -> bool:
+        """With nothing bid, is this candidate worth a dollar and a slot?"""
+        v = self.valuation(public, private)
+        if v["ceiling"] <= 0:
+            return False
         seat_index = int(private.get("seat_index", 0))
-        me = _seat(public, seat_index)
-        if me is None:
-            return 0
-
-        fits = list(private.get("candidate_fits") or [])
-        if not fits:
-            # Fills nothing on this roster. Worth nothing, whoever they are.
-            return 0
-
-        open_slots = list(me.get("open_slots") or [])
-        remaining = max(1, len(open_slots))
-        budget = int(me.get("budget", 0))
-
-        # 1. TIER VALUE, in dollars of the starting bank.
-        tier_share = _TIER_VALUE.get(
-            str(private.get("candidate_tier") or ""), _DEFAULT_TIER_VALUE
-        )
-
-        # 2. MARGINAL GAIN over what the market will still supply for this
-        #    slot. This is the term that makes a redundant or modest player
-        #    cheap however much money is lying around.
-        marginal = max(0.0, tier_share - _REPLACEMENT_VALUE)
-        value = marginal * STARTING_BUDGET
-
-        # 3. SCARCITY. A candidate who fits exactly one of the slots I still
-        #    have to fill is worth more than a flexible one; a candidate with
-        #    several ways in is one I can afford to lose.
-        usable = [slot for slot in fits if slot in open_slots] or fits
-        value *= 1.0 + 0.30 / max(1, len(usable))
-
-        # 4. URGENCY. Unspent money scores nothing at the final whistle, so
-        #    the last slots are worth spending on -- but the reserve for every
-        #    OTHER open slot is honoured absolutely, which is what stops the
-        #    bot stranding itself.
-        spendable = max(
-            0, budget - (remaining - 1) * MIN_RESERVE_PER_SLOT
-        )
-        filled = int(me.get("filled_slots", 0))
-        value *= 1.0 + 0.18 * filled
-        if remaining <= 1:
-            # One slot left and no future to save for: the whole legal maximum
-            # is rational, subject only to whether the lot is contested.
-            value = float(max_bid)
-
-        # 5. MARKET PHASE. In the closeout market the chances to fill this
-        #    slot are visibly running out, so the same player is worth more.
-        if public.get("market_phase") == MARKET_CLOSEOUT:
-            value *= 1.35
-
-        # 6. CONTEST. An uncontested player still deserves a bid -- just not a
-        #    fight. Inferred only from what a human at the table can see.
-        if not self._opponent_could_use(public, seat_index):
-            value *= 0.6
-
-        value *= rng.uniform(*_JITTER)
-        return max(0, min(int(round(value)), spendable, max_bid))
+        me = _seat(public, seat_index) or {}
+        open_slots = max(1, len(me.get("open_slots") or []))
+        skips = int(private.get("market_skips", 0))
+        tolerance = _OPEN_TOLERANCE
+        if skips <= open_slots:
+            tolerance = _OPEN_TOLERANCE_LOW_SKIPS
+        if private.get("lot_already_rejected") or not private.get("pass_consumes_skip", True):
+            tolerance = max(tolerance, _OPEN_TOLERANCE_FREE_FOLLOW)
+        if v["endgame"]:
+            tolerance = max(tolerance, 8.0)
+        return v["want"] >= -tolerance
 
     def decide(
         self, public: dict, private: dict, rng: random.Random
@@ -249,6 +365,15 @@ class TwentyDollarBot:
         if minimum > max_bid or not private.get("can_acquire_candidate"):
             return self._decline(private)
 
+        standing = int(public.get("current_bid") or 0)
+        if standing <= 0:
+            # THE OPENING DECISION is about the slot and the skip, not the
+            # ceiling: opening costs a dollar and risks a slot; passing costs
+            # a token. See `_wants_to_open`.
+            if self._wants_to_open(public, private):
+                return COMMAND_BID, {"amount": min(minimum, max_bid)}
+            return self._decline(private)
+
         limit = self.ceiling(public, private, rng)
 
         # THE BOUNDED MISTAKES. One dollar either way, drawn from the same
@@ -264,10 +389,38 @@ class TwentyDollarBot:
         if minimum > limit:
             return self._decline(private)
 
-        # Ascending auctions are won a dollar at a time. Raising to the
-        # minimum keeps the ceiling private and never overpays for an
-        # uncontested player.
-        return COMMAND_BID, {"amount": min(minimum, max_bid)}
+        amount = minimum
+        # A JUMP RAISE, occasionally, when the ceiling is well clear of the
+        # price: it ends a walk-up sooner and makes the ceiling harder to
+        # read. Never past the ceiling, never past the legal maximum.
+        if limit - minimum >= 3 and rng.random() < _JUMP_CHANCE:
+            amount = minimum + 1
+        return COMMAND_BID, {"amount": max(1, min(amount, limit, max_bid))}
+
+    def decision_kind(self, public: dict, private: dict) -> str:
+        """Which KIND of decision the bot is about to make -- presentation only.
+
+        Read by the mode's think-time hook. Deterministic and RNG-free, so
+        every poller computes the same answer for the same turn.
+        """
+        if not private.get("is_your_turn") or not private.get("can_acquire_candidate"):
+            return BOT_THINK_KIND_QUICK
+        minimum = int(private.get("minimum_bid", 1))
+        max_bid = int(private.get("max_bid", 0))
+        if minimum > max_bid:
+            return BOT_THINK_KIND_QUICK
+        standing = int(public.get("current_bid") or 0)
+        v = self.valuation(public, private)
+        if standing <= 0:
+            return BOT_THINK_KIND_ORDINARY if self._wants_to_open(public, private) else BOT_THINK_KIND_QUICK
+        raises = sum(1 for a in (public.get("lot_actions") or []) if a.get("action") == COMMAND_BID)
+        if minimum > v["ceiling"] + 1:
+            return BOT_THINK_KIND_QUICK  # a price it was never going to pay
+        if v["ceiling"] >= 4 and abs(minimum - v["ceiling"]) <= 1:
+            return BOT_THINK_KIND_CONTESTED
+        if raises >= 4:
+            return BOT_THINK_KIND_WAR
+        return BOT_THINK_KIND_ORDINARY
 
     @staticmethod
     def _decline(private: dict) -> tuple[str, dict]:
@@ -295,9 +448,7 @@ class TwentyDollarBot:
         slots it still has open, whether it is still live in this lot, and how
         many market skips it has left -- intersected with the candidate's
         positions. It deliberately does NOT consult a feasibility oracle for
-        the opponent; a human cannot run one either, and giving the bot a
-        sharper read of the opponent's roster than a human gets would be a
-        quieter form of the same asymmetry `SeatView` exists to prevent.
+        the opponent; a human cannot run one either.
         """
         candidate = public.get("candidate") or {}
         positions = set(candidate.get("positions") or [])
@@ -312,9 +463,6 @@ class TwentyDollarBot:
                 continue
             if positions & set(seat.get("open_slots") or []):
                 return True
-            # An opponent with no skips left is FORCED to open on a candidate
-            # that fits them, which makes the lot contested whether or not they
-            # want it. Read from the same public counter a human reads.
             if int(seat.get("market_skips", 1)) <= 0 and positions:
                 return True
         return False

@@ -56,7 +56,18 @@ from typing import Optional
 #: Bumped whenever the pipeline changes what it emits for unchanged inputs.
 #: Part of the rotation hash, so a regenerated bank reshuffles the calendar
 #: rather than silently swapping today's fact for a different one.
-FACT_BANK_VERSION = "nba_facts_v2"
+#:
+#: v3 IS BASKETBALL-WIDE, AND THE NAME SAYS SO. The bank stopped being NBA
+#: trivia in game-feel pass 2: the editorial half now covers the rules and
+#: equipment evolution, FIBA and the Olympics, the women's game, college,
+#: 3x3, wheelchair basketball, historic leagues, terminology and analytics,
+#: and widely known NBA milestones are scored below the homepage tier. The
+#: MODULE name (`nba_peak.nba_facts`), the route (`/api/v1/nba-facts/today`)
+#: and the artifact path (`data/web/nba_facts.v1.json`) are unchanged on
+#: purpose: they are contracts other code and the deploy image depend on,
+#: and renaming them would be a migration with no user-facing benefit. The
+#: version string and the card's heading are what a person sees.
+FACT_BANK_VERSION = "basketball_facts_v3"
 
 #: THE CATEGORY VOCABULARY, and it is the brief's list rather than the old
 #: bank's. The seven categories the first bank had (`franchise_tenure`,

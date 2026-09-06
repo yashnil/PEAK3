@@ -60,10 +60,13 @@ MODEL_VERSION: Final[str] = "peak3_v1"
 #: The bot policy shipped with this mode. Pinned onto a seat so a later
 #: recalibration cannot retroactively change what a settled rated match was
 #: played against.
-#: v3 values a candidate by MARGINAL ROSTER IMPROVEMENT rather than by an
-#: undifferentiated fair share, so a redundant or modest player is discounted
-#: and a scarce upgrade earns a premium. See `bot.py`.
-BOT_POLICY_VERSION: Final[str] = "twenty_dollar_bot_v3"
+#: v3 valued a candidate by MARGINAL ROSTER IMPROVEMENT over an undifferentiated
+#: fair share. v4 (game-feel pass 2) prices the roster as a whole: a coarse
+#: rank BAND rather than a three-way tier, a replacement level that falls as
+#: the market runs out, a money rate that moves with how much discretionary
+#: budget is left per open slot, and endgame spending so no money is stranded.
+#: See `bot.py`.
+BOT_POLICY_VERSION: Final[str] = "twenty_dollar_bot_v4"
 
 #: What the product calls the house opponent. USER-FACING, and the only string
 #: any surface may show. `bot_id` / `policy_version` are implementation labels
@@ -121,51 +124,74 @@ MIN_RAISE: Final[int] = 1
 #: it; this mode never computes a deadline itself.
 TURN_SECONDS: Final[float] = 25.0
 
-#: HOW LONG A BOT APPEARS TO DELIBERATE, in seconds — the range a per-turn
-#: value is drawn from.
+#: HOW LONG A BOT APPEARS TO DELIBERATE, in seconds -- per DECISION KIND.
 #:
-#: THE FLOOR IS ABOVE THE ROOM'S POLL INTERVAL, and that is the whole point.
-#: `TwentyDollarGame.tsx` polls every 2000ms. The platform default
-#: (`arena.bots.BOT_THINK_SECONDS`, 1.2s) sits BELOW that, so the bot's move
-#: routinely landed in the same poll that opened its turn: the client rendered
-#: the settled raise without ever rendering the opponent on the clock, and an
-#: ascending auction against an opponent who never visibly thinks reads as a
-#: function call rather than as another bidder. Three-Man Weave hit the
-#: identical bug and recorded the identical fix (see that mode's
-#: `bot_think_seconds`); this is the same rule applied to a faster loop.
+#: CALCULATE FIRST, PRESENT SECOND. The policy's answer is a pure function of
+#: the board and the seed; nothing about it waits. What waits is the moment
+#: the move is allowed to LAND, and that wait is a presentation choice whose
+#: only job is to read as another bidder rather than as a function call.
 #:
-#: DELIBERATELY MUCH SHORTER THAN THREE-MAN WEAVE'S 4-10s. A weave is six
-#: rounds of one pick each; an auction is up to 36 lots of alternating raises,
-#: so a bot turn here is a far more frequent event. Copying the weave's range
-#: would add minutes of watching to a single match. This range is long enough
-#: that at least one poll always renders "on the clock", and short enough that
-#: the bidding loop keeps its pace.
+#: THE PREVIOUS RANGE WAS 2.6-4.2s, chosen so a 2000ms client poll would
+#: always catch the opponent "thinking". Measured in play that produced
+#: 4-5 seconds of nothing between every human action and the bot's reply --
+#: not a tension beat, a frozen page. The client no longer relies on a fixed
+#: poll to catch the reply: the match view publishes `bot_reply_in_seconds`
+#: and the room reads the reply the instant it is due. So the floor can be
+#: what a person actually takes to answer an obvious raise.
 #:
-#: PRESENTATION ONLY. It never touches what the bot decides — the same policy
-#: computes the same bid either way. The foundation enforces it against the
-#: turn's stored `opened_at`, so two clients polling at different rates agree
-#: on when the move lands and a fast poller cannot hurry it along.
-BOT_THINK_SECONDS_MIN: Final[float] = 2.6
-BOT_THINK_SECONDS_MAX: Final[float] = 4.2
+#: FOUR KINDS, so the rhythm carries information:
+#:   quick      an uninterested pass on an unopened lot, or a walk-away from a
+#:              price it was never going to pay -- near-instant.
+#:   ordinary   an ordinary open or raise.
+#:   contested  the standing bid is close to the bot's own ceiling: the one
+#:              decision that genuinely is a decision, occasionally slower.
+#:   war        several raises have already landed inside this lot; replies
+#:              accelerate rather than repeating a full beat.
+#:
+#: Each is a range, never a constant -- a constant delay is still a machine,
+#: just a slower one -- and every draw is seeded so a match replays exactly.
+BOT_THINK_SECONDS_MIN: Final[float] = 0.35
+BOT_THINK_SECONDS_MAX: Final[float] = 1.3
+
+BOT_THINK_KIND_QUICK: Final[str] = "quick"
+BOT_THINK_KIND_ORDINARY: Final[str] = "ordinary"
+BOT_THINK_KIND_CONTESTED: Final[str] = "contested"
+BOT_THINK_KIND_WAR: Final[str] = "war"
+
+BOT_THINK_RANGES: Final[dict[str, tuple[float, float]]] = {
+    BOT_THINK_KIND_QUICK: (0.25, 0.65),
+    BOT_THINK_KIND_ORDINARY: (BOT_THINK_SECONDS_MIN, BOT_THINK_SECONDS_MAX),
+    BOT_THINK_KIND_CONTESTED: (1.2, 1.8),
+    BOT_THINK_KIND_WAR: (0.3, 0.85),
+}
+
+#: How often a `contested` decision actually takes the long beat. The rest of
+#: the time it uses the ordinary range, so the long beat stays rare enough to
+#: mean something.
+BOT_THINK_CONTESTED_LONG_CHANCE: Final[float] = 0.45
 
 
-def bot_think_seconds(seed: int | str, seat_index: int, turn_seq: int) -> float:
+def bot_think_seconds(
+    seed: int | str, seat_index: int, turn_seq: int, kind: str = BOT_THINK_KIND_ORDINARY
+) -> float:
     """How long THIS bot takes on THIS turn. Deterministic, never a sleep.
 
     Keyed by turn as well as seat so successive raises feel variable rather
-    than metronomic — a constant delay is still a machine, just a slower one —
-    and derived from the match seed so a replay of the same match produces the
-    same rhythm.
+    than metronomic, and derived from the match seed so a replay of the same
+    match produces the same rhythm. `kind` picks the range (see
+    `BOT_THINK_RANGES`); an unknown kind falls back to the ordinary one.
 
     Its own named RNG stream (`arena:{seed}:bot-think:...`), per this package's
     convention, so adding it cannot shift the draw sequence of the opening,
     candidate or autofill streams and silently reinterpret already-recorded
     matches.
     """
-    draw = random.Random(f"arena:{seed}:bot-think:{seat_index}:{turn_seq}").random()
-    return round(
-        BOT_THINK_SECONDS_MIN + draw * (BOT_THINK_SECONDS_MAX - BOT_THINK_SECONDS_MIN), 2
-    )
+    stream = random.Random(f"arena:{seed}:bot-think:{seat_index}:{turn_seq}")
+    draw = stream.random()
+    low, high = BOT_THINK_RANGES.get(kind, BOT_THINK_RANGES[BOT_THINK_KIND_ORDINARY])
+    if kind == BOT_THINK_KIND_CONTESTED and stream.random() >= BOT_THINK_CONTESTED_LONG_CHANCE:
+        low, high = BOT_THINK_RANGES[BOT_THINK_KIND_ORDINARY]
+    return round(low + draw * (high - low), 2)
 
 
 #: What an expired turn does: the ACTIVE seat passes, and nothing else moves.
@@ -305,6 +331,36 @@ POOL_TIERS: Final[tuple[tuple[int, int, float], ...]] = (
     (101, 250, 0.35),
     (251, 500, 0.25),
 )
+
+#: THE COARSE RANK BAND A BOT SEAT IS TOLD, and nothing finer.
+#:
+#: WHY IT IS FINER THAN THE THREE DRAW TIERS. The published 1Y board is steep
+#: at the top: the mean score of ranks 1-10 is about 93, of 26-50 about 78,
+#: of 51-100 about 67. A bot that could not tell those apart paid the same for
+#: Michael Jordan as for the ninetieth-best peak, which is not "guessing as a
+#: casual human would" -- a casual human knows Jordan. The rankings page is
+#: public, so a band is information every player at the table can look up;
+#: it is still not the score, cannot rank two players inside a band, and
+#: cannot be turned back into a price without the roster context in `bot.py`.
+#:
+#: `(first_rank, last_rank)`, inclusive, covering the qualified pool exactly.
+BOT_RANK_BANDS: Final[tuple[tuple[int, int], ...]] = (
+    (1, 10),
+    (11, 25),
+    (26, 50),
+    (51, 100),
+    (101, 250),
+    (251, 500),
+)
+
+
+def rank_band(rank: int) -> str:
+    """The `BOT_RANK_BANDS` label for a published rank, e.g. `"26-50"`."""
+    for first, last in BOT_RANK_BANDS:
+        if first <= rank <= last:
+            return f"{first}-{last}"
+    return "unranked"
+
 
 #: The five official weighted contributions carried by a published 1Y row.
 #:

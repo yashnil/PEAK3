@@ -8,6 +8,7 @@ import {
   twentyDollarApi,
   TwentyDollarAPIError,
   timeoutConsequence,
+  formatDollars,
   type TwentyDollarMatchView,
 } from "@/lib/twenty-dollar-api";
 import {
@@ -17,6 +18,8 @@ import {
   type RejectionExplanation,
 } from "@/lib/arena-rejection";
 import { BOT_DISPLAY_NAME, modeMeta } from "@/lib/arena-modes";
+import { isNewer, useCommandLane } from "@/lib/game-feel/authoritative";
+import type { EventMomentData } from "@/components/game-feel";
 import HowToPlay from "@/components/arena/HowToPlay";
 import { deadlineFromSeconds } from "@/components/shared/ArenaTimer";
 import { useLotLedger } from "./LotLedger";
@@ -32,351 +35,407 @@ import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
 /**
  * One $20 Showdown match — the auction room.
  *
- * SERVER-AUTHORITATIVE, LOCAL `useState`. The entire client state is "the last
- * view the server sent". There is no local reducer mirroring the rules, because
- * a second copy of the rules is a second thing that can disagree with the first.
+ * SERVER-AUTHORITATIVE, ONE SNAPSHOT PER RENDER. The entire client state is
+ * "the last view the server sent", held with the clocks derived from it and
+ * the moment it announced, so nothing paints a message before the board it
+ * describes. There is no local reducer mirroring the rules.
  *
- * THE FOUR DEFECTS THIS FILE OWNED, AND WHAT REPLACED THEM
- * --------------------------------------------------------
+ * THE INTERACTION CONTRACT (shared with Three-Man Weave and 82-0; see
+ * `docs/design/GAME_FEEL.md`):
  *
- * 1. THE IDEMPOTENCY KEY WAS REUSED ACROSS DIFFERENT INTENTS (S20-02, and the
- *    worst of the four). The room minted one random key, held it in a ref, and
- *    cleared it only on the success path — the `catch` left it set. After a
- *    dropped response the NEXT CLICK OF ANY KIND reused that key, so the server
- *    replayed the verdict it had recorded for a completely different action. If
- *    the lost request had been REJECTED, the retry returned `replayed: true`,
- *    the `if (!accepted && !replayed)` guard suppressed the banner, and the
- *    corrected bid was never sent: a silent no-op under a running clock. The
- *    key is now DERIVED from `(matchId, seat, stateVersion, command, payload)`,
- *    so a retry of the same action replays and a different action is a
- *    different action, with no lifecycle to get wrong. A replayed REJECTION is
- *    now surfaced rather than swallowed.
+ *   1. NEWER WINS, OLDER IS DROPPED. `applyView` applies a response only if
+ *      `isNewer` says so, so a poll issued before a command and landing after
+ *      it cannot roll the board back.
+ *   2. COMMANDS ARE SERIALIZED, NEVER DROPPED. Every command goes through one
+ *      `useCommandLane`. A bid or pass is an exclusive kind: a second press
+ *      while one is pending is refused before any handler runs, which is what
+ *      "one click, one action" means at the transport layer. The idempotency
+ *      key is DERIVED from the intent and the version current at execution.
+ *   3. THE BOT'S REPLY IS READ WHEN IT IS DUE. The view publishes
+ *      `bot_reply_in_seconds`; the room schedules one read for that instant
+ *      (plus a short retry ladder) instead of a fixed 2000ms poll that landed
+ *      the reply up to a whole interval late. Measured before this pass: the
+ *      bot's move was visible 4-5s after every human action, of which the
+ *      network was 40ms.
+ *   4. NO CLIENT BEAT GATES A CONTROL. The previous room held the controls
+ *      shut for a 1.1s "reveal" and a 0.7s "handoff" while the server clock
+ *      ran. Both are gone; a new lot's card ENTERS and the SOLD moment plays
+ *      over the stage while the controls are already live.
  *
- * 2. THE COUNTDOWN DID NOT FREEZE ON CLICK (S20-08). `submit()` set `busy` and
- *    `inFlight` and never touched `deadlineAt`, and `ArenaTimer` keys only on
- *    `[deadlineAt]`. See `useShowdownPhase`.
- *
- * 3. "WHILE YOU WERE AWAY" FIRED DURING LIVE PLAY (S20-10). See `LotLedger`.
- *
- * 4. RAW SERVER PROSE REACHED THE BANNER (S20-12). `apiError.message` was
- *    rendered directly in two places, and for a body without a `detail.message`
- *    that string is literally `"HTTP 500"`. Every path now goes through
- *    `explainRejection` or `explainTransportError`.
- *
- * WHY THIS POLLS, AND WHY THE POLL NOW REACTS TO THE TAB. There is no realtime
- * transport in this codebase; polling the same authenticated route a refresh
- * would hit reuses the whole projection and permission model unchanged. What it
- * did not do was notice the tab. A backgrounded tab has its intervals throttled
- * to once a minute or worse, so the first frame back was stale and the local
- * `performance.now()` deadline read zero until a poll re-seeded it. There is
- * now an immediate re-poll on `visibilitychange` and on `focus`. The interval
- * itself no longer depends on `view`, which used to tear it down and recreate
- * it on every single response.
- *
- * WHY A BOT'S MOVE COULD TAKE UP TO ~3.2s TO APPEAR, AND WHAT NARROWS IT. The
- * server applies a pending bot's move lazily, on the next authoritated read,
- * once `BOT_THINK_SECONDS` (1.2s, `apps/api/app/services/arena/bots.py`) has
- * elapsed since its turn opened — there is no push. Left to the fixed
- * `POLL_MS` cadence alone, a bot move that becomes due one tick late can sit
- * unseen for up to another full interval on top of the think time. Every
- * submit that hands the turn to a seat other than the player's own now also
- * arms one extra one-shot poll timed just past `BOT_THINK_FLOOR_MS`, so the
- * player's own action is what schedules the read most likely to catch the
- * reply, instead of leaving it to chance against a clock that was already
- * running before the click.
+ * WHY THIS POLLS. There is no realtime transport in this codebase; polling
+ * the same authenticated route a refresh would hit reuses the whole projection
+ * and permission model. The cadence is a function of whose turn it is.
  */
 
-const POLL_MS = 2000;
+/** Ordinary cadence on the human's own turn — a safety net for timeouts and
+ *  another tab's action, not the path a reply arrives by. */
+const POLL_OWN_TURN_MS = 3000;
+/** A human rival's turn: their action can land at any moment. */
+const POLL_RIVAL_MS = 1000;
+/** After the read the server said would carry the bot's move, if it did not
+ *  (clock skew, a slow request), read again on this ladder. */
+const BOT_RETRY_LADDER_MS = [250, 400, 700, 1000, 1500] as const;
+/** Slack added to the server's `bot_reply_in_seconds`. */
+const BOT_REPLY_SLACK_MS = 60;
+/** A seatless beat (intro, unwinnable lot, forced fill): read when it ends. */
+const SEATLESS_SLACK_MS = 90;
+const SEATLESS_MAX_WAIT_MS = 1600;
 
-/** MIRRORS `nba_peak.twenty_dollar.config.BOT_THINK_SECONDS_MIN`, and is NOT
- *  authoritative for anything.
- *
- *  The server draws a per-turn deliberation of 2.6-4.2s from the match seed and
- *  enforces it against the turn's stored `opened_at`. This constant exists only
- *  to time the one extra READ below; nothing here gates rendering. A view that
- *  arrives sooner than this is applied the instant it lands (`applyView` is
- *  ordered by `state_version`, never by a timer), so the client can never sit
- *  on an action the server has already committed.
- *
- *  It was 1200ms, mirroring the platform default the mode used to fall back
- *  to. That default sat BELOW `POLL_MS`, which is exactly why the bot's move
- *  used to arrive in the same poll that opened its turn and no opponent was
- *  ever seen thinking. Left at 1200 it would now fire before the earliest
- *  possible reply and waste the request. */
-const BOT_THINK_FLOOR_MS = 2600;
-const BOT_FOLLOW_UP_POLL_MS = BOT_THINK_FLOOR_MS + 200;
+/** Backoff for a failed FIRST read (see `load`). About three seconds in total. */
+const FIRST_READ_RETRY_MS = [400, 800, 1600] as const;
+
+/** How much a local deadline may drift from a freshly published one before a
+ *  same-version poll is allowed to correct it (a suspended tab). */
+const DRIFT_MS = 750;
+
+interface Room {
+  view: TwentyDollarMatchView;
+  deadlineAt: number | null;
+  turnDeadlineAt: number | null;
+  moment: EventMomentData | null;
+}
+
+type Source = "load" | "poll" | "command";
+
+function roomFrom(view: TwentyDollarMatchView, moment: EventMomentData | null): Room {
+  return {
+    view,
+    deadlineAt: deadlineFromSeconds(view.seconds_remaining),
+    turnDeadlineAt: deadlineFromSeconds(view.turn_seconds_remaining),
+    moment,
+  };
+}
+
+function driftExceeded(current: number | null, fresh: number | null): boolean {
+  if (current === null || fresh === null) return current !== fresh;
+  return Math.abs(current - fresh) > DRIFT_MS;
+}
+
+/**
+ * The moment a transition announces, derived from the two snapshots in the
+ * same render the new one lands. Only the OTHER seat's actions become a
+ * moment: the player's own action is acknowledged by the control that sent
+ * it, and a settled lot is announced by the SOLD reveal instead.
+ */
+export function describeTransition(
+  prev: TwentyDollarMatchView,
+  next: TwentyDollarMatchView,
+): EventMomentData | null {
+  const before = prev.public_state;
+  const after = next.public_state;
+  if (after.phase === "complete") return null;
+  if (after.history.length !== before.history.length) return null; // the reveal owns it
+  if (after.lot_index !== before.lot_index) return null;
+  const actions = after.lot_actions;
+  if (actions.length <= before.lot_actions.length || actions.length === 0) return null;
+  const last = actions[actions.length - 1];
+  const yours = last.seat_index === next.your_seat_index;
+  if (yours) return null;
+  const names = after.seat_names ?? next.seats.map((seat) => seat.display_name);
+  const who = names[last.seat_index] ?? "Opponent";
+  const id = `${after.lot_index}:${actions.length}`;
+  if (last.action === "bid") {
+    const raise = actions.filter((a) => a.action === "bid").length > 1;
+    return {
+      id,
+      kind: raise ? "outbid" : "opened",
+      title: raise ? `${who} raises to ${formatDollars(last.amount)}` : `${who} opens at ${formatDollars(last.amount)}`,
+      detail: raise ? "You are outbid" : "Your move",
+      tone: raise ? "negative" : "accent",
+      durationMs: 1300,
+    };
+  }
+  return {
+    id,
+    kind: "pass",
+    title: last.timed_out ? `${who} ran out of time` : `${who} passes`,
+    detail: last.consumed_skip ? "Market skip used" : undefined,
+    tone: "neutral",
+    durationMs: 1000,
+  };
+}
 
 export default function TwentyDollarGame({ matchId }: { matchId: string }) {
+  // KEYED BY MATCH ID: Play Again replaces the route with a fresh match and
+  // nothing from this room survives into the next one.
+  return <ShowdownRoom key={matchId} matchId={matchId} />;
+}
+
+function ShowdownRoom({ matchId }: { matchId: string }) {
   const router = useRouter();
-  const [view, setView] = useState<TwentyDollarMatchView | null>(null);
+  const [room, setRoom] = useState<Room | null>(null);
+  const latest = useRef<Room | null>(null);
   const [error, setError] = useState<RejectionExplanation | null>(null);
   const [loadFailure, setLoadFailure] = useState<TwentyDollarAPIError | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [inFlightAction, setInFlightAction] = useState<{
-    command: "bid" | "pass";
-    amount: number;
-  } | null>(null);
+  const [inFlightAction, setInFlightAction] = useState<{ command: "bid" | "pass"; amount: number } | null>(null);
   const [copied, setCopied] = useState(false);
   const [locallyExpired, setLocallyExpired] = useState(false);
-  // A local monotonic deadline rather than a duration in state. See
-  // `ArenaTimer`'s docstring for why a re-seeded duration drifts.
-  const [deadlineAt, setDeadlineAt] = useState<number | null>(null);
-  // THE OPEN TURN'S DEADLINE, WHOEVER IS ON IT. Distinct from `deadlineAt`,
-  // which is null while the opponent decides — the null that made this room
-  // draw their turn as a count-UP of elapsed time. See `ShowdownClock`.
-  const [turnDeadlineAt, setTurnDeadlineAt] = useState<number | null>(null);
-  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+  const lane = useCommandLane();
 
-  // Guards a poll landing while a command is in flight from overwriting the
-  // newer state the command already returned.
-  const inFlight = useRef(false);
-  // The highest authoritative version this client has applied. A response older
-  // than what is already on screen is DROPPED rather than rendered: two
-  // overlapping requests can complete out of order, and the newer state must
-  // win regardless of arrival order.
-  const appliedVersion = useRef(-1);
-  // The one armed-but-not-yet-fired bot follow-up poll (see the module
-  // docstring). Re-arming clears whatever was already pending so a fast
-  // human — pass, then bid, then pass again — cannot stack timers that all
-  // fire into the same `load()` guard for no benefit.
-  const botFollowUpTimer = useRef<number | null>(null);
-
-  /**
-   * Apply an authoritative view, unless it is older than what is on screen.
-   * The single place `view` is written, so the monotonicity rule cannot be
-   * bypassed by a new call site.
-   */
-  const applyView = useCallback((next: TwentyDollarMatchView) => {
-    if (next.state_version < appliedVersion.current) return false;
-    const advanced = next.state_version > appliedVersion.current;
-    appliedVersion.current = next.state_version;
-    setView(next);
-    setDeadlineAt(deadlineFromSeconds(next.seconds_remaining));
-    setTurnDeadlineAt(deadlineFromSeconds(next.turn_seconds_remaining));
-    setSecondsRemaining(next.seconds_remaining);
+  /** Apply an authoritative view, unless it is older than what is on screen. */
+  const applyView = useCallback((next: TwentyDollarMatchView, source: Source): boolean => {
+    const prev = latest.current;
+    if (prev !== null) {
+      const newer = isNewer(
+        { version: prev.view.state_version, phase: prev.view.turn_phase },
+        { version: next.state_version, phase: next.turn_phase },
+      );
+      if (!newer) {
+        // A SAME-VERSION poll changes nothing -- except a clock that has
+        // drifted far enough (a suspended tab) to be worth correcting. An
+        // OLDER response corrects nothing at all: its clocks describe a turn
+        // that is already over.
+        if (next.state_version !== prev.view.state_version) return false;
+        const fresh = deadlineFromSeconds(next.seconds_remaining);
+        const freshTurn = deadlineFromSeconds(next.turn_seconds_remaining);
+        if (driftExceeded(prev.deadlineAt, fresh) || driftExceeded(prev.turnDeadlineAt, freshTurn)) {
+          const corrected = { ...prev, deadlineAt: fresh, turnDeadlineAt: freshTurn };
+          latest.current = corrected;
+          setRoom(corrected);
+        }
+        return false;
+      }
+    }
+    const moment = prev && source !== "load" ? describeTransition(prev.view, next) : null;
+    const nextRoom = roomFrom(next, moment ?? prev?.moment ?? null);
+    latest.current = nextRoom;
+    setRoom(nextRoom);
     setLocallyExpired(false);
     // ERRORS CLEAR ON AN AUTHORITATIVE TRANSITION. A rejection explains a
-    // moment; once the board has moved past that moment the explanation is
-    // history, and leaving it up is the "generic banner that stayed for the
-    // rest of the match" defect in a politer form.
-    if (advanced) setError(null);
+    // moment; once the board has moved past it the explanation is history.
+    setError(null);
     return true;
   }, []);
 
+  const firstReadAttempts = useRef(0);
+  // Bumped after EVERY read completes, changed or not, so the polling effect
+  // below re-arms. A read that changed nothing (the bot has not moved yet)
+  // used to leave no timer behind and the room went quiet until something
+  // else happened to re-render it -- measured once as a 97-second stall.
+  const [pollEpoch, setPollEpoch] = useState(0);
+
   const load = useCallback(async () => {
-    if (inFlight.current) return;
+    // Never race a command: its response is newer by construction and is
+    // applied the instant it lands.
+    if (lane.busyNow()) return;
     try {
       const next = await twentyDollarApi.getMatch(matchId);
-      if (inFlight.current) return;
-      applyView(next);
+      if (lane.busyNow()) return;
+      applyView(next, latest.current ? "poll" : "load");
       setLoadFailure(null);
     } catch (err) {
       const apiError = err as TwentyDollarAPIError;
+      if (!latest.current) {
+        // THE FIRST READ RETRIES BEFORE IT GIVES UP. A freshly started server
+        // and a session that has not finished hydrating can turn the very
+        // first request into a 401/403 that a second request a moment later
+        // would not produce, and a room that showed "not your seat" on that
+        // one answer -- with no poll running yet to correct it -- stayed
+        // there for good. A real 404 needs no retry.
+        const attempt = firstReadAttempts.current;
+        if (apiError.status !== 404 && attempt < FIRST_READ_RETRY_MS.length) {
+          firstReadAttempts.current = attempt + 1;
+          window.setTimeout(() => void loadRef.current(), FIRST_READ_RETRY_MS[attempt]);
+          return;
+        }
+        setError(explainTransportError(apiError.status, apiError.code, apiError.message, "load"));
+      }
       setLoadFailure((current) => current ?? apiError);
-      setError(
-        explainTransportError(apiError.status, apiError.code, apiError.message, "load"),
-      );
+    } finally {
+      setPollEpoch((n) => n + 1);
     }
-  }, [matchId, applyView]);
+  }, [matchId, applyView, lane]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const complete = view?.public_state?.phase === "complete";
-
-  // POLL WHILE THE MATCH IS LIVE, and re-poll the instant the tab comes back.
-  // `completeRef` rather than a `complete` dependency: the interval used to be
-  // torn down and recreated on every response because `view` was a dependency,
-  // which is a new timer every two seconds for no reason.
-  const completeRef = useRef(complete);
-  completeRef.current = complete;
+  // THE FIRST READ, once per room. Through the ref, so a re-render (the lane
+  // publishing its pending state, an error) can never trigger a second read.
   const loadRef = useRef(load);
   loadRef.current = load;
+  useEffect(() => {
+    void loadRef.current();
+  }, [matchId]);
+
+  const view = room?.view ?? null;
+  const complete = view?.public_state?.phase === "complete";
+
+  // -- polling: whose turn decides the cadence ---------------------------
+  const timer = useRef<number | null>(null);
+  const retryStep = useRef(0);
+  const lastScheduledVersion = useRef(-1);
+
+  const schedule = useCallback((delayMs: number) => {
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => {
+      timer.current = null;
+      void loadRef.current();
+    }, Math.max(40, delayMs));
+  }, []);
 
   useEffect(() => {
-    const tick = () => {
-      if (completeRef.current) return;
-      void loadRef.current();
-    };
-    const id = window.setInterval(tick, POLL_MS);
-
-    // A BACKGROUNDED TAB IS THROTTLED, so the first frame back is stale and the
-    // local deadline reads zero until a poll re-seeds it. Both events, because
-    // a window that is focused without ever having been `hidden` (an alt-tab on
-    // some platforms) fires only `focus`.
-    const onVisible = () => {
-      if (document.visibilityState === "visible") tick();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", tick);
+    if (!view || complete) return;
+    if (view.state_version !== lastScheduledVersion.current) {
+      lastScheduledVersion.current = view.state_version;
+      retryStep.current = 0;
+    }
+    const seatless = view.public_state.active_seat === null || view.turn_phase === "intro";
+    const botReply = view.bot_reply_in_seconds ?? null;
+    let delay: number;
+    if (seatless) {
+      const left = view.turn_seconds_remaining ?? null;
+      delay = left === null ? 600 : Math.min(SEATLESS_MAX_WAIT_MS, left * 1000 + SEATLESS_SLACK_MS);
+      if (retryStep.current > 0) delay = BOT_RETRY_LADDER_MS[Math.min(retryStep.current - 1, BOT_RETRY_LADDER_MS.length - 1)];
+    } else if (botReply !== null) {
+      // THE READ THE SERVER SAID WOULD CARRY THE MOVE, then the ladder.
+      delay =
+        retryStep.current === 0
+          ? botReply * 1000 + BOT_REPLY_SLACK_MS
+          : BOT_RETRY_LADDER_MS[Math.min(retryStep.current - 1, BOT_RETRY_LADDER_MS.length - 1)];
+    } else if (view.private_state.is_your_turn) {
+      delay = POLL_OWN_TURN_MS;
+    } else {
+      delay = POLL_RIVAL_MS;
+    }
+    retryStep.current += 1;
+    schedule(delay);
     return () => {
-      window.clearInterval(id);
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", tick);
-      if (botFollowUpTimer.current !== null) {
-        window.clearTimeout(botFollowUpTimer.current);
-        botFollowUpTimer.current = null;
+      if (timer.current !== null) {
+        window.clearTimeout(timer.current);
+        timer.current = null;
       }
+    };
+    // `room` (not `view`) so a same-version drift correction re-arms too;
+    // `pollEpoch` so an unchanged read re-arms as well.
+  }, [room, view, complete, schedule, pollEpoch]);
+
+  useEffect(() => {
+    // A BACKGROUNDED TAB IS THROTTLED, so the first frame back is stale.
+    const wake = () => {
+      if (document.visibilityState === "visible") void loadRef.current();
+    };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    return () => {
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
     };
   }, []);
 
-  const submit = useCallback(
-    async (command: "bid" | "pass", amount: number) => {
-      if (!view || busy) return;
-      const attempt: AttemptedAction = {
-        command,
-        amount,
-        lotIndex: view.public_state.lot_index,
-        standingBid: view.public_state.current_bid,
-        wouldSpendSkip: view.private_state.pass_consumes_skip,
-      };
-      const payload = command === "bid" ? { amount } : {};
-      // DERIVED, NOT MINTED. See the module docstring: this is the whole of the
-      // S20-02 fix. The same click retried produces the same key and replays;
-      // any other action produces a different key and is applied.
-      const key = showdownIdempotencyKey(
-        matchId,
-        view.your_seat_index,
-        view.state_version,
-        command,
-        payload,
-      );
-
-      setBusy(true);
-      setInFlightAction({ command, amount });
-      setError(null);
-      // THE COUNTDOWN STOPS HERE (S20-08). `useShowdownPhase` reads `busy` and
-      // hands `ArenaTimer` a null deadline, so nothing counts down behind the
-      // request and `onExpire` cannot fire against an action the server's grace
-      // window is about to accept.
-      setLocallyExpired(false);
-      inFlight.current = true;
-      try {
-        const result = await twentyDollarApi.submitCommand(
-          matchId,
+  // -- commands ----------------------------------------------------------
+  /**
+   * Bid or pass. Returns true when the server ACCEPTED the action, false
+   * when it was refused (a rejection, a transport failure) or when the lane
+   * refused to run it (a duplicate press). The control that sent it reads
+   * the answer for its confirmed / error beat.
+   */
+  const act = useCallback(
+    async (command: "bid" | "pass", amount: number): Promise<boolean> => {
+      const result = await lane.run("act", async () => {
+        const current = latest.current;
+        if (!current || current.view.public_state.phase === "complete") return false;
+        const snapshot = current.view;
+        const attempt: AttemptedAction = {
           command,
-          payload,
-          view.state_version,
-          key,
-        );
-        // The authoritative state lands FIRST, so the explanation below is
-        // derived from the board as it now is rather than from the stale render
-        // the click was made against.
-        applyView(result.match);
-        // THE TURN JUST LEFT THE HUMAN'S HANDS. If it is now on the clock for
-        // anyone else — bot or opponent — arm one extra poll timed just past
-        // `BOT_THINK_FLOOR_MS` so a bot's reply is read as soon as it is
-        // likely to be due, rather than waiting on whatever is left of the
-        // fixed interval. Harmless against a human opponent: the poll simply
-        // finds them still deciding and the normal interval carries on.
-        if (botFollowUpTimer.current !== null) {
-          window.clearTimeout(botFollowUpTimer.current);
-          botFollowUpTimer.current = null;
+          amount,
+          lotIndex: snapshot.public_state.lot_index,
+          standingBid: snapshot.public_state.current_bid,
+          wouldSpendSkip: snapshot.private_state.pass_consumes_skip,
+        };
+        const payload = command === "bid" ? { amount } : {};
+        const key = showdownIdempotencyKey(matchId, snapshot.your_seat_index, snapshot.state_version, command, payload);
+        setInFlightAction({ command, amount });
+        setError(null);
+        setLocallyExpired(false);
+        try {
+          const response = await twentyDollarApi.submitCommand(matchId, command, payload, snapshot.state_version, key);
+          applyView(response.match, "command");
+          if (!response.accepted) {
+            setError(
+              explainRejection(
+                response.rejection_code,
+                response.message,
+                attempt,
+                response.match.public_state,
+                response.match.public_state.seat_names ?? response.match.seats.map((seat) => seat.display_name),
+                response.match.your_seat_index,
+              ),
+            );
+            return false;
+          }
+          return true;
+        } catch (err) {
+          const apiError = err as TwentyDollarAPIError;
+          setError(explainTransportError(apiError.status, apiError.code, apiError.message, command));
+          return false;
+        } finally {
+          setInFlightAction(null);
         }
-        const nextActive = result.match.public_state.active_seat;
-        if (
-          result.match.public_state.phase !== "complete" &&
-          nextActive !== null &&
-          nextActive !== result.match.your_seat_index
-        ) {
-          botFollowUpTimer.current = window.setTimeout(() => {
-            botFollowUpTimer.current = null;
-            void loadRef.current();
-          }, BOT_FOLLOW_UP_POLL_MS);
-        }
-        // `replayed` NO LONGER SUPPRESSES THE EXPLANATION. A replayed rejection
-        // is still a rejection the player has not been told about, and the old
-        // guard turned exactly that case into a silent no-op.
-        if (!result.accepted) {
-          setError(
-            explainRejection(
-              result.rejection_code,
-              result.message,
-              attempt,
-              result.match.public_state,
-              result.match.public_state.seat_names ??
-                result.match.seats.map((seat) => seat.display_name),
-              result.match.your_seat_index,
-            ),
-          );
-        }
-      } catch (err) {
-        const apiError = err as TwentyDollarAPIError;
-        setError(
-          explainTransportError(apiError.status, apiError.code, apiError.message, command),
-        );
-      } finally {
-        inFlight.current = false;
-        setBusy(false);
-        setInFlightAction(null);
-      }
+      });
+      return result === true;
     },
-    [matchId, view, busy, applyView],
+    [matchId, lane, applyView],
   );
 
-  /**
-   * The two LIFECYCLE commands: end the intro, concede the match.
-   *
-   * Deliberately not routed through `submit`. That function exists to place an
-   * auction move and to explain a refused one in the language of bidding —
-   * `AttemptedAction` carries a standing bid and whether a skip would be spent,
-   * and neither means anything here. These two change the shape of the match
-   * rather than the state of a lot.
-   *
-   * BOTH ARE SERVER-RESOLVED, which is the whole point. A client that merely
-   * hid the intro would leave the player looking at a board that refuses every
-   * action; a client that merely navigated away from a forfeit would leave a
-   * live match on the server for the same player to rejoin.
-   */
+  /** End the intro, or concede. Server-resolved, like every other move. */
   const sendLifecycle = useCallback(
-    async (command: "showdown_skip_intro" | "showdown_forfeit") => {
-      if (!view || busy) return;
-      setBusy(true);
-      setError(null);
-      inFlight.current = true;
-      try {
-        const result = await twentyDollarApi.submitCommand(
-          matchId,
-          command,
-          {},
-          view.state_version,
-          showdownIdempotencyKey(
+    async (command: "showdown_skip_intro" | "showdown_forfeit"): Promise<boolean> => {
+      const result = await lane.run(command, async () => {
+        const current = latest.current;
+        if (!current) return false;
+        const snapshot = current.view;
+        try {
+          const response = await twentyDollarApi.submitCommand(
             matchId,
-            view.your_seat_index,
-            view.state_version,
             command,
             {},
-          ),
-        );
-        applyView(result.match);
-        // A REFUSED SKIP IS NOT WORTH A BANNER: the only way it fails is that
-        // the intro already ended, which is what the player asked for. A
-        // refused FORFEIT is worth one — they meant to leave and are still here.
-        if (!result.accepted && command === "showdown_forfeit") {
-          setError(
-            explainTransportError(
-              409,
-              result.rejection_code ?? null,
-              result.message ?? "",
-              "load",
-            ),
+            snapshot.state_version,
+            showdownIdempotencyKey(matchId, snapshot.your_seat_index, snapshot.state_version, command, {}),
           );
+          applyView(response.match, "command");
+          if (!response.accepted && command === "showdown_forfeit") {
+            setError(explainTransportError(409, response.rejection_code ?? null, response.message ?? "", "load"));
+            return false;
+          }
+          return true;
+        } catch (err) {
+          const apiError = err as TwentyDollarAPIError;
+          if (command === "showdown_forfeit") {
+            setError(explainTransportError(apiError.status, apiError.code, apiError.message, "load"));
+          }
+          return false;
         }
-      } catch (err) {
-        const apiError = err as TwentyDollarAPIError;
-        if (command === "showdown_forfeit") {
-          setError(
-            explainTransportError(apiError.status, apiError.code, apiError.message, "load"),
-          );
-        }
-      } finally {
-        inFlight.current = false;
-        setBusy(false);
-      }
+      });
+      return result === true;
     },
-    [matchId, view, busy, applyView],
+    [matchId, lane, applyView],
   );
+
+  const hasBots = view?.seats.some((seat) => seat.is_bot) ?? false;
+
+  /**
+   * PLAY AGAIN: against bots, a fresh practice match is created and the route
+   * is REPLACED with its id, so the loader mounts a brand-new room. A human
+   * table has no rematch primitive yet, so it returns to the lobby with this
+   * game preselected.
+   */
+  const playAgain = useCallback(async (): Promise<boolean> => {
+    const result = await lane.run("replay", async () => {
+      if (hasBots) {
+        const created = await twentyDollarApi.startPractice();
+        router.replace(`/arena/twenty-dollar/${created.match_id}`);
+        return true;
+      }
+      router.push("/arena/lobby?game=twenty_dollar");
+      return true;
+    });
+    return result === true;
+  }, [hasBots, lane, router]);
+
+  const dismissMoment = useCallback((id: string) => {
+    const current = latest.current;
+    if (!current || current.moment?.id !== id) return;
+    const next = { ...current, moment: null };
+    latest.current = next;
+    setRoom(next);
+  }, []);
 
   const meta = modeMeta("twenty_dollar");
 
@@ -392,19 +451,11 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
           data-testid="td-match-error"
           style={{ border: "1px solid var(--v2-border-subtle)" }}
         >
-          <p
-            className="text-xs font-bold uppercase tracking-[0.14em]"
-            style={{ fontFamily: "var(--v2-font-mono)", color: "var(--v2-text-muted)" }}
-          >
+          <p className="text-xs font-bold uppercase tracking-[0.14em]" style={{ fontFamily: "var(--v2-font-mono)", color: "var(--v2-text-muted)" }}>
             {notYours ? "Not your seat" : "Match not found"}
           </p>
-          <h1
-            className="text-2xl font-bold"
-            style={{ fontFamily: "var(--v2-font-display)", color: "var(--v2-text-primary)" }}
-          >
-            {notYours
-              ? "This auction belongs to someone else"
-              : "We could not find that auction"}
+          <h1 className="text-2xl font-bold" style={{ fontFamily: "var(--v2-font-display)", color: "var(--v2-text-primary)" }}>
+            {notYours ? "This auction belongs to someone else" : "We could not find that auction"}
           </h1>
           <p className="text-sm leading-relaxed" style={{ color: "var(--v2-text-secondary)" }}>
             {notYours
@@ -420,7 +471,7 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
     );
   }
 
-  if (!view) {
+  if (!view || !room) {
     return (
       <PeakV2Shell width="live">
         <div className="pk-atmosphere py-9">
@@ -434,23 +485,27 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
 
   return (
     <AuctionRoom
-      view={view}
+      room={room}
       meta={meta}
       error={error}
-      busy={busy}
+      pendingKind={lane.pending}
       inFlightAction={inFlightAction}
-      deadlineAt={deadlineAt}
-      turnDeadlineAt={turnDeadlineAt}
-      secondsRemaining={secondsRemaining}
       locallyExpired={locallyExpired}
       copied={copied}
-      onExpire={() => setLocallyExpired(true)}
+      onExpire={() => {
+        setLocallyExpired(true);
+        // The server settles an expired turn on its next read; ask for it just
+        // past the action-grace window instead of waiting out the own-turn
+        // cadence.
+        window.setTimeout(() => void loadRef.current(), 450);
+      }}
       onDismissError={() => setError(null)}
-      onSubmit={submit}
-      onSkipIntro={() => void sendLifecycle("showdown_skip_intro")}
-      onForfeit={() => void sendLifecycle("showdown_forfeit")}
+      onDismissMoment={dismissMoment}
+      onAct={act}
+      onSkipIntro={() => sendLifecycle("showdown_skip_intro")}
+      onForfeit={() => sendLifecycle("showdown_forfeit")}
       onCopy={setCopied}
-      onPlayAgain={() => router.push("/arena")}
+      onPlayAgain={playAgain}
     />
   );
 }
@@ -461,45 +516,39 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
  * above.
  */
 function AuctionRoom({
-  view,
+  room,
   meta,
   error,
-  busy,
+  pendingKind,
   inFlightAction,
-  deadlineAt,
-  turnDeadlineAt,
-  secondsRemaining,
   locallyExpired,
   copied,
   onExpire,
   onDismissError,
-  onSubmit,
+  onDismissMoment,
+  onAct,
   onSkipIntro,
   onForfeit,
   onCopy,
   onPlayAgain,
 }: {
-  view: TwentyDollarMatchView;
+  room: Room;
   meta: ReturnType<typeof modeMeta>;
   error: RejectionExplanation | null;
-  busy: boolean;
+  pendingKind: string | null;
   inFlightAction: { command: "bid" | "pass"; amount: number } | null;
-  deadlineAt: number | null;
-  /** The open turn's deadline, whoever holds it. See `ShowdownClock`. */
-  turnDeadlineAt: number | null;
-  secondsRemaining: number | null;
   locallyExpired: boolean;
   copied: boolean;
   onExpire: () => void;
   onDismissError: () => void;
-  onSubmit: (command: "bid" | "pass", amount: number) => void;
-  /** End the server's intro turn early. */
-  onSkipIntro: () => void;
-  /** Concede the match. Resolved server-side; see `mode._forfeit`. */
-  onForfeit: () => void;
+  onDismissMoment: (id: string) => void;
+  onAct: (command: "bid" | "pass", amount: number) => Promise<boolean>;
+  onSkipIntro: () => Promise<boolean>;
+  onForfeit: () => Promise<boolean>;
   onCopy: (value: boolean) => void;
-  onPlayAgain: () => void;
+  onPlayAgain: () => Promise<boolean>;
 }) {
+  const { view, deadlineAt, turnDeadlineAt, moment } = room;
   const publicState = view.public_state;
   const privateState = view.private_state;
   const yourSeat = view.your_seat_index;
@@ -510,23 +559,15 @@ function AuctionRoom({
   );
   const receipt = publicState.receipt as TwentyDollarReceiptData | undefined;
 
-  const { recap, reveal, queued, revealedHistory, acknowledgeRecap } = useLotLedger(
-    view.match_id,
-    publicState,
-  );
+  const { recap, reveal, queued, acknowledgeRecap } = useLotLedger(view.match_id, publicState);
 
+  const actPending = pendingKind === "act";
   const { phase, clockDeadlineAt, controlsLive } = useShowdownPhase({
-    lotIndex: publicState.lot_index,
     activeSeat: publicState.active_seat,
     yourSeat,
-    actionCount: publicState.lot_actions.length,
-    secondsRemaining,
     deadlineAt,
-    pending: busy,
+    pending: actPending,
     complete,
-    // THE SERVER'S OWN PHASE. The intro is a real turn now, so the room renders
-    // what the server published rather than guessing "this looks like a fresh
-    // match" and pricing a beat against a clock it does not own.
     introOpen: view.turn_phase === "intro",
   });
 
@@ -536,14 +577,13 @@ function AuctionRoom({
     [publicState.seats, yourSeat],
   );
   const yourSeatPublic = publicState.seats[yourSeat ?? 0];
-  const opponentName =
-    seatNames[opponentSeats[0]?.seat_index ?? 1] ?? BOT_DISPLAY_NAME;
+  const opponentIndex = opponentSeats[0]?.seat_index ?? 1;
+  const opponentName = seatNames[opponentIndex] ?? BOT_DISPLAY_NAME;
+  const opponentIsBot = view.seats.find((seat) => seat.seat_index === opponentIndex)?.is_bot ?? false;
 
   if (complete && receipt) {
     const onCopyResult = () => {
-      void navigator.clipboard
-        ?.writeText(buildShowdownShareText(receipt, yourSeat))
-        .then(() => onCopy(true));
+      void navigator.clipboard?.writeText(buildShowdownShareText(receipt, yourSeat)).then(() => onCopy(true));
     };
     return (
       <div data-testid="td-game" data-phase="complete">
@@ -553,6 +593,7 @@ function AuctionRoom({
           seatNames={seatNames}
           yourSeat={yourSeat}
           onPlayAgain={onPlayAgain}
+          playAgainPending={pendingKind === "replay"}
           onCopy={onCopyResult}
           copied={copied}
         />
@@ -560,41 +601,34 @@ function AuctionRoom({
     );
   }
 
-  // V2's own live board — same already-computed state/handlers, no second
-  // poll or reducer. Built once here so it composes with the intro overlay
-  // exactly like legacy's `MatchIntro` (mounted OVER an already-live board,
-  // never gating it) rather than as a separate first screen.
-  const v2Live = (
-    <PeakV2ShowdownLive
-      publicState={publicState}
-      privateState={privateState}
-      seatNames={seatNames}
-      yourSeat={yourSeat}
-      phase={phase}
-      clockDeadlineAt={clockDeadlineAt}
-      turnDeadlineAt={turnDeadlineAt}
-      controlsLive={controlsLive}
-      busy={busy}
-      inFlightAction={inFlightAction}
-      locallyExpired={locallyExpired}
-      consequence={yourTurn ? timeoutConsequence(privateState, seatNames, publicState) : null}
-      revealedHistory={revealedHistory}
-      reveal={reveal}
-      queued={queued}
-      recap={recap}
-      onAcknowledgeRecap={acknowledgeRecap}
-      error={error}
-      onExpire={onExpire}
-      onDismissError={onDismissError}
-      onSubmit={onSubmit}
-      helpControl={meta ? <HowToPlay title={meta.name} rules={meta.rules} testId="td-rules" /> : null}
-      forfeitControl={<ForfeitControl onConfirm={onForfeit} busy={busy} />}
-    />
-  );
-
   return (
     <>
-      {v2Live}
+      <PeakV2ShowdownLive
+        view={view}
+        seatNames={seatNames}
+        yourSeat={yourSeat}
+        opponentIsBot={opponentIsBot}
+        phase={phase}
+        clockDeadlineAt={clockDeadlineAt}
+        turnDeadlineAt={turnDeadlineAt}
+        controlsLive={controlsLive}
+        pending={actPending}
+        inFlightAction={inFlightAction}
+        locallyExpired={locallyExpired}
+        consequence={yourTurn ? timeoutConsequence(privateState, seatNames, publicState) : null}
+        reveal={reveal}
+        queued={queued}
+        recap={recap}
+        moment={moment}
+        onDismissMoment={onDismissMoment}
+        onAcknowledgeRecap={acknowledgeRecap}
+        error={error}
+        onExpire={onExpire}
+        onDismissError={onDismissError}
+        onAct={onAct}
+        helpControl={meta ? <HowToPlay title={meta.name} rules={meta.rules} testId="td-rules" /> : null}
+        forfeitControl={<ForfeitControl onConfirm={onForfeit} busy={pendingKind === "showdown_forfeit"} />}
+      />
       {phase === "intro" ? (
         <PeakV2ShowdownIntro
           opponentName={opponentName}
@@ -602,6 +636,9 @@ function AuctionRoom({
           slots={publicState.slots.length}
           marketSkips={publicState.market_skips_per_seat}
           rated={view.rated}
+          elapsedSeconds={view.turn_elapsed_seconds ?? null}
+          totalSeconds={view.turn_total_seconds ?? null}
+          turnSeq={view.turn_seq ?? null}
           onDismiss={onSkipIntro}
         />
       ) : null}
@@ -611,26 +648,17 @@ function AuctionRoom({
 
 /**
  * FORFEIT MATCH — a secondary control that takes two deliberate actions.
- *
- * WHY IT EXISTS. Without it the only way out of a Showdown is to close the tab,
- * which leaves the opponent watching a clock tick out lot after lot and leaves
- * a live match on the server for the same player to be dropped back into on
- * their next visit. Conceding is a real move, so it is a real command.
- *
- * WHY IT IS TWO CLICKS AND NOT ONE. It ends the match with a loss and cannot be
- * undone, and it sits in the room's header a short distance from "How to play".
- * A single mis-click there would be the worst possible outcome of a mis-click,
- * so the first press only reveals the confirmation, the destructive choice is
- * never the one under the cursor, and Escape backs out. It is deliberately NOT
- * a `window.confirm`: that is unstyleable, unannounceable, and blocks the poll.
+ * It ends the match with a loss and cannot be undone; the first press only
+ * reveals the confirmation, the destructive choice is never the one under the
+ * cursor, and Escape backs out. Not a `window.confirm`: that is unstyleable,
+ * unannounceable, and blocks the poll.
  */
-function ForfeitControl({ onConfirm, busy }: { onConfirm: () => void; busy: boolean }) {
+function ForfeitControl({ onConfirm, busy }: { onConfirm: () => Promise<boolean>; busy: boolean }) {
   const [confirming, setConfirming] = useState(false);
   const cancelRef = useRef<HTMLButtonElement | HTMLAnchorElement | null>(null);
 
   useEffect(() => {
     if (!confirming) return;
-    // Focus lands on CANCEL, never on the destructive choice.
     cancelRef.current?.focus();
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") setConfirming(false);
@@ -641,32 +669,16 @@ function ForfeitControl({ onConfirm, busy }: { onConfirm: () => void; busy: bool
 
   if (!confirming) {
     return (
-      <PeakV2SecondaryAction
-        type="button"
-        size="sm"
-        data-testid="td-forfeit"
-        onClick={() => setConfirming(true)}
-      >
+      <PeakV2SecondaryAction type="button" size="sm" data-testid="td-forfeit" onClick={() => setConfirming(true)}>
         Forfeit match
       </PeakV2SecondaryAction>
     );
   }
 
   return (
-    <div
-      className="td-forfeit-confirm"
-      data-testid="td-forfeit-confirm"
-      role="group"
-      aria-label="Confirm forfeit"
-    >
+    <div className="td-forfeit-confirm" data-testid="td-forfeit-confirm" role="group" aria-label="Confirm forfeit">
       <p className="td-forfeit-question">Concede this match?</p>
-      <PeakV2SecondaryAction
-        type="button"
-        size="sm"
-        ref={cancelRef}
-        data-testid="td-forfeit-cancel"
-        onClick={() => setConfirming(false)}
-      >
+      <PeakV2SecondaryAction type="button" size="sm" ref={cancelRef} data-testid="td-forfeit-cancel" onClick={() => setConfirming(false)}>
         Keep playing
       </PeakV2SecondaryAction>
       <PeakV2SecondaryAction
@@ -674,7 +686,7 @@ function ForfeitControl({ onConfirm, busy }: { onConfirm: () => void; busy: bool
         size="sm"
         data-testid="td-forfeit-confirm-button"
         disabled={busy}
-        onClick={onConfirm}
+        onClick={() => void onConfirm()}
         style={{ color: "var(--v2-color-negative)", borderColor: "var(--v2-color-negative)" }}
       >
         {busy ? "Conceding…" : "Forfeit"}

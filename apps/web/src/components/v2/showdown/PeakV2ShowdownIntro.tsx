@@ -1,20 +1,22 @@
 "use client";
 
 /**
- * PeakV2ShowdownIntro — the $20 Showdown's CINEMATIC pre-match (Pass 3).
+ * PeakV2ShowdownIntro — the $20 Showdown's pre-match, on the SERVER's clock.
  *
- * Verified against the reference (E2 page 18): "Somebody always *overpays*."
- * italic-gold headline, four numbered steps, then the real per-seat budget
- * mirror. An overlay above the mounted board, same as legacy `MatchIntro` —
- * `onDismiss` is the exact same server-turn-skip callback, so dismissal
- * timing still belongs to `useShowdownPhase`, not this component.
+ * "Somebody always *overpays*." over the mounted board, four steps, the real
+ * per-seat budget mirror, and a bar that drains against the intro turn's own
+ * `turn_elapsed_seconds` / `turn_total_seconds` so every client agrees how
+ * long is left. `onDismiss` is the server-turn-skip command; the first lot
+ * opens with a full decision window either way.
  */
 
+import { useEffect, useState } from "react";
 import PeakV2CinematicStage from "../PeakV2CinematicStage";
 import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
 import PeakV2DisplayEmphasis from "../PeakV2DisplayEmphasis";
-import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
+import { GameActionButton } from "@/components/game-feel";
 import { formatDollars } from "@/lib/twenty-dollar-api";
+import { usePrefersReducedMotion } from "@/lib/a11y";
 
 const STEPS: { n: string; title: string; body: string }[] = [
   { n: "01", title: "A lot opens", body: "One player, their eligible positions. The PEAK3 score stays sealed." },
@@ -29,6 +31,9 @@ export default function PeakV2ShowdownIntro({
   slots,
   marketSkips,
   rated,
+  elapsedSeconds = null,
+  totalSeconds = null,
+  turnSeq = null,
   onDismiss,
 }: {
   opponentName: string;
@@ -36,8 +41,24 @@ export default function PeakV2ShowdownIntro({
   slots: number;
   marketSkips: number;
   rated: boolean;
-  onDismiss: () => void;
+  elapsedSeconds?: number | null;
+  totalSeconds?: number | null;
+  turnSeq?: number | null;
+  onDismiss: () => Promise<boolean> | void;
 }) {
+  const reduced = usePrefersReducedMotion();
+  // The bar runs from the server's elapsed figure at the instant this view
+  // landed, so a reconnect mid-intro resumes rather than replays.
+  const [progress, setProgress] = useState(0);
+  useEffect(() => {
+    if (elapsedSeconds === null || totalSeconds === null || totalSeconds <= 0) return;
+    const startedAt = performance.now() - elapsedSeconds * 1000;
+    const tick = () => setProgress(Math.min(1, (performance.now() - startedAt) / (totalSeconds * 1000)));
+    tick();
+    const id = window.setInterval(tick, reduced ? 500 : 100);
+    return () => window.clearInterval(id);
+  }, [elapsedSeconds, totalSeconds, turnSeq, reduced]);
+
   return (
     <div
       role="dialog"
@@ -47,27 +68,16 @@ export default function PeakV2ShowdownIntro({
       style={{ background: "var(--v2-bg-page)" }}
       data-ui-version="v2"
       data-testid="td-intro"
+      data-turn-seq={turnSeq ?? undefined}
     >
       <PeakV2CinematicStage light={{ y: "-6%" }}>
-        <span
-          style={{
-            fontFamily: "var(--v2-font-mono)",
-            fontSize: "0.6875rem",
-            fontWeight: 700,
-            letterSpacing: "0.1em",
-            textTransform: "uppercase",
-            color: "var(--v2-color-accent)",
-          }}
-        >
+        <span className="sd-intro-eyebrow">
           {rated ? "Rated match" : "Practice match"} · vs {opponentName}
         </span>
         <PeakV2ResultHeadline as="h1" scale="hero" className="mt-3">
           Somebody always <PeakV2DisplayEmphasis>overpays.</PeakV2DisplayEmphasis>
         </PeakV2ResultHeadline>
-        <p
-          className="mt-4 max-w-lg"
-          style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.9375rem", color: "var(--v2-text-secondary)" }}
-        >
+        <p className="sd-intro-lede mt-4 max-w-lg">
           A peak window&apos;s PEAK3 score stays sealed until its lot sells. You are pricing it yourself, against an
           opponent who needs the same five positions you do.
         </p>
@@ -75,44 +85,37 @@ export default function PeakV2ShowdownIntro({
         <div className="mt-10 grid w-full max-w-2xl grid-cols-1 gap-6 text-left sm:grid-cols-2">
           {STEPS.map((step) => (
             <div key={step.n}>
-              <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.75rem", fontWeight: 700, color: "var(--v2-color-accent)" }}>
-                {step.n}
-              </span>
-              <p style={{ fontFamily: "var(--v2-font-ui)", fontWeight: 700, fontSize: "0.9375rem", color: "var(--v2-text-primary)" }}>
-                {step.title}
-              </p>
-              <p className="mt-0.5" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}>
-                {step.body}
-              </p>
+              <span className="sd-intro-n">{step.n}</span>
+              <p className="sd-intro-step-title">{step.title}</p>
+              <p className="sd-intro-step-body mt-0.5">{step.body}</p>
             </div>
           ))}
         </div>
 
         <div className="mt-10 flex items-center gap-10">
           <div className="text-center">
-            <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "1.5rem", fontWeight: 700, color: "var(--v2-text-primary)" }}>
-              {formatDollars(startingBudget)}
-            </span>
-            <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.6875rem", color: "var(--v2-text-muted)" }}>each budget</p>
+            <span className="sd-intro-figure">{formatDollars(startingBudget)}</span>
+            <p className="sd-intro-figure-label">each budget</p>
           </div>
           <div className="text-center">
-            <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "1.5rem", fontWeight: 700, color: "var(--v2-text-primary)" }}>
-              {slots}
-            </span>
-            <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.6875rem", color: "var(--v2-text-muted)" }}>roster slots</p>
+            <span className="sd-intro-figure">{slots}</span>
+            <p className="sd-intro-figure-label">roster slots</p>
           </div>
           <div className="text-center">
-            <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "1.5rem", fontWeight: 700, color: "var(--v2-text-primary)" }}>
-              {marketSkips}
-            </span>
-            <p style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.6875rem", color: "var(--v2-text-muted)" }}>market skips</p>
+            <span className="sd-intro-figure">{marketSkips}</span>
+            <p className="sd-intro-figure-label">market skips</p>
           </div>
         </div>
 
-        <div className="mt-8">
-          <PeakV2PrimaryAction data-testid="td-intro-start" onClick={onDismiss} autoFocus>
+        <div className="mt-8 flex flex-col items-center gap-3">
+          <GameActionButton data-testid="td-intro-start" onAction={() => onDismiss()} pendingLabel="Opening lot 1…" autoFocus>
             Open lot 1
-          </PeakV2PrimaryAction>
+          </GameActionButton>
+          {totalSeconds !== null ? (
+            <span className="sd-intro-track" aria-hidden="true" data-testid="td-intro-track">
+              <span className="sd-intro-fill" style={{ transform: `scaleX(${1 - progress})` }} />
+            </span>
+          ) : null}
         </div>
       </PeakV2CinematicStage>
     </div>

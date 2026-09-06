@@ -29,7 +29,7 @@ export interface TurnClockProps {
   /** Overrides the owner's default status word. */
   label?: string;
   warnAtSeconds?: number;
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "lg";
   testId?: string;
   className?: string;
 }

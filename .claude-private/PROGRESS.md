@@ -1,3 +1,92 @@
+# Game-feel reconstruction pass 2 — progress
+
+Branch: `feature/game-feel-reconstruction` (continues from `4b2e9f5`, 2026-09-06).
+Design note: `docs/design/GAME_FEEL.md` (Showdown section + new primitives).
+Fact bank note: `docs/implementation/NBA_FACT_BANK_AUDIT.md` §9.
+
+## Showdown — root causes and fixes
+- Bot reply took 4-5 s to appear: think range 2.6-4.2 s sized to a 2 s poll,
+  plus the poll landing a full interval late. Now `config.BOT_THINK_RANGES`
+  (quick 0.25-0.65 / ordinary 0.35-1.3 / contested 1.2-1.8 sometimes / war
+  0.3-0.85), classified by `TwentyDollarBot.decision_kind` from the bot's own
+  projection via the mode's `bot_think_seconds(..., snapshot=)`; the view
+  publishes `bot_reply_in_seconds` (`bots.bot_reply_in_seconds`) and the room
+  reads once at that instant + a retry ladder. Measured after: 0.4-2.0 s.
+- Human controls held shut by client beats (1.1 s reveal + 0.7 s handoff) and
+  by a 1.6 s SOLD overlay intercepting clicks while the 25 s clock ran. Beats
+  removed from `useShowdownPhase`; the SOLD stamp is an absolutely positioned,
+  `pointer-events: none` overlay; only the lot card animates in (controls
+  never move under the pointer).
+- Room rewritten on `useCommandLane` + `isNewer` (one snapshot per render);
+  first-read effect fires once per match id; polling re-arms after EVERY read
+  (an unchanged read used to leave no timer: measured 97 s stall); drift
+  correction only for same-version reads. `useCommandLane` now returns a
+  memoised object (a fresh object per render re-fired dependent effects).
+- Bid proposal is local: figure, "Bid $N" label and projected budget update in
+  the same frame; proposal keyed to the legal floor and re-based in render
+  (an effect-based re-base swallowed a press that landed before it ran).
+- Bot v4 (`nba_peak/twenty_dollar/bot.py`): six-way rank band (public
+  knowledge; still not the score), replacement level falling with chances
+  left per slot, money rate from discretionary budget per slot, pacing cap,
+  endgame spend, skip-economy opening rule, jump raises. Sim (300 seeds each):
+  win vs rank-aware human proxy 71% -> 93%, vs max-raiser 84% -> 97%, vs
+  min-opener 79% -> 92%; roster total 329 -> 345; self-play 50%.
+- Result is a staged sequence (`ResultReveal`): closed -> rosters (count-up)
+  -> money -> comparison -> verdict -> moments -> actions; Play Again creates a
+  fresh practice match and `router.replace`s (keyed room).
+
+## Shared primitives added (`components/game-feel`, `styles/game-feel.css`)
+`ResourceMeter`, `CardArrival`, `RosterSlotLock`, `BidTransition`,
+`ResultReveal`/`RevealStep`; `TurnClock` gained `size="lg"`.
+
+## Fact of the Day
+- `FACT_BANK_VERSION` = `basketball_facts_v3`; heading "Basketball Fact of the
+  Day". 53 editorial entries added (rules/equipment, FIBA, women's, college,
+  3x3, wheelchair, historic leagues, terminology, analytics); 11 widely known
+  NBA milestones scored below the homepage tier. Bank 187 -> 257; tier 93 ->
+  135 (121 editorial). Founder should open each new `source_url` before deploy
+  (§9.4 lists them).
+
+## Peak Duel
+- Reveal staged: scores count up, verdict lands, lanes assemble, explanation
+  last; streak moment at 3+; press/lock feedback on the face-off panels.
+  Card geometry unchanged (duel-viewport contract).
+
+## Late fixes from the e2e run
+- A failed FIRST read (fresh dev server + session still hydrating produced a
+  403) left the room on the "not your seat" gate with no poll to correct it.
+  `load` now retries 400/800/1600 ms before showing the gate (404 excepted);
+  unit-tested.
+- `the opponent's clock counts DOWN` e2e assumed 2.6-4.2 s bot turns; it now
+  polls the `TurnClock` fraction below 1.
+- The opponent-action `EventMoment` sat over the player identity on phones;
+  it now lands under the bid figure (`.sd-bid-moment`).
+- Lobby / private-room e2e failures in the first full run were the reused
+  API's flags (public queue off, alpha labels); rerun against a CI-flagged API.
+
+## Tests
+- Python: `tests/twenty_dollar` 250 pass (calibration sweep updated for the
+  band); API arena suites pass except the PRE-EXISTING flaky
+  `test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock` (TMW poll
+  count 24/25 depends on the random practice seed; 1 in 5 runs fails on
+  `main` too). Fact suites 292 pass; route 8 pass.
+- Web: `twenty-dollar-room.test.tsx` rewritten (15), `twenty-dollar-phase`
+  rewritten (9), Showdown e2e subset 8/8 (chromium-multiplayer).
+
+## Manual QA (Playwright-driven, real servers)
+- Showdown before: click->visual 25-35 ms, bot visible 4.1-5.2 s, SOLD overlay
+  blocked clicks 1.87 s per lot, controls live ~5.8 s after own action.
+- Showdown after (desktop, phone, 400 ms throttled): click->visual 26-58 ms,
+  bot visible 0.4-2.0 s (one 3.3 s contested call), no blocked clicks.
+- Peak Duel daily: 10 picks, pick->reveal 38-50 ms.
+
+## Open / not met
+- RTT and 82-0 were audited by screenshot and their e2e suites, not
+  re-designed; see the final report for the per-mode scores.
+
+
+---
+
 # Interaction, synchronization & game-feel reconstruction — progress
 
 Branch: `feature/game-feel-reconstruction` (from `main` @ `a51bbf7`, 2026-09-05).

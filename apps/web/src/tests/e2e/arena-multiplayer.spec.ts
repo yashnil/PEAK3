@@ -1362,13 +1362,20 @@ test.describe("The $20 Showdown", () => {
 
       await expect(clock).toHaveAttribute("data-direction", "down");
       await expect(page.getByTestId("td-timer")).toContainText("Time remaining");
-      // The value renders as "8s", so parse rather than coerce.
-      const read = async () =>
-        parseInt((await page.getByTestId("td-elapsed-value").innerText()).trim(), 10);
-      const first = await read();
-      await page.waitForTimeout(1200);
-      const second = await read();
-      expect(second, `the opponent clock went ${first} -> ${second}`).toBeLessThan(first);
+      // THE OPPONENT'S CLOCK DEPLETES. The shared `TurnClock` carries its
+      // fraction on `--gf-clock-fraction`; a bot now answers in well under
+      // two seconds (game-feel pass 2), so two whole-second readings 1.2s
+      // apart could straddle two different bot turns and both read "25".
+      // The bar's fraction drops below 1 within the first tick of any turn.
+      const turnClock = page.getByTestId("td-turn-clock");
+      await expect(turnClock).toHaveAttribute("data-owner", "bot");
+      await expect
+        .poll(
+          async () =>
+            Number(await turnClock.evaluate((el) => (el as HTMLElement).style.getPropertyValue("--gf-clock-fraction"))),
+          { timeout: 6_000, message: "the opponent clock never depleted" },
+        )
+        .toBeLessThan(1);
     } finally {
       await context.close();
     }

@@ -42,6 +42,7 @@ it never has to.
 """
 from __future__ import annotations
 
+import inspect
 import logging
 from datetime import datetime
 from typing import Any, Optional, Sequence
@@ -447,24 +448,72 @@ async def drive_bot_seat(
 BOT_THINK_SECONDS = 1.2
 
 
+def _hook_accepts_snapshot(hook) -> bool:
+    """Does this mode's think hook take the match snapshot?
+
+    A mode that classifies its decision (The $20 Showdown: a quick pass versus
+    a contested call) needs the board to do it; an older hook takes only the
+    seed, seat and turn. Read from the signature once per call -- it is a
+    handful of microseconds and keeps both shapes working.
+    """
+    try:
+        return "snapshot" in inspect.signature(hook).parameters
+    except (TypeError, ValueError):  # pragma: no cover - builtins, C callables
+        return False
+
+
 def bot_think_seconds_for(mode, match, turn) -> float:
     """How long THIS bot takes on THIS turn.
 
     A mode may vary it -- Three-Man Weave draws 1-5 seconds per (seat, turn)
     from the match seed, so three bot seats do not all move on the same
     metronome, which is what made a draft feel like a script rather than a
-    room. Deterministic from stored state, so every poller computes the same
-    answer and a fast client cannot hurry a bot along.
+    room; The $20 Showdown draws from a range keyed to the KIND of decision
+    the board presents. Deterministic from stored state, so every poller
+    computes the same answer and a fast client cannot hurry a bot along.
     """
     hook = getattr(mode, "bot_think_seconds", None)
     if hook is None or turn is None or turn.seat_index is None:
         return BOT_THINK_SECONDS
     try:
-        seconds = float(hook(match.seed, turn.seat_index, turn.turn_seq))
+        if _hook_accepts_snapshot(hook):
+            seconds = float(
+                hook(match.seed, turn.seat_index, turn.turn_seq, snapshot=match.snapshot)
+            )
+        else:
+            seconds = float(hook(match.seed, turn.seat_index, turn.turn_seq))
     except Exception:  # pragma: no cover - a broken hook must not wedge a turn
         return BOT_THINK_SECONDS
     # Clamped so a mode cannot accidentally park a bot past the human clock.
     return max(0.0, min(seconds, 10.0))
+
+
+def bot_reply_in_seconds(mode, match, turn, seats, now: datetime) -> Optional[float]:
+    """How long until the bot on the open turn is allowed to move, or None.
+
+    PUBLISHED SO THE CLIENT CAN READ THE REPLY THE MOMENT IT IS DUE. Bots
+    move lazily -- the first authoritative read after their think time has
+    elapsed is the one that applies the move -- so a client that polled on a
+    fixed cadence saw the reply up to a whole interval late, on top of the
+    think time. Telling it when the reply is due lets it schedule ONE read
+    for that instant instead of guessing.
+
+    None when the open turn is not a bot's, belongs to nobody, or is a phase
+    no seat plays (an intro, a seatless beat). Zero when the think time has
+    already elapsed and the next read will apply the move.
+    """
+    if turn is None or turn.seat_index is None:
+        return None
+    seat = next((s for s in seats if s.seat_index == turn.seat_index), None)
+    if seat is None or not seat.is_bot:
+        return None
+    if not phase_accepts_bot_action(mode, turn):
+        return None
+    from app.repositories.arena_protocols import _utc
+
+    think = bot_think_seconds_for(mode, match, turn)
+    elapsed = (now - _utc(turn.opened_at)).total_seconds()
+    return round(max(0.0, think - elapsed), 3)
 
 
 def phase_accepts_bot_action(mode, turn) -> bool:

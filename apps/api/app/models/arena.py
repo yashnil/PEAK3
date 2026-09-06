@@ -190,6 +190,17 @@ class ArenaMatchView(BaseModel):
     turn_seq: Optional[int] = None
     turn_elapsed_seconds: Optional[float] = None
     turn_total_seconds: Optional[float] = None
+    #: HOW LONG UNTIL THE BOT ON THE OPEN TURN MAY MOVE, in seconds; None when
+    #: the open turn is not a bot's (a human's, nobody's, a seatless beat).
+    #:
+    #: Bots move lazily: the first authoritative read after their think time
+    #: has elapsed is the one that applies the move. A client polling on a
+    #: fixed cadence therefore saw a bot's reply up to a whole interval late
+    #: on top of the think time, and an auction against an opponent who
+    #: answers five seconds after every raise reads as a frozen page. This
+    #: lets the room schedule ONE read for the instant the reply is due. Zero
+    #: means "due now": the next read will carry the move.
+    bot_reply_in_seconds: Optional[float] = None
     # The highest event seq this seat may see, so a client can poll
     # /events?after_seq=N without guessing.
     latest_event_seq: int = -1

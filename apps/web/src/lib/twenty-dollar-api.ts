@@ -40,6 +40,10 @@ export const TWENTY_DOLLAR_MODE = "twenty_dollar";
  */
 export const TURN_SECONDS = 25;
 
+/** Each seat's opening bank, mirroring `config.STARTING_BUDGET`. Display
+ *  only: the budget meter's denominator. Every live number is the server's. */
+export const STARTING_BUDGET = 20;
+
 /**
  * The grace window the server allows past a deadline, mirroring
  * `apps/api/app/services/arena/clock.py::ACTION_GRACE_SECONDS`.
@@ -390,6 +394,18 @@ export interface TwentyDollarMatchView {
    * opening bidder none of their own 25 seconds. See `mode.PHASE_INTRO`.
    */
   turn_phase: string | null;
+  /** The open turn's identity and timeline, published to every seat. */
+  turn_seq?: number | null;
+  turn_elapsed_seconds?: number | null;
+  turn_total_seconds?: number | null;
+  /**
+   * HOW LONG UNTIL THE BOT ON THE OPEN TURN MAY MOVE, in seconds, or null
+   * when the open turn is not a bot's. Bots move lazily -- the first read
+   * after their think time elapses is the one that applies the move -- so
+   * the room schedules ONE read for this instant instead of waiting out a
+   * poll interval. Zero means the next read carries the move.
+   */
+  bot_reply_in_seconds?: number | null;
   latest_event_seq: number;
   room_code: string | null;
 }

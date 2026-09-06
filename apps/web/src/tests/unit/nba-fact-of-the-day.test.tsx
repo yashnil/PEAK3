@@ -89,7 +89,7 @@ describe("the card renders the fact, and only the fact", () => {
     // A visitor reads this before they have been told what PEAK3 is.
     const { container } = renderCard();
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
-      "NBA Fact of the Day",
+      "Basketball Fact of the Day",
     );
     expect(container.textContent ?? "").not.toMatch(/PEAK3 (fact|rates|score)/i);
   });
@@ -117,7 +117,7 @@ describe("the card is tuned to its category", () => {
     renderCard({ category: "some_new_tier_the_bank_invents" });
     const card = screen.getByTestId("nba-fact-of-the-day");
     expect(card).toHaveAttribute("data-accent", "history");
-    expect(screen.getByTestId("fotd-category")).toHaveTextContent("NBA history");
+    expect(screen.getByTestId("fotd-category")).toHaveTextContent("Basketball history");
   });
 
   it("draws a different motif for a different kind of fact", () => {

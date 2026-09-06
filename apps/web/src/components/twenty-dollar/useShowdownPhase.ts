@@ -1,172 +1,60 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-
 /**
- * ONE COMPETITIVE TIMING MODEL for the $20 Showdown (SHARED-01).
- *
- * The room used to have no phases at all. It had a server deadline, a local
- * countdown seeded from it, and a pile of `setTimeout`s in unrelated
- * components. Three defects fell out of that, and all three are fixed here
- * rather than patched at their symptoms:
- *
- *  * S20-01. Arriving from the lobby dropped the player straight onto a
- *    running 25-second clock with no idea who they were playing or what a
- *    market skip was.
- *  * S20-02. A new lot appeared and the clock was already counting, so the
- *    read and the decision were the same moment.
- *  * S20-08. `submit()` set `busy` and `inFlight` and NEVER touched
- *    `deadlineAt`, while `ArenaTimer` keys only on `[deadlineAt]`. A bid sent
- *    inside the server's two-second grace window is DESIGNED to be accepted
- *    (`apps/api/tests/test_arena_action_races.py` asserts acceptance up to
- *    1900 ms late) and the UI painted "Time expired — settling this lot…" over
- *    it while it was being accepted.
+ * ONE COMPETITIVE TIMING MODEL for the $20 Showdown.
  *
  * THE PHASES
  * ----------
- *   intro    — pre-match. No clock is displayed, no control is live.
- *   reveal   — a new lot is on the block. The card is readable before the
- *              decision phase opens.
- *   handoff  — an action just landed. It is named, held briefly, and then the
- *              next seat lights up.
- *   decide   — the active seat is on the clock. The only phase with a
- *              countdown and live controls.
+ *   intro    — the server's pre-match turn. No clock is displayed, no control
+ *              is live. Ends when the server says so (its own deadline or a
+ *              skip command), never on a local timer.
+ *   decide   — a seat is on the clock. The only phase with a countdown, and
+ *              the controls are live when the seat is the local player's.
  *   pending  — this client has submitted and is waiting for the server. The
  *              countdown is FROZEN and the submitted action is displayed.
- *   settling — no seat is active; the server is resolving the lot.
+ *   settling — no seat is active: the server is running a seatless beat (a
+ *              candidate nobody can use, a forced fill) or resolving the lot.
  *   complete — the auction is over.
  *
- * WHY THE BEATS ARE BUDGETED, AND WHY THAT IS THE HONEST ANSWER
- * -------------------------------------------------------------
- * The server's clock is authoritative and it starts when the turn is opened
- * (`mode.py::_finish` → `deadline_at = data.now + TURN_SECONDS`). A client
- * cannot pause it, and pretending otherwise is exactly the "secretly consumes
- * the 25-second clock" failure S20-02 names.
+ * WHAT LEFT IN GAME-FEEL PASS 2, AND WHY. The previous model added two
+ * CLIENT-SIDE beats on top of the server's clock: a 1.1s "reveal" hold when a
+ * new lot appeared and a 0.7s "handoff" hold after every action. Both held
+ * the human's controls shut while the server's 25-second decision clock kept
+ * running, and measured in play they were the dead time between a bot's
+ * reply and the player's next chance to act (about 5.8s per exchange, of
+ * which the network accounted for 40ms). A new lot's card ENTERS (see
+ * `CardArrival`) and the previous lot's SOLD moment plays over the stage,
+ * but neither gates the controls: the action starts the instant the state
+ * lands, and the expressive motion runs alongside it.
  *
- * So a beat NEVER runs on borrowed time. `affordableBeat` refuses to spend
- * anything that would push the human's remaining decision window below
- * `MIN_DECISION_SECONDS`. Concretely:
- *
- *   * When the clock is not the human's — the bot's turn, a settling lot, the
- *     pre-match intro before any human turn — a beat is free and runs in full.
- *   * On the human's own fresh 25-second turn there are 7 seconds of headroom
- *     above the floor, which covers the intro and the reveal with room to
- *     spare, and the countdown that then appears is the true server remainder.
- *   * On a resume with 19 seconds left the beat is truncated to 1 second; at
- *     18 or below it is skipped outright and the controls open immediately.
- *
- * That floor is the contract, it is measurable, and `twenty-dollar-phase.test`
- * pins it. Nothing here is "roughly a second, probably fine".
- *
- * REDUCED MOTION GETS THE SAME TIMING. The beats are legibility, not
- * decoration: a reduced-motion user needs the reading beat at least as much as
- * anybody. `prefers-reduced-motion` removes the animation on the surfaces, not
- * the phase.
+ * Pending is the one client-side state, and it is not a beat: it is the
+ * truth that a command is in flight, and it lasts exactly as long as the
+ * request does.
  */
 
-export type ShowdownPhase =
-  | "intro"
-  | "reveal"
-  | "handoff"
-  | "decide"
-  | "pending"
-  | "settling"
-  | "complete";
-
-/** The competitive intro, S20-01. Long enough to read four lines. */
-export const INTRO_MS = 3200;
-/** The lot reveal beat, S20-02 ("roughly 0.8–1.5s of readable reveal"). */
-export const REVEAL_MS = 1100;
-/** The inter-turn hold, S20-09 ("500–900ms"). */
-export const HANDOFF_MS = 700;
-
-/**
- * The decision window this client refuses to spend. See the module docstring:
- * `TURN_SECONDS` is 25, so a fresh human turn has 7 seconds of headroom and a
- * short one has none.
- */
-export const MIN_DECISION_SECONDS = 18;
-
-/**
- * How much of a beat is affordable right now.
- *
- * `onHumanClock` is the whole question. If the countdown running is the
- * player's own, a beat costs them decision time and is capped; if it belongs
- * to the bot, to nobody, or to a turn that has not opened yet, it costs
- * nothing and runs in full.
- */
-export function affordableBeat(
-  requestedMs: number,
-  secondsRemaining: number | null,
-  onHumanClock: boolean,
-): number {
-  if (!onHumanClock || secondsRemaining === null) return requestedMs;
-  const spareMs = (secondsRemaining - MIN_DECISION_SECONDS) * 1000;
-  if (spareMs <= 0) return 0;
-  return Math.min(requestedMs, spareMs);
-}
-
-interface Beat {
-  kind: "intro" | "reveal" | "handoff";
-  /** Identity of the beat, so an unchanged poll cannot restart its timer. */
-  key: string;
-  /**
-   * How long this beat may run, decided ONCE when it opens.
-   *
-   * THIS USED TO BE RE-DERIVED IN AN EFFECT that listed `secondsRemaining`
-   * among its dependencies — and `secondsRemaining` is a float the poll
-   * rewrites every two seconds (24.99, 22.99, 20.99…). Every poll therefore
-   * tore down the pending `setTimeout` and started a fresh one, so any beat
-   * longer than the poll interval could never expire on its own: `INTRO_MS` is
-   * 3200 against a 2000 ms poll, which meant the intro was dismissible only by
-   * the button. Deciding the duration at the moment the beat opens is both
-   * correct and simpler — affordability is a question about the clock as it was
-   * when the beat began.
-   */
-  durationMs: number;
-}
+export type ShowdownPhase = "intro" | "decide" | "pending" | "settling" | "complete";
 
 export interface ShowdownPhaseInput {
-  /** `public_state.lot_index`. */
-  lotIndex: number;
   /** `public_state.active_seat`. */
   activeSeat: number | null;
   /** `your_seat_index`. */
   yourSeat: number | null;
-  /** `public_state.lot_actions.length` — bumps on every action in the lot. */
-  actionCount: number;
-  /** `seconds_remaining` as the server last reported it. */
-  secondsRemaining: number | null;
   /** The local monotonic deadline the room derived from `seconds_remaining`. */
   deadlineAt: number | null;
   /** True while this client has a command in flight. */
   pending: boolean;
   /** `public_state.phase === "complete"`. */
   complete: boolean;
-  /**
-   * THE SERVER SAYS THE INTRO IS OPEN — `turn_phase === "intro"`.
-   *
-   * The intro used to be a purely local beat, started from "this looks like a
-   * fresh match" and priced against the human's own running clock by
-   * `affordableBeat`, because the server had already stamped the first lot's
-   * 25-second deadline. That is why the briefing was shortest exactly when the
-   * player was newest to the mode.
-   *
-   * It is a real server turn now (`mode.PHASE_INTRO`) belonging to no seat and
-   * accepting no bid, so it costs the opening bidder nothing and the decision
-   * clock genuinely does not start until it ends. This client no longer decides
-   * when it opens OR when it closes: it renders the phase the server published,
-   * and `onSkipIntro` asks the server to end it.
-   */
+  /** THE SERVER SAYS THE INTRO IS OPEN — `turn_phase === "intro"`. */
   introOpen: boolean;
 }
 
 export interface ShowdownPhaseState {
   phase: ShowdownPhase;
   /**
-   * The deadline to hand `ArenaTimer`, or null when NOTHING should be
-   * counting. Null during the intro, during a beat, and — the S20-08 fix —
-   * for as long as a command of this client's is in flight.
+   * The deadline to hand the clock, or null when NOTHING should be counting.
+   * Null during the intro, while settling, and — the S20-08 fix — for as long
+   * as a command of this client's is in flight.
    */
   clockDeadlineAt: number | null;
   /** May the human act right now? */
@@ -174,114 +62,24 @@ export interface ShowdownPhaseState {
 }
 
 export function useShowdownPhase(input: ShowdownPhaseInput): ShowdownPhaseState {
-  const {
-    lotIndex,
-    activeSeat,
-    yourSeat,
-    actionCount,
-    secondsRemaining,
-    deadlineAt,
-    pending,
-    complete,
-    introOpen,
-  } = input;
-
+  const { activeSeat, yourSeat, deadlineAt, pending, complete, introOpen } = input;
   const onHumanClock = activeSeat !== null && activeSeat === yourSeat;
-
-  // Read by `openBeat`, which must price a beat against the clock as it is at
-  // the moment the beat opens without taking either value as a dependency.
-  const clockRef = useRef({ secondsRemaining, onHumanClock });
-  clockRef.current = { secondsRemaining, onHumanClock };
-
-  // THE INTRO IS NO LONGER A BEAT. It is the server's own turn phase, so it
-  // opens and closes exactly when the server says — including across a reload,
-  // where a player who refreshes mid-briefing resumes it with the time that is
-  // actually left rather than replaying it from full or losing it entirely.
-  // `historyLength`, `lotIndex` and `actionCount` no longer guess at "is this a
-  // fresh match"; the phase answers it.
-  const [beat, setBeat] = useState<Beat | null>(null);
-
-  const openBeat = useCallback((kind: Beat["kind"], key: string, requestedMs: number) => {
-    const { secondsRemaining: left, onHumanClock: mine } = clockRef.current;
-    setBeat({ kind, key, durationMs: affordableBeat(requestedMs, left, mine) });
-  }, []);
-
-  // Previous values, so a CHANGE can be told from a poll that returned the
-  // same state. Seeded on mount so the first render never fires a beat for a
-  // transition that did not happen.
-  const previousLot = useRef(lotIndex);
-  const previousActions = useRef(actionCount);
-
-  // A NEW LOT IS A REVEAL (S20-02). The card gets a readable beat before the
-  // decision phase opens.
-  useEffect(() => {
-    if (lotIndex === previousLot.current) return;
-    previousLot.current = lotIndex;
-    previousActions.current = actionCount;
-    if (complete) return;
-    openBeat("reveal", `reveal:${lotIndex}`, REVEAL_MS);
-    // `actionCount` deliberately omitted: it is read, not depended on. A lot
-    // change is the trigger; the action count is only being re-baselined.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lotIndex, complete, openBeat]);
-
-  // AN ACTION INSIDE THE SAME LOT IS A HANDOFF (S20-09). "YOU RAISED TO $7",
-  // hold, then the other side lights up.
-  useEffect(() => {
-    if (actionCount === previousActions.current) return;
-    const grew = actionCount > previousActions.current;
-    previousActions.current = actionCount;
-    if (!grew || complete) return;
-    openBeat("handoff", `handoff:${lotIndex}:${actionCount}`, HANDOFF_MS);
-  }, [actionCount, lotIndex, complete, openBeat]);
-
-  // THE BEAT'S OWN TIMER. It depends on the beat's IDENTITY AND NOTHING ELSE,
-  // which is the fix described on `Beat.durationMs`: a poll landing mid-beat
-  // must not restart the countdown to its end.
-  const beatKey = beat?.key ?? null;
-  const beatDuration = beat?.durationMs ?? 0;
-  useEffect(() => {
-    if (beatKey === null) return;
-    const clear = () => setBeat((current) => (current?.key === beatKey ? null : current));
-    if (beatDuration <= 0) {
-      clear();
-      return;
-    }
-    const timer = window.setTimeout(clear, beatDuration);
-    return () => window.clearTimeout(timer);
-  }, [beatKey, beatDuration]);
-
-  // A COMPLETED MATCH HAS NO BEATS. The result screen replaces the auction.
-  useEffect(() => {
-    if (complete) setBeat(null);
-  }, [complete]);
 
   const phase: ShowdownPhase = complete
     ? "complete"
-    : // THE INTRO OUTRANKS EVERYTHING BELOW IT, because while the server's
-      // intro turn is open there is no auction turn at all: no seat is on a
-      // clock and no command would be accepted.
-      introOpen
+    : introOpen
       ? "intro"
-      : // PENDING OUTRANKS THE REST (S20-08). The moment this client submits,
-        // the countdown stops and the submitted action is what the surface
-        // says. It outranks a handoff beat too: the beat is about the OTHER
-        // seat's action landing, and our own in-flight command is the more
-        // urgent truth.
-        pending
+      : pending
         ? "pending"
-        : beat
-          ? beat.kind
-          : activeSeat === null
-            ? "settling"
-            : "decide";
+        : activeSeat === null
+          ? "settling"
+          : "decide";
 
   return {
     phase,
-    // NOTHING COUNTS DOWN OUTSIDE `decide`. This single expression is the
-    // S20-08 fix: `pending` produces `null`, `ArenaTimer` renders its idle
-    // state, and `onExpire` cannot fire behind a request that the server's
-    // grace window is about to accept.
+    // NOTHING COUNTS DOWN OUTSIDE `decide`. `pending` produces `null`, the
+    // clock renders its frozen state, and expiry cannot fire behind a request
+    // that the server's grace window is about to accept.
     clockDeadlineAt: phase === "decide" ? deadlineAt : null,
     controlsLive: phase === "decide" && onHumanClock,
   };

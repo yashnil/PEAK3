@@ -191,12 +191,17 @@ class TestBotPlaysARealAuction:
                 seat_index = state["active_seat"]
                 if seat_index is None:
                     # Nobody can act on the drawn candidate (the phantom-lot
-                    # fix): resolve the parked lot unsold immediately, as
-                    # that beat's own short server timeout eventually would.
-                    assert S.is_unwinnable_lot_pending(state), (
-                        "active_seat is None but no unwinnable lot is pending"
+                    # fix), or the two rosters' needs have diverged and one
+                    # stranded position is parked as a forced fill: resolve
+                    # the seatless beat immediately, as its own short server
+                    # timeout eventually would.
+                    if S.is_unwinnable_lot_pending(state):
+                        S.resolve_unwinnable_lot(state, pool)
+                        continue
+                    assert S.is_forced_fill_pending(state), (
+                        "active_seat is None but no seatless beat is pending"
                     )
-                    S.resolve_unwinnable_lot(state, pool)
+                    S.resolve_forced_fill(state, pool)
                     continue
                 public, private, legal = S.project(state, seat_index, pool)
                 command, payload = bot.decide(public, private, rng)
