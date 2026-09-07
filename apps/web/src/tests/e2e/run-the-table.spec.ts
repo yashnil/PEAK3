@@ -1030,8 +1030,16 @@ test.describe("RUN THE TABLE game feel", () => {
       if (request.method() === "POST" && request.url().includes("/actions")) posts.push(request.url());
     });
     const perk = page.locator('[data-testid="rtt-system-select"] button[data-testid^="rtt-system-"]').first();
-    await perk.dispatchEvent("click");
-    await perk.dispatchEvent("click");
+    // Both presses in ONE evaluate, so they land in the same task. As two
+    // `dispatchEvent` calls they raced the command: on a CI runner the first
+    // press's round trip completed and the surface advanced before the second
+    // call resolved its locator, which then waited on a button that no longer
+    // existed (PR #26 run 34148299440). A real double press is two events
+    // before any re-render, which is what this reproduces.
+    await perk.evaluate((button) => {
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
     await expect(page.locator('[data-testid="rtt-node-choice"]')).toBeVisible({ timeout: 20_000 });
     expect(posts).toHaveLength(1);
 

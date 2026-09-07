@@ -482,8 +482,11 @@ button[data-state="error"] {
   font-family: var(--v2-font-mono, monospace);
   font-size: 0.625rem;
   font-weight: 700;
+  /* Secondary, not muted: at 10px bold on the warm panel the muted token
+     measured 4.23:1 in CI's axe pass (chromium-multiplayer, $20 Showdown
+     roster), under WCAG AA's 4.5:1. Secondary clears it in both themes. */
   letter-spacing: 0.08em;
-  color: var(--v2-text-muted, #838799);
+  color: var(--v2-text-secondary, #8c8fa8);
 }
 .gf-slot-body {
   min-width: 0;
@@ -838,7 +841,18 @@ button[data-state="error"] {
 }
 .gf-track-chapter[data-state="done"] { border-top-color: color-mix(in srgb, var(--gf-accent) 55%, transparent); }
 .gf-track-chapter[data-state="current"] { border-top-color: var(--gf-accent); }
-.gf-track-chapter[data-state="locked"] { opacity: 0.6; }
+/* A LOCKED chapter reads as "not yet" through its decoration (dots, rails)
+   and a quieter numeral -- never by fading the whole chapter. Whole-chapter
+   opacity put its 10px "Act" eyebrow and 11px mark labels at ~4.1:1 in CI's
+   axe pass (chromium-core, RUN THE TABLE restart dialog), under WCAG AA's
+   4.5:1, whichever text token they used. */
+.gf-track-chapter[data-state="locked"] .gf-track-dot,
+.gf-track-chapter[data-state="locked"] .gf-track-mark::before { opacity: 0.6; }
+.gf-track-chapter[data-state="locked"] .gf-track-chapter-numeral { color: var(--v2-text-secondary, #8c8fa8); }
+/* The chapter and mark labels use the SECONDARY text token, not muted: CI's
+   axe pass (chromium-core, RUN THE TABLE restart dialog) measured the muted
+   token at 4.23:1 on the warm track panel for the 10-11px labels, under
+   WCAG AA's 4.5:1. Secondary clears it in both themes. */
 .gf-track-chapter-label {
   display: inline-flex;
   align-items: baseline;
@@ -848,7 +862,7 @@ button[data-state="error"] {
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--v2-text-muted, #838799);
+  color: var(--v2-text-secondary, #8c8fa8);
 }
 .gf-track-chapter[data-state="current"] .gf-track-chapter-label { color: var(--gf-accent); }
 .gf-track-chapter-numeral {
@@ -939,7 +953,7 @@ button[data-state="error"] {
   font-family: var(--v2-font-ui, sans-serif);
   font-size: 0.6875rem;
   line-height: 1.15;
-  color: var(--v2-text-muted, #838799);
+  color: var(--v2-text-secondary, #8c8fa8);
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -2701,8 +2701,15 @@ test.describe("W5: spin reveal polish", () => {
   });
 
   test("both reels produce a detent tick, and the ceremony stays inside its timing budget", async ({ page }) => {
-    const started = Date.now();
     await startCourtBuilder(page);
+    // The clock starts once the board is ready, not at navigation. The final
+    // polish pass deliberately put the 82-0 intro (COURT_PACING.INTRO_MS,
+    // 3.4s) in front of the reel, and page start-up on a loaded runner sits on
+    // top of that: CI measured 12,032ms from `goto` against the old 12,000ms
+    // ceiling (PR #26 run 34148299440) with the ceremony itself unchanged.
+    // This budget is about the CEREMONY, so it is measured from the moment
+    // `startCourtBuilder` returns (intro gone, board mounted).
+    const started = Date.now();
     const stage = page.locator('[data-testid="spin-stage"]');
     await expect(stage).toHaveAttribute("data-phase", "revealed", { timeout: 5_000 });
 
@@ -2730,10 +2737,11 @@ test.describe("W5: spin reveal polish", () => {
     // detenting twice, which is the stutter the derived-from-state-machine
     // design exists to prevent; `<= 1` means a reel snapped without its beat.
     expect(ticks, "each reel must contribute exactly one detent tick").toBe(2);
-    // The reveal must not have grown: SPIN_MS + LOCK_MS + COUNT_MS is ~2.77s,
-    // and page start-up is included in this measurement, so 12s is a generous
-    // ceiling that still fails loudly if someone doubles the ceremony.
-    expect(Date.now() - started).toBeLessThan(12_000);
+    // The reveal must not have grown: the round card (COURT_PACING, 1.5s) plus
+    // SPIN_MS + LOCK_MS + COUNT_MS (~2.77s) plus the reels' own settle is
+    // ~4.5s on a quiet machine, measured from board-ready. 8s leaves room for
+    // a loaded runner and still fails if someone doubles the ceremony.
+    expect(Date.now() - started).toBeLessThan(8_000);
   });
 
   test("the finished roll is announced once, as a complete pair, through one live region", async ({ page }) => {
