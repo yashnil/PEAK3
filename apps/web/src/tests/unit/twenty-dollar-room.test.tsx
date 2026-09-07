@@ -154,6 +154,11 @@ function view(overrides: ViewOverrides = {}): TwentyDollarMatchView {
 }
 
 /** The same lot after the human opened at `amount` and the bot is on the clock. */
+/** `afterOpen`'s `bot_reply_in_seconds` (0.8 s) plus the room's
+ *  `BOT_REPLY_SLACK_MS` (60 ms): the one deadline the bot-reply read is
+ *  armed for. Kept beside the fixture so a change to either is visible here. */
+const BOT_REPLY_DEADLINE_MS = 0.8 * 1000 + 60;
+
 function afterOpen(amount: number, version = 3): TwentyDollarMatchView {
   return view({
     state_version: version,
@@ -333,26 +338,58 @@ describe("stale responses", () => {
 
 describe("reading the bot's reply", () => {
   it("schedules one read for `bot_reply_in_seconds`, not a fixed interval later", async () => {
-    await openRoom();
-    submitCommand.mockResolvedValue({ accepted: true, replayed: false, match: afterOpen(1) });
-    fireEvent.click(screen.getByTestId("td-submit-bid"));
-    await waitFor(() => expect(screen.getByTestId("td-clock")).toHaveAttribute("data-mode", "elapsed"));
-    const before = getMatch.mock.calls.length;
-    const replied = view({
-      state_version: 4,
-      public_state: { current_bid: 2, high_bidder: 1, minimum_bid: 2, lot_actions: [{ seat_index: 0, action: "bid", amount: 1 }, { seat_index: 1, action: "bid", amount: 2 }] },
-      private_state: { minimum_bid: 3 },
-    });
-    getMatch.mockResolvedValue(replied);
-    // Not yet: 0.8s + slack has not elapsed.
-    await act(async () => {
-      vi.advanceTimersByTime(500);
-    });
-    expect(getMatch.mock.calls.length).toBe(before);
-    await act(async () => {
-      vi.advanceTimersByTime(500);
-    });
-    expect(getMatch.mock.calls.length).toBe(before + 1);
+    // THE CONTRACT: after the human's bid lands, the room arms exactly ONE
+    // read for the server-published `bot_reply_in_seconds` (0.8 s) plus the
+    // client's intentional slack (`BOT_REPLY_SLACK_MS`, 60 ms) — 860 ms — and
+    // reads nothing before it.
+    //
+    // WHY THE TIMER IS OBSERVED, NOT INFERRED. The previous version waited
+    // for the clock to enter `elapsed` mode and then advanced fake time in
+    // two 500 ms steps. The clock flips in the same render the command
+    // response lands, but the scheduling EFFECT runs after that render — on
+    // a slow CI runner the first advance could happen before the timeout
+    // was armed, and the second then never reached its deadline
+    // ("expected 1 to be 2"). Spying on `setTimeout` waits for the arm
+    // itself, and the deadline is measured from the fake clock's reading at
+    // the instant it was armed, so the auto-advancing fake clock
+    // (`shouldAdvanceTime`) cannot skew the boundary either.
+    const original = window.setTimeout;
+    let armedAt: number | null = null;
+    const timeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(((...args: Parameters<typeof window.setTimeout>) => {
+      if (args[1] === BOT_REPLY_DEADLINE_MS && armedAt === null) armedAt = Date.now();
+      return original.apply(window, args);
+    }) as unknown as typeof window.setTimeout);
+    try {
+      await openRoom();
+      submitCommand.mockResolvedValue({ accepted: true, replayed: false, match: afterOpen(1) });
+      const replied = view({
+        state_version: 4,
+        public_state: { current_bid: 2, high_bidder: 1, minimum_bid: 2, lot_actions: [{ seat_index: 0, action: "bid", amount: 1 }, { seat_index: 1, action: "bid", amount: 2 }] },
+        private_state: { minimum_bid: 3 },
+      });
+      getMatch.mockResolvedValue(replied);
+      fireEvent.click(screen.getByTestId("td-submit-bid"));
+
+      // The read is ARMED for exactly 0.8 s + 60 ms — and only once.
+      await waitFor(() => expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), BOT_REPLY_DEADLINE_MS));
+      expect(timeoutSpy.mock.calls.filter((call) => call[1] === BOT_REPLY_DEADLINE_MS)).toHaveLength(1);
+      expect(armedAt).not.toBeNull();
+      const before = getMatch.mock.calls.length;
+
+      // Not yet: 60 ms short of the deadline, measured from the arm.
+      await act(async () => {
+        vi.advanceTimersByTime(Math.max(0, (armedAt as number) + BOT_REPLY_DEADLINE_MS - 60 - Date.now()));
+      });
+      expect(getMatch.mock.calls.length).toBe(before);
+
+      // Crossing the deadline fires exactly one read.
+      await act(async () => {
+        vi.advanceTimersByTime(Math.max(1, (armedAt as number) + BOT_REPLY_DEADLINE_MS + 1 - Date.now()));
+      });
+      expect(getMatch.mock.calls.length).toBe(before + 1);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
     await waitFor(() => expect(screen.getByTestId("td-standing-amount")).toHaveTextContent("$2"));
     // The opponent's raise is announced as a moment, and the turn banner says so.
     expect(screen.getByTestId("td-moment")).toHaveTextContent("IsoKing raises to $2");
