@@ -46,6 +46,7 @@ vi.mock("@/lib/perfect-season-api", () => ({
 }));
 
 import CourtBuilder from "@/components/court/CourtBuilder";
+import { COURT_PACING } from "@/lib/court-state";
 
 const CANDIDATES: SpinCandidate[] = [
   { player_slug: "player-a", player_name: "Player A", primary_position: "PG", secondary_positions: [] },
@@ -98,9 +99,19 @@ function baseState(overrides: Partial<CourtLineupPublicState> = {}): CourtLineup
 /** SpinStage's real (non-reduced-motion) reveal ceremony runs on real
  * timers -- SPIN_MS + LOCK_MS + COUNT_MS (~2.77s). Fake timers let this test
  * cross that boundary instantly instead of actually waiting. */
+/** 82-0 pacing (final polish): the round card now holds the reels for
+ * `COURT_PACING.ROUND_REVEAL_MS` (1.5 s) BEFORE the ceremony clock starts,
+ * and the outcome absorbs for 450 ms before the list opens. Two acts, not
+ * one: the card's hand-over is a React state update that `act` flushes at
+ * its end, and only THEN does the reel's own clock get armed -- a single
+ * 6 s advance would run out before those timers existed. Budgets for the
+ * fake clock, not assertions. */
 async function revealCeremony() {
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(COURT_PACING.ROUND_REVEAL_MS + 50);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(4000);
   });
 }
 

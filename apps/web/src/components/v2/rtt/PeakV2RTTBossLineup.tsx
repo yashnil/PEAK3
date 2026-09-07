@@ -9,6 +9,11 @@
  * `identity` shows a resolving placeholder rather than a name, preserved by
  * only reading `track.revealed_slots[i]` for `i < presentationCursor`.
  *
+ * THERE IS NO SKIP (final polish pass). The deal is the moment; every card
+ * lands on its own beat and the only control is the one that moves on once
+ * the last card has settled. Pause stays for anyone who needs the time.
+ * Reduced motion shows the settled deal at once.
+ *
  * `kind="boss"` auto-starts with zero clicks (the encounter is already on),
  * shows each boss card ABOVE your own card in the same seat so the matchup
  * reads the instant it lands, and continues to the matchup board.
@@ -24,6 +29,7 @@ import PeakV2SecondaryAction from "../PeakV2SecondaryAction";
 import type { RevealSlot, RevealTrack, Role, RunCardPublic } from "@/types/run-the-table";
 import type { RevealSequenceState } from "@/components/run-the-table/useRevealSequence";
 import { slotLabel } from "@/lib/run-the-table-state";
+import ScoreTransition from "@/components/game-feel/ScoreTransition";
 
 const SLOT_X = ["12%", "31%", "50%", "69%", "88%"];
 
@@ -131,7 +137,9 @@ export default function PeakV2RTTBossLineup({ kind = "boss", title, subtitle, so
                         <>
                           <span className="rtt-reveal-name">{slot!.player_name}</span>
                           <span className="rtt-reveal-window">{slot!.anchor_season}</span>
-                          <span className="rtt-reveal-score">{slot!.prime_score.toFixed(1)}</span>
+                          <span className="rtt-reveal-score">
+                            <ScoreTransition value={slot!.prime_score} from={reducedMotion ? undefined : 0} durationMs={520} format={(n) => n.toFixed(1)} />
+                          </span>
                         </>
                       ) : (
                         <span className="rtt-reveal-placeholder" aria-hidden="true">
@@ -179,9 +187,6 @@ export default function PeakV2RTTBossLineup({ kind = "boss", title, subtitle, so
                       Pause
                     </PeakV2SecondaryAction>
                   )}
-                  <PeakV2SecondaryAction data-testid={`rtt-reveal-skip-${kind}`} size="sm" onClick={sequence.skipAll}>
-                    Skip all
-                  </PeakV2SecondaryAction>
                 </>
               ) : null}
               {sequence.complete ? (

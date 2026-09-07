@@ -45,7 +45,7 @@ import { SettledLotTray } from "@/components/twenty-dollar/LotLedger";
 import ShowdownResult, {
   responseLine,
 } from "@/components/twenty-dollar/ShowdownResult";
-import MatchIntro from "@/components/twenty-dollar/MatchIntro";
+import MatchIntro from "@/components/v2/showdown/PeakV2ShowdownIntro";
 import ShowdownClock from "@/components/twenty-dollar/ShowdownClock";
 import { toLineupDNA } from "@/components/twenty-dollar/ComponentSilhouette";
 import TwentyDollarReceipt, {
@@ -1213,7 +1213,6 @@ describe("the pre-match intro", () => {
         slots={5}
         marketSkips={5}
         rated={false}
-        onDismiss={vi.fn()}
       />,
     );
     const intro = screen.getByTestId("td-intro");
@@ -1224,8 +1223,7 @@ describe("the pre-match intro", () => {
     expect(intro).toHaveAttribute("aria-modal", "true");
   });
 
-  it("is dismissible by a real button and by Escape", async () => {
-    const onDismiss = vi.fn();
+  it("holds for the shared timeline — no start button, no Escape, a countdown instead", async () => {
     const user = userEvent.setup();
     render(
       <MatchIntro
@@ -1234,15 +1232,17 @@ describe("the pre-match intro", () => {
         slots={5}
         marketSkips={5}
         rated
-        onDismiss={onDismiss}
+        elapsedSeconds={1}
+        totalSeconds={4.5}
+        turnSeq={1}
       />,
     );
-    // Focus lands on the action, so a keyboard user is not hunting for it.
-    expect(screen.getByTestId("td-intro-start")).toHaveFocus();
-    await user.click(screen.getByTestId("td-intro-start"));
-    expect(onDismiss).toHaveBeenCalled();
+    expect(screen.queryByTestId("td-intro-start")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /open lot|skip/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId("td-intro-countdown")).toHaveTextContent(/Lot 1 opens in \ds/);
+    expect(screen.getByTestId("td-intro-track")).toBeInTheDocument();
     await user.keyboard("{Escape}");
-    expect(onDismiss).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("td-intro")).toBeInTheDocument();
   });
 });
 

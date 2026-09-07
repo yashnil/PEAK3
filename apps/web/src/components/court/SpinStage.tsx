@@ -53,6 +53,15 @@ interface Props {
    * during placement, so canceling a selection (back to spinning, SAME
    * round) remounted it fresh and re-ran the mount-only ceremony effect. */
   collapsed?: boolean;
+  /** 82-0 pacing: the reels are PLANNED and mounted at their start row the
+   *  moment this mounts, but the ceremony clock (the glide, LOCKED, the
+   *  reveal) does not start until `start` is true. The caller holds it
+   *  false while the round card is on screen, so the round identifier
+   *  registers BEFORE anything moves -- the round card and the reels are
+   *  two beats, not one laid over the other. Read once: the first time it
+   *  becomes true the clock starts, and it never restarts. Default true
+   *  (no hold), which is also what reduced motion uses. */
+  start?: boolean;
   /** Phase 8I: franchise_display_name -> resolved logo URL (readiness
    * endpoint's team_logo_urls). Passed straight through to the team reel so
    * every visible item can show its real logo while ticking, not just the
@@ -109,7 +118,14 @@ interface ReelRun {
 // unchanged (the landing beat was already reading as intentional; the
 // complaint was specifically about the reel itself feeling rushed).
 const LOCK_MS = 350;
-const COUNT_MS = 300;
+// 82-0 pacing (final polish): the absorb beat. Once the pair has landed and
+// the LOCKED stamp has played (LOCK_MS), the outcome holds for COUNT_MS
+// before the candidate list opens -- settle -> chooser is now 800 ms
+// (350 + 450; was 650 with COUNT_MS = 300), inside the 500-800 ms band the
+// beat was tuned to. No control is gated on it: nothing is clickable in a
+// list that is not yet on screen, and reduced motion keeps its own
+// near-zero path below.
+const COUNT_MS = 450;
 
 // ---------------------------------------------------------------------------
 // Phase 9B: continuous, GPU-composited reel motion.
@@ -194,7 +210,7 @@ const SETTLE_EASE = "cubic-bezier(0.34, 1.42, 0.64, 1)";
  * every stage also arms a timeout. Both paths are guarded on the current
  * stage so they can never double-advance. */
 const TRANSITION_FALLBACK_MS = 120;
-/** Total ceremony: 1900 (slowest reel) + 220 settle + 350 lock + 300 count. */
+/** Total ceremony: 1900 (slowest reel) + 220 settle + 350 lock + 450 count. */
 const SPIN_MS = SPIN_SEASON_MS + SETTLE_MS;
 // Reduced-motion still shows a real, discrete state machine (spinning ->
 // locked -> revealed) instead of one continuous cycling animation -- "simple
@@ -443,6 +459,7 @@ export default function SpinStage({
   respinFlashKey = 0,
   respinKind = null,
   collapsed = false,
+  start = true,
   teamLogoUrls = {},
   respinFrom = null,
   teamAction = null,
@@ -522,8 +539,16 @@ export default function SpinStage({
     setFailedLogos((prev) => (prev.has(url) ? prev : new Set(prev).add(url)));
   }, []);
 
+  // 82-0 pacing: `held` is true from mount until `start` first reads true.
+  // While held the reels sit mounted at their START row (planned, static,
+  // never the answer) and the two-frame arm below refuses to flip them to
+  // "spinning"; the ceremony clock has not been armed at all. Never true
+  // under reduced motion, whose stepped path ignores the hold entirely.
+  const [held, setHeld] = useState(!start);
+
   useEffect(() => {
     if (prefersReducedMotion()) {
+      setHeld(false);
       setPhase("locked");
       setWasLocked(true);
       const t1 = window.setTimeout(() => setPhase("revealed"), REDUCED_MOTION_LOCK_MS);
@@ -544,6 +569,22 @@ export default function SpinStage({
       setTeamRun({ ...teamPlan, stage: "armed", spinMs: SPIN_TEAM_MS, settleMs: SETTLE_MS, runKey: `team:${roundNumber}` });
       setSeasonRun({ ...seasonPlan, stage: "armed", spinMs: SPIN_SEASON_MS, settleMs: SETTLE_MS, runKey: `season:${roundNumber}` });
     }
+    // Ceremony re-runs once per round only -- keyed by the parent via
+    // `key={roundNumber}` on this component, so this effect intentionally
+    // runs once per mount, not per prop change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // THE CLOCK STARTS WHEN `start` IS TRUE. The render in which it first
+  // reads true arms the fixed ceremony timers (SPIN_MS -> LOCKED ->
+  // revealed -> candidates) and releases the reels. The caller's contract
+  // is one edge, false -> true, per mount (the round card handing over);
+  // the cleanup is the same mount-scoped teardown the old mount-only effect
+  // had, which is also what keeps this correct under React's development
+  // double-invoke of effects.
+  useEffect(() => {
+    if (!start || prefersReducedMotion()) return;
+    setHeld(false);
     const t1 = window.setTimeout(() => {
       // Phase 9B: no snap needed -- a reel's resting transform IS its target
       // by construction (planReel), so there is nothing to correct for here.
@@ -558,11 +599,10 @@ export default function SpinStage({
       window.clearTimeout(t2);
       window.clearTimeout(t3);
     };
-    // Ceremony re-runs once per round only -- keyed by the parent via
-    // `key={roundNumber}` on this component, so this effect intentionally
-    // runs once per mount, not per prop change.
+    // `onRevealComplete` is read at the instant the clock starts, on purpose:
+    // the ceremony is a fixed sequence armed once, exactly as before.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [start]);
 
   useEffect(() => {
     // Skip the initial mount (respinFlashKey starts at 0 and this effect
@@ -688,6 +728,9 @@ export default function SpinStage({
       if (!run) continue;
       const setter = axis === "team" ? setTeamRun : setSeasonRun;
       if (run.stage === "armed") {
+        // 82-0 pacing: an armed reel stays at its start row until the hold
+        // is released (see `held`); the arm re-runs when it is.
+        if (held) continue;
         const r1 = requestAnimationFrame(() => {
           const r2 = requestAnimationFrame(() => {
             setter((prev) => (prev && prev.stage === "armed" ? { ...prev, stage: "spinning" } : prev));
@@ -711,7 +754,7 @@ export default function SpinStage({
     // and cancel the in-flight rAF/timeout that drives the very transition
     // being scheduled.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamRun?.runKey, teamRun?.stage, seasonRun?.runKey, seasonRun?.stage, advanceReel]);
+  }, [teamRun?.runKey, teamRun?.stage, seasonRun?.runKey, seasonRun?.stage, advanceReel, held]);
 
   // Phase 8C: per-wheel ticking/locked state, replacing the single
   // combined `isTicking` both wheels shared before -- during the FIRST
@@ -831,6 +874,9 @@ export default function SpinStage({
       data-testid="spin-stage"
       data-phase={phase}
       data-was-locked={wasLocked}
+      // 82-0 pacing: true while the round card owns the stage and the reels
+      // wait at their start row; false the instant the clock starts.
+      data-held={held}
       // W5 reveal instrumentation. `data-snap-tick` increments once per reel
       // detent (two on the initial roll, one on a respin) and is what CSS
       // keys the tick pulse off; `data-lockup` flips true the instant both

@@ -36,7 +36,6 @@ import type { CSSProperties, ReactNode } from "react";
 import PeakV2Shell from "../PeakV2Shell";
 import PeakV2CinematicStage from "../PeakV2CinematicStage";
 import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
-import PeakV2Rule from "../PeakV2Rule";
 import { ScoreTransition } from "@/components/game-feel";
 import PeakV2CourtSlot from "../PeakV2CourtSlot";
 import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
@@ -190,6 +189,29 @@ const mutedTextStyle: CSSProperties = {
   fontSize: "0.75rem",
   color: "var(--v2-text-muted)",
 };
+
+/**
+ * ONE SECTION HEAD for the result's reading order (final polish). The screen
+ * below the hero used to be a run of identical 11px grey mono labels with
+ * the same gap between every block, so the roster, the analysis, the
+ * model's detail, four action rows and two disclaimers read as one
+ * undifferentiated column. Each section now opens with an index and a
+ * label on a hairline, and the sections are grouped by what they are:
+ * the result, its explanation, the model's detail, what you can do with
+ * it, and the small print. The classes live in `court.css`
+ * (`.v2-court-result-*`).
+ */
+function ResultSectionHead({ index, label, aside }: { index: string; label: ReactNode; aside?: ReactNode }) {
+  return (
+    <div className="v2-court-result-head">
+      <span className="v2-court-result-index" aria-hidden="true">
+        {index}
+      </span>
+      <span className="v2-court-result-label">{label}</span>
+      {aside ? <span className="v2-court-result-aside">{aside}</span> : null}
+    </div>
+  );
+}
 
 /**
  * Mirrors `PeakCardCourt.tsx`'s own `fitColor` exactly (same trust-bug fix:
@@ -368,7 +390,7 @@ export default function PeakV2CourtResult({ state, result, onPlayAgain, playAgai
 
         <div data-testid="result-hero" className="mt-2">
           <PeakV2CinematicStage light={{ tone: heroLightTone(result.wins, isIncomplete, showPerfectStyling) }}>
-            <span style={sectionLabelStyle} data-testid="result-tier">
+            <span className="v2-court-result-tier" data-testid="result-tier">
               {resultTier(result.wins)}
             </span>
             <div className="mt-2 flex items-start justify-center gap-2">
@@ -429,216 +451,199 @@ export default function PeakV2CourtResult({ state, result, onPlayAgain, playAgai
         </div>
 
         {/* B. YOUR FINAL ROSTER — the visual centrepiece directly under the
-            result, on the same court the run was built on.
-
-            It used to sit five sections down, beneath a "Save this run"
-            slab, a "Play again" slab, a best/weakness row and the lineup
-            score, so the thing the player actually built was the LAST thing
-            the result showed them. The eight exact player-seasons are the
-            receipt; the analysis explains them, so it follows them. */}
-        <div>
-          <div style={sectionLabelStyle}>Your roster, revealed</div>
-          <div className="mt-3">
+            result, on the same court the run was built on. The eight exact
+            player-seasons are the receipt; the analysis explains them, so
+            it follows them. */}
+        <section className="v2-court-result-section" data-testid="result-section-roster">
+          <ResultSectionHead index="01" label="Your roster, revealed" aside={`${filledSlotCount} exact player-seasons`} />
+          <div className="mt-4">
             <CourtLayout starterSlots={starterSlots} benchSlots={benchSlots} renderSlot={(slot) => <ResultSlotCard slot={slot} />} />
           </div>
-        </div>
-
-        <PeakV2Rule spacing="md" />
+        </section>
 
         {/* C. RUN ANALYSIS — ONE RECEIPT, not four panels.
             Every number here is the server's own (`lineup_peak_score`, the
             slots' `season_score`, `best_pick`, `structural_weakness`,
             `decisive_factors`). Nothing is computed for display, and no
-            metric is invented to fill a column.
+            metric is invented to fill a column. The lineup score at result
+            scale, then the two picks that moved it most, each with the real
+            score that makes the claim checkable. */}
+        <section className="v2-court-result-section" data-testid="result-section-analysis">
+          <ResultSectionHead index="02" label="Run analysis" />
+          <div data-testid="run-analysis">
+            <div className="v2-run-analysis">
+              <div className="v2-run-stat" data-testid="lineup-peak-score">
+                <span className="v2-run-stat-label">PEAK3 lineup score</span>
+                {result.lineup_score_status === "incomplete" ? (
+                  <>
+                    <span
+                      className="v2-run-stat-value v2-run-stat-value--muted"
+                      data-testid="lineup-score-incomplete"
+                    >
+                      Incomplete
+                    </span>
+                    <span className="v2-run-stat-note" data-testid="score-coverage-note">
+                      {scoredSlotCount}/{filledSlotCount} exact season cards scored. One or more
+                      player-seasons has no official PEAK3 score yet (below the model&apos;s minutes
+                      threshold), so the lineup score is withheld rather than estimated — the
+                      projected record above still uses each card&apos;s real games/minutes sample.
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="v2-run-stat-value">{result.lineup_peak_score.toFixed(1)}</span>
+                    <span className="v2-run-stat-note" data-testid="score-coverage-note">
+                      Mean of your {filledSlotCount} cards&apos; real{" "}
+                      {isExactSeasonMode ? "exact season" : "peak"} PEAK3 scores — the number to
+                      compare across runs. {scoredSlotCount}/{filledSlotCount} scored.
+                    </span>
+                  </>
+                )}
+              </div>
 
-            Laid out as a stat row: the lineup score at result scale, then
-            the two picks that moved it most, each with the real score that
-            makes the claim checkable — "Best pick: Dirk Nowitzki" alone
-            asked the reader to take it on faith. */}
-        <div data-testid="run-analysis">
-          <div style={sectionLabelStyle}>Run analysis</div>
+              {best ? (
+                <div className="v2-run-stat" data-testid="best-and-weakness">
+                  <span className="v2-run-stat-label">Best pick</span>
+                  <span className="v2-run-stat-name" data-tone="positive">{best}</span>
+                  {bestScore !== null ? (
+                    <span className="v2-run-stat-sub" data-testid="best-pick-score">
+                      {bestScore.toFixed(0)} PEAK3
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
 
-          <div className="v2-run-analysis">
-            <div className="v2-run-stat" data-testid="lineup-peak-score">
-              <span className="v2-run-stat-label">PEAK3 lineup score</span>
-              {result.lineup_score_status === "incomplete" ? (
-                <>
-                  <span
-                    className="v2-run-stat-value v2-run-stat-value--muted"
-                    data-testid="lineup-score-incomplete"
-                  >
-                    Incomplete
-                  </span>
-                  <span className="v2-run-stat-note" data-testid="score-coverage-note">
-                    {scoredSlotCount}/{filledSlotCount} exact season cards scored. One or more
-                    player-seasons has no official PEAK3 score yet (below the model&apos;s minutes
-                    threshold), so the lineup score is withheld rather than estimated — the
-                    projected record above still uses each card&apos;s real games/minutes sample.
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="v2-run-stat-value">{result.lineup_peak_score.toFixed(1)}</span>
-                  <span className="v2-run-stat-note" data-testid="score-coverage-note">
-                    Mean of your {filledSlotCount} cards&apos; real{" "}
-                    {isExactSeasonMode ? "exact season" : "peak"} PEAK3 scores — the number to
-                    compare across runs. {scoredSlotCount}/{filledSlotCount} scored.
-                  </span>
-                </>
-              )}
-            </div>
-
-            {best ? (
-              <div className="v2-run-stat" data-testid="best-and-weakness">
-                <span className="v2-run-stat-label">Best pick</span>
-                <span className="v2-run-stat-name">{best}</span>
-                {bestScore !== null ? (
-                  <span className="v2-run-stat-sub" data-testid="best-pick-score">
-                    {bestScore.toFixed(0)} PEAK3
+              <div className="v2-run-stat">
+                <span className="v2-run-stat-label">{weaknessLabel}</span>
+                <span className="v2-run-stat-name" data-tone="caution" data-testid="weakness-label">
+                  {weakness}
+                </span>
+                {weakestScore !== null ? (
+                  <span className="v2-run-stat-sub" data-testid="weakest-pick-score">
+                    {weakestScore.toFixed(0)} PEAK3
                   </span>
                 ) : null}
               </div>
+
+              <div className="v2-run-stat">
+                <span className="v2-run-stat-label">Build</span>
+                <span className="v2-run-stat-name">{buildIdentity}</span>
+                {positionalFit !== null ? (
+                  <span className="v2-run-stat-sub" data-testid="positional-fit">
+                    Positional fit {positionalFit.toFixed(0)}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            {/* A bare label like "thin bench depth" reads as a real basketball
+                insult on its own -- this clarifies it's relative to PEAK3's
+                0-100 all-time-peak scale, not an absolute real-world judgment. */}
+            {result.structural_weakness_detail ? (
+              <p className="v2-run-analysis-detail" data-testid="weakness-detail">
+                {result.structural_weakness_detail}
+              </p>
             ) : null}
-
-            <div className="v2-run-stat">
-              <span className="v2-run-stat-label">{weaknessLabel}</span>
-              <span className="v2-run-stat-name" data-testid="weakness-label">
-                {weakness}
-              </span>
-              {weakestScore !== null ? (
-                <span className="v2-run-stat-sub" data-testid="weakest-pick-score">
-                  {weakestScore.toFixed(0)} PEAK3
-                </span>
-              ) : null}
-            </div>
-
-            <div className="v2-run-stat">
-              <span className="v2-run-stat-label">Build</span>
-              <span className="v2-run-stat-name">{buildIdentity}</span>
-              {positionalFit !== null ? (
-                <span className="v2-run-stat-sub" data-testid="positional-fit">
-                  Positional fit {positionalFit.toFixed(0)}
-                </span>
-              ) : null}
-            </div>
           </div>
+        </section>
 
-          {/* A bare label like "thin bench depth" reads as a real basketball
-              insult on its own -- this clarifies it's relative to PEAK3's
-              0-100 all-time-peak scale, not an absolute real-world judgment. */}
-          {result.structural_weakness_detail ? (
-            <p className="v2-run-analysis-detail" data-testid="weakness-detail">
-              {result.structural_weakness_detail}
-            </p>
-          ) : null}
-        </div>
-
-        <PeakV2Rule spacing="md" />
-
-        <div>
-          <div style={sectionLabelStyle}>What decided this</div>
-          <ul className="mt-2 flex flex-col gap-1.5 list-none pl-0">
+        <section className="v2-court-result-section" data-testid="result-section-factors">
+          <ResultSectionHead index="03" label="What decided this" />
+          <ul className="v2-court-result-factors" data-testid="decisive-factors">
             {result.decisive_factors.map((f) => (
-              <li key={f} style={bodyTextStyle}>
-                <span aria-hidden="true" style={{ color: "var(--v2-text-muted)" }}>
-                  —{" "}
-                </span>
-                {f}
-              </li>
+              <li key={f}>{f}</li>
             ))}
           </ul>
-          <p className="mt-3" style={mutedTextStyle} data-testid="peak-value-reassurance">
+          <p className="v2-court-result-note" data-testid="peak-value-reassurance">
             PEAK3 scores this roster mostly on peak talent and real position fit — it never docks a
             lineup for having too many elite peaks.
           </p>
-        </div>
+        </section>
 
-        {result.peak_picks_recap && result.peak_picks_recap.length > 0 && (
-          <div className="mt-6">
-            <PeakPicksRecap recap={result.peak_picks_recap} />
+        {/* D. THE MODEL'S DETAIL — round by round, and the seven fit
+            components. Secondary by design: it explains the analysis above
+            and is grouped as one section so it reads as one thing. */}
+        <section className="v2-court-result-section" data-testid="result-section-model">
+          <ResultSectionHead index="04" label="The model's detail" />
+          <div className="v2-court-result-model">
+            {result.peak_picks_recap && result.peak_picks_recap.length > 0 && <PeakPicksRecap recap={result.peak_picks_recap} />}
+            <LineupInsightPanel result={result} />
           </div>
-        )}
+        </section>
 
-        <div className="mt-6">
-          <LineupInsightPanel result={result} />
-        </div>
-
-        {readOnly && (
-          <>
-            <PeakV2Rule spacing="md" />
-            <div className="flex items-center justify-between gap-3">
-              <span style={bodyTextStyle}>Think you can build a better roster?</span>
-              <PeakV2PrimaryAction href="/arena/court/practice/apex_1y">Build your own</PeakV2PrimaryAction>
+        {/* E. ACTIONS — grouped on one plane, after the result has been
+            read. Save, play again, share and the leaderboard used to be four
+            unrelated rows in the same grey as the disclaimers under them;
+            they are the things a player can DO with this result, so they
+            sit together and read as controls. */}
+        <section className="v2-court-result-section v2-court-result-actions" data-testid="result-actions">
+          <ResultSectionHead index="05" label={readOnly ? "Your turn" : "This run"} />
+          <div className="v2-court-result-actions-grid">
+            {readOnly ? (
+              <div className="v2-court-result-action">
+                <div className="flex items-center justify-between gap-3">
+                  <span style={bodyTextStyle}>Think you can build a better roster?</span>
+                  <PeakV2PrimaryAction href="/arena/court/practice/apex_1y">Build your own</PeakV2PrimaryAction>
+                </div>
+              </div>
+            ) : null}
+            {onPlayAgain && (
+              <div className="v2-court-result-action">
+                <PlayAgainPanel
+                  mode={state.mode}
+                  wins={result.wins}
+                  losses={result.losses}
+                  lineupPeakScore={result.lineup_score_status === "complete" ? result.lineup_peak_score : null}
+                  onPlayAgain={onPlayAgain}
+                  busy={playAgainBusy}
+                  // `SaveRunPanel` beside it already asks a signed-out
+                  // player to sign in to save and track this run; the
+                  // leaderboard panel asks separately about the global
+                  // board. Without this the block held three near-identical
+                  // sign-in rows.
+                  signInPromptShownAbove
+                />
+              </div>
+            )}
+            <div className="v2-court-result-action">
+              <SaveRunPanel gameId={state.game_id} wins={result.wins} savable={savable} readOnly={readOnly} />
             </div>
-          </>
-        )}
-
-        <PeakV2Rule spacing="md" />
-
-        {/* E. ACTIONS. Save and Play Again used to be the first two things
-            under the hero — two full-width bordered slabs interrupting the
-            result before it had said anything. A receipt offers its actions
-            after it has been read. */}
-        <SaveRunPanel gameId={state.game_id} wins={result.wins} savable={savable} readOnly={readOnly} />
-
-        {onPlayAgain && (
-          <div className="mt-4">
-            <PlayAgainPanel
-              mode={state.mode}
-              wins={result.wins}
-              losses={result.losses}
-              lineupPeakScore={result.lineup_score_status === "complete" ? result.lineup_peak_score : null}
-              onPlayAgain={onPlayAgain}
-              busy={playAgainBusy}
-              // `SaveRunPanel` directly above already asks a signed-out
-              // player to sign in to save and track this run; the
-              // leaderboard panel below asks separately about the global
-              // board. Without this the receipt ended in three near-identical
-              // sign-in rows.
-              signInPromptShownAbove
-            />
+            <div className="v2-court-result-action">
+              <ShareRunPanel state={state} result={result} />
+            </div>
+            {!readOnly && (
+              <div className="v2-court-result-action">
+                <LeaderboardSubmitPanel gameId={state.game_id} mode={state.mode} lineupScoreStatus={result.lineup_score_status} />
+              </div>
+            )}
           </div>
-        )}
+          {eligibility && !eligibility.leaderboard_eligible && eligibility.reason !== "game_not_complete" && (
+            <p className="v2-court-result-note" data-testid="eligibility-notice">
+              <span style={{ fontWeight: 700, color: "var(--warning)" }}>Not leaderboard-eligible · </span>
+              {eligibility.reason_detail}
+            </p>
+          )}
+        </section>
 
-        <div className="mt-4">
-          <ShareRunPanel state={state} result={result} />
-        </div>
-
-        {eligibility && !eligibility.leaderboard_eligible && eligibility.reason !== "game_not_complete" && (
-          <p className="mt-4" style={mutedTextStyle} data-testid="eligibility-notice">
-            <span style={{ fontWeight: 700, color: "var(--warning)" }}>Not leaderboard-eligible · </span>
-            {eligibility.reason_detail}
+        {/* F. THE SMALL PRINT — the simulator's caveat and the board's
+            provenance, quiet and last. No "Data receipt" tag: the seed is
+            the disclosure's own summary line. */}
+        <footer className="v2-court-result-footnotes" data-testid="result-footnotes">
+          <p className="v2-court-result-footnote" data-testid="experimental-notice">
+            {result.experimental_notice}
           </p>
-        )}
-
-        {!readOnly && (
-          <div className="mt-4">
-            <LeaderboardSubmitPanel gameId={state.game_id} mode={state.mode} lineupScoreStatus={result.lineup_score_status} />
-          </div>
-        )}
-
-        <p className="mt-6" style={mutedTextStyle} data-testid="experimental-notice">
-          {result.experimental_notice}
-        </p>
-
-        <details
-          className="mt-4"
-          style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.625rem", color: "var(--v2-text-muted)" }}
-          data-testid="result-receipt"
-        >
-          <summary className="cursor-pointer select-none" style={{ color: "var(--v2-text-secondary)" }}>
-            Data receipt
-          </summary>
-          <div className="flex flex-wrap gap-x-3 gap-y-1 pt-2">
-            <span>Seed {state.board_seed}</span>
-            <span>{state.card_pool_version}</span>
-            <span>{result.lineup_model_version}</span>
-            <span>{result.simulator_version}</span>
-            {state.experimental_team_year_data_version && <span>{state.experimental_team_year_data_version}</span>}
-            {state.formula_version && <span>{state.formula_version}</span>}
-            {state.coverage_mode && <span>{state.coverage_mode}</span>}
-          </div>
-        </details>
+          <details className="v2-court-provenance" data-testid="result-receipt">
+            <summary className="cursor-pointer select-none">Seed {state.board_seed}</summary>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 pt-2">
+              <span>{state.card_pool_version}</span>
+              <span>{result.lineup_model_version}</span>
+              <span>{result.simulator_version}</span>
+              {state.experimental_team_year_data_version && <span>{state.experimental_team_year_data_version}</span>}
+              {state.formula_version && <span>{state.formula_version}</span>}
+              {state.coverage_mode && <span>{state.coverage_mode}</span>}
+            </div>
+          </details>
+        </footer>
       </div>
     </PeakV2Shell>
   );

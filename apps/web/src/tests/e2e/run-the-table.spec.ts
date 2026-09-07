@@ -95,7 +95,7 @@ async function suppressTour(page: Page): Promise<void> {
 // rather than to the observed figure, because it exists to catch a hang, not to
 // police normal variance — and each time the previous one was left stale the
 // suite failed with timeouts that looked like slowness and were not.
-const FULL_RUN_TIMEOUT_MS = 180_000;
+const FULL_RUN_TIMEOUT_MS = 300_000;
 
 /**
  * Every decision surface, in the order they are probed. `rtt-result` leads: it
@@ -231,15 +231,17 @@ async function stepOnce(page: Page, surface: SurfaceId): Promise<void> {
       // auto-start effect) — there is no `rtt-reveal-start-boss` button to
       // click at all. The roster path is untouched and still requires the
       // one manual press.
+      // FINAL POLISH: there is no "Skip all" any more — the deal is the
+      // moment. The driver waits for the last card to settle (about nine
+      // seconds for seven cards) and then presses the one control that
+      // moves on. Under reduced motion the deal settles at once.
       const kind = surface === "rtt-opening-reveal" ? "roster" : "boss";
       if (kind === "roster") {
         await page.locator(`[data-testid="rtt-reveal-start-${kind}"]`).click();
       }
-      const skip = page.locator(`[data-testid="rtt-reveal-skip-${kind}"]`);
-      await skip.waitFor({ state: "visible", timeout: 20_000 });
-      await skip.click();
+      await expect(page.locator(`[data-testid="rtt-reveal-skip-${kind}"]`)).toHaveCount(0);
       const cont = page.locator(`[data-testid="rtt-reveal-continue-${kind}"]`);
-      await cont.waitFor({ state: "visible", timeout: 20_000 });
+      await cont.waitFor({ state: "visible", timeout: 30_000 });
       await cont.click();
       break;
     }
@@ -510,15 +512,12 @@ test.describe("RUN THE TABLE opening reveal", () => {
     expect(await revealedSlotCount(page)).toBe(heldCount);
     await page.locator('[data-testid="rtt-reveal-resume-roster"]').click();
 
-    // Skip all jumps every slot to fully settled with no further animation
-    // and no second round trip — but settling is NOT the handover (the
-    // lead's ruling this pass: skip-all must land on every slot fully
-    // resolved and HOLD there so the player sees what was promised, before
-    // the screen changes). An explicit "Continue" press is what actually
-    // dismisses the surface.
-    await page.locator('[data-testid="rtt-reveal-skip-roster"]').click();
+    // There is no Skip all (final polish): the deal settles on its own, and
+    // settling is NOT the handover — every slot lands fully resolved and
+    // HOLDS there until an explicit press moves on.
+    await expect(page.locator('[data-testid="rtt-reveal-skip-roster"]')).toHaveCount(0);
     const continueRoster = page.locator('[data-testid="rtt-reveal-continue-roster"]');
-    await continueRoster.waitFor({ state: "visible", timeout: 20_000 });
+    await continueRoster.waitFor({ state: "visible", timeout: 30_000 });
     await continueRoster.click();
     await expect(page.locator('[data-testid="rtt-system-select"]')).toBeVisible({ timeout: 20_000 });
     await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toHaveCount(0);
@@ -530,7 +529,7 @@ test.describe("RUN THE TABLE opening reveal", () => {
     await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toHaveCount(0);
   });
 
-  test("the reveal is exactly ONE POST regardless of skip", async ({ page }) => {
+  test("the reveal is exactly ONE POST, and it plays to the end on its own", async ({ page }) => {
     await freshGate(page);
     await startRun(page, "rtt-start-standard");
     await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toBeVisible();
@@ -548,14 +547,10 @@ test.describe("RUN THE TABLE opening reveal", () => {
     });
 
     await page.locator('[data-testid="rtt-reveal-start-roster"]').click();
-    const skip = page.locator('[data-testid="rtt-reveal-skip-roster"]');
-    await skip.waitFor({ state: "visible", timeout: 20_000 });
-    await skip.click();
-    // Skip settles every slot but does not dismiss the surface on its own
-    // (see the note above) — "Continue" is a client-side choice with no
-    // server round trip of its own, so it cannot change `revealPosts` below.
+    // The deal plays to the end on its own; "Continue" is a client-side
+    // choice with no server round trip, so it cannot change `revealPosts`.
     const continueRoster = page.locator('[data-testid="rtt-reveal-continue-roster"]');
-    await continueRoster.waitFor({ state: "visible", timeout: 20_000 });
+    await continueRoster.waitFor({ state: "visible", timeout: 30_000 });
     await continueRoster.click();
 
     await expect(page.locator('[data-testid="rtt-system-select"]')).toBeVisible({ timeout: 20_000 });
@@ -595,15 +590,12 @@ test.describe("RUN THE TABLE opening reveal", () => {
     await expect(page.locator('[data-testid="rtt-reveal-card"]')).toHaveCount(0);
 
     await page.locator('[data-testid="rtt-reveal-start-roster"]').click();
-    await page.locator('[data-testid="rtt-reveal-skip-roster"]').click();
 
-    // "Skip all" is a real server round trip that returns every authoritative
-    // `revealed_slots` entry at once (SYNTHESIS_CONTRACT.md §2.2); the client
-    // then settles every card's presentation in lockstep — all seven read
-    // "settled" together, never a partial disclosure.
-    await expect(
-      page.locator('[data-testid="rtt-reveal-card"][data-reveal-status="settled"]'),
-    ).toHaveCount(7);
+    // ONE server round trip returns every authoritative `revealed_slots`
+    // entry at once (SYNTHESIS_CONTRACT.md §2.2); the client then paces the
+    // presentation card by card — a slot never shows a name before its beat,
+    // and all seven end settled.
+    await expect(page.locator('[data-testid="rtt-reveal-card"][data-reveal-status="settled"]')).toHaveCount(7, { timeout: 30_000 });
     await expect(revealedSlotCount(page)).resolves.toBe(7);
 
     const continueRoster = page.locator('[data-testid="rtt-reveal-continue-roster"]');
@@ -711,12 +703,8 @@ test.describe("RUN THE TABLE full run", () => {
     // No click to start the boss reveal (Pass 1): it auto-starts the instant
     // this surface mounts, so there is no `rtt-reveal-start-boss` button —
     // go straight to waiting for "Skip all" to appear.
-    const skip = page.locator('[data-testid="rtt-reveal-skip-boss"]');
-    await skip.waitFor({ state: "visible", timeout: 20_000 });
-    await skip.click();
-    await expect(
-      page.locator('[data-testid="rtt-reveal-card"][data-reveal-status="settled"]'),
-    ).toHaveCount(7);
+    await expect(page.locator('[data-testid="rtt-reveal-skip-boss"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="rtt-reveal-card"][data-reveal-status="settled"]')).toHaveCount(7, { timeout: 30_000 });
 
     const overflowing = await page.evaluate(() => {
       const rows = Array.from(document.querySelectorAll('[data-testid="rtt-reveal-card"]'));
@@ -778,10 +766,10 @@ test.describe("RUN THE TABLE resume", () => {
     await skipOpeningReveal(page);
     await driveTo(page, "rtt-boss-reveal");
 
-    // No click starts it — the "Skip all" control (only rendered once the
+    // No click starts it — the "Pause" control (only rendered once the
     // sequence has started) appears on its own.
     await expect(page.locator('[data-testid="rtt-reveal-start-boss"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid="rtt-reveal-skip-boss"]')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('[data-testid="rtt-reveal-pause-boss"]')).toBeVisible({ timeout: 20_000 });
 
     // Reload mid-presentation, before ever pressing skip/continue.
     await page.reload({ waitUntil: "load" });

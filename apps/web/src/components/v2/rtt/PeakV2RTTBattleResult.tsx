@@ -17,7 +17,7 @@ import ResultReveal, { RevealStep } from "@/components/game-feel/ResultReveal";
 import GameActionButton from "@/components/game-feel/GameActionButton";
 import LifeMeter from "@/components/game-feel/LifeMeter";
 import PeakV2ArenaLight from "../PeakV2ArenaLight";
-import { battleVerdict, decisiveLane, runningSeries, actNumeral } from "@/lib/run-the-table-state";
+import { battleResolution, decisiveLane, runningSeries, actNumeral } from "@/lib/run-the-table-state";
 import type { BattlePublic, BossPublic } from "@/types/run-the-table";
 import { v2ToneVar, type V2ComponentTone } from "../v2-tone";
 
@@ -49,8 +49,8 @@ export interface PeakV2RTTBattleResultProps {
 }
 
 export default function PeakV2RTTBattleResult({ battle, boss, busy, lives, maxLives, actsTotal, lanesToWin, onAdvance, advanceLabel, resumed = false }: PeakV2RTTBattleResultProps) {
-  const verdict = battleVerdict(battle);
   const needed = lanesToWin ?? battle.lanes_to_win ?? 3;
+  const resolution = battleResolution(battle, needed);
   const decisive = decisiveLane(battle, needed);
   const final = battle.act >= actsTotal;
   const won = battle.outcome === "win";
@@ -108,11 +108,20 @@ export default function PeakV2RTTBattleResult({ battle, boss, busy, lives, maxLi
 
             <RevealStep name="verdict" revealed={revealed} className="rtt-battle-verdict" testId="rtt-battle-verdict">
               <span className="rtt-battle-stamp" data-outcome={battle.outcome}>
-                {verdict.stamp}
+                {resolution.stamp}
               </span>
-              <span className="rtt-battle-verdict-detail">
-                {battle.player_lanes_won}–{battle.opponent_lanes_won} on lanes · {decisive.sentence}
+              {/* THE THREE FACTS, TOGETHER: the lane count, what was needed,
+                  and the rule that decided it with its number — so a "3–2"
+                  that fell short of 4 can never read as a win. */}
+              <span className="rtt-battle-verdict-line" data-testid="rtt-battle-resolution" data-fell-short={resolution.fellShort ? "true" : "false"}>
+                <span className="rtt-battle-verdict-count">{resolution.count}</span>
+                <span className="rtt-battle-verdict-sep" aria-hidden="true">·</span>
+                <span className="rtt-battle-verdict-target">{resolution.target}</span>
               </span>
+              <span className="rtt-battle-verdict-decider" data-testid="rtt-battle-decider">
+                {resolution.decider}
+              </span>
+              <span className="rtt-battle-verdict-detail">{decisive.lane ? decisive.sentence : null}</span>
             </RevealStep>
 
             <RevealStep name="consequence" revealed={revealed} className="rtt-battle-consequence" testId="rtt-battle-consequence">

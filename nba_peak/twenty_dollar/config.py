@@ -150,8 +150,8 @@ TURN_SECONDS: Final[float] = 25.0
 #:
 #: Each is a range, never a constant -- a constant delay is still a machine,
 #: just a slower one -- and every draw is seeded so a match replays exactly.
-BOT_THINK_SECONDS_MIN: Final[float] = 0.35
-BOT_THINK_SECONDS_MAX: Final[float] = 1.3
+BOT_THINK_SECONDS_MIN: Final[float] = 0.9
+BOT_THINK_SECONDS_MAX: Final[float] = 1.9
 
 BOT_THINK_KIND_QUICK: Final[str] = "quick"
 BOT_THINK_KIND_ORDINARY: Final[str] = "ordinary"
@@ -159,10 +159,10 @@ BOT_THINK_KIND_CONTESTED: Final[str] = "contested"
 BOT_THINK_KIND_WAR: Final[str] = "war"
 
 BOT_THINK_RANGES: Final[dict[str, tuple[float, float]]] = {
-    BOT_THINK_KIND_QUICK: (0.25, 0.65),
+    BOT_THINK_KIND_QUICK: (0.55, 1.05),
     BOT_THINK_KIND_ORDINARY: (BOT_THINK_SECONDS_MIN, BOT_THINK_SECONDS_MAX),
-    BOT_THINK_KIND_CONTESTED: (1.2, 1.8),
-    BOT_THINK_KIND_WAR: (0.3, 0.85),
+    BOT_THINK_KIND_CONTESTED: (1.9, 2.9),
+    BOT_THINK_KIND_WAR: (0.55, 1.15),
 }
 
 #: How often a `contested` decision actually takes the long beat. The rest of

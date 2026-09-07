@@ -97,9 +97,7 @@ async function step(page, s, ctx) {
       await clickMeasured(page, '[data-testid="rtt-reveal-start-roster"]', null, "reveal roster");
       await page.waitForTimeout(1200);
       await snap(page, `${s}-dealing`);
-      const skip = page.locator('[data-testid="rtt-reveal-skip-roster"]');
-      if (await skip.count()) await skip.click();
-      await page.locator('[data-testid="rtt-reveal-continue-roster"]').waitFor({ timeout: 30000 });
+      await page.locator('[data-testid="rtt-reveal-continue-roster"]').waitFor({ timeout: 40000 });
       await snap(page, `${s}-settled`);
       await clickMeasured(page, '[data-testid="rtt-reveal-continue-roster"]', s, "continue roster");
       break;
@@ -112,10 +110,7 @@ async function step(page, s, ctx) {
     case "rtt-boss-reveal": {
       await page.waitForTimeout(900);
       await snap(page, `${s}-act${ctx.act}-dealing`);
-      const skip = page.locator('[data-testid="rtt-reveal-skip-boss"]');
-      await skip.waitFor({ timeout: 30000 });
-      await skip.click();
-      await page.locator('[data-testid="rtt-reveal-continue-boss"]').waitFor({ timeout: 30000 });
+      await page.locator('[data-testid="rtt-reveal-continue-boss"]').waitFor({ timeout: 40000 });
       await snap(page, `${s}-act${ctx.act}-settled`);
       await clickMeasured(page, '[data-testid="rtt-reveal-continue-boss"]', s, "continue boss reveal");
       break;
@@ -241,6 +236,8 @@ async function step(page, s, ctx) {
     case "rtt-battle-reveal": {
       await page.waitForTimeout(600);
       await snap(page, `${s}-act${ctx.act}`);
+      await page.locator('[data-testid="rtt-battle-reveal"][data-complete="true"]').waitFor({ timeout: 5000 }).catch(() => {});
+      await snap(page, `${s}-act${ctx.act}-complete`);
       const after = await hud(page);
       const outcome = await page.locator('[data-testid="rtt-battle-reveal"]').innerText().then((t) => (/Victory/i.test(t) ? "win" : /Defeat/i.test(t) ? "loss" : "draw"));
       note("battle", { outcome, lives_before: h.lives, lives_after: after.lives, credits: after.credits });

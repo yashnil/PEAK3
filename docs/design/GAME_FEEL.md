@@ -112,7 +112,7 @@ sold at ≤ $2 to a locked-out opponent 10.5% → 2.4%.
 
 `ArenaMatchView` publishes `turn_seq`, `turn_elapsed_seconds` and
 `turn_total_seconds` alongside `turn_seconds_remaining`. Three-Man Weave's
-`INTRO_SECONDS` (4.0) and `REVEAL_SECONDS` (3.0) are the two seatless windows;
+`INTRO_SECONDS` (4.0) and `REVEAL_SECONDS` (4.0, was 3.0 before the final polish pass) are the two seatless windows;
 `tmw_skip_intro` / `tmw_skip_reveal` are refused with `shared_timeline`.
 `bot_reply_in_seconds` says how long until the bot on the open turn may
 move (null when the open turn is not a bot's).
@@ -177,3 +177,64 @@ never loses their place between a draft and a boss.
 | `LifeMeter` | lives as pips; a lost pip breaks and stays scarred; `data-danger` at one life |
 | `RunTrack` | the run as chapters of marks (stage / boss); current mark is the step; lost bosses keep a scar; compact under 1024px |
 | `ResultReveal.startComplete` | a resumed ending paints complete on the first frame |
+
+## Final pre-deploy polish pass (2026-09-07)
+
+Composure, not latency: important moments stay on screen long enough to be
+felt; controls still acknowledge in under 100 ms and nothing waits on a beat.
+
+### The $20 Showdown
+- **Shared intro, no skip.** `showdown_skip_intro` is refused with
+  `shared_timeline` (both seats leave the 4.5 s intro on the server's own
+  deadline; lot 1's full 25 s window opens for both at that instant). The
+  intro shows "Lot 1 opens in Ns" and the drain bar; Escape does nothing.
+- **Bot dwell, recalibrated** (`config.BOT_THINK_RANGES`, seconds): quick pass
+  0.25–0.65 → **0.55–1.05**; ordinary 0.35–1.3 → **0.9–1.9**; contested
+  1.2–1.8 → **1.9–2.9** (still only 45 % of contested calls take the long
+  beat); bidding war 0.3–0.85 → **0.55–1.15**. Quick and sharp, never a snap.
+- **The SOLD moment holds** 1.6 → **2.2 s** (`LotLedger.REVEAL_HOLD_MS`), and
+  the next lot's card enters 320 ms after the stamp lands (`.sd-lot-card`
+  arrival delay) — controls beneath are live the whole time.
+
+### Run the Table
+- **No reveal skip.** The opening deal and every boss deal play to the end
+  (Pause stays); per-card beats trimmed identity 400 → 340 ms, score 600 →
+  460 ms (≈1.16 s per card, ≈8.5 s for seven). Scores count up on the face;
+  the active seat carries a light sweep; boss faces are tinted.
+- **Outcome semantics.** `battleResolution()` states the lane count, the
+  target and the decider together ("2–3 on lanes · 4 needed — 2–3 is not
+  enough · Decided on total lane margin +6.4"), on the battle verdict and the
+  receipt's journey. `DECIDED_BY_LABELS.summed_margin` no longer says "tied
+  on lanes". The engine was correct; the presentation was misleading.
+- **Composure.** Header and track breathe more; the rail is hairline rows
+  (only the newest piece and a targeted slot light); wider gutter; perk cards
+  are a card family (gradient rule, serif name, full-width choose, exact rule
+  as a quiet disclosure); RTT buttons share one radius/hover/press envelope;
+  the public-handle prompt stays off `/arena/run-the-table`.
+- Programmatic focus on a surface's heading no longer paints a focus ring.
+
+### 82-0 Peak Season (subagent workstream, `docs/implementation/game-feel-pass3-review/court-polish.md`)
+- Start gate recomposed (`.v2-court-gate*` in `styles/v2/court.css`; the old
+  markup had borrowed Run the Table's deleted gate classes and rendered as
+  inline text).
+- Opening intro `PeakV2CourtIntro`: `COURT_PACING.INTRO_MS` 3400 / exit 320 /
+  reduced 600 ms, only on a freshly created run (never on resume/reload).
+- Round card: `COURT_PACING.ROUND_REVEAL_MS` **1500 ms** held before the reels
+  start (was a 620 ms chooser-local card over an already-running reel),
+  exit 260 ms; the card is `CourtBuilder` state keyed on the authoritative
+  round (`roundCardDoneFor`), so "Resume selection" cannot replay it.
+- Spin outcome absorb `COUNT_MS` 300 → **450 ms** (lock → chooser ≈ 800 ms).
+- "Data receipt" tag gone; the details now lead with the seed. Result screen
+  in five indexed sections with a single actions plane.
+
+### Three-Man Weave (subagent workstream, `.../tmw-polish.md`)
+- `REVEAL_SECONDS` 3.0 → **4.0** (one shared seatless window). Ceremony marks
+  (`TMW_CEREMONY_MARKS`, ms): round card 0–1550, armed 1550–1750, reels
+  1750–2850, lock 2850–3250 (400 ms), pair held to 4000; marks compress
+  proportionally for a shorter published window.
+- Previous-pick beat `TMW_PREVIOUS_PICK_BEAT_MS` **900 ms**: when the seat
+  before you picks and the turn becomes yours on a poll, the applied board
+  and a hand-off moment show before the pick overlay opens; any press ends
+  it; reduced motion collapses it.
+- "Taken this roll" chips replace the sentence; the end screen marks your
+  seat in gold at any placement, alongside the winner.

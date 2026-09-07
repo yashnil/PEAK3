@@ -15,7 +15,8 @@ import {
   undoLastPlacement,
   PerfectSeasonAPIError,
 } from "@/lib/perfect-season-api";
-import { uiPhaseFromStatus } from "@/lib/court-state";
+import { COURT_PACING, uiPhaseFromStatus } from "@/lib/court-state";
+import { usePrefersReducedMotion } from "@/lib/a11y";
 import {
   CourtLineupPublicState,
   CurrentSpin,
@@ -31,6 +32,13 @@ import type { EventMomentData } from "@/components/game-feel";
 import PeakV2CourtLive from "@/components/v2/court/PeakV2CourtLive";
 import PeakV2CourtChooser from "@/components/v2/court/PeakV2CourtChooser";
 import PeakV2CourtResult from "@/components/v2/court/PeakV2CourtResult";
+import PeakV2CourtIntro from "@/components/v2/court/PeakV2CourtIntro";
+
+/** The round card only ever precedes a draw: `selection_pending` is the one
+ *  status whose chooser opens on a reel. */
+function phaseIsSpinning(status: CourtLineupPublicState["status"]): boolean {
+  return uiPhaseFromStatus(status) === "spinning";
+}
 
 interface Props {
   initialGameState: CourtLineupPublicState;
@@ -45,6 +53,12 @@ interface Props {
    * Empty whenever the asset gate is off -- SpinStage falls back to the
    * initials badge for any name missing from this map. */
   teamLogoUrls?: Record<string, string>;
+  /** True when `initialGameState` was JUST created by the player's own
+   *  press (the Start gate's Begin): the run opens with the 82-0 intro
+   *  before round 1. False (the default) for a resumed / reloaded run,
+   *  which lands straight on its current state. Play Again creates a new
+   *  run and opens with the intro on its own. */
+  openingIntro?: boolean;
 }
 
 export default function CourtBuilder({
@@ -52,6 +66,7 @@ export default function CourtBuilder({
   franchiseNames,
   seasonLabels = [],
   teamLogoUrls = {},
+  openingIntro = false,
 }: Props) {
   const [state, setState] = useState<CourtLineupPublicState>(initialGameState);
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +102,32 @@ export default function CourtBuilder({
   // number directly has no such ordering dependency.
   const [revealedRound, setRevealedRound] = useState<number | null>(null);
   const ceremonyRevealed = revealedRound === state.current_round;
+  const reducedMotion = usePrefersReducedMotion();
+  // THE OPENING INTRO (82-0 pacing): which game id is still owed its intro.
+  // Set from `openingIntro` for the run the gate just created and by Play
+  // Again for the run it creates; cleared by the intro itself when it has
+  // left the stage. Keyed on the game id, so a resumed run (never set) and
+  // any later snapshot of the same run (already cleared) cannot replay it.
+  const [introFor, setIntroFor] = useState<string | null>(openingIntro ? initialGameState.game_id : null);
+  const introOpen = introFor !== null && introFor === state.game_id && !state.simulation_result;
+  // THE ROUND CARD, ONCE PER ROUND. `roundCardDoneFor` is the last
+  // `game:round` whose card has finished; the card is open exactly while the
+  // authoritative round is a newer one and nothing has been revealed for it
+  // yet. Derived from the round identity -- not from the chooser mounting,
+  // not from the panel opening -- so "View court" + "Resume selection"
+  // cannot re-trigger it (the previous chooser-local timer keyed on `open`
+  // did exactly that). A run resumed mid-placement starts with its current
+  // round already marked done: there is no draw left to announce.
+  const [roundCardDoneFor, setRoundCardDoneFor] = useState<string | null>(
+    initialGameState.status === "selection_pending" ? null : `${initialGameState.game_id}:${initialGameState.current_round}`,
+  );
+  const roundCardOpen =
+    !introOpen && !reducedMotion && phaseIsSpinning(state.status) && roundCardDoneFor !== roundKey && !ceremonyRevealed;
+  useEffect(() => {
+    if (!roundCardOpen) return;
+    const id = window.setTimeout(() => setRoundCardDoneFor(roundKey), COURT_PACING.ROUND_REVEAL_MS);
+    return () => window.clearTimeout(id);
+  }, [roundCardOpen, roundKey]);
   // Phase 6G Part C: bumped on every successful respin, purely to drive
   // SpinStage's brief "just respun" flash -- never affects which round is
   // considered revealed.
@@ -500,6 +541,9 @@ export default function CourtBuilder({
       dismissToast();
       setState(next);
       setRevealedRound(null);
+      // A new run opens with the intro, then its own round-1 card.
+      setIntroFor(next.game_id);
+      setRoundCardDoneFor(null);
       setRespinFlashKey(0);
       setRespinKind(null);
       setRespinPending(false);
@@ -551,6 +595,18 @@ export default function CourtBuilder({
           reveal. */}
       {!state.simulation_result && (
         <>
+          {/* THE OPENING (82-0 pacing): over the mounted court, before the
+              round-1 chooser exists. The chooser (and with it the round card
+              and the reels) mounts only once the intro has left, so the
+              first thing that moves after the title is the round card. */}
+          {introOpen ? (
+            <PeakV2CourtIntro
+              challengeKind={state.challenge_kind === "daily" ? "daily" : "free_play"}
+              difficulty={state.difficulty ?? "easy"}
+              totalRounds={state.total_rounds}
+              onDone={() => setIntroFor(null)}
+            />
+          ) : null}
           <PeakV2CourtLive
             state={state}
             phase={phase}
@@ -587,7 +643,7 @@ export default function CourtBuilder({
             pendingSelectionPosition={state.pending_selection?.primary_position ?? null}
             onSwitchSelection={handleCancel}
           />
-          {(phase === "spinning" || phase === "placing") && roundSpin && (
+          {!introOpen && (phase === "spinning" || phase === "placing") && roundSpin && (
             <PeakV2CourtChooser
               // Mirrors legacy's own `hidden={phase !== "spinning" || overlayMinimized}`
               // exactly, inverted for an `open` prop: the panel auto-steps aside
@@ -617,6 +673,7 @@ export default function CourtBuilder({
               pendingKind={pendingKind}
               pendingSlug={pendingTarget?.kind === "select" ? pendingTarget.key : null}
               roundKey={roundKey}
+              roundCardOpen={roundCardOpen}
               respinPending={respinPending}
               canRespinTeam={state.team_respins_remaining_total > 0}
               canRespinSeason={state.season_respins_remaining_total > 0}

@@ -751,6 +751,7 @@ export default function RunTheTableGame({ initialSeed, initialDate, challengeTok
         versions={state.versions}
         actsTotal={state.acts_total}
         map={state.map}
+        battles={state.battles}
         busy={busy}
         resumed={resumed}
         onRunItBack={handleRunItBack}
@@ -770,7 +771,7 @@ export default function RunTheTableGame({ initialSeed, initialDate, challengeTok
   }
 
   return (
-    <div ref={surfaceRef}>
+    <div ref={surfaceRef} className="rtt-surface">
       <div aria-live="polite" className="sr-only" data-testid="rtt-live">
         {liveMessage}
       </div>

@@ -374,9 +374,10 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
     [matchId, lane, applyView],
   );
 
-  /** End the intro, or concede. Server-resolved, like every other move. */
+  /** Concede. Server-resolved, like every other move. (The intro has no
+   *  skip any more: it is a shared timeline that ends on its own clock.) */
   const sendLifecycle = useCallback(
-    async (command: "showdown_skip_intro" | "showdown_forfeit"): Promise<boolean> => {
+    async (command: "showdown_forfeit"): Promise<boolean> => {
       const result = await lane.run(command, async () => {
         const current = latest.current;
         if (!current) return false;
@@ -502,7 +503,6 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
       onDismissError={() => setError(null)}
       onDismissMoment={dismissMoment}
       onAct={act}
-      onSkipIntro={() => sendLifecycle("showdown_skip_intro")}
       onForfeit={() => sendLifecycle("showdown_forfeit")}
       onCopy={setCopied}
       onPlayAgain={playAgain}
@@ -527,7 +527,6 @@ function AuctionRoom({
   onDismissError,
   onDismissMoment,
   onAct,
-  onSkipIntro,
   onForfeit,
   onCopy,
   onPlayAgain,
@@ -543,7 +542,6 @@ function AuctionRoom({
   onDismissError: () => void;
   onDismissMoment: (id: string) => void;
   onAct: (command: "bid" | "pass", amount: number) => Promise<boolean>;
-  onSkipIntro: () => Promise<boolean>;
   onForfeit: () => Promise<boolean>;
   onCopy: (value: boolean) => void;
   onPlayAgain: () => Promise<boolean>;
@@ -639,7 +637,6 @@ function AuctionRoom({
           elapsedSeconds={view.turn_elapsed_seconds ?? null}
           totalSeconds={view.turn_total_seconds ?? null}
           turnSeq={view.turn_seq ?? null}
-          onDismiss={onSkipIntro}
         />
       ) : null}
     </>

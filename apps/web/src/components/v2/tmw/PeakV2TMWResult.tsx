@@ -127,6 +127,15 @@ function SeatResultBlock({
       data-winner={isFirst ? "true" : undefined}
       data-yours={isYou ? "true" : undefined}
     >
+      {/* YOUR SEAT, IN GOLD, WHATEVER THE PLACEMENT. The winner keeps the lit
+          ground and the gold ordinal; your own court gets a gold edge and
+          this tab so 2nd and 3rd can find themselves at once. Both can be
+          true on one card: "1st" says winner, the tab says yours. */}
+      {isYou ? (
+        <span className="tmw-result-seat-yours" data-testid={`tmw-result-${row.result.seat_index}-yours`} aria-hidden="true">
+          {isFirst ? "Your seat · Winner" : "Your seat"}
+        </span>
+      ) : null}
       <div className="tmw-result-seat-head">
         <div className="min-w-0">
           {/* ONE ORDINAL PER SEAT, same rule as the hero: the ordinal WORD
@@ -330,20 +339,26 @@ export default function PeakV2TMWResult({
             const isFirst = row.result.placement === 1;
             const isYou = row.result.seat_index === yourSeatIndex;
             return (
-              <div key={row.result.seat_index} className="flex items-baseline justify-between gap-3">
+              <div
+                key={row.result.seat_index}
+                className="tmw-result-standing flex items-baseline justify-between gap-3"
+                data-testid={`tmw-standing-${row.result.seat_index}`}
+                data-winner={isFirst ? "true" : undefined}
+                data-yours={isYou ? "true" : undefined}
+              >
                 <span
                   style={{
                     fontFamily: "var(--v2-font-ui)",
-                    fontWeight: isFirst ? 700 : 500,
+                    fontWeight: isFirst || isYou ? 700 : 500,
                     fontSize: "0.875rem",
-                    color: isFirst ? "var(--v2-color-accent)" : "var(--v2-text-secondary)",
+                    color: isFirst ? "var(--v2-color-accent)" : isYou ? "var(--v2-text-primary)" : "var(--v2-text-secondary)",
                   }}
                 >
                   <span style={{ fontFamily: "var(--v2-font-mono)", fontVariantNumeric: "tabular-nums" }}>
                     {ordinal(row.result.placement)}
                   </span>{" "}
                   {row.result.display_name}
-                  {isYou ? <span style={{ color: "var(--v2-text-muted)" }}> · you</span> : null}
+                  {isYou ? <span className="tmw-result-standing-you"> · you</span> : null}
                 </span>
                 <span
                   style={{

@@ -28,6 +28,7 @@ import { RTT_COACH_STORAGE_KEY, coachSeen, markCoachSeen, resetCoach } from "@/l
 import {
   RUN_THE_TABLE_BEST_KEY,
   actNumeral,
+  battleResolution,
   describeRunTransition,
   isNewerRun,
   loadPersonalBest,
@@ -318,6 +319,34 @@ describe("describeRunTransition — the moment, from two snapshots", () => {
     expect(describeRunTransition(runState(), runState({ run_id: "other" }))).toBeNull();
     expect(describeRunTransition(runState(), runState({ action_count: 4, status: "node_active" }))).toBeNull();
     expect(describeRunTransition(null, runState())).toBeNull();
+  });
+});
+
+describe("battleResolution — the outcome can never read as a contradiction", () => {
+  it("states first-to-N when a side reached it", () => {
+    const r = battleResolution(battle("win"), 3);
+    expect(r.stamp).toBe("VICTORY");
+    expect(r.count).toBe("3–1 on lanes");
+    expect(r.target).toBe("first to 3");
+    expect(r.decider).toBe("Decided on lanes won");
+    expect(r.fellShort).toBe(false);
+  });
+  it("says 3–2 is NOT enough under a four-lane rule and names the margin that decided a loss", () => {
+    const b = battle("win", { outcome: "loss", decided_by: "summed_margin", summed_margin: -4.2, player_lanes_won: 3, opponent_lanes_won: 2, ties: 0, lanes_to_win: 4 });
+    const r = battleResolution(b, 4);
+    expect(r.stamp).toBe("DEFEAT");
+    expect(r.count).toBe("3–2 on lanes");
+    expect(r.target).toBe("4 needed — 3–2 is not enough");
+    expect(r.decider).toBe("Decided on total lane margin -4.2");
+    expect(r.fellShort).toBe(true);
+    expect(r.sentence).toContain("DEFEAT. 3–2 on lanes, 4 needed");
+  });
+  it("explains a level count with drawn lanes and a roster-total decider", () => {
+    const b = battle("draw", { outcome: "win", decided_by: "roster_total", player_lanes_won: 1, opponent_lanes_won: 1, ties: 3, summed_margin: 0, player_roster_total: 27.4, opponent_roster_total: 26.1 });
+    const r = battleResolution(b, 3);
+    expect(r.target).toBe("3 needed — level with 3 lanes drawn");
+    expect(r.decider).toBe("Decided on overall roster total 27.4 to 26.1");
+    expect(r.stamp).toBe("VICTORY");
   });
 });
 

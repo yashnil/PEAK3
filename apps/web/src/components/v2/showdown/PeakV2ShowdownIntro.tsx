@@ -6,7 +6,7 @@
  * "Somebody always *overpays*." over the mounted board, four steps, the real
  * per-seat budget mirror, and a bar that drains against the intro turn's own
  * `turn_elapsed_seconds` / `turn_total_seconds` so every client agrees how
- * long is left. `onDismiss` is the server-turn-skip command; the first lot
+ * long is left. There is no dismiss: the intro is a shared timeline; the first lot
  * opens with a full decision window either way.
  */
 
@@ -14,7 +14,6 @@ import { useEffect, useState } from "react";
 import PeakV2CinematicStage from "../PeakV2CinematicStage";
 import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
 import PeakV2DisplayEmphasis from "../PeakV2DisplayEmphasis";
-import { GameActionButton } from "@/components/game-feel";
 import { formatDollars } from "@/lib/twenty-dollar-api";
 import { usePrefersReducedMotion } from "@/lib/a11y";
 
@@ -34,7 +33,6 @@ export default function PeakV2ShowdownIntro({
   elapsedSeconds = null,
   totalSeconds = null,
   turnSeq = null,
-  onDismiss,
 }: {
   opponentName: string;
   startingBudget: number;
@@ -44,7 +42,6 @@ export default function PeakV2ShowdownIntro({
   elapsedSeconds?: number | null;
   totalSeconds?: number | null;
   turnSeq?: number | null;
-  onDismiss: () => Promise<boolean> | void;
 }) {
   const reduced = usePrefersReducedMotion();
   // The bar runs from the server's elapsed figure at the instant this view
@@ -58,6 +55,8 @@ export default function PeakV2ShowdownIntro({
     const id = window.setInterval(tick, reduced ? 500 : 100);
     return () => window.clearInterval(id);
   }, [elapsedSeconds, totalSeconds, turnSeq, reduced]);
+
+  const secondsLeft = totalSeconds ? Math.max(0, Math.ceil(totalSeconds * (1 - progress))) : null;
 
   return (
     <div
@@ -108,9 +107,13 @@ export default function PeakV2ShowdownIntro({
         </div>
 
         <div className="mt-8 flex flex-col items-center gap-3">
-          <GameActionButton data-testid="td-intro-start" onAction={() => onDismiss()} pendingLabel="Opening lot 1…" autoFocus>
-            Open lot 1
-          </GameActionButton>
+          {/* NO SKIP. The intro is a shared timeline: both seats watch the
+              same beat and lot 1's clock opens for both when the server's
+              turn ends (`showdown_skip_intro` is refused with
+              `shared_timeline`). The bar and the countdown say when. */}
+          <span className="sd-intro-countdown" data-testid="td-intro-countdown" role="status" aria-live="polite">
+            Lot 1 opens in {secondsLeft}s
+          </span>
           {totalSeconds !== null ? (
             <span className="sd-intro-track" aria-hidden="true" data-testid="td-intro-track">
               <span className="sd-intro-fill" style={{ transform: `scaleX(${1 - progress})` }} />

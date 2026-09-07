@@ -29,6 +29,8 @@ import type {
   TmwRoster,
 } from "@/types/three-man-weave";
 import { TMW_REVEAL_SECONDS, TMW_TURN_PHASE_PICK, TMW_TURN_PHASE_REVEAL } from "@/types/three-man-weave";
+import { TMW_CEREMONY, TMW_CEREMONY_MARKS } from "@/components/v2/tmw/PeakV2TMWReveal";
+import { TMW_PREVIOUS_PICK_BEAT_MS } from "@/components/three-man-weave/ThreeManWeaveGame";
 
 function mockMatchMedia(reduced: boolean) {
   Object.defineProperty(window, "matchMedia", {
@@ -496,7 +498,13 @@ describe("reconnect", () => {
 
   it("lands at the SERVER's point in the ceremony: settled when the reels have settled, from the round card when it just opened", () => {
     getMatch.mockImplementation(async () => ceremony(0));
-    const late = render(<ThreeManWeaveGame initialMatch={ceremony(2.6)} />);
+    // Pre-deploy polish moved the settle from 1.75 s of a 3.0 s window to
+    // the ceremony's published `locked` mark of a 4.0 s window; the elapsed
+    // time is read off the marks so this pins "settled means settled", not
+    // a number.
+    const settled = TMW_CEREMONY_MARKS.resolved / 1000 + 0.1;
+    expect(settled).toBeLessThan(TMW_REVEAL_SECONDS);
+    const late = render(<ThreeManWeaveGame initialMatch={ceremony(settled)} />);
     expect(late.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "true");
     expect(late.queryByTestId("tmw-pick-overlay")).toBeNull();
     late.unmount();
@@ -575,4 +583,165 @@ describe("a forming private room", () => {
     await waitFor(() => expect(screen.getByTestId("tmw-room")).toBeInTheDocument(), { timeout: 4000 });
     expect(screen.getByTestId("tmw-room")).toHaveAttribute("data-turn-phase", "intro");
   }, 8000);
+});
+
+// ---------------------------------------------------------------------------
+// Pre-deploy polish: the previous-pick beat
+// ---------------------------------------------------------------------------
+
+describe("the previous-pick beat", () => {
+  /** A bot's turn, nothing on the board yet. */
+  function botOnClock(): TmwMatchView {
+    return view({
+      current_turn_seat_index: 1,
+      seconds_remaining: null,
+      legal_commands: [],
+      public_state: publicState({ current_seat: 1 }),
+    });
+  }
+  /** The same match one snapshot later: the bot's pick landed AND the turn is yours. */
+  function handedToYou(): TmwMatchView {
+    return view({
+      state_version: 5,
+      turn_seq: 4,
+      current_turn_seat_index: 0,
+      public_state: publicState({
+        current_seat: 0,
+        rosters: [roster(0), roster(1, { PF: pick("karl-malone", "Karl Malone", "PF", 1) }), roster(2)],
+      }),
+    });
+  }
+
+  it("shows the previous seat's pick over the applied state BEFORE the pick surface opens, then opens it", async () => {
+    vi.useFakeTimers();
+    try {
+      getMatch.mockImplementation(async () => handedToYou());
+      render(<ThreeManWeaveGame initialMatch={botOnClock()} />);
+      expect(screen.queryByTestId("tmw-pick-overlay")).toBeNull();
+
+      // The opponent-turn poll (1 s) lands the handoff snapshot.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1100);
+      });
+      // STATE IS APPLIED: their card is on their court and the turn is yours.
+      expect(within(screen.getAllByTestId("tmw-seat-court-1")[0]).getByText("Karl Malone")).toBeInTheDocument();
+      expect(screen.getByTestId("tmw-on-the-clock")).toHaveTextContent(/you/i);
+      // PRESENTATION HOLDS THE OVERLAY: the moment names the pick, the beat is on.
+      expect(screen.getByTestId("tmw-room")).toHaveAttribute("data-beat", "previous-pick");
+      expect(screen.getByTestId("tmw-moment")).toHaveTextContent("Karl Malone → PF");
+      expect(screen.getByTestId("tmw-moment")).toHaveTextContent("Rim Runner");
+      expect(screen.getByTestId("tmw-moment")).toHaveTextContent("You're up");
+      expect(screen.getByTestId("tmw-previous-pick-beat")).toBeInTheDocument();
+      expect(screen.queryByTestId("tmw-pick-overlay")).toBeNull();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(TMW_PREVIOUS_PICK_BEAT_MS + 20);
+      });
+      expect(screen.getByTestId("tmw-room")).not.toHaveAttribute("data-beat");
+      expect(screen.getByTestId("tmw-pick-overlay")).toBeInTheDocument();
+      expect(screen.queryByTestId("tmw-previous-pick-beat")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never gates the player: a press during the beat opens the surface at once", async () => {
+    vi.useFakeTimers();
+    try {
+      getMatch.mockImplementation(async () => handedToYou());
+      render(<ThreeManWeaveGame initialMatch={botOnClock()} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1100);
+      });
+      expect(screen.getByTestId("tmw-room")).toHaveAttribute("data-beat", "previous-pick");
+      await act(async () => {
+        window.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      });
+      expect(screen.getByTestId("tmw-pick-overlay")).toBeInTheDocument();
+      expect(screen.getByTestId("tmw-room")).not.toHaveAttribute("data-beat");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("holds no beat under reduced motion, and none when the turn is not handed over on a pick", async () => {
+    vi.useFakeTimers();
+    try {
+      mockMatchMedia(true);
+      getMatch.mockImplementation(async () => handedToYou());
+      const reduced = render(<ThreeManWeaveGame initialMatch={botOnClock()} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1100);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5);
+      });
+      expect(reduced.getByTestId("tmw-pick-overlay")).toBeInTheDocument();
+      reduced.unmount();
+
+      // A reload straight into your turn is not a handoff: no beat.
+      mockMatchMedia(false);
+      getMatch.mockImplementation(async () => handedToYou());
+      const fresh = render(<ThreeManWeaveGame initialMatch={handedToYou()} />);
+      expect(fresh.getByTestId("tmw-pick-overlay")).toBeInTheDocument();
+      expect(fresh.getByTestId("tmw-room")).not.toHaveAttribute("data-beat");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pre-deploy polish: the round card is deliberate, and the ceremony fits
+// ---------------------------------------------------------------------------
+
+describe("the round card", () => {
+  function ceremony(elapsed: number, total = TMW_REVEAL_SECONDS): TmwMatchView {
+    return view({
+      turn_phase: TMW_TURN_PHASE_REVEAL,
+      current_turn_seat_index: null,
+      legal_commands: ["tmw_pick"],
+      turn_seq: 7,
+      turn_elapsed_seconds: elapsed,
+      turn_total_seconds: total,
+      turn_seconds_remaining: total - elapsed,
+      seconds_remaining: total - elapsed,
+    });
+  }
+
+  it("holds between 1.4 and 2.0 seconds of the server window, and the whole ceremony resolves with a hold to spare", () => {
+    expect(TMW_CEREMONY.roundCardMs).toBeGreaterThanOrEqual(1400);
+    expect(TMW_CEREMONY.roundCardMs).toBeLessThanOrEqual(2000);
+    // At least half a second of the pair on screen before the server can
+    // open the pick turn, on the nominal window.
+    expect(TMW_CEREMONY_MARKS.resolved + 500).toBeLessThanOrEqual(TMW_REVEAL_SECONDS * 1000);
+  });
+
+  it("is on screen at 1.4 s and gone by the armed mark, on every round, from the server's elapsed time", () => {
+    const early = render(<ThreeManWeaveGame initialMatch={ceremony(0)} />);
+    expect(early.getByTestId("tmw-round-reveal")).toHaveTextContent("Round 1");
+    early.unmount();
+
+    const late = render(<ThreeManWeaveGame initialMatch={ceremony(1.4)} />);
+    expect(late.getByTestId("tmw-round-reveal")).toHaveTextContent("Round 1");
+    expect(late.getByTestId("tmw-roll")).toHaveAttribute("data-stage", "round");
+    late.unmount();
+
+    const armed = render(<ThreeManWeaveGame initialMatch={ceremony(TMW_CEREMONY_MARKS.armed / 1000 + 0.05)} />);
+    expect(armed.queryByTestId("tmw-round-reveal")).toBeNull();
+    expect(armed.getByTestId("tmw-roll")).toHaveAttribute("data-stage", "armed");
+    armed.unmount();
+
+    const locked = render(<ThreeManWeaveGame initialMatch={ceremony(TMW_CEREMONY_MARKS.locked / 1000 + 0.05)} />);
+    expect(locked.getByTestId("tmw-roll")).toHaveAttribute("data-stage", "locked");
+    expect(locked.getByTestId("tmw-ceremony-status")).toHaveTextContent(/locked in/i);
+    locked.unmount();
+  });
+
+  it("compresses to a shorter published window so the pair is never still turning when the server opens the pick turn", () => {
+    // An API still serving a 3.0 s reveal: 2.9 s in, the ceremony is resolved.
+    const shortWindow = render(<ThreeManWeaveGame initialMatch={ceremony(2.9, 3.0)} />);
+    expect(shortWindow.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "true");
+    shortWindow.unmount();
+  });
 });

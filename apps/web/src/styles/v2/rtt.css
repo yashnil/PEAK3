@@ -712,3 +712,141 @@ button.rtt-door:hover:not(:disabled) { border-color: var(--v2-border); border-to
 @media (max-width: 1023.98px) {
   .rtt-body { padding-bottom: 4.5rem; }
 }
+
+/* ================================================================
+   Final polish pass — composure, hierarchy, perk cards, buttons, reveals
+   ================================================================ */
+
+/* --- The page breathes: the decision leads, the rails support ---------- */
+.rtt-head { padding: var(--v2-space-6) 0 var(--v2-space-4); }
+.rtt-head-title { font-size: 1.375rem; }
+.rtt-head-objective { font-size: 0.875rem; color: var(--v2-text-secondary); }
+.rtt-track-row { padding: var(--v2-space-4) 0 var(--v2-space-3); }
+.gf-track-mark-label { color: color-mix(in srgb, var(--v2-text-muted) 80%, transparent); }
+.rtt-body { padding-top: var(--v2-space-8); }
+@media (min-width: 1024px) {
+  .rtt-body[data-layout="live"] { grid-template-columns: minmax(0, 1fr) 248px; gap: var(--v2-space-12); }
+}
+.rtt-stage { gap: var(--v2-space-6); }
+.rtt-decision-title { font-size: clamp(1.625rem, 1.3rem + 1.2vw, 2.25rem); }
+.rtt-decision-context { font-size: 0.9375rem; }
+.rtt-decision-head { margin-bottom: var(--v2-space-1); }
+
+/* Rail: quieter. Hairline rows instead of filled boxes; the newest piece and
+   a targeted slot are the only things that light. */
+.rtt-lineup { gap: var(--v2-space-6); }
+.rtt-lineup-slot.gf-slot { border-color: transparent; background: transparent; border-bottom: 1px solid var(--v2-border-subtle); border-radius: 0; padding: 0.35rem 0.15rem; min-height: 2.35rem; }
+.rtt-lineup-slot.gf-slot[data-state="filled"] .gf-slot-position { color: var(--v2-text-muted); }
+.rtt-lineup-slot.gf-slot[data-state="filled"] .gf-slot-figure { color: var(--v2-text-secondary); }
+.rtt-lineup-slot.gf-slot[data-state="targeted"] { border-color: transparent; background: color-mix(in srgb, var(--v2-color-accent) 6%, transparent); border-bottom-color: color-mix(in srgb, var(--v2-color-accent) 55%, transparent); }
+.rtt-lineup-slot.gf-slot[data-state="pending"] { background: color-mix(in srgb, var(--v2-color-accent) 9%, transparent); border-bottom-color: var(--v2-color-accent); }
+.rtt-lineup-slot-newest { border-bottom-color: var(--v2-color-accent) !important; }
+.rtt-lineup-slot-newest .gf-slot-figure { color: var(--v2-color-accent) !important; }
+.rtt-dna-track { height: 4px; }
+.rtt-dna-label { font-size: 0.5625rem; }
+.rtt-perks-list li { padding-top: 0.25rem; }
+.rtt-perk-effect, .rtt-perk-hint { font-size: 0.6875rem; }
+.rtt-armed { padding: var(--v2-space-2) var(--v2-space-3); }
+
+/* --- Buttons inside the run: one family, quieter at rest, alive on press --- */
+.rtt-run button[data-state], .rtt-run a[data-state], .rtt-run .rtt-help {
+  border-radius: 10px;
+  letter-spacing: 0.005em;
+}
+.rtt-run button[data-state]:not(:disabled):hover { transform: translateY(-1px); }
+.rtt-run button[data-state]:not(:disabled):active { transform: translateY(0) scale(0.985); }
+.rtt-run button[data-state][style*="var(--v2-color-accent)"] { box-shadow: inset 0 1px 0 color-mix(in srgb, white 25%, transparent), 0 8px 22px -14px color-mix(in srgb, var(--v2-color-accent) 70%, transparent); }
+.rtt-run button[data-state][style*="transparent"]:not(:disabled):hover { border-color: color-mix(in srgb, var(--v2-color-accent) 55%, var(--v2-border)) !important; color: var(--v2-text-primary) !important; }
+.rtt-pass button { font-weight: 500; }
+.rtt-commit { padding: var(--v2-space-5); gap: var(--v2-space-4); background: color-mix(in srgb, var(--v2-color-accent) 3%, var(--v2-bg-plane)); }
+.rtt-commit-slots { gap: var(--v2-space-3); }
+.rtt-commit-slots button { padding: 0.65rem 1rem !important; }
+.rtt-commit-slot-sub { opacity: 0.7; font-size: 0.6875rem; }
+
+/* --- Offer cards: a scouting file, not a tile --------------------------- */
+.rtt-deal { gap: var(--v2-space-5); }
+.rtt-card { padding: var(--v2-space-5); gap: 0.55rem; background: linear-gradient(180deg, color-mix(in srgb, var(--v2-bg-plane) 100%, transparent) 0%, color-mix(in srgb, var(--v2-bg-page) 60%, var(--v2-bg-plane)) 100%); }
+.rtt-card-window { letter-spacing: 0.08em; }
+.rtt-card-price { font-size: 1rem; padding: 0.15rem 0.55rem; }
+.rtt-card-lanes { height: 1.5rem; margin-top: 0.35rem; }
+.rtt-card[data-selected="true"] { box-shadow: 0 0 0 1px var(--v2-color-accent), 0 24px 48px -28px color-mix(in srgb, var(--v2-color-accent) 55%, transparent); }
+
+/* --- Fork doors: two real doors ------------------------------------------ */
+.rtt-doors { gap: var(--v2-space-5); }
+button.rtt-door { min-height: 10.5rem; padding: var(--v2-space-5); background: linear-gradient(180deg, var(--v2-bg-plane) 0%, color-mix(in srgb, var(--v2-bg-page) 60%, var(--v2-bg-plane)) 100%); }
+.rtt-door-title { font-size: 1.5rem; }
+.rtt-door-purpose { font-size: 0.875rem; }
+
+/* --- Front Office Perk cards: the mode-defining choice --------------------- */
+.rtt-perk-cards { gap: var(--v2-space-5); }
+.rtt-perk-card {
+  position: relative;
+  gap: 0.6rem;
+  padding: var(--v2-space-6) var(--v2-space-5) var(--v2-space-5);
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--v2-color-accent) 22%, var(--v2-border-subtle));
+  background:
+    radial-gradient(120% 70% at 50% -10%, color-mix(in srgb, var(--v2-color-accent) 12%, transparent), transparent 60%),
+    linear-gradient(180deg, var(--v2-bg-plane) 0%, color-mix(in srgb, var(--v2-bg-page) 55%, var(--v2-bg-plane)) 100%);
+  transition: transform var(--v2-dur-control) var(--v2-ease-standard), border-color var(--v2-dur-control) var(--v2-ease-standard), box-shadow var(--v2-dur-control) var(--v2-ease-standard);
+}
+.rtt-perk-card::before { content: ""; position: absolute; left: var(--v2-space-5); right: var(--v2-space-5); top: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--v2-color-accent), transparent); opacity: 0.8; }
+.rtt-perk-card:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--v2-color-accent) 45%, var(--v2-border-subtle)); box-shadow: 0 22px 44px -30px color-mix(in srgb, var(--v2-color-accent) 55%, transparent); }
+.rtt-perk-card > .rtt-eyebrow { color: var(--v2-color-accent); letter-spacing: 0.12em; }
+.rtt-perk-card-name { font-size: 1.75rem; letter-spacing: -0.01em; }
+.rtt-perk-card-effect { font-size: 0.9375rem; line-height: 1.4; }
+.rtt-perk-card-hint { font-size: 0.75rem; line-height: 1.4; }
+.rtt-perk-card > button { margin-top: var(--v2-space-2); width: 100%; justify-content: center; }
+.rtt-perk-card .rtt-perk-rule > summary { font-size: 0.6875rem; letter-spacing: 0.06em; text-transform: uppercase; text-decoration: none; color: var(--v2-text-muted); }
+.rtt-perk-card .rtt-perk-rule > summary::before { content: "› "; }
+.rtt-perk-card .rtt-perk-rule[open] > summary::before { content: "⌄ "; }
+.rtt-perk-card .rtt-perk-rule > p { padding: 0.35rem 0 0; border-top: 1px dashed var(--v2-border-subtle); margin-top: 0.35rem; animation: gf-fade-in 220ms var(--v2-ease-standard) both; }
+
+/* --- Reveals: the deal is the moment ------------------------------------- */
+.rtt-reveal { padding: var(--v2-space-8) 0 var(--v2-space-6); }
+.rtt-reveal-cards { gap: var(--v2-space-4); margin-top: var(--v2-space-5); }
+.rtt-reveal-seat { width: 9.25rem; padding: 0.9rem 0.6rem; gap: 0.45rem; }
+.rtt-reveal-seat[data-reveal-status="active"] { border-color: var(--v2-color-accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--v2-color-accent) 40%, transparent), 0 18px 40px -22px color-mix(in srgb, var(--v2-color-accent) 55%, transparent); transform: translateY(-6px) scale(1.03); }
+.rtt-reveal[data-reduced-motion="false"] .rtt-reveal-seat[data-reveal-status="active"]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(110deg, transparent 30%, color-mix(in srgb, var(--v2-color-accent) 14%, transparent) 50%, transparent 70%); animation: rtt-sweep 900ms var(--v2-ease-standard) infinite; pointer-events: none; }
+.rtt-reveal-seat { position: relative; overflow: hidden; }
+.rtt-reveal-seat[data-reveal-status="settled"] .rtt-reveal-name { animation: gf-round-in 380ms var(--v2-ease-emphasized) both; }
+.rtt-reveal-name { font-size: 1.0625rem; }
+.rtt-reveal-score { font-size: 1rem; }
+.rtt-reveal[data-kind="boss"] .rtt-reveal-face[data-side="boss"] { padding: 0.35rem 0.25rem; border-radius: 6px; background: color-mix(in srgb, var(--v2-color-negative) 5%, transparent); }
+.rtt-reveal[data-kind="boss"] .rtt-reveal-seat[data-reveal-status="settled"] { border-color: color-mix(in srgb, var(--v2-color-negative) 35%, var(--v2-border)); }
+.rtt-reveal-controls { margin-top: var(--v2-space-6); }
+@keyframes rtt-sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+/* Boss title card: a little more air, a little more scale. */
+.rtt-boss-card { padding: var(--v2-space-12) var(--v2-space-4) var(--v2-space-10); }
+.rtt-boss-card-body { gap: 0.65rem; }
+
+/* Battle: the resolution reads as three facts, never a bare score. */
+.rtt-battle-body { padding: var(--v2-space-8) var(--v2-space-6) var(--v2-space-6); gap: var(--v2-space-5); }
+.rtt-battle-verdict { gap: 0.5rem; padding: var(--v2-space-4) 0; }
+.rtt-battle-verdict-line { display: inline-flex; align-items: baseline; gap: 0.5rem; font-family: var(--v2-font-mono); font-size: 0.9375rem; font-weight: 700; color: var(--v2-text-primary); }
+.rtt-battle-verdict-line[data-fell-short="true"] .rtt-battle-verdict-target { color: var(--v2-color-accent); }
+.rtt-battle-verdict-sep { color: var(--v2-text-muted); }
+.rtt-battle-verdict-decider { font-family: var(--v2-font-ui); font-size: 0.875rem; font-weight: 600; color: var(--v2-text-secondary); }
+.rtt-battle-verdict-detail { font-size: 0.75rem; color: var(--v2-text-muted); }
+.rtt-battle-consequence { padding: var(--v2-space-4); }
+
+/* Endings: one more breath between sections. */
+.rtt-receipt { gap: var(--v2-space-10); }
+.rtt-result-section { padding-top: var(--v2-space-8); }
+
+@media (max-width: 1023.98px) {
+  .rtt-body { padding-top: var(--v2-space-5); }
+  .rtt-perk-card { padding: var(--v2-space-5) var(--v2-space-4); }
+  .rtt-reveal-seat { width: calc(50% - var(--v2-space-2)); transform: none !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rtt-reveal-seat::after, .rtt-reveal-name, .rtt-perk-card, .rtt-perk-card .rtt-perk-rule > p { animation: none !important; transition: none !important; }
+}
+
+/* A decision's heading receives focus programmatically on arrival (screen
+   readers hear the new surface); a heading is not interactive, so the
+   browser's focus ring on it is noise. Keyboard focus rings on controls are
+   untouched. */
+.rtt-run h1[tabindex="-1"]:focus, .rtt-run h2[tabindex="-1"]:focus, .rtt-shell-bare h1[tabindex="-1"]:focus { outline: none; }
+.rtt-surface:focus, .rtt-surface[tabindex="-1"]:focus { outline: none; }

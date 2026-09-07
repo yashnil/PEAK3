@@ -140,7 +140,14 @@ PHASE_REVEAL = "reveal"
 #: briefing, reveal, pick -- is now server-timed and identical for every
 #: client; clients animate against `turn_elapsed_seconds` and never decide
 #: when a phase ends. See `reduce` for the refused commands.
-REVEAL_SECONDS = 3.0
+#:
+#: 4.0, FROM 3.0 (pre-deploy polish). Three seconds held a 0.55 s round card,
+#: a 1.2 s reel, a 0.3 s lock and about a second of hold, and the round card
+#: was gone before it registered. The client's ceremony now spends the window
+#: as: ROUND card ~1.5 s, an armed beat, the reels, a 0.4 s lock, then a hold
+#: on the pair until this deadline opens the pick turn (`PeakV2TMWReveal`).
+#: Still one shared server window for every seat; nothing per-seat changed.
+REVEAL_SECONDS = 4.0
 
 #: Round one's ceremony window. It used to carry the matchup card as well and
 #: so ran longer; the matchup card is now the briefing phase's own

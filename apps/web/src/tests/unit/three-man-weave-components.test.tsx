@@ -1710,3 +1710,113 @@ describe("IdentityLockPanel", () => {
     expect(screen.queryByTestId("tmw-lock-history-toggle")).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Pre-deploy polish: "taken this roll" as table state; your seat on the end screen
+// ---------------------------------------------------------------------------
+
+describe("PickOverlay — taken this roll", () => {
+  function renderTaken(lockedEntries: React.ComponentProps<typeof PickOverlay>["lockedEntries"]) {
+    render(
+      <PickOverlay
+        open
+        roll={ROLL}
+        roundNumber={2}
+        pickNumber={6}
+        totalRounds={6}
+        candidates={[candidate("kawhi-leonard")]}
+        roster={roster(0)}
+        seats={SEATS}
+        yourSeatIndex={0}
+        lockedEntries={lockedEntries}
+        deadlineAt={null}
+        turnSeconds={45}
+        busy={false}
+        onPick={vi.fn()}
+        onStage={vi.fn()}
+        onMove={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+  }
+
+  it("marks the names already gone from THIS roll with the seat that took them, and keeps the rule for screen readers", () => {
+    renderTaken([
+      { playerSlug: "pascal-siakam", playerName: "Pascal Siakam", seatIndex: 2, roundNumber: 2, slotType: "PF", franchiseDisplayName: "Toronto Raptors", decade: "2010s" },
+      { playerSlug: "kyle-lowry", playerName: "Kyle Lowry", seatIndex: 1, roundNumber: 2, slotType: "PG", franchiseDisplayName: "Toronto Raptors", decade: "2010s" },
+      // An earlier roll's pick is the identity lock's business, not this roll's.
+      { playerSlug: "dennis-rodman", playerName: "Dennis Rodman", seatIndex: 1, roundNumber: 1, slotType: "SF", franchiseDisplayName: "Detroit Pistons", decade: "1990s" },
+    ]);
+    const taken = screen.getByTestId("tmw-overlay-taken");
+    expect(taken).toHaveAttribute("data-count", "2");
+    const first = within(taken).getByTestId("tmw-overlay-taken-1");
+    expect(first).toHaveTextContent("Floor General");
+    expect(first).toHaveTextContent("Kyle Lowry");
+    expect(first).toHaveTextContent("PG");
+    expect(first).toHaveAttribute("data-seat-accent", "2");
+    expect(within(taken).getByTestId("tmw-overlay-taken-2")).toHaveTextContent("Board Man");
+    expect(taken).not.toHaveTextContent("Dennis Rodman");
+    // The sentence survives, for a reader who cannot see the chips.
+    expect(taken.querySelector(".sr-only")).toHaveTextContent(/gone for every seat/i);
+    expect(taken.querySelector(".sr-only")).toHaveTextContent(/Floor General took Kyle Lowry at Point guard/);
+  });
+
+  it("says you open the roll when nobody has drafted from it yet", () => {
+    renderTaken([]);
+    const taken = screen.getByTestId("tmw-overlay-taken");
+    expect(taken).toHaveAttribute("data-count", "0");
+    expect(taken).toHaveTextContent(/You open this roll/);
+    expect(taken.querySelector(".sr-only")).toHaveTextContent(/Nobody has drafted from this roll yet/);
+  });
+});
+
+describe("PeakV2TMWResult — your seat is marked whatever the placement", () => {
+  function renderPodium(placement: 1 | 2 | 3) {
+    mockMatchMedia(true);
+    const others = [
+      result({ seat_index: 1, display_name: "Floor General", placement: placement === 1 ? 2 : 1, score: 80.0, outcome: placement === 1 ? "loss" : "win" }),
+      result({ seat_index: 2, display_name: "Board Man", placement: placement === 3 ? 2 : 3, score: 60.0, outcome: "loss" }),
+    ];
+    render(
+      <PeakV2TMWResult
+        results={[result({ seat_index: 0, display_name: "You", placement, score: 70.5, outcome: placement === 1 ? "win" : "loss" }), ...others]}
+        rosters={[roster(0, { SF: pick() }), roster(1), roster(2)]}
+        yourSeatIndex={0}
+        seed="m-1"
+        onPlayAgain={vi.fn()}
+      />,
+    );
+  }
+
+  it("gives a 3rd-place viewer the gold 'Your seat' edge while the winner keeps the lit card", () => {
+    renderPodium(3);
+    const yours = screen.getByTestId("tmw-result-0");
+    expect(yours).toHaveAttribute("data-yours", "true");
+    expect(yours).not.toHaveAttribute("data-winner");
+    expect(screen.getByTestId("tmw-result-0-yours")).toHaveTextContent(/^Your seat$/);
+    // The existing "You" tag stays.
+    expect(within(yours).getByText("You", { selector: ".tmw-result-seat-you" })).toBeInTheDocument();
+    const winner = screen.getByTestId("tmw-result-1");
+    expect(winner).toHaveAttribute("data-winner", "true");
+    expect(winner).not.toHaveAttribute("data-yours");
+    expect(screen.queryByTestId("tmw-result-1-yours")).toBeNull();
+    // The standings strip marks the same row.
+    expect(screen.getByTestId("tmw-standing-0")).toHaveAttribute("data-yours", "true");
+    expect(screen.getByTestId("tmw-standing-1")).toHaveAttribute("data-winner", "true");
+  });
+
+  it("marks a 2nd-place viewer the same way", () => {
+    renderPodium(2);
+    expect(screen.getByTestId("tmw-result-0")).toHaveAttribute("data-yours", "true");
+    expect(screen.getByTestId("tmw-result-0-yours")).toHaveTextContent(/^Your seat$/);
+    expect(screen.getByTestId("tmw-result-1")).toHaveAttribute("data-winner", "true");
+  });
+
+  it("says both when the viewer is the winner", () => {
+    renderPodium(1);
+    const yours = screen.getByTestId("tmw-result-0");
+    expect(yours).toHaveAttribute("data-yours", "true");
+    expect(yours).toHaveAttribute("data-winner", "true");
+    expect(screen.getByTestId("tmw-result-0-yours")).toHaveTextContent(/Your seat · Winner/);
+  });
+});

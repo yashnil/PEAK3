@@ -202,16 +202,19 @@ export default function PeakV2CourtLive({
           Build eight exact player-season cards from real rosters. PEAK3 rewards talent first, then fit.
         </p>
 
+        {/* THE BOARD'S PROVENANCE, without a tag. The disclosure used to be
+            labelled "Data receipt" -- a debug-panel name on a game screen.
+            The one fact a player might actually want in view (the seed that
+            reproduces this board) is now the summary line itself; the
+            versions and the respin tally stay behind it. Same testids. */}
         <details
           data-testid="board-receipt"
-          className="mt-1"
-          style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.625rem", color: "var(--v2-text-muted)" }}
+          className="mt-1 v2-court-provenance"
         >
-          <summary className="cursor-pointer select-none" style={{ color: "var(--v2-text-secondary)" }}>
-            Data receipt
+          <summary className="cursor-pointer select-none">
+            Seed {state.board_seed}
           </summary>
           <div className="flex flex-wrap gap-x-3 gap-y-0.5 pt-1">
-            <span>Seed {state.board_seed}</span>
             <span>{state.card_pool_version}</span>
             <span>{state.board_generator_version}</span>
             {state.experimental_team_year_data_version ? <span>{state.experimental_team_year_data_version}</span> : null}

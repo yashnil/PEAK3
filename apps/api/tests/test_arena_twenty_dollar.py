@@ -350,16 +350,19 @@ class TestOpeningTurnBelongsToTheOpeningBidder:
         assert out.events == ()
         assert out.snapshot["current_candidate"] == before["current_candidate"]
 
-    def test_skipping_the_intro_opens_the_first_lot_immediately(self):
+    def test_the_intro_cannot_be_skipped_by_either_seat(self):
+        """Final polish pass: the intro is a SHARED timeline. Lot 1's clock
+        opens for both seats when the intro's own deadline passes -- one seat
+        ending it early would start the auction for a partner still reading
+        (the same refusal Three-Man Weave makes for `tmw_skip_intro`)."""
         at = NOW + timedelta(seconds=1)
-        out = reduce(
-            make_match(), cmd(0, COMMAND_SKIP_INTRO), now=at, open_turn=intro_turn()
-        )
-        assert out.accepted, out.rejection_message
-        assert out.open_turn.phase == "auction"
-        assert out.open_turn.seat_index == make_match().snapshot["opening_seat"]
-        # Skipping buys NO extra decision time: the clock still starts now.
-        assert out.open_turn.deadline_at == at + timedelta(seconds=td_mode.turn_seconds)
+        for seat in (0, 1):
+            out = reduce(
+                make_match(), cmd(seat, COMMAND_SKIP_INTRO), now=at, open_turn=intro_turn()
+            )
+            assert not out.accepted
+            assert out.rejection_code == "shared_timeline"
+            assert out.open_turn is None or out.open_turn.phase == "intro"
 
     def test_a_skip_outside_the_intro_is_refused(self):
         """Otherwise it would re-open a live auction turn -- resetting

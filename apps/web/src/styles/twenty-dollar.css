@@ -2658,3 +2658,17 @@
   .sd-sold, .sd-sold-score, .sd-result-row, .sd-turn-dot-live, .sd-clock-pending-dot { animation: none !important; }
   .sd-intro-fill { transition: none; }
 }
+
+/* Final polish: the intro is a shared timeline — a countdown, not a button. */
+.sd-intro-countdown {
+  font-family: var(--v2-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-color-accent);
+}
+/* The next lot enters after the SOLD stamp has read (~350 ms), never before;
+   the controls beneath are live the whole time. */
+.sd-lot-card.gf-arrival[data-reduced-motion="false"] { animation-delay: 320ms; }

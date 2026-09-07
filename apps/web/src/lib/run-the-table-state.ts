@@ -1057,10 +1057,76 @@ export function runningSeries(lanes: BattleLanePublic[], count: number): SeriesC
 
 export const DECIDED_BY_LABELS: Record<string, string> = {
   lanes: "Decided on lanes won",
-  summed_margin: "Tied on lanes — decided on summed lane margin",
-  roster_total: "Tied on lanes and margin — decided on overall roster total",
+  // NOT "tied on lanes": under The Long Series a 3–2 lane count still falls
+  // short of the 4 needed and drops to this tiebreak. `battleResolution`
+  // states the count and the target together so the two never contradict.
+  summed_margin: "Decided on total lane margin",
+  roster_total: "Decided on overall roster total",
   exact_draw: "Dead even on every tiebreak",
 };
+
+/**
+ * THE OUTCOME, STATED SO IT CANNOT BE MISREAD.
+ *
+ * A boss battle is won outright only by reaching `lanes_to_win` lanes — three
+ * normally, four under The Long Series — and drawn lanes (The Standard's
+ * margin threshold) count for nobody. So a headline "3–2" can be a LOSS
+ * (4 needed, then the total lane margin went the other way) and "2–2" can be
+ * a WIN. The presentation must therefore always carry three facts together:
+ * the lane count, the count that was needed, and the rule that actually
+ * decided it, with its number. Pure reading of `BattlePublic`; nothing here
+ * decides anything.
+ */
+export interface BattleResolution {
+  stamp: "VICTORY" | "DEFEAT" | "DRAW";
+  /** "3–2 on lanes" */
+  count: string;
+  /** "first to 3" / "4 needed — 3–2 is not enough" */
+  target: string;
+  /** "Decided on lanes won" / "Decided on total lane margin −4.2" */
+  decider: string;
+  /** Signed total lane margin, when that is what decided it. */
+  marginValue: number | null;
+  /** True when the lane count alone would mislead (nobody reached the target). */
+  fellShort: boolean;
+  /** One sentence for screen readers and receipts. */
+  sentence: string;
+}
+
+export function battleResolution(battle: BattlePublic, lanesToWin?: number | null): BattleResolution {
+  const needed = lanesToWin ?? battle.lanes_to_win ?? 3;
+  const stamp: BattleResolution["stamp"] = battle.outcome === "win" ? "VICTORY" : battle.outcome === "loss" ? "DEFEAT" : "DRAW";
+  const count = `${battle.player_lanes_won}–${battle.opponent_lanes_won} on lanes`;
+  const reached = battle.player_lanes_won >= needed || battle.opponent_lanes_won >= needed;
+  const fellShort = !reached;
+  const drawnLanes = battle.ties;
+  let target: string;
+  if (reached) {
+    target = `first to ${needed}`;
+  } else if (battle.player_lanes_won === battle.opponent_lanes_won) {
+    target = `${needed} needed — level${drawnLanes > 0 ? ` with ${drawnLanes} ${drawnLanes === 1 ? "lane" : "lanes"} drawn` : ""}`;
+  } else {
+    target = `${needed} needed — ${battle.player_lanes_won}–${battle.opponent_lanes_won} is not enough`;
+  }
+  let decider: string;
+  let marginValue: number | null = null;
+  switch (battle.decided_by) {
+    case "lanes":
+      decider = DECIDED_BY_LABELS.lanes;
+      break;
+    case "summed_margin":
+      marginValue = battle.summed_margin;
+      decider = `${DECIDED_BY_LABELS.summed_margin} ${formatSigned(battle.summed_margin, 1)}`;
+      break;
+    case "roster_total":
+      decider = `${DECIDED_BY_LABELS.roster_total} ${battle.player_roster_total.toFixed(1)} to ${battle.opponent_roster_total.toFixed(1)}`;
+      break;
+    default:
+      decider = DECIDED_BY_LABELS.exact_draw;
+  }
+  const sentence = `${stamp}. ${count}, ${target}. ${decider}.`;
+  return { stamp, count, target, decider, marginValue, fellShort, sentence };
+}
 
 /** The verdict stamp. Present in the DOM at t=0 so nothing a screen reader or
  *  an impatient player needs is gated behind an animation. */

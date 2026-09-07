@@ -55,6 +55,16 @@ vi.mock("next/navigation", () => ({
  * the requirement is about the COMPONENT's behaviour ("reduced motion reveals
  * instantly"), and the hook's own media-query plumbing has its own coverage.
  */
+// The deal cannot be skipped any more (final polish), so these tests let it
+// play — at 1 ms per beat, which is the same choreography on a fast clock.
+vi.mock("@/components/run-the-table/reveal-timing", async () => {
+  const actual = await vi.importActual<typeof import("@/components/run-the-table/reveal-timing")>(
+    "@/components/run-the-table/reveal-timing",
+  );
+  const fast = Object.fromEntries(Object.keys(actual.REVEAL_BEAT_DURATION_MS).map((k) => [k, 1]));
+  return { ...actual, REVEAL_BEAT_DURATION_MS: fast, REVEAL_CARD_TOTAL_MS: 8, revealSequenceTotalMs: (n: number) => 1 + n * 8 };
+});
+
 let reducedMotion = false;
 vi.mock("@/lib/a11y", async () => {
   const actual = await vi.importActual<typeof import("@/lib/a11y")>("@/lib/a11y");
@@ -723,19 +733,18 @@ describe("RunTheTableGame — v3 flow", () => {
     expect(mockPostAction).toHaveBeenCalledTimes(1);
   });
 
-  it("skip all lands on all 7 slots fully resolved and HOLDS — 'skip the animation' is not 'skip the information'", async () => {
-    // The lead's ruling: jumping straight to system_select under-delivered —
-    // the player must see the roster they were promised before the screen
-    // changes. Skip-all now only ever advances the local sequence to
-    // `complete`; only an explicit "Continue" press dismisses the surface.
+  it("the deal lands all 7 slots fully resolved and HOLDS — there is no skip, and settling is not the handover", async () => {
+    // Final polish: "Skip all" is gone — the deal is the moment. Reduced
+    // motion here stands in for the paced presentation (it resolves at
+    // once). Only an explicit "Continue" press dismisses the surface.
+    reducedMotion = true;
     await startAt(runState());
     mockPostAction.mockImplementation(async () => runState({ reveal: { roster: rosterTrack(7), boss: null } }),
     );
     await userEvent.click(screen.getByTestId("rtt-reveal-start-roster"));
-    await userEvent.click(await screen.findByTestId("rtt-reveal-skip-roster"));
+    expect(screen.queryByTestId("rtt-reveal-skip-roster")).not.toBeInTheDocument();
 
-    // Skip-all is client-side choreography over the SAME response — never a
-    // second POST.
+    // ONE POST for the whole deal — never a second.
     expect(mockPostAction).toHaveBeenCalledTimes(1);
     // Held: every card fully resolved, still on the reveal surface.
     expect(await screen.findByText("Player 0")).toBeInTheDocument();
@@ -872,7 +881,6 @@ describe("RunTheTableGame — v3 flow", () => {
       }),
     );
     await userEvent.click(screen.getByTestId("rtt-boss-intro-skip"));
-    await userEvent.click(await screen.findByTestId("rtt-reveal-skip-boss"));
     const paired = await screen.findAllByTestId("rtt-reveal-paired-card");
     expect(paired.length).toBeGreaterThan(0);
     expect(screen.getByText("Mine 0")).toBeInTheDocument();
@@ -919,9 +927,8 @@ describe("RunTheTableGame — v3 flow", () => {
     expect(await screen.findByTestId("rtt-boss-reveal")).toBeInTheDocument();
     expect(screen.queryByTestId("rtt-reveal-start-boss")).not.toBeInTheDocument();
 
-    // Play it through to fully resolved, then dismiss it — mirrors the skip
-    // + continue flow every other boss-reveal test in this file uses.
-    await userEvent.click(await screen.findByTestId("rtt-reveal-skip-boss"));
+    // Play it through to fully resolved (reduced motion resolves the deal at
+    // once — there is no skip), then dismiss it.
     await userEvent.click(await screen.findByTestId("rtt-reveal-continue-boss"));
     expect(await screen.findByTestId("rtt-boss-preview")).toBeInTheDocument();
 
@@ -1011,9 +1018,7 @@ describe("RunTheTableGame — v3 flow", () => {
     // And it is not a dead end: dismissing it still hands over to the
     // briefing normally. "Continue" only appears once the local paced
     // presentation itself has resolved (not just the server's `revealed`
-    // count), so skip-all fast-forwards it first, same as every other
-    // boss-reveal test in this file.
-    await userEvent.click(await screen.findByTestId("rtt-reveal-skip-boss"));
+    // count); reduced motion resolves it at once.
     await userEvent.click(await screen.findByTestId("rtt-reveal-continue-boss"));
     expect(await screen.findByTestId("rtt-boss-preview")).toBeInTheDocument();
   });

@@ -50,9 +50,11 @@ NOW = datetime(2026, 9, 6, 12, 0, 0, tzinfo=timezone.utc)
 
 class TestTheRanges:
     def test_the_ordinary_range_is_a_short_human_beat(self):
-        """The brief: roughly 350-1,300ms for an ordinary decision."""
-        assert 0.3 <= BOT_THINK_SECONDS_MIN <= 0.45
-        assert 1.0 <= BOT_THINK_SECONDS_MAX <= 1.4
+        """Final polish pass: roughly 900-1,900ms for an ordinary decision --
+        quick, sharp and believable; neither the old 4-5 s dead wait nor the
+        pass-2 machine snap (350-1,300ms) the founder read as instantaneous."""
+        assert 0.8 <= BOT_THINK_SECONDS_MIN <= 1.0
+        assert 1.7 <= BOT_THINK_SECONDS_MAX <= 2.1
 
     def test_a_quick_pass_is_faster_than_an_ordinary_decision(self):
         quick = BOT_THINK_RANGES[BOT_THINK_KIND_QUICK]
@@ -61,10 +63,11 @@ class TestTheRanges:
         assert quick[1] < ordinary[1]
 
     def test_a_contested_call_may_take_the_long_beat_and_only_that_long(self):
-        """Occasionally 1,300-1,800ms; never longer."""
+        """Occasionally 1,900-2,900ms -- a visible deliberation on a contested
+        lot -- and never longer than three seconds."""
         low, high = BOT_THINK_RANGES[BOT_THINK_KIND_CONTESTED]
-        assert 1.1 <= low <= 1.4
-        assert high <= 1.8
+        assert 1.8 <= low <= 2.1
+        assert high <= 3.0
 
     def test_a_bidding_war_accelerates(self):
         war = BOT_THINK_RANGES[BOT_THINK_KIND_WAR]
@@ -74,12 +77,14 @@ class TestTheRanges:
     def test_every_range_stays_well_inside_a_human_decision_window(self):
         for low, high in BOT_THINK_RANGES.values():
             assert 0 < low < high
-            assert high < TURN_SECONDS / 10
+            # Final polish: a contested deliberation may run to ~2.9 s -- an
+            # eighth of the 25 s turn, visible as a choice, never a stall.
+            assert high < TURN_SECONDS / 8
             assert high <= 10.0
 
     def test_no_routine_decision_is_a_multi_second_wait(self):
         for kind in (BOT_THINK_KIND_QUICK, BOT_THINK_KIND_ORDINARY, BOT_THINK_KIND_WAR):
-            assert BOT_THINK_RANGES[kind][1] < 1.5
+            assert BOT_THINK_RANGES[kind][1] < 2.0
 
 
 class TestTheDraw:
@@ -159,7 +164,7 @@ class TestTheDecisionShapesTheWait:
         kinds = set()
         for turn_seq in TURNS:
             value = mode.bot_think_seconds(42, seat, turn_seq, snapshot=snapshot)
-            assert 0 < value <= 1.8
+            assert 0 < value <= 3.0
             kinds.add(value)
         assert len(kinds) > 1
 
@@ -213,7 +218,7 @@ class TestThePlatformActuallyUsesIt:
         for turn_seq in TURNS:
             resolved = bot_think_seconds_for(mode, match, _Turn(seat, turn_seq))
             assert resolved == mode.bot_think_seconds(42, seat, turn_seq, snapshot=snapshot)
-            assert 0.2 <= resolved <= 1.8
+            assert 0.5 <= resolved <= 3.0
 
     def test_an_older_three_argument_hook_still_works(self):
         class Legacy:

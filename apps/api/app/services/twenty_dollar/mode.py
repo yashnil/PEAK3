@@ -85,6 +85,7 @@ rules_state.warm_pool()
 REJECT_UNKNOWN_COMMAND = "unknown_command"
 REJECT_NO_SEAT = "not_your_seat"
 REJECT_NOT_INTRO = "no_intro_open"
+REJECT_SHARED_TIMELINE = "shared_timeline"
 REJECT_NOT_YOUR_TURN = "not_your_turn"
 
 #: THE PRE-MATCH INTRO, AS A REAL SERVER TURN.
@@ -380,13 +381,22 @@ class TwentyDollarMode:
             )
 
         if command.command_type == COMMAND_SKIP_INTRO:
-            if not in_intro:
-                return ReducerOutput(
-                    accepted=False,
-                    rejection_code=REJECT_NOT_INTRO,
-                    rejection_message="There is no intro to skip.",
-                )
-            return self._open_first_lot(snapshot, data)
+            # THE INTRO IS A SHARED TIMELINE (final polish pass). Both seats
+            # watch the same pre-match beat and the first lot's clock opens for
+            # both at the same instant, on the intro's own deadline. One seat
+            # ending it early would start the auction for a partner still
+            # reading -- the same reason Three-Man Weave refuses
+            # `tmw_skip_intro`. The command stays registered so an old client
+            # gets a named refusal rather than a 404.
+            return ReducerOutput(
+                accepted=False,
+                rejection_code=REJECT_SHARED_TIMELINE if in_intro else REJECT_NOT_INTRO,
+                rejection_message=(
+                    "The intro is shared by both seats and ends on its own clock."
+                    if in_intro
+                    else "There is no intro to skip."
+                ),
+            )
 
         if command.command_type == COMMAND_FORFEIT:
             return self._forfeit(snapshot, data, seat_index)

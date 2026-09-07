@@ -14,18 +14,25 @@
  * after the reel has settled renders the settled pair without replaying the
  * travel (`still`).
  *
- * THE CEREMONY'S OWN TIMELINE (absolute milliseconds from the turn's start):
+ * THE CEREMONY'S OWN TIMELINE (absolute milliseconds from the turn's start,
+ * inside the server's `REVEAL_SECONDS` = 4.0 s window):
  *
  *     0        ROUND card lands, board dims             (RoundReveal, Level 2)
- *     550      reels accelerate                         (SpinReel, shared)
- *     1750     both reels have landed; LOCK beat        (the accent wash)
- *     2050     REVEALED: the pair holds, handoff line   (until the server
- *                                                        opens the pick turn)
+ *     1550     card clears; the reel shell is ARMED     (anticipation: the
+ *                                                        two empty windows)
+ *     1750     reels accelerate                         (SpinReel, shared)
+ *     2850     both reels have landed; LOCK beat        (accent wash + the
+ *                                                        TMW lock pulse)
+ *     3250     REVEALED: the pair holds, handoff line   (until the server
+ *                                                        opens the pick turn,
+ *                                                        ~0.75 s + the poll)
  *
- * This lands inside the product's 1-2s target for the presentation itself,
- * with the hold making up the rest of the server's `REVEAL_SECONDS`.
- * Reduced motion runs the identical machine with the reel still: the pair
- * is simply there, and the beat is the state change.
+ * Pre-deploy polish: the round card used to clear at 550 ms (measured
+ * 370-510 ms on screen) and the lock was 300 ms; the card now holds ~1.5 s,
+ * the reels get a short armed beat before they turn, the lock is 400 ms and
+ * the pair holds before the pick turn opens. Reduced motion runs the
+ * identical machine with the reel still: the pair is simply there, and the
+ * beat is the state change.
  *
  * The roll renders through `PeakV2SpinReveal`, the same shared ceremony
  * 82-0's TEAM × SEASON roll uses — same shell, same geometry, same lock beat.
@@ -52,25 +59,69 @@ const FRANCHISE_FILLER = [
   "Philadelphia 76ers", "Phoenix Suns", "San Antonio Spurs", "Utah Jazz",
 ];
 
-/** The ceremony's beats, in ms from the reveal turn's start. */
+/** The ceremony's beats, in ms from the reveal turn's start. Every seat
+ *  derives the same stage from the same server elapsed time, so changing a
+ *  number here changes it for the whole table at once. */
 export const TMW_CEREMONY = {
-  roundCardMs: 550,
-  primaryReelMs: 950,
-  secondaryReelMs: 1200,
-  lockMs: 300,
+  /** How long ROUND N holds over the dimmed board. */
+  roundCardMs: 1550,
+  /** The armed beat: the reel shell is on screen, both windows empty. */
+  armedMs: 200,
+  primaryReelMs: 800,
+  secondaryReelMs: 1100,
+  lockMs: 400,
 } as const;
-const SPIN_ENDS_MS = TMW_CEREMONY.roundCardMs + TMW_CEREMONY.secondaryReelMs;
-const RESOLVES_MS = SPIN_ENDS_MS + TMW_CEREMONY.lockMs;
+/** The server window these beats were laid out for (`REVEAL_SECONDS`). */
+export const TMW_CEREMONY_NOMINAL_MS = 4000;
 
-type Stage = "intro" | "round" | "spinning" | "locked" | "resolved";
+export interface TmwCeremonyMarks {
+  armed: number;
+  spinning: number;
+  locked: number;
+  resolved: number;
+  primaryReelMs: number;
+  secondaryReelMs: number;
+}
 
-function stageAt(phase: "intro" | "reveal", elapsedMs: number, reduced: boolean): Stage {
+/**
+ * Absolute marks on the turn's timeline, for a window of `totalMs`.
+ *
+ * Laid out for the nominal 4.0 s window. A SHORTER published window (an API
+ * still serving an older `REVEAL_SECONDS`) compresses every beat by the same
+ * ratio, so the pair is always locked and held before the server opens the
+ * pick turn -- the reel must never still be turning when the phase ends.
+ * Every seat receives the same `turn_total_seconds`, so every seat scales
+ * identically and stays in sync. A longer window only lengthens the hold.
+ */
+export function ceremonyMarks(totalMs: number = TMW_CEREMONY_NOMINAL_MS): TmwCeremonyMarks {
+  const k = totalMs > 0 && totalMs < TMW_CEREMONY_NOMINAL_MS ? totalMs / TMW_CEREMONY_NOMINAL_MS : 1;
+  const armed = Math.round(TMW_CEREMONY.roundCardMs * k);
+  const spinning = armed + Math.round(TMW_CEREMONY.armedMs * k);
+  const secondaryReelMs = Math.round(TMW_CEREMONY.secondaryReelMs * k);
+  const locked = spinning + secondaryReelMs;
+  const resolved = locked + Math.round(TMW_CEREMONY.lockMs * k);
+  return {
+    armed,
+    spinning,
+    locked,
+    resolved,
+    primaryReelMs: Math.round(TMW_CEREMONY.primaryReelMs * k),
+    secondaryReelMs,
+  };
+}
+/** The nominal marks, for callers and tests that reason about the design. */
+export const TMW_CEREMONY_MARKS = ceremonyMarks();
+
+type Stage = "intro" | "round" | "armed" | "spinning" | "locked" | "resolved";
+
+function stageAt(phase: "intro" | "reveal", elapsedMs: number, reduced: boolean, marks: TmwCeremonyMarks): Stage {
   if (phase === "intro") return "intro";
   // Reduced motion: an immediate lock. The pair is simply there.
   if (reduced) return "resolved";
-  if (elapsedMs < TMW_CEREMONY.roundCardMs) return "round";
-  if (elapsedMs < SPIN_ENDS_MS) return "spinning";
-  if (elapsedMs < RESOLVES_MS) return "locked";
+  if (elapsedMs < marks.armed) return "round";
+  if (elapsedMs < marks.spinning) return "armed";
+  if (elapsedMs < marks.locked) return "spinning";
+  if (elapsedMs < marks.resolved) return "locked";
   return "resolved";
 }
 
@@ -78,10 +129,19 @@ function stageAt(phase: "intro" | "reveal", elapsedMs: number, reduced: boolean)
 const SHARED_STAGE: Record<Stage, PeakV2SpinStage> = {
   intro: "idle",
   round: "idle",
+  armed: "idle",
   spinning: "spinning",
   locked: "locking",
   resolved: "revealed",
 };
+
+/** The status line under the reels, per stage. */
+function statusLine(stage: Stage, roll: TmwRoll | null): string {
+  if (!roll) return "Rolling…";
+  if (stage === "locked") return "Locked in";
+  if (stage !== "resolved") return "Rolling…";
+  return `${roll.candidates.length} eligible ${roll.candidates.length === 1 ? "player" : "players"} still undrafted`;
+}
 
 export interface PeakV2TMWRevealProps {
   roll: TmwRoll | null;
@@ -127,7 +187,8 @@ export default function PeakV2TMWReveal({
 }: PeakV2TMWRevealProps) {
   const reduced = usePrefersReducedMotion();
   const resolvedPhase: "intro" | "reveal" = phase ?? (showIntro ? "intro" : "reveal");
-  const total = (totalSeconds ?? revealSeconds ?? 3.0) * 1000;
+  const total = (totalSeconds ?? revealSeconds ?? 4.0) * 1000;
+  const marks = useMemo(() => ceremonyMarks(total), [total]);
   const key = turnKey ?? `${resolvedPhase}:${roll?.roll_id ?? "none"}`;
   // Elapsed on the server's timeline, converted at mount/rearm time.
   const elapsedAtMount = useMemo(() => {
@@ -140,7 +201,7 @@ export default function PeakV2TMWReveal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  const [stage, setStage] = useState<Stage>(() => stageAt(resolvedPhase, elapsedAtMount, reduced));
+  const [stage, setStage] = useState<Stage>(() => stageAt(resolvedPhase, elapsedAtMount, reduced, marks));
   const armedFor = useRef<string | null>(null);
   const [still, setStill] = useState(false);
 
@@ -151,9 +212,9 @@ export default function PeakV2TMWReveal({
       armedFor.current = key;
       // Joined after the reels would have settled: show them settled, never
       // replay travel the server has already spent.
-      setStill(reduced || (resolvedPhase === "reveal" && elapsed >= SPIN_ENDS_MS));
+      setStill(reduced || (resolvedPhase === "reveal" && elapsed >= marks.locked));
     }
-    setStage(stageAt(resolvedPhase, elapsed, reduced));
+    setStage(stageAt(resolvedPhase, elapsed, reduced, marks));
     if (resolvedPhase !== "reveal") return;
     const timers: number[] = [];
     const arm = (at: number, next: Stage) => {
@@ -161,11 +222,15 @@ export default function PeakV2TMWReveal({
       timers.push(window.setTimeout(() => setStage(next), at - elapsed));
     };
     if (!reduced) {
-      arm(TMW_CEREMONY.roundCardMs, "spinning");
-      arm(SPIN_ENDS_MS, "locked");
-      arm(RESOLVES_MS, "resolved");
+      arm(marks.armed, "armed");
+      arm(marks.spinning, "spinning");
+      arm(marks.locked, "locked");
+      arm(marks.resolved, "resolved");
     }
     return () => timers.forEach((id) => window.clearTimeout(id));
+    // `marks` follows `total`, which is fixed per turn; the key already
+    // re-arms on a new turn.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, open, resolvedPhase, elapsedAtMount, reduced]);
 
   const franchisePool = useMemo(() => {
@@ -274,7 +339,7 @@ export default function PeakV2TMWReveal({
               <p style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--v2-text-muted)" }}>
                 {roll ? <>Round {roundNumber ?? "—"} of {totalRounds} · everyone drafts from this</> : "Rolling the next franchise and decade…"}
               </p>
-              <div className="tmw-ceremony mt-4">
+              <div className="tmw-ceremony mt-4" data-stage={stage}>
                 {roll ? (
                   <PeakV2SpinReveal
                     runKey={roll.roll_id}
@@ -287,14 +352,14 @@ export default function PeakV2TMWReveal({
                         label: "Franchise",
                         value: roll.franchise_display_name,
                         pool: franchisePool,
-                        spinMs: TMW_CEREMONY.primaryReelMs,
+                        spinMs: marks.primaryReelMs,
                         testId: "tmw-roll-franchise",
                       },
                       {
                         label: "Decade",
                         value: roll.decade,
                         pool: DECADES,
-                        spinMs: TMW_CEREMONY.secondaryReelMs,
+                        spinMs: marks.secondaryReelMs,
                         testId: "tmw-roll-decade",
                       },
                     ]}
@@ -315,8 +380,19 @@ export default function PeakV2TMWReveal({
                   </div>
                 )}
               </div>
-              <p className="mt-4" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}>
-                {roll && resolved ? `${roll.candidates.length} eligible ${roll.candidates.length === 1 ? "player" : "players"} still undrafted` : "Rolling…"}
+              <p
+                className="mt-4"
+                data-testid="tmw-ceremony-status"
+                style={{
+                  fontFamily: "var(--v2-font-ui)",
+                  fontSize: "0.8125rem",
+                  fontWeight: stage === "locked" ? 700 : undefined,
+                  letterSpacing: stage === "locked" ? "0.08em" : undefined,
+                  textTransform: stage === "locked" ? "uppercase" : undefined,
+                  color: stage === "locked" ? "var(--v2-color-accent)" : "var(--v2-text-secondary)",
+                }}
+              >
+                {statusLine(stage, roll)}
               </p>
               {/* Always mounted and reserved, never popping in. */}
               <p

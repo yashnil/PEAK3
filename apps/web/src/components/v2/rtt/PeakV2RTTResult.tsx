@@ -25,10 +25,11 @@ import GameActionButton from "@/components/game-feel/GameActionButton";
 import PeakV2ArenaLight from "../PeakV2ArenaLight";
 import PeakV2SecondaryAction from "../PeakV2SecondaryAction";
 import { v2ToneVar, type V2Tone } from "../v2-tone";
-import type { MapAct, RunReceipt, RunVersions } from "@/types/run-the-table";
+import type { BattlePublic, MapAct, RunReceipt, RunVersions } from "@/types/run-the-table";
 import {
   DECIDED_BY_LABELS,
   actNumeral,
+  battleResolution,
   buildRunShareText,
   challengeUrl,
   formatReceiptItem,
@@ -81,6 +82,8 @@ interface Props {
   busy: boolean;
   actsTotal?: number | null;
   map?: MapAct[] | null;
+  /** The resolved battles, for the exact resolution line per act. */
+  battles?: BattlePublic[] | null;
   onRunItBack: () => Promise<unknown>;
   onReplaySeed: () => void;
   onChallenge: () => Promise<string | null>;
@@ -90,7 +93,7 @@ interface Props {
 
 type CopiedKind = "summary" | "challenge" | null;
 
-export default function PeakV2RTTResult({ receipt, versions, busy, actsTotal, map, onRunItBack, onChallenge, resumed = false }: Props) {
+export default function PeakV2RTTResult({ receipt, versions, busy, actsTotal, map, battles = null, onRunItBack, onChallenge, resumed = false }: Props) {
   const [copied, setCopied] = useState<CopiedKind>(null);
   const [challengeError, setChallengeError] = useState<string | null>(null);
   const [best, setBest] = useState<{ isNew: boolean; previous: PersonalBest | null } | null>(null);
@@ -254,8 +257,15 @@ export default function PeakV2RTTResult({ receipt, versions, busy, actsTotal, ma
                       {battle ? (battle.outcome === "win" ? "Won" : battle.outcome === "loss" ? "Lost · life" : "Drew") : "Not reached"}
                     </span>
                     {battle ? (
-                      <span className="rtt-fineprint">
-                        {battle.player_lanes_won}–{battle.opponent_lanes_won} · {DECIDED_BY_LABELS[battle.decided_by] ?? "Decided on lanes won"}
+                      <span className="rtt-fineprint" data-testid={`rtt-result-battle-${act.act}-resolution`}>
+                        {(() => {
+                          const full = battles?.find((b) => b.act === act.act) ?? null;
+                          if (full) {
+                            const r = battleResolution(full, full.lanes_to_win);
+                            return `${r.count} · ${r.target} · ${r.decider}`;
+                          }
+                          return `${battle.player_lanes_won}–${battle.opponent_lanes_won} · ${DECIDED_BY_LABELS[battle.decided_by] ?? "Decided on lanes won"}`;
+                        })()}
                       </span>
                     ) : null}
                   </li>

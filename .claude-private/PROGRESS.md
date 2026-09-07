@@ -1,3 +1,40 @@
+# Final pre-deploy polish pass — progress (2026-09-07)
+
+Branch `feature/game-feel-reconstruction` (pass 3 checkpoint `1cd0bbd`).
+Design note: `docs/design/GAME_FEEL.md` "Final pre-deploy polish pass".
+
+## Showdown (main session)
+- Intro is a shared timeline: server refuses `showdown_skip_intro`
+  (`shared_timeline`); client shows a countdown, no button, Escape inert.
+  Tests: `test_arena_twenty_dollar.py` (refusal for both seats),
+  `twenty-dollar.test.tsx` (intro holds), e2e intro test rewritten; the
+  two-tab spec and continuity tests wait the intro out.
+- Bot think ranges: quick 0.55–1.05, ordinary 0.9–1.9, contested 1.9–2.9,
+  war 0.55–1.15 (`test_twenty_dollar_bot_timing.py` re-pinned; contested
+  ceiling < TURN_SECONDS/8).
+- SOLD hold 2.2 s; next lot card enters +320 ms.
+
+## Run the Table (main session)
+- Skip-all removed from both reveal surfaces (V2 lineup + legacy surface);
+  per-card beats 340/460 ms; unit tests mock `reveal-timing` to 1 ms beats;
+  e2e waits for `rtt-reveal-continue-*` (FULL_RUN_TIMEOUT 300 s).
+- `battleResolution()` + `rtt-battle-resolution`/`rtt-battle-decider`
+  testids; receipt journey rows carry the same three facts (`battles` prop).
+- CSS polish appended to `styles/v2/rtt.css`; handle prompt deferred on
+  `/arena/run-the-table`; heading/container focus rings suppressed.
+
+## 82-0 (subagent): gate recomposed (`.v2-court-gate*`), `PeakV2CourtIntro`
+3.4 s on new runs only, round card 1500 ms held before reels (was 620 ms over
+a running reel; replay-on-resume root cause = chooser effect keyed on panel
+`open`), absorb 450 ms, "Data receipt" tag → seed line, result in five
+sections. Report: `game-feel-pass3-review/court-polish.md`.
+## Three-Man Weave (subagent): `REVEAL_SECONDS` 3.0 → 4.0; ceremony marks
+0–1550 card / armed / reels / 400 ms lock / hold; previous-pick beat 900 ms
+before the overlay; taken-this-roll chips; "YOUR SEAT" end-screen mark.
+Report: `game-feel-pass3-review/tmw-polish.md`.
+## Verification: frontend-verify 120/2411 + build; API 1833; model 1866;
+e2e multiplayer 31, courtbuilder 99, RTT 21 (desktop+mobile).
+
 # Game-feel reconstruction pass 3 — progress
 
 Branch: `feature/game-feel-reconstruction` (checkpoint `4d590e1` = pass 2,

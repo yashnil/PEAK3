@@ -1122,20 +1122,16 @@ test.describe("The $20 Showdown", () => {
     await expect(page.getByTestId("td-game")).toBeVisible({ timeout: 20_000 });
   }
 
-  test("the intro is a real server phase: readable, skippable, and it costs no clock", async ({
+  test("the intro is a real server phase: readable, NOT skippable, and it costs no clock", async ({
     browser,
   }) => {
     /*
-     * C1. The competitive intro used to be a CLIENT beat while the server had
-     * already stamped the first lot's 25-second deadline, so it was spending
-     * the player's own decision time to explain the rules — and
-     * `affordableBeat` truncated or skipped it whenever that would push the
-     * remaining window below its floor, i.e. exactly when the player was
-     * newest to the mode.
-     *
-     * It is a real turn now (`mode.PHASE_INTRO`), belonging to no seat and
-     * accepting no bid, and the first auction turn opens with a FULL window
-     * measured from the moment it ends.
+     * C1 + final polish. The intro is a real turn (`mode.PHASE_INTRO`)
+     * belonging to no seat and accepting no bid, and — like Three-Man
+     * Weave's briefing — it is a SHARED timeline: no seat can end it early
+     * (`showdown_skip_intro` is refused with `shared_timeline`), and the first
+     * auction turn opens with a FULL window measured from the moment the
+     * intro's own deadline passes.
      */
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -1146,23 +1142,20 @@ test.describe("The $20 Showdown", () => {
       await expect(page.getByTestId("td-intro")).toBeVisible();
       await expect(room).toHaveAttribute("data-phase", "intro");
 
-      // NO DECISION CLOCK IS RUNNING. The controls are shut and the clock panel
-      // is in its held state rather than counting anything down.
-      await expect(page.getByTestId("td-bid-controls")).toHaveAttribute(
-        "data-live",
-        "false",
-      );
+      // NO DECISION CLOCK IS RUNNING and NO SKIP EXISTS.
+      await expect(page.getByTestId("td-bid-controls")).toHaveAttribute("data-live", "false");
       await expect(page.getByTestId("td-clock")).toHaveAttribute("data-mode", "held");
+      await expect(page.getByTestId("td-intro-start")).toHaveCount(0);
+      await expect(page.getByTestId("td-intro-countdown")).toContainText(/Lot 1 opens in \d+s/);
 
-      // IT IS LONG ENOUGH TO READ. Still up a full 2.5s in — the old beat could
-      // be cut to nothing.
+      // IT IS LONG ENOUGH TO READ, and Escape / a key press changes nothing.
       await page.waitForTimeout(2500);
+      await page.keyboard.press("Escape");
       await expect(page.getByTestId("td-intro")).toBeVisible();
+      await expect(room).toHaveAttribute("data-phase", "intro");
 
-      // AND SKIPPABLE, which really ends the server's turn rather than hiding
-      // an overlay over a board that still refuses every action.
-      await page.getByTestId("td-intro-start").click();
-      await expect(page.getByTestId("td-intro")).toHaveCount(0, { timeout: 10_000 });
+      // It ends on the server's own clock, for both seats.
+      await expect(page.getByTestId("td-intro")).toHaveCount(0, { timeout: 15_000 });
       await expect(room).not.toHaveAttribute("data-phase", "intro");
       await expect(page.getByTestId("td-candidate")).toBeVisible({ timeout: 15_000 });
 
@@ -1171,10 +1164,7 @@ test.describe("The $20 Showdown", () => {
       const controls = page.getByTestId("td-bid-controls");
       await expect(controls).toHaveAttribute("data-live", "true", { timeout: 40_000 });
       const seconds = Number(await page.getByTestId("td-timer-value").innerText());
-      expect(
-        seconds,
-        "the first lot's clock was already part-spent when it opened",
-      ).toBeGreaterThan(18);
+      expect(seconds, "the first lot's clock was already part-spent when it opened").toBeGreaterThan(18);
     } finally {
       await context.close();
     }
@@ -1209,7 +1199,8 @@ test.describe("The $20 Showdown", () => {
     const page = await context.newPage();
     try {
       await openAuction(context, page, "td-continuity");
-      await page.getByTestId("td-intro-start").click().catch(() => undefined);
+      // The intro is a shared timeline now: wait it out rather than skip it.
+      await page.getByTestId("td-intro").waitFor({ state: "detached", timeout: 20_000 }).catch(() => undefined);
       await expect(page.getByTestId("td-candidate")).toBeVisible({ timeout: 20_000 });
 
       await page.evaluate(() => {
@@ -1297,7 +1288,8 @@ test.describe("The $20 Showdown", () => {
     const page = await context.newPage();
     try {
       await openAuction(context, page, "td-forfeit");
-      await page.getByTestId("td-intro-start").click().catch(() => undefined);
+      // The intro is a shared timeline now: wait it out rather than skip it.
+      await page.getByTestId("td-intro").waitFor({ state: "detached", timeout: 20_000 }).catch(() => undefined);
       await expect(page.getByTestId("td-candidate")).toBeVisible({ timeout: 20_000 });
       const url = page.url();
 
@@ -1341,7 +1333,8 @@ test.describe("The $20 Showdown", () => {
     const page = await context.newPage();
     try {
       await openAuction(context, page, "td-opponent-clock");
-      await page.getByTestId("td-intro-start").click().catch(() => undefined);
+      // The intro is a shared timeline now: wait it out rather than skip it.
+      await page.getByTestId("td-intro").waitFor({ state: "detached", timeout: 20_000 }).catch(() => undefined);
       await expect(page.getByTestId("td-candidate")).toBeVisible({ timeout: 20_000 });
 
       // HAND THE TURN OVER. The opening bidder is drawn from the seed, so this

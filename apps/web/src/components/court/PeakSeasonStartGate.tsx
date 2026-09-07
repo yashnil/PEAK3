@@ -56,6 +56,10 @@ export default function PeakSeasonStartGate({
   teamLogoUrls = {},
 }: Props) {
   const [game, setGame] = useState<CourtLineupPublicState | null>(null);
+  // Whether `game` was created by THIS press of Begin (the run opens with
+  // the 82-0 intro) or resumed from `?game=` (it lands on its current
+  // state, no intro). Set beside `setGame` on each path, never inferred.
+  const [openingIntro, setOpeningIntro] = useState(false);
   const [busy, setBusy] = useState(false);
   // Gameplay-polish: chosen here, before a run exists, and passed straight
   // into `createCourtGame` -- the server freezes it onto the run for good
@@ -87,6 +91,7 @@ export default function PeakSeasonStartGate({
     setBusy(true);
     setError(null);
     try {
+      setOpeningIntro(false);
       setGame(await getCourtGame(gameId));
     } catch (e) {
       setError(
@@ -113,13 +118,13 @@ export default function PeakSeasonStartGate({
     setBusy(true);
     setError(null);
     try {
-      setGame(
-        await createCourtGame(mode, seed, {
-          challengeKind,
-          challengeDate,
-          difficulty,
-        }),
-      );
+      const created = await createCourtGame(mode, seed, {
+        challengeKind,
+        challengeDate,
+        difficulty,
+      });
+      setOpeningIntro(true);
+      setGame(created);
     } catch (e) {
       const code = e instanceof PerfectSeasonAPIError ? e.code : undefined;
       setError(
@@ -141,137 +146,133 @@ export default function PeakSeasonStartGate({
         franchiseNames={franchiseNames}
         seasonLabels={seasonLabels}
         teamLogoUrls={teamLogoUrls}
+        openingIntro={openingIntro}
       />
     );
   }
 
+  // THE GATE'S COMPOSITION (final polish). This page used to reuse Run the
+  // Table's node classes (`.v2-rtt-gate-node*`), which no longer exist --
+  // every "step" and both difficulty options rendered as unstyled inline
+  // text ("SpinThe wheel rolls…", "Easy3 team…"), so the page read as a
+  // text dump rather than a game entry. It now has its own composition in
+  // `court.css` (`.v2-court-gate*`): a header, four steps on a ruled grid,
+  // the run's shape as three facts, the difficulty as two real option
+  // cards, and one CTA row with its footnote beside it. Every testid and
+  // every line of copy the tests read is unchanged.
+  const steps: { n: string; label: string; purpose: string }[] = [
+    { n: "01", label: "Spin", purpose: "The wheel rolls a real NBA team and an exact season — eight times, once per roster spot." },
+    { n: "02", label: "Draft", purpose: "Pick one player from that exact team-season and place them on the court — five starters by position, three on the bench." },
+    { n: "03", label: "Simulate", purpose: "Ratings stay hidden until the end. Then PEAK3 simulates your lineup and you chase 82-0." },
+    { n: "04", label: "Receipt", purpose: "Get a full receipt — including what PEAK3 itself would have picked — then save, share, or beat your personal best." },
+  ];
+
   return (
-      <PeakV2Shell width="cinematic">
-        <div className="v2-rtt-gate" data-testid="peak-season-start-gate">
+    <PeakV2Shell width="cinematic">
+      <div className="v2-court-gate" data-testid="peak-season-start-gate">
+        <header className="v2-court-gate-head">
           <p className="v2-page-kicker" data-testid={isDaily ? "daily-challenge-header" : undefined}>
             {isDaily ? "Daily PEAK Season" : "82-0 PEAK Season"}
           </p>
-          <h1 className="v2-page-title" style={{ fontSize: "var(--v2-display-size-line)" }}>
-            {isDaily ? "Today's shared challenge" : "Build a perfect season."}
+          <h1 className="v2-page-title v2-court-gate-title">
+            {isDaily ? "Today's shared challenge." : "Build a perfect season."}
           </h1>
-          <p className="v2-page-lede">
-            Spin a real NBA team-season, draft exact player-season cards, place them on the
-            court, and chase 82-0 with receipts.
+          <p className="v2-page-lede v2-court-gate-lede">
+            Spin a real NBA team-season, draft exact player-season cards, place them on the court, and
+            chase 82-0 with receipts.
           </p>
+        </header>
 
-          {/* The four things a first-time player needs to know before
-              committing to a run, in the same node-grid grammar as Run the
-              Table's start gate (shared "roster-deal" grammar rather than a
-              numbered rules list — see docs/design/VISUAL_RUBRIC.md). */}
-          <div className="v2-rtt-gate-nodes">
-            <div className="v2-rtt-gate-node" style={{ borderTopColor: "var(--v2-color-accent)" }}>
-              <span className="v2-rtt-gate-node-label" style={{ color: "var(--v2-color-accent)" }}>
-                Spin
+        <ol className="v2-court-gate-steps" data-testid="start-gate-steps">
+          {steps.map((step) => (
+            <li key={step.n} className="v2-court-gate-step">
+              <span className="v2-court-gate-step-n" aria-hidden="true">
+                {step.n}
               </span>
-              <span className="v2-rtt-gate-node-purpose">
-                The wheel rolls a real NBA team and an exact season — eight times, once per roster
-                spot.
-              </span>
-            </div>
-            <div className="v2-rtt-gate-node" style={{ borderTopColor: "var(--v2-color-accent)" }}>
-              <span className="v2-rtt-gate-node-label" style={{ color: "var(--v2-color-accent)" }}>
-                Draft
-              </span>
-              <span className="v2-rtt-gate-node-purpose">
-                Pick one player from that exact team-season and place them on the court — five
-                starters by position, three on the bench.
-              </span>
-            </div>
-            <div className="v2-rtt-gate-node" style={{ borderTopColor: "var(--v2-color-accent)" }}>
-              <span className="v2-rtt-gate-node-label" style={{ color: "var(--v2-color-accent)" }}>
-                Simulate
-              </span>
-              <span className="v2-rtt-gate-node-purpose">
-                Ratings stay hidden until the end. Then PEAK3 simulates your lineup and you chase
-                82-0.
-              </span>
-            </div>
-            <div className="v2-rtt-gate-node" style={{ borderTopColor: "var(--v2-color-accent)" }}>
-              <span className="v2-rtt-gate-node-label" style={{ color: "var(--v2-color-accent)" }}>
-                Receipt
-              </span>
-              <span className="v2-rtt-gate-node-purpose">
-                Get a full receipt — including what PEAK3 itself would have picked — then save,
-                share, or beat your personal best.
-              </span>
-            </div>
+              <span className="v2-court-gate-step-label">{step.label}</span>
+              <span className="v2-court-gate-step-purpose">{step.purpose}</span>
+            </li>
+          ))}
+        </ol>
+
+        <div className="v2-court-gate-facts" data-testid="start-gate-facts">
+          <div className="v2-court-gate-fact">
+            <span className="v2-court-gate-fact-value">8 rounds</span>
+            <span className="v2-court-gate-fact-label">one real team-season each</span>
           </div>
-
-          {isDaily && (
-            <p className="v2-rtt-gate-notice" data-testid="start-gate-daily-note">
-              Everyone gets this exact spin sequence today
-              {challengeDate ? ` (${challengeDate}, UTC)` : ""} — same teams, same seasons, same
-              candidates.
-            </p>
-          )}
-
-          <div data-testid="difficulty-selector">
-            <span className="v2-slate-heading" style={{ display: "block", marginBottom: "var(--v2-space-2)" }}>
-              Difficulty
-            </span>
-            <div className="v2-rtt-gate-nodes" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
-              <button
-                type="button"
-                data-testid="difficulty-easy-btn"
-                onClick={() => setDifficulty("easy")}
-                aria-pressed={difficulty === "easy"}
-                className="v2-rtt-gate-node v2-difficulty-node"
-                data-selected={difficulty === "easy" ? "true" : undefined}
-                style={{ borderTopColor: "var(--v2-color-accent)", textAlign: "left" }}
-              >
-                <span className="v2-rtt-gate-node-label" style={{ color: "var(--v2-color-accent)" }}>
-                  Easy
-                </span>
-                <span className="v2-rtt-gate-node-purpose">
-                  3 team + 3 season respins for the run, plus a one-time hint.
-                </span>
-              </button>
-              <button
-                type="button"
-                data-testid="difficulty-hard-btn"
-                onClick={() => setDifficulty("hard")}
-                aria-pressed={difficulty === "hard"}
-                className="v2-rtt-gate-node v2-difficulty-node"
-                data-selected={difficulty === "hard" ? "true" : undefined}
-                style={{ borderTopColor: "var(--v2-color-negative)", textAlign: "left" }}
-              >
-                <span className="v2-rtt-gate-node-label" style={{ color: "var(--v2-color-negative)" }}>
-                  Hard
-                </span>
-                <span className="v2-rtt-gate-node-purpose">
-                  Only 1 team + 1 season respin for the run, no hint.
-                </span>
-              </button>
-            </div>
+          <div className="v2-court-gate-fact">
+            <span className="v2-court-gate-fact-value">5 + 3</span>
+            <span className="v2-court-gate-fact-label">starters by position, bench</span>
           </div>
+          <div className="v2-court-gate-fact">
+            <span className="v2-court-gate-fact-value">82 games</span>
+            <span className="v2-court-gate-fact-label">simulated by PEAK3 at the end</span>
+          </div>
+        </div>
 
-          {error && (
-            <p role="alert" className="v2-rtt-gate-error" data-testid="start-gate-error">
-              {error}
-            </p>
-          )}
+        {isDaily && (
+          <p className="v2-court-gate-notice" data-testid="start-gate-daily-note">
+            Everyone gets this exact spin sequence today
+            {challengeDate ? ` (${challengeDate}, UTC)` : ""} — same teams, same seasons, same candidates.
+          </p>
+        )}
 
+        <section className="v2-court-gate-difficulty" data-testid="difficulty-selector" aria-label="Difficulty">
+          <span className="v2-court-gate-section-label">Difficulty</span>
+          <div className="v2-court-gate-options">
+            <button
+              type="button"
+              data-testid="difficulty-easy-btn"
+              onClick={() => setDifficulty("easy")}
+              aria-pressed={difficulty === "easy"}
+              className="v2-court-gate-option"
+              data-tone="accent"
+              data-selected={difficulty === "easy" ? "true" : undefined}
+            >
+              <span className="v2-court-gate-option-label">Easy</span>
+              <span className="v2-court-gate-option-purpose">
+                3 team + 3 season respins for the run, plus a one-time hint.
+              </span>
+            </button>
+            <button
+              type="button"
+              data-testid="difficulty-hard-btn"
+              onClick={() => setDifficulty("hard")}
+              aria-pressed={difficulty === "hard"}
+              className="v2-court-gate-option"
+              data-tone="negative"
+              data-selected={difficulty === "hard" ? "true" : undefined}
+            >
+              <span className="v2-court-gate-option-label">Hard</span>
+              <span className="v2-court-gate-option-purpose">
+                Only 1 team + 1 season respin for the run, no hint.
+              </span>
+            </button>
+          </div>
+        </section>
+
+        {error && (
+          <p role="alert" className="v2-court-gate-error" data-testid="start-gate-error">
+            {error}
+          </p>
+        )}
+
+        <div className="v2-court-gate-cta">
           <PeakV2PrimaryAction
             type="button"
             data-testid="begin-run-btn"
             onClick={handleBegin}
             disabled={busy || authLoading}
             busy={busy}
-            className="self-start mt-1"
           >
             {authLoading ? "Checking your session…" : busy ? "Starting…" : isDaily ? "Begin Daily Run" : "Begin 82-0 Run"}
           </PeakV2PrimaryAction>
-
-          <p className="v2-rtt-gate-footnote">
+          <p className="v2-court-gate-footnote">
             Nothing starts until you press begin. No account needed to play — signing in only adds
             saved runs and personal bests.
           </p>
         </div>
-      </PeakV2Shell>
+      </div>
+    </PeakV2Shell>
   );
 }

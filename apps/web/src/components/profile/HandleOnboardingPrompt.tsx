@@ -77,6 +77,10 @@ function isLiveMatchRoute(pathname: string | null): boolean {
   return (
     /^\/arena\/three-man-weave\/[^/]+/.test(pathname) ||
     /^\/arena\/twenty-dollar\/[^/]+/.test(pathname) ||
+    // Run the Table: the run lives on its landing route (there is no match
+    // id in the URL), so the whole route is a live board once a run exists;
+    // the prompt would otherwise sit over the roster rail mid-draft.
+    /^\/arena\/run-the-table\b/.test(pathname) ||
     // 82-0 Peak Season: the roll/chooser and court-placement decision. NOT
     // `/arena/court/leaderboard|results|history` — those are review pages,
     // not a live board.

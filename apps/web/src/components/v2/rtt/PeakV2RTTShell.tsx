@@ -97,7 +97,7 @@ export default function PeakV2RTTShell({
   if (layout === "bare") {
     return (
       <PeakV2Shell width="live">
-        <div data-testid="rtt-shell" className="rtt-run" data-layout="bare">
+        <div data-testid="rtt-shell" className="rtt-run rtt-shell-bare" data-layout="bare">
           {content}
         </div>
       </PeakV2Shell>

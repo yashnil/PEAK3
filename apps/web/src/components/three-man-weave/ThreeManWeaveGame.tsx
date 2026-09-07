@@ -42,6 +42,7 @@ import {
 } from "@/lib/three-man-weave-state";
 import { isNewer, useCommandLane } from "@/lib/game-feel/authoritative";
 import { EventMoment, type EventMomentData } from "@/components/game-feel";
+import { usePrefersReducedMotion } from "@/lib/a11y";
 import { modeMeta } from "@/lib/arena-modes";
 import HowToPlay from "@/components/arena/HowToPlay";
 import { deadlineFromSeconds } from "@/components/shared/ArenaTimer";
@@ -74,6 +75,19 @@ const POLL_OPPONENT_MS = 1000;
 const POLL_OWN_TURN_MS = 2000;
 /** How long one command may stay unanswered before the press reads as an error. */
 const COMMAND_TIMEOUT_MS = 15_000;
+/**
+ * THE PREVIOUS-PICK BEAT. When the seat immediately before you picks, the
+ * same snapshot that lands their card also hands you the turn, and the pick
+ * surface used to open in that very frame -- over the top of the moment
+ * that named their pick, which the overlay's scrim then hid. For this long
+ * the room shows the applied state (their card locked on their court, the
+ * moment, the clock already yours) before the overlay opens. Presentation
+ * over state that is already applied: the server's clock is not paused, no
+ * poll changes, and a press anywhere ends the beat at once. Reduced motion
+ * collapses it to zero -- the overlay's own "taken this roll" chips carry
+ * the same fact.
+ */
+export const TMW_PREVIOUS_PICK_BEAT_MS = 900;
 
 /**
  * THE ROOM'S WHOLE STATE, AS ONE OBJECT.
@@ -97,6 +111,9 @@ interface Room {
   turnTotalSeconds: number | null;
   /** What this snapshot just did, for `EventMoment`. */
   moment: EventMomentData | null;
+  /** Set when this snapshot handed you the turn on the back of another
+   *  seat's pick: the id of the beat holding the pick surface shut. */
+  previousPickBeat: string | null;
 }
 
 type Source = "initial" | "command" | "poll";
@@ -110,7 +127,7 @@ function nominalPhaseSeconds(match: TmwMatchView): number | null {
 
 /** Everything a snapshot says about time, converted ONCE, at the instant it
  *  lands -- never re-derived from a duration held in state. */
-function roomFrom(match: TmwMatchView, moment: EventMomentData | null): Room {
+function roomFrom(match: TmwMatchView, moment: EventMomentData | null, previousPickBeat: string | null = null): Room {
   // A seatless phase publishes its clock to every seat as `seconds_remaining`
   // even on an API build that sends no `turn_seconds_remaining`.
   const remaining = match.turn_seconds_remaining ?? match.seconds_remaining;
@@ -130,6 +147,7 @@ function roomFrom(match: TmwMatchView, moment: EventMomentData | null): Room {
     turnStartedAt,
     turnTotalSeconds: total,
     moment,
+    previousPickBeat,
   };
 }
 
@@ -210,13 +228,39 @@ function describeTransition(
   const yours = arrivals.find((a) => a.seat === you);
   const pick = source === "command" && yours ? yours : arrivals[arrivals.length - 1];
   const who = pick.seat === you ? "You" : seatLabel(next.seats, pick.seat);
+  const handsToYou = pick.seat !== you && handedToYouAfterPick(prev, next);
   return {
     id,
     kind: pick.timedOut ? "timeout" : "pick",
     title: `${pick.name} → ${slotAbbrev(pick.slot)}`,
-    detail: pick.timedOut ? "Time ran out · drafted for you" : `${who} · Round ${pick.round}`,
+    detail: pick.timedOut
+      ? "Time ran out · drafted for you"
+      : `${who} · Round ${pick.round}${handsToYou ? " · You're up" : ""}`,
     tone: pick.timedOut ? "negative" : pick.seat === you ? "accent" : "neutral",
+    // The handoff moment stays up for the beat and a little past the
+    // overlay opening (where the scrim covers it), never shorter than it.
+    durationMs: handsToYou ? TMW_PREVIOUS_PICK_BEAT_MS + 600 : undefined,
   };
+}
+
+/**
+ * Did THIS snapshot hand you the pick turn on the back of another seat's
+ * pick? True only for the mid-round handoff -- previous seat picks, you are
+ * next -- read off the two snapshots: their roster gained a card, the open
+ * turn moved from not-yours to yours. A round boundary goes through the
+ * ceremony instead and never matches; a reload lands as "initial" and never
+ * matches either.
+ */
+function handedToYouAfterPick(prev: TmwMatchView, next: TmwMatchView): boolean {
+  const you = next.your_seat_index;
+  if (you === null) return false;
+  if (!isYourTurn(next) || isYourTurn(prev)) return false;
+  if (next.turn_phase && next.turn_phase !== "pick") return false;
+  return next.public_state.rosters.some((after) => {
+    if (after.seat_index === you) return false;
+    const before = prev.public_state.rosters.find((r) => r.seat_index === after.seat_index);
+    return TMW_SLOT_TYPES.some((slot) => after.slots[slot] && !before?.slots[slot]);
+  });
 }
 
 function picksIn(state: TmwPublicState): number {
@@ -290,13 +334,41 @@ export default function ThreeManWeaveGame({
         }
         return false;
       }
-      const nextRoom = roomFrom(next, describeTransition(prev.match, next, source, kind));
+      const moment = describeTransition(prev.match, next, source, kind);
+      const beat =
+        source === "poll" && moment?.kind === "pick" && handedToYouAfterPick(prev.match, next)
+          ? `beat:${next.state_version}`
+          : null;
+      const nextRoom = roomFrom(next, moment, beat);
       latest.current = nextRoom;
       setRoom(nextRoom);
       return true;
     },
     [],
   );
+
+  // -- the previous-pick beat: a hold on the overlay, never on the state ---
+  const reducedMotion = usePrefersReducedMotion();
+  const previousPickBeat = room.previousPickBeat;
+  const endBeat = useCallback((id: string) => {
+    setRoom((current) => (current.previousPickBeat === id ? { ...current, previousPickBeat: null } : current));
+    if (latest.current.previousPickBeat === id) latest.current = { ...latest.current, previousPickBeat: null };
+  }, []);
+  useEffect(() => {
+    if (!previousPickBeat) return;
+    const id = previousPickBeat;
+    const hold = reducedMotion ? 0 : TMW_PREVIOUS_PICK_BEAT_MS;
+    const timer = window.setTimeout(() => endBeat(id), hold);
+    // A press anywhere -- pointer or keyboard -- opens the surface at once.
+    const press = () => endBeat(id);
+    window.addEventListener("pointerdown", press, true);
+    window.addEventListener("keydown", press, true);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("pointerdown", press, true);
+      window.removeEventListener("keydown", press, true);
+    };
+  }, [previousPickBeat, reducedMotion, endBeat]);
 
   const phase = phaseOf(match);
   const complete = phase === "complete";
@@ -518,7 +590,9 @@ export default function ThreeManWeaveGame({
   // THE WHOLE RULE: the ceremony surface is open exactly while the server
   // says a seatless phase is -- the briefing or the reveal. Every seat.
   const ceremonyOpen = (briefing || revealing) && !complete;
-  const overlayOpen = !ceremonyOpen && yourTurn && !complete && canPick(match);
+  // The previous-pick beat holds only the OVERLAY shut. Your turn, your
+  // clock and every command are live underneath it.
+  const overlayOpen = !ceremonyOpen && yourTurn && !complete && canPick(match) && previousPickBeat === null;
 
   const meta = modeMeta(TMW_MODE);
   const pendingKind = lane.pending;
@@ -568,6 +642,7 @@ export default function ThreeManWeaveGame({
       // is on screen AGAINST what the server said rather than against a timer.
       data-turn-phase={match.turn_phase ?? "none"}
       data-turn-seq={match.turn_seq ?? undefined}
+      data-beat={previousPickBeat ? "previous-pick" : undefined}
     >
       <PeakV2Shell width="live-wide">
         <header
@@ -687,7 +762,28 @@ export default function ThreeManWeaveGame({
           />
           {/* THE MOMENT THIS SNAPSHOT ANNOUNCES -- never over the ceremony,
               which has its own round card. */}
-          {!ceremonyOpen ? <EventMoment moment={room.moment} onDone={clearMoment} testId="tmw-moment" /> : null}
+          {!ceremonyOpen ? (
+            <EventMoment
+              moment={room.moment}
+              onDone={clearMoment}
+              testId="tmw-moment"
+              className={previousPickBeat ? "tmw-moment--handoff" : undefined}
+            />
+          ) : null}
+          {/* THE PREVIOUS-PICK BEAT'S OWN CUE: a quiet line naming the hold
+              and the way past it. A press anywhere ends the beat. */}
+          {previousPickBeat && !complete ? (
+            <button
+              type="button"
+              className="tmw-previous-pick-beat"
+              data-testid="tmw-previous-pick-beat"
+              data-beat="previous-pick"
+              onClick={() => endBeat(previousPickBeat)}
+            >
+              <span className="tmw-previous-pick-beat-label">You&apos;re up</span>
+              <span className="tmw-previous-pick-beat-hint">Opening your pick · press to open now</span>
+            </button>
+          ) : null}
         </div>
       )}
     </div>

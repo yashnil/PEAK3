@@ -66,7 +66,7 @@ import {
  */
 
 /** How long one settled lot holds centre stage before it counts as seen. */
-export const REVEAL_HOLD_MS = 1600;
+export const REVEAL_HOLD_MS = 2200;
 
 /**
  * How long the tab must have been hidden for the return to count as a resume

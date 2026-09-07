@@ -30,8 +30,10 @@ import {
   placementsAfterMove,
   positionsLine,
   searchCandidates,
+  seatAccent,
   seatLabel,
   slotAbbrev,
+  takenThisRoll,
 } from "@/lib/three-man-weave-state";
 import ArenaTimer from "@/components/shared/ArenaTimer";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
@@ -282,6 +284,11 @@ export default function PickOverlay({
     () => lockedMatches(lockedEntries, query),
     [lockedEntries, query],
   );
+  // THE TABLE STATE OF THIS ROLL: who has already taken a name from it.
+  const taken = useMemo(
+    () => takenThisRoll(lockedEntries, roundNumber, yourSeatIndex),
+    [lockedEntries, roundNumber, yourSeatIndex],
+  );
 
   const chosen = useMemo(
     () => candidates.find((c) => c.player_slug === selected) ?? null,
@@ -437,10 +444,49 @@ export default function PickOverlay({
                 "Your pick"
               )}
             </h2>
-            <p className="tmw-overlay-seat">
-              Everyone drafts from this roll · once a name is taken it is gone for
-              every seat
-            </p>
+            {/* THE RULE, AS TABLE STATE. Instead of a sentence about names
+                being gone for every seat, the names that ARE gone from this
+                roll, marked with the seat that took them -- or, when you
+                open the roll, the fact that nobody has. The sentence
+                survives for screen readers. */}
+            <div
+              className="tmw-overlay-taken"
+              data-testid="tmw-overlay-taken"
+              data-count={taken.length}
+            >
+              <span className="sr-only">
+                Everyone drafts from this roll; once a name is taken it is gone for every seat.{" "}
+                {taken.length === 0
+                  ? "Nobody has drafted from this roll yet."
+                  : `Taken so far: ${taken
+                      .map((entry) =>
+                        `${seatLabel(seats, entry.seatIndex)} took ${entry.playerName}${entry.slotType ? ` at ${TMW_SLOT_LABELS[entry.slotType] ?? entry.slotType}` : ""}`,
+                      )
+                      .join("; ")}.`}
+              </span>
+              {taken.length === 0 ? (
+                <span className="tmw-overlay-taken-open" aria-hidden="true">
+                  <span className="tmw-overlay-taken-label">You open this roll</span>
+                  <span className="tmw-overlay-taken-hint">{seats.length} seats draft from it</span>
+                </span>
+              ) : (
+                <span className="tmw-overlay-taken-list" aria-hidden="true">
+                  <span className="tmw-overlay-taken-label">Taken this roll</span>
+                  {taken.map((entry) => (
+                    <span
+                      key={entry.playerSlug}
+                      className="tmw-overlay-taken-chip"
+                      data-testid={`tmw-overlay-taken-${entry.seatIndex}`}
+                      data-seat-accent={seatAccent(entry.seatIndex)}
+                    >
+                      <span className="tmw-overlay-taken-seat">{seatLabel(seats, entry.seatIndex)}</span>
+                      <span className="tmw-overlay-taken-name">{entry.playerName}</span>
+                      {entry.slotType ? <span className="tmw-overlay-taken-slot">{slotAbbrev(entry.slotType)}</span> : null}
+                    </span>
+                  ))}
+                </span>
+              )}
+            </div>
           </div>
           <ArenaTimer
             deadlineAt={deadlineAt}

@@ -467,11 +467,11 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
           path into a native disclosure, per Part F/G ("push seed/version/
           formula/coverage lower, don't lead with it"). */}
       <details className="text-[10px]" style={{ color: "var(--text-muted)" }} data-testid="result-receipt">
+        {/* No "Data receipt" tag: the seed IS the summary line. */}
         <summary className="cursor-pointer select-none" style={{ color: "var(--text-secondary)" }}>
-          Data receipt
+          Seed {state.board_seed}
         </summary>
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 pt-1.5">
-          <span>Seed {state.board_seed}</span>
           <span>{state.card_pool_version}</span>
           <span>{result.lineup_model_version}</span>
           <span>{result.simulator_version}</span>

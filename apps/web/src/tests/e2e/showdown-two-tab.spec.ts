@@ -61,10 +61,10 @@ async function startShowdown(page: Page): Promise<string> {
   return match as string;
 }
 
-/** Dismiss the pre-match intro if this tab is showing it. */
+/** Wait out the pre-match intro if this tab is showing it. It is a shared
+ *  timeline with no skip: both tabs leave it at the same server instant. */
 async function pastIntro(page: Page): Promise<void> {
-  const start = page.getByTestId("td-intro-start");
-  if (await start.count()) await start.click().catch(() => {});
+  await page.getByTestId("td-intro").waitFor({ state: "detached", timeout: 20_000 }).catch(() => {});
   await expect(page.getByTestId("td-table")).toBeVisible({ timeout: 30_000 });
 }
 

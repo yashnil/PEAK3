@@ -27,8 +27,8 @@ import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
 import PeakV2DisplayEmphasis from "../PeakV2DisplayEmphasis";
 import PeakV2SecondaryAction from "../PeakV2SecondaryAction";
 import { GameActionButton, RoundReveal } from "@/components/game-feel";
-import { usePrefersReducedMotion } from "@/lib/a11y";
 import { useEffect, useState } from "react";
+import { COURT_PACING } from "@/lib/court-state";
 import SpinStage from "@/components/court/SpinStage";
 import EligiblePlayerSearch from "@/components/court/EligiblePlayerSearch";
 import type { CurrentSpin, SpinCandidate } from "@/types/perfect-season";
@@ -58,9 +58,16 @@ export interface PeakV2CourtChooserProps {
    *  about -- the row shows pending, the others stay disabled buttons. */
   pendingKind?: string | null;
   pendingSlug?: string | null;
-  /** Changes per new round (and per new game): the round card lands once
-   *  per key, over the reels, for the first beat only. */
+  /** Changes per new round (and per new game). Identifies WHICH round the
+   *  card below belongs to; the card's own lifetime is the caller's. */
   roundKey?: string;
+  /** THE ROUND CARD IS THE CALLER'S STATE, keyed on the authoritative round
+   *  (`CourtBuilder`: once per `game:round`, before the reels, never
+   *  re-triggered by reopening this panel). This component only renders it
+   *  and holds the reels while it is up. It used to own a local timer keyed
+   *  on the panel OPENING, which is why "Resume selection" replayed
+   *  "Round N" every time. */
+  roundCardOpen?: boolean;
   respinPending: boolean;
 
   canRespinTeam: boolean;
@@ -103,6 +110,7 @@ export default function PeakV2CourtChooser({
   pendingKind = null,
   pendingSlug = null,
   roundKey,
+  roundCardOpen = false,
   respinPending,
   canRespinTeam,
   canRespinSeason,
@@ -116,19 +124,28 @@ export default function PeakV2CourtChooser({
   hintSlug = null,
   onHint,
 }: PeakV2CourtChooserProps) {
-  // ROUND START: the round identifier lands over the reels for one short
-  // beat (Level 2), then the spin -- which has ALREADY started underneath --
-  // takes over. Adds no time to the ceremony: the reels' own clock is
-  // untouched. Under reduced motion the card is skipped entirely.
-  const reduced = usePrefersReducedMotion();
-  const [roundCardFor, setRoundCardFor] = useState<string | null>(null);
+  // ROUND START (82-0 pacing): the round identifier owns the stage for
+  // `COURT_PACING.ROUND_REVEAL_MS` while the reels wait at their start row
+  // (`SpinStage start={false}`), then hands over -- the reels begin as the
+  // card leaves. The card's open/closed state is the caller's, keyed on the
+  // round; this only keeps the card mounted for its short exit so it can
+  // fade rather than vanish. `leaving` is derived from the open -> closed
+  // edge, never from the panel opening.
+  // Derived-from-props during render (React's sanctioned pattern), NOT in an
+  // effect: an effect would commit one frame with the card unmounted before
+  // re-mounting it as "leaving" -- a visible blink on the hand-over.
+  const [prevOpen, setPrevOpen] = useState(roundCardOpen);
+  const [leavingFor, setLeavingFor] = useState<string | null>(null);
+  if (prevOpen !== roundCardOpen) {
+    setPrevOpen(roundCardOpen);
+    if (prevOpen && !roundCardOpen && roundKey) setLeavingFor(roundKey);
+  }
   useEffect(() => {
-    if (!roundKey || reduced || !open) return;
-    setRoundCardFor(roundKey);
-    const id = window.setTimeout(() => setRoundCardFor(null), 620);
+    if (leavingFor === null) return;
+    const id = window.setTimeout(() => setLeavingFor(null), COURT_PACING.ROUND_REVEAL_EXIT_MS);
     return () => window.clearTimeout(id);
-  }, [roundKey, reduced, open]);
-  const roundCardOpen = roundCardFor !== null && roundCardFor === roundKey;
+  }, [leavingFor]);
+  const roundCardLeaving = leavingFor !== null && leavingFor === roundKey;
 
   return (
     <PeakV2DockedPanel
@@ -269,16 +286,21 @@ export default function PeakV2CourtChooser({
         </div>
 
         <div className="relative mt-4" data-testid="spin-stage-frame">
-          <RoundReveal
-            open={roundCardOpen}
-            eyebrow="82-0 PEAK Season"
-            title={`Round ${roundNumber}`}
-            detail={`of ${totalRounds} · a real team-season is being drawn`}
-            testId="court-round-reveal"
-            className="court-round-reveal"
-          />
+          {roundCardOpen || roundCardLeaving ? (
+            <div className="court-round-reveal-wrap" data-leaving={roundCardLeaving ? "true" : "false"} data-testid="court-round-reveal-wrap">
+              <RoundReveal
+                open
+                eyebrow="82-0 PEAK Season"
+                title={`Round ${roundNumber}`}
+                detail={`of ${totalRounds} · a real team-season is being drawn`}
+                testId="court-round-reveal"
+                className="court-round-reveal"
+              />
+            </div>
+          ) : null}
           <SpinStage
             key={roundNumber}
+            start={!roundCardOpen}
             spin={spin}
             roundNumber={roundNumber}
             totalRounds={totalRounds}

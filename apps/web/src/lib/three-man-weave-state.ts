@@ -238,6 +238,8 @@ export interface TmwLockEntry {
   playerName: string;
   seatIndex: number;
   roundNumber: number;
+  /** Where the seat that took them put them (absent on a legacy entry). */
+  slotType?: TmwSlotType;
   franchiseDisplayName: string;
   decade: string;
 }
@@ -256,9 +258,28 @@ export function identityLock(state: TmwPublicState | null): TmwLockEntry[] {
     playerName: pick.player_name,
     seatIndex: pick.seat_index,
     roundNumber: pick.round_number,
+    slotType: pick.slot_type,
     franchiseDisplayName: pick.eligibility.franchise_display_name,
     decade: pick.decade,
   }));
+}
+
+/**
+ * WHO HAS ALREADY DRAFTED FROM THIS ROLL, in draft order -- the visual table
+ * state the pick surface shows instead of a sentence about the rule. A roll
+ * is one round, so "this roll" is every lock entry from the current round
+ * that is not the viewer's own (the viewer cannot have picked yet while the
+ * pick surface is theirs). Empty when the viewer opens the roll.
+ */
+export function takenThisRoll(
+  entries: TmwLockEntry[],
+  roundNumber: number | null,
+  yourSeatIndex: number | null,
+): TmwLockEntry[] {
+  if (roundNumber === null) return [];
+  return entries
+    .filter((entry) => entry.roundNumber === roundNumber && entry.seatIndex !== yourSeatIndex)
+    .sort((a, b) => a.seatIndex - b.seatIndex);
 }
 
 // ---------------------------------------------------------------------------
