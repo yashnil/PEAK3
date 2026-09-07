@@ -199,7 +199,14 @@ async function currentSurface(page: Page): Promise<SurfaceId> {
  * the same reasoning as courtbuilder.spec.ts's filled-slot-count wait, and
  * immune to the "response resolved before the listener attached" race.
  */
-async function stepOnce(page: Page, surface: SurfaceId): Promise<void> {
+/** The node type a driver should pick at a node choice to REACH a surface.
+ *  Only the surfaces a node choice can lead to directly are listed. */
+const NODE_TYPE_FOR_SURFACE: Partial<Record<SurfaceId, string>> = {
+  "rtt-draft-room": "draft_room",
+  "rtt-trade-desk": "trade_desk",
+};
+
+async function stepOnce(page: Page, surface: SurfaceId, seeking?: SurfaceId): Promise<void> {
   switch (surface) {
     case "rtt-boss-intro":
       // The pre-roll: name, philosophy, win condition, 3-2-1 countdown. Skip
@@ -258,9 +265,21 @@ async function stepOnce(page: Page, surface: SurfaceId): Promise<void> {
     case "rtt-system-select":
       await page.locator('[data-testid="rtt-system-select"] button').first().click();
       break;
-    case "rtt-node-choice":
-      await page.locator('[data-testid="rtt-node-choice"] button').first().click();
+    case "rtt-node-choice": {
+      // When a driver is SEEKING a surface, take the option that leads there
+      // if the board offers one, else the first. The first option alone is
+      // seed luck: a standard run's seed is random per test, and CI (PR #26
+      // run 34152236225, mobile-chrome) drew a board whose first options
+      // never included a Draft Room, so `driveTo("rtt-draft-room")` played
+      // the whole run to its result and never arrived.
+      const options = page.locator('[data-testid="rtt-node-choice"] button');
+      const wanted = seeking ? NODE_TYPE_FOR_SURFACE[seeking] : undefined;
+      const preferred = wanted
+        ? page.locator(`[data-testid="rtt-node-choice"] button[data-node-type="${wanted}"]`)
+        : options;
+      await ((await preferred.count()) > 0 ? preferred : options).first().click();
       break;
+    }
     case "rtt-draft-room":
       // Passing is unconditionally legal at a Draft Room, which is exactly why
       // the driver uses it: it never depends on what the board happens to hold
@@ -355,7 +374,10 @@ async function driveTo(page: Page, target: SurfaceId, maxSteps = 90): Promise<vo
     // Every surface, every step — see `expectNoRawObjects`.
     await expectNoRawObjects(page);
     if (surface === target) return;
-    await stepOnce(page, surface);
+    if (surface === "rtt-result") {
+      throw new Error(`run ended before reaching ${target}`);
+    }
+    await stepOnce(page, surface, target);
   }
   throw new Error(`did not reach ${target} within ${maxSteps} steps`);
 }
