@@ -21,13 +21,15 @@
  * serif-for-everything.
  */
 
+import type { ReactNode } from "react";
 import type { V2Tone } from "./v2-tone";
 import { v2ToneVar } from "./v2-tone";
 
 export type PeakV2ScoreRole = "instrument" | "moment";
 
 export interface PeakV2ScoreProps {
-  value: string | number;
+  /** The number, or a composed node (a transitioning number, a range). */
+  value: ReactNode;
   label?: string;
   tone?: V2Tone;
   size?: "sm" | "md" | "lg";

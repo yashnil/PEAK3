@@ -24,14 +24,14 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
-test.describe("NBA Fact of the Day", () => {
+test.describe("Basketball Fact of the Day", () => {
   test("renders on the homepage, above the game catalogue", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     const panel = page.getByTestId("nba-fact-of-the-day");
     await expect(panel).toBeVisible({ timeout: 20_000 });
 
     await expect(
-      page.getByRole("heading", { name: "NBA Fact of the Day" }),
+      page.getByRole("heading", { name: "Basketball Fact of the Day" }),
     ).toBeVisible();
     await expect(page.getByTestId("fotd-text")).toContainText(/\S/);
     await expect(page.getByTestId("fotd-category")).toContainText(/\S/);

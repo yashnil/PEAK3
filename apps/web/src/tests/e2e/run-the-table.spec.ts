@@ -59,6 +59,7 @@ import {
   RUN_THE_TABLE_TOUR_VERSION,
 } from "@/components/ui/tour-steps";
 import { TOUR_STORAGE_KEY, TOUR_STORAGE_SCHEMA_VERSION } from "@/lib/tour-state";
+import { RTT_COACH_STORAGE_KEY } from "@/lib/run-the-table-coach";
 
 /** Mark the RUN THE TABLE tour as already seen, as a returning player's browser
  *  would have it. Must be called after a same-origin navigation. */
@@ -94,7 +95,7 @@ async function suppressTour(page: Page): Promise<void> {
 // rather than to the observed figure, because it exists to catch a hang, not to
 // police normal variance — and each time the previous one was left stale the
 // suite failed with timeouts that looked like slowness and were not.
-const FULL_RUN_TIMEOUT_MS = 180_000;
+const FULL_RUN_TIMEOUT_MS = 300_000;
 
 /**
  * Every decision surface, in the order they are probed. `rtt-result` leads: it
@@ -198,7 +199,14 @@ async function currentSurface(page: Page): Promise<SurfaceId> {
  * the same reasoning as courtbuilder.spec.ts's filled-slot-count wait, and
  * immune to the "response resolved before the listener attached" race.
  */
-async function stepOnce(page: Page, surface: SurfaceId): Promise<void> {
+/** The node type a driver should pick at a node choice to REACH a surface.
+ *  Only the surfaces a node choice can lead to directly are listed. */
+const NODE_TYPE_FOR_SURFACE: Partial<Record<SurfaceId, string>> = {
+  "rtt-draft-room": "draft_room",
+  "rtt-trade-desk": "trade_desk",
+};
+
+async function stepOnce(page: Page, surface: SurfaceId, seeking?: SurfaceId): Promise<void> {
   switch (surface) {
     case "rtt-boss-intro":
       // The pre-roll: name, philosophy, win condition, 3-2-1 countdown. Skip
@@ -230,15 +238,17 @@ async function stepOnce(page: Page, surface: SurfaceId): Promise<void> {
       // auto-start effect) — there is no `rtt-reveal-start-boss` button to
       // click at all. The roster path is untouched and still requires the
       // one manual press.
+      // FINAL POLISH: there is no "Skip all" any more — the deal is the
+      // moment. The driver waits for the last card to settle (about nine
+      // seconds for seven cards) and then presses the one control that
+      // moves on. Under reduced motion the deal settles at once.
       const kind = surface === "rtt-opening-reveal" ? "roster" : "boss";
       if (kind === "roster") {
         await page.locator(`[data-testid="rtt-reveal-start-${kind}"]`).click();
       }
-      const skip = page.locator(`[data-testid="rtt-reveal-skip-${kind}"]`);
-      await skip.waitFor({ state: "visible", timeout: 20_000 });
-      await skip.click();
+      await expect(page.locator(`[data-testid="rtt-reveal-skip-${kind}"]`)).toHaveCount(0);
       const cont = page.locator(`[data-testid="rtt-reveal-continue-${kind}"]`);
-      await cont.waitFor({ state: "visible", timeout: 20_000 });
+      await cont.waitFor({ state: "visible", timeout: 30_000 });
       await cont.click();
       break;
     }
@@ -255,9 +265,21 @@ async function stepOnce(page: Page, surface: SurfaceId): Promise<void> {
     case "rtt-system-select":
       await page.locator('[data-testid="rtt-system-select"] button').first().click();
       break;
-    case "rtt-node-choice":
-      await page.locator('[data-testid="rtt-node-choice"] button').first().click();
+    case "rtt-node-choice": {
+      // When a driver is SEEKING a surface, take the option that leads there
+      // if the board offers one, else the first. The first option alone is
+      // seed luck: a standard run's seed is random per test, and CI (PR #26
+      // run 34152236225, mobile-chrome) drew a board whose first options
+      // never included a Draft Room, so `driveTo("rtt-draft-room")` played
+      // the whole run to its result and never arrived.
+      const options = page.locator('[data-testid="rtt-node-choice"] button');
+      const wanted = seeking ? NODE_TYPE_FOR_SURFACE[seeking] : undefined;
+      const preferred = wanted
+        ? page.locator(`[data-testid="rtt-node-choice"] button[data-node-type="${wanted}"]`)
+        : options;
+      await ((await preferred.count()) > 0 ? preferred : options).first().click();
       break;
+    }
     case "rtt-draft-room":
       // Passing is unconditionally legal at a Draft Room, which is exactly why
       // the driver uses it: it never depends on what the board happens to hold
@@ -352,7 +374,10 @@ async function driveTo(page: Page, target: SurfaceId, maxSteps = 90): Promise<vo
     // Every surface, every step — see `expectNoRawObjects`.
     await expectNoRawObjects(page);
     if (surface === target) return;
-    await stepOnce(page, surface);
+    if (surface === "rtt-result") {
+      throw new Error(`run ended before reaching ${target}`);
+    }
+    await stepOnce(page, surface, target);
   }
   throw new Error(`did not reach ${target} within ${maxSteps} steps`);
 }
@@ -509,15 +534,12 @@ test.describe("RUN THE TABLE opening reveal", () => {
     expect(await revealedSlotCount(page)).toBe(heldCount);
     await page.locator('[data-testid="rtt-reveal-resume-roster"]').click();
 
-    // Skip all jumps every slot to fully settled with no further animation
-    // and no second round trip — but settling is NOT the handover (the
-    // lead's ruling this pass: skip-all must land on every slot fully
-    // resolved and HOLD there so the player sees what was promised, before
-    // the screen changes). An explicit "Continue" press is what actually
-    // dismisses the surface.
-    await page.locator('[data-testid="rtt-reveal-skip-roster"]').click();
+    // There is no Skip all (final polish): the deal settles on its own, and
+    // settling is NOT the handover — every slot lands fully resolved and
+    // HOLDS there until an explicit press moves on.
+    await expect(page.locator('[data-testid="rtt-reveal-skip-roster"]')).toHaveCount(0);
     const continueRoster = page.locator('[data-testid="rtt-reveal-continue-roster"]');
-    await continueRoster.waitFor({ state: "visible", timeout: 20_000 });
+    await continueRoster.waitFor({ state: "visible", timeout: 30_000 });
     await continueRoster.click();
     await expect(page.locator('[data-testid="rtt-system-select"]')).toBeVisible({ timeout: 20_000 });
     await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toHaveCount(0);
@@ -529,7 +551,7 @@ test.describe("RUN THE TABLE opening reveal", () => {
     await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toHaveCount(0);
   });
 
-  test("the reveal is exactly ONE POST regardless of skip", async ({ page }) => {
+  test("the reveal is exactly ONE POST, and it plays to the end on its own", async ({ page }) => {
     await freshGate(page);
     await startRun(page, "rtt-start-standard");
     await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toBeVisible();
@@ -547,14 +569,10 @@ test.describe("RUN THE TABLE opening reveal", () => {
     });
 
     await page.locator('[data-testid="rtt-reveal-start-roster"]').click();
-    const skip = page.locator('[data-testid="rtt-reveal-skip-roster"]');
-    await skip.waitFor({ state: "visible", timeout: 20_000 });
-    await skip.click();
-    // Skip settles every slot but does not dismiss the surface on its own
-    // (see the note above) — "Continue" is a client-side choice with no
-    // server round trip of its own, so it cannot change `revealPosts` below.
+    // The deal plays to the end on its own; "Continue" is a client-side
+    // choice with no server round trip, so it cannot change `revealPosts`.
     const continueRoster = page.locator('[data-testid="rtt-reveal-continue-roster"]');
-    await continueRoster.waitFor({ state: "visible", timeout: 20_000 });
+    await continueRoster.waitFor({ state: "visible", timeout: 30_000 });
     await continueRoster.click();
 
     await expect(page.locator('[data-testid="rtt-system-select"]')).toBeVisible({ timeout: 20_000 });
@@ -594,15 +612,12 @@ test.describe("RUN THE TABLE opening reveal", () => {
     await expect(page.locator('[data-testid="rtt-reveal-card"]')).toHaveCount(0);
 
     await page.locator('[data-testid="rtt-reveal-start-roster"]').click();
-    await page.locator('[data-testid="rtt-reveal-skip-roster"]').click();
 
-    // "Skip all" is a real server round trip that returns every authoritative
-    // `revealed_slots` entry at once (SYNTHESIS_CONTRACT.md §2.2); the client
-    // then settles every card's presentation in lockstep — all seven read
-    // "settled" together, never a partial disclosure.
-    await expect(
-      page.locator('[data-testid="rtt-reveal-card"][data-reveal-status="settled"]'),
-    ).toHaveCount(7);
+    // ONE server round trip returns every authoritative `revealed_slots`
+    // entry at once (SYNTHESIS_CONTRACT.md §2.2); the client then paces the
+    // presentation card by card — a slot never shows a name before its beat,
+    // and all seven end settled.
+    await expect(page.locator('[data-testid="rtt-reveal-card"][data-reveal-status="settled"]')).toHaveCount(7, { timeout: 30_000 });
     await expect(revealedSlotCount(page)).resolves.toBe(7);
 
     const continueRoster = page.locator('[data-testid="rtt-reveal-continue-roster"]');
@@ -710,12 +725,8 @@ test.describe("RUN THE TABLE full run", () => {
     // No click to start the boss reveal (Pass 1): it auto-starts the instant
     // this surface mounts, so there is no `rtt-reveal-start-boss` button —
     // go straight to waiting for "Skip all" to appear.
-    const skip = page.locator('[data-testid="rtt-reveal-skip-boss"]');
-    await skip.waitFor({ state: "visible", timeout: 20_000 });
-    await skip.click();
-    await expect(
-      page.locator('[data-testid="rtt-reveal-card"][data-reveal-status="settled"]'),
-    ).toHaveCount(7);
+    await expect(page.locator('[data-testid="rtt-reveal-skip-boss"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="rtt-reveal-card"][data-reveal-status="settled"]')).toHaveCount(7, { timeout: 30_000 });
 
     const overflowing = await page.evaluate(() => {
       const rows = Array.from(document.querySelectorAll('[data-testid="rtt-reveal-card"]'));
@@ -777,10 +788,10 @@ test.describe("RUN THE TABLE resume", () => {
     await skipOpeningReveal(page);
     await driveTo(page, "rtt-boss-reveal");
 
-    // No click starts it — the "Skip all" control (only rendered once the
+    // No click starts it — the "Pause" control (only rendered once the
     // sequence has started) appears on its own.
     await expect(page.locator('[data-testid="rtt-reveal-start-boss"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid="rtt-reveal-skip-boss"]')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('[data-testid="rtt-reveal-pause-boss"]')).toBeVisible({ timeout: 20_000 });
 
     // Reload mid-presentation, before ever pressing skip/continue.
     await page.reload({ waitUntil: "load" });
@@ -888,48 +899,208 @@ test.describe("RUN THE TABLE challenge links", () => {
 // The gate is the only way in
 // ---------------------------------------------------------------------------
 
-test.describe("RUN THE TABLE guided tour", () => {
-  test("auto-starts for a genuine first-time player, and can be dismissed", async ({ page }) => {
+test.describe("RUN THE TABLE teaches itself", () => {
+  /**
+   * GAME-FEEL PASS 3: the seven-step walkthrough no longer opens by itself.
+   * A first-time player sees the four-line brief on the opening cover, then
+   * meets each rule as a one-line coach chip the first time it matters —
+   * never a modal in front of a call to action. The walkthrough is still
+   * one press away ("How to play"), and `suppressTour` above is now simply
+   * harmless for every other test.
+   */
+  test("never auto-starts the walkthrough; coaches the first draft and the first boss once", async ({ page }) => {
     test.setTimeout(FULL_RUN_TIMEOUT_MS);
-    // The counterweight to `suppressTour`. Every gameplay test above seeds
-    // "tour already seen" so the driver can reach the game; this test is the one
-    // that proves the tour really does appear when nothing is seeded, so that
-    // suppression removes no coverage.
     await page.goto(ROUTE, { waitUntil: "load" });
     await page.evaluate(
-      ({ run, tour }) => {
+      ({ run, tour, coach }) => {
         window.localStorage.removeItem(run);
         window.localStorage.removeItem(tour);
+        window.localStorage.removeItem(coach);
       },
-      { run: STORAGE_KEY, tour: TOUR_STORAGE_KEY },
+      { run: STORAGE_KEY, tour: TOUR_STORAGE_KEY, coach: RTT_COACH_STORAGE_KEY },
     );
     await page.goto(ROUTE, { waitUntil: "load" });
+    // The gate itself is the brief: four lines, then start.
+    await expect(page.locator('[data-testid="rtt-gate-brief"] li')).toHaveCount(4);
     await startRun(page, "rtt-start-standard");
 
+    // No modal, anywhere, at any point before the first decision.
+    await expect(page.getByTestId("guided-tour")).toHaveCount(0);
+    expect(await currentSurface(page)).toBe("rtt-opening-reveal");
+    await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toContainText("Build your roster.");
+    await skipOpeningReveal(page);
+    await expect(page.getByTestId("guided-tour")).toHaveCount(0);
+
+    // The first Draft Room carries the first-choice coach, and it is not in
+    // the way: the cards are pressable underneath it.
+    await driveTo(page, "rtt-draft-room");
+    const coach = page.getByTestId("rtt-coach-first_choice");
+    await expect(coach).toBeVisible();
+    await expect(coach).toContainText("Pick one. It joins your lineup.");
+    await page.locator('[data-testid="rtt-draft-offers"] button[aria-pressed]').first().click();
+    await expect(page.getByTestId("rtt-draft-commit")).toBeVisible();
+    // Picking a card is the lesson; the chip is gone and stays gone.
+    await expect(coach).toHaveCount(0);
+
+    // The first boss carries its own one-line coach on the title card.
+    await page.locator('[data-testid="rtt-draft-pass"]').click();
+    await driveTo(page, "rtt-boss-intro");
+    await expect(page.getByTestId("rtt-coach-first_boss")).toBeVisible();
+    await expect(page.getByTestId("guided-tour")).toHaveCount(0);
+
+    // "How to play" opens the full walkthrough on demand, and Escape closes it.
+    await page.locator('[data-testid="rtt-boss-intro-skip"]').click();
+    await page.getByTestId("rtt-help").click();
     const tour = page.getByTestId("guided-tour");
-    await expect(tour, "the tour auto-starts on a first run").toBeVisible({ timeout: 20_000 });
-    // Progress is stated, per the brief's "2 of 7".
+    await expect(tour).toBeVisible();
     await expect(tour).toContainText(/\bof\s+\d+\b/);
-
-    // Next advances; Back returns. The first step's Back is disabled, which is
-    // why the round trip starts with Next.
-    await page.getByTestId("guided-tour-next").click();
-    await expect(tour).not.toHaveAttribute("data-step", "run-map");
-    await page.getByTestId("guided-tour-back").click();
-    await expect(tour).toHaveAttribute("data-step", "run-map");
-
-    // Escape dismisses, and the game underneath is immediately playable — the
-    // exact interaction whose absence made the overlay swallow the driver's
-    // clicks and fail four specs.
     await page.keyboard.press("Escape");
     await expect(tour).toHaveCount(0);
-    const surface = await currentSurface(page);
-    await stepOnce(page, surface);
 
-    // And it does not come back on the next run in the same browser.
+    // A reload does not bring the draft coach back: it was seen.
     await page.reload({ waitUntil: "load" });
     await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("rtt-coach-first_choice")).toHaveCount(0);
+  });
+});
+
+test.describe("RUN THE TABLE game feel", () => {
+  /**
+   * The run reads as a run: the track advances, a signing lands on the
+   * roster with a moment, credits project before they are spent, and the
+   * boss encounter stages its consequence — a life lost or an act cleared.
+   */
+  test("track, roster, credits and the first boss's consequence all move with the run", async ({ page }) => {
+    test.setTimeout(FULL_RUN_TIMEOUT_MS);
+    await freshGate(page, `${ROUTE}?seed=11`);
+    await startRun(page, "rtt-start-standard");
+    await skipOpeningReveal(page);
+
+    // Identity: which board this is, on every screen.
+    await expect(page.getByTestId("rtt-run-identity")).toContainText("Practice run");
+    await expect(page.getByTestId("rtt-run-identity")).toContainText("seed 11");
+
+    // The track knows where we are: once the perk is chosen, act 1 stop 1 is the step.
+    await expect(page.locator('[data-testid="rtt-map-row-a1boss"]')).toHaveAttribute("data-row-kind", "boss");
+    await stepOnce(page, "rtt-system-select");
+    await expect(page.locator('[data-testid="rtt-map-row-a1s1"]')).toHaveAttribute("data-row-state", "current");
+
+    // Buy a card: the meter projects the cost before the press, the slot
+    // arrives on the roster after it, and the moment names the signing.
+    await driveTo(page, "rtt-draft-room");
+    const offer = page.locator('[data-testid="rtt-draft-offers"] button[aria-pressed]:not([aria-disabled="true"])').first();
+    const price = Number(((await offer.locator(".rtt-card-price").innerText()).match(/\d+/) ?? ["0"])[0]);
+    const creditsBefore = Number(await page.getByTestId("rtt-credits").innerText());
+    await offer.click();
+    if (price > 0 && price <= creditsBefore) {
+      await expect(page.getByTestId("rtt-credits-projected")).toContainText(String(creditsBefore - price));
+    }
+    const slotButton = page.locator('[data-testid="rtt-draft-commit"] button[data-testid^="rtt-draft-slot-"]:not([disabled])').first();
+    const slotId = (await slotButton.getAttribute("data-testid"))!.replace("rtt-draft-slot-", "");
+    const name = await offer.locator(".rtt-card-name").innerText();
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/actions") && r.request().method() === "POST" && r.status() === 200),
+      slotButton.click(),
+    ]);
+    await expect(page.locator(`[data-testid="rtt-roster-slot-${slotId}"]`)).toContainText(name);
+    await expect(page.getByTestId("rtt-moment")).toContainText(name);
+    if (price > 0) {
+      await expect(page.getByTestId("rtt-credits")).toHaveText(String(creditsBefore - price), { timeout: 5_000 });
+    }
+    // The stop is done on the track.
+    await expect(page.locator('[data-testid="rtt-map-row-a1s1"]')).toHaveAttribute("data-row-state", "done");
+
+    // The boss encounter: title card, the deal, the matchup board, the staged result.
+    await driveTo(page, "rtt-boss-intro");
+    await expect(page.getByTestId("rtt-boss-intro")).toContainText("Boss battle · Act I");
+    await expect(page.locator('[data-testid="rtt-map-row-a1boss"]')).toHaveAttribute("data-row-state", "current");
+    await page.locator('[data-testid="rtt-boss-intro-skip"]').click();
+    await stepOnce(page, "rtt-boss-reveal");
+    await expect(page.getByTestId("rtt-boss-stakes")).toContainText("1 of 3 lives");
+    const livesBefore = await page.getByTestId("rtt-lives").innerText();
+    await page.locator('[data-testid="rtt-resolve-boss"]').click();
+    const battleSurface = page.locator('[data-testid="rtt-battle-reveal"]');
+    await expect(battleSurface).toBeVisible({ timeout: 20_000 });
+    // Complete the staged sequence at once, then read the consequence.
+    await battleSurface.click();
+    await expect(battleSurface).toHaveAttribute("data-complete", "true");
+    const outcome = await battleSurface.locator(".rtt-battle-body").getAttribute("data-outcome");
+    if (outcome === "loss") {
+      await expect(page.getByTestId("rtt-battle-life-lost")).toContainText("Life lost");
+      await expect(page.getByTestId("rtt-lives")).not.toHaveText(livesBefore);
+      await expect(page.locator('[data-testid="rtt-map-row-a1boss"]')).toHaveAttribute("data-life-lost", "true");
+    } else if (outcome === "win") {
+      await expect(page.getByTestId("rtt-battle-won")).toContainText("Act I cleared");
+      await expect(page.locator('[data-testid="rtt-map-row-a1boss"]')).toHaveAttribute("data-row-state", "won");
+    } else {
+      await expect(page.getByTestId("rtt-battle-drawn")).toContainText("Draw");
+    }
+    // Advancing is one act transition: the card lands, the track moves to act 2.
+    await page.locator('[data-testid="rtt-battle-advance"]').click();
+    await expect(page.getByTestId("rtt-act-transition")).toContainText("Act I", { timeout: 10_000 });
+    await expect(page.locator('[data-testid^="rtt-map-row-a2"]').first()).toHaveAttribute("data-row-state", "current");
+  });
+
+  test("a double press sends ONE command, and a resumed run comes back as the same run with a moment, no tutorial", async ({ page }) => {
+    test.setTimeout(FULL_RUN_TIMEOUT_MS);
+    await freshGate(page);
+    await startRun(page, "rtt-start-standard");
+    await skipOpeningReveal(page);
+
+    const posts: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST" && request.url().includes("/actions")) posts.push(request.url());
+    });
+    const perk = page.locator('[data-testid="rtt-system-select"] button[data-testid^="rtt-system-"]').first();
+    // Both presses in ONE evaluate, so they land in the same task. As two
+    // `dispatchEvent` calls they raced the command: on a CI runner the first
+    // press's round trip completed and the surface advanced before the second
+    // call resolved its locator, which then waited on a button that no longer
+    // existed (PR #26 run 34148299440). A real double press is two events
+    // before any re-render, which is what this reproduces.
+    await perk.evaluate((button) => {
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await expect(page.locator('[data-testid="rtt-node-choice"]')).toBeVisible({ timeout: 20_000 });
+    expect(posts).toHaveLength(1);
+
+    const runBefore = await storedRun(page);
+    await page.reload({ waitUntil: "load" });
+    await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("rtt-moment")).toContainText("Run resumed");
     await expect(page.getByTestId("guided-tour")).toHaveCount(0);
+    expect((await storedRun(page))?.run_id).toBe(runBefore?.run_id);
+    await expect(page.locator('[data-testid="rtt-map-row-a1s1"]')).toHaveAttribute("data-row-state", "current");
+  });
+
+  test("@mobile the decision leads, resources stay in reach and the roster opens without covering the offers", async ({ page }) => {
+    test.setTimeout(FULL_RUN_TIMEOUT_MS);
+    await freshGate(page);
+    await startRun(page, "rtt-start-standard");
+    await skipOpeningReveal(page);
+    await driveTo(page, "rtt-draft-room");
+    await expectNoHorizontalOverflow(page);
+
+    // The sticky bar carries credits and lives on a phone.
+    const bar = page.getByTestId("rtt-mobile-tray");
+    await expect(bar).toBeVisible();
+    await expect(page.getByTestId("rtt-mobile-lives-meter")).toBeVisible();
+
+    // The first offer is in the first viewport-and-a-bit, above the roster.
+    const firstCard = page.locator('[data-testid="rtt-draft-offers"] button').first();
+    const cardBox = await firstCard.boundingBox();
+    const sheet = page.getByTestId("rtt-roster-sheet");
+    const sheetBox = await sheet.boundingBox();
+    expect(cardBox).not.toBeNull();
+    expect(sheetBox).not.toBeNull();
+    expect(cardBox!.y).toBeLessThan(sheetBox!.y);
+
+    // The roster is one tap away and does not cover the offers.
+    await sheet.locator("summary").first().click();
+    await expect(sheet.locator(".rtt-lineup")).toBeVisible();
+    await expect(firstCard).toBeVisible();
+    await expectNoHorizontalOverflow(page);
   });
 });
 

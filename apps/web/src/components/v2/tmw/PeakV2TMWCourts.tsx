@@ -13,6 +13,8 @@ import PeakV2GameStatus from "../PeakV2GameStatus";
 import PeakV2Timer from "../PeakV2Timer";
 import PeakV2TMWCourt from "./PeakV2TMWCourt";
 import { useRemainingSeconds } from "@/components/shared/ArenaTimer";
+import { ActiveSeat, type ActiveSeatOwner } from "@/components/game-feel";
+import { TMW_TURN_SECONDS } from "@/types/three-man-weave";
 import {
   edgeBandFor,
   edgeQualifier,
@@ -33,6 +35,9 @@ export interface PeakV2TMWCourtsProps {
    *  so all three competitors watch the same number — `deadlineAt` above is
    *  only "your" clock and is null on somebody else's turn. */
   turnDeadlineAt?: number | null;
+  /** The open turn's full length in seconds -- the denominator every seat's
+   *  clock bar depletes against. Falls back to the mode's decision window. */
+  turnTotalSeconds?: number | null;
   /**
    * Whether the round's roll has actually been REVEALED yet.
    *
@@ -59,7 +64,7 @@ export interface PeakV2TMWCourtsProps {
    * resulting assignment is legal for both slots). Commits a COMPLETE
    * final assignment; absent in a finished match. Never consumes a turn.
    */
-  onMove?: (placements: Record<string, string>) => void;
+  onMove?: (placements: Record<string, string>) => Promise<boolean> | void;
   busy?: boolean;
 }
 
@@ -70,6 +75,7 @@ export default function PeakV2TMWCourts({
   currentTurnSeatIndex,
   deadlineAt,
   turnDeadlineAt = null,
+  turnTotalSeconds = null,
   rollRevealed = true,
   picksMade,
   totalPicks,
@@ -113,7 +119,7 @@ export default function PeakV2TMWCourts({
   const yourRoster = yourSeatIndex === null ? null : (state.rosters.find((r) => r.seat_index === yourSeatIndex) ?? null);
   const canRearrange = !!onMove && !!yourRoster && !state.is_complete;
   const [pickedUp, setPickedUp] = useState<TmwSlotType | null>(null);
-  const [notice, setNotice] = useState<{ tone: "error" | "done"; text: string } | null>(null);
+  const [notice, setNotice] = useState<{ tone: "error"; text: string } | null>(null);
 
   // ESCAPE CANCELS — the accessible half of "drop it" — same as legacy.
   useEffect(() => {
@@ -146,21 +152,33 @@ export default function PeakV2TMWCourts({
         setNotice({ tone: "error", text: rejection });
         return;
       }
-      const moving = yourRoster.slots[pickedUp];
-      const displaced = yourRoster.slots[slot];
-      onMove?.(placementsAfterMove(yourRoster, pickedUp, slot));
-      setNotice({
-        tone: "done",
-        text: displaced
-          ? `${moving?.player_name} and ${displaced.player_name} swapped.`
-          : `${moving?.player_name} moved.`,
-      });
+      // THE MOVE'S RESULT IS ANNOUNCED BY THE SNAPSHOT THAT CONTAINS IT.
+      // This used to write "X and Y swapped." here, before the server had
+      // answered, so the message could sit over a roster still showing them
+      // un-swapped. The room derives the swap moment from the response
+      // itself (`describeTransition`), in the same render as the rosters.
+      void onMove?.(placementsAfterMove(yourRoster, pickedUp, slot));
       setPickedUp(null);
     },
     [yourRoster, pickedUp, onMove],
   );
 
   const legalTargets = canRearrange && pickedUp ? legalMoveTargets(yourRoster, pickedUp) : [];
+
+  // ONE CLOCK FOR EVERY SEAT. The active court renders the same depleting
+  // `TurnClock` whether the seat is the viewer, a rival or a bot -- the
+  // server publishes the open turn's deadline and length to everybody.
+  const clockDeadline = turnDeadlineAt ?? deadlineAt;
+  const clockTotal = turnTotalSeconds ?? TMW_TURN_SECONDS;
+  const ownerOf = (seatIndex: number): ActiveSeatOwner => {
+    if (state.is_complete || currentTurnSeatIndex !== seatIndex) return "none";
+    if (seatIndex === yourSeatIndex) return "you";
+    return seats.find((s) => s.seat_index === seatIndex)?.is_bot ? "bot" : "rival";
+  };
+  const seatStateOf = (seatIndex: number): "active" | "receded" | "idle" => {
+    if (state.is_complete || currentTurnSeatIndex === null) return "idle";
+    return currentTurnSeatIndex === seatIndex ? "active" : "receded";
+  };
 
   // Pass 7 (human acceptance testing, task §11): "who is picking, how much
   // time is left, what was rolled, what pick/round are we on" must all read
@@ -317,7 +335,7 @@ export default function PeakV2TMWCourts({
               fontFamily: "var(--v2-font-ui)",
               fontSize: "0.75rem",
               fontWeight: 600,
-              color: notice.tone === "error" ? "var(--v2-color-negative)" : "var(--v2-color-positive)",
+              color: "var(--v2-color-negative)",
             }}
           >
             {notice.text}
@@ -403,21 +421,28 @@ export default function PeakV2TMWCourts({
             // deciding anything right now.
             const isOnTurn = !state.is_complete && currentTurnSeatIndex === roster.seat_index;
             return (
-              <PeakV2TMWCourt
+              <ActiveSeat
                 key={roster.seat_index}
-                roster={roster}
-                seat={seats.find((s) => s.seat_index === roster.seat_index)}
-                isYou={roster.seat_index === yourSeatIndex}
-                isOnTurn={isOnTurn}
-                edge={bandsDiffer ? edgeBandFor(state, roster.seat_index) : null}
-                lit={isOnTurn}
-                interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
-                rearrangeEligible={canRearrange && roster.seat_index === yourSeatIndex}
-                pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
-                legalTargets={roster.seat_index === yourSeatIndex ? legalTargets : []}
-                onPickUp={roster.seat_index === yourSeatIndex ? pickUp : undefined}
-                onDropOn={roster.seat_index === yourSeatIndex ? dropOn : undefined}
-              />
+                state={seatStateOf(roster.seat_index)}
+                owner={ownerOf(roster.seat_index)}
+                complete={roster.complete}
+              >
+                <PeakV2TMWCourt
+                  roster={roster}
+                  seat={seats.find((s) => s.seat_index === roster.seat_index)}
+                  isYou={roster.seat_index === yourSeatIndex}
+                  isOnTurn={isOnTurn}
+                  edge={bandsDiffer ? edgeBandFor(state, roster.seat_index) : null}
+                  lit={isOnTurn}
+                  clock={isOnTurn ? { deadlineAt: clockDeadline, totalSeconds: clockTotal } : null}
+                  interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
+                  rearrangeEligible={canRearrange && roster.seat_index === yourSeatIndex}
+                  pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
+                  legalTargets={roster.seat_index === yourSeatIndex ? legalTargets : []}
+                  onPickUp={roster.seat_index === yourSeatIndex ? pickUp : undefined}
+                  onDropOn={roster.seat_index === yourSeatIndex ? dropOn : undefined}
+                />
+              </ActiveSeat>
             );
           })}
         </div>
@@ -425,23 +450,33 @@ export default function PeakV2TMWCourts({
         <div className="mt-2 lg:hidden">
           {state.rosters
             .filter((roster) => roster.seat_index === mobileSeat)
-            .map((roster) => (
-              <PeakV2TMWCourt
-                key={roster.seat_index}
-                roster={roster}
-                seat={seats.find((s) => s.seat_index === roster.seat_index)}
-                isYou={roster.seat_index === yourSeatIndex}
-                isOnTurn={!state.is_complete && currentTurnSeatIndex === roster.seat_index}
-                edge={bandsDiffer ? edgeBandFor(state, roster.seat_index) : null}
-                lit
-                interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
-                rearrangeEligible={canRearrange && roster.seat_index === yourSeatIndex}
-                pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
-                legalTargets={roster.seat_index === yourSeatIndex ? legalTargets : []}
-                onPickUp={roster.seat_index === yourSeatIndex ? pickUp : undefined}
-                onDropOn={roster.seat_index === yourSeatIndex ? dropOn : undefined}
-              />
-            ))}
+            .map((roster) => {
+              const isOnTurn = !state.is_complete && currentTurnSeatIndex === roster.seat_index;
+              return (
+                <ActiveSeat
+                  key={roster.seat_index}
+                  state={seatStateOf(roster.seat_index)}
+                  owner={ownerOf(roster.seat_index)}
+                  complete={roster.complete}
+                >
+                  <PeakV2TMWCourt
+                    roster={roster}
+                    seat={seats.find((s) => s.seat_index === roster.seat_index)}
+                    isYou={roster.seat_index === yourSeatIndex}
+                    isOnTurn={isOnTurn}
+                    edge={bandsDiffer ? edgeBandFor(state, roster.seat_index) : null}
+                    lit
+                    clock={isOnTurn ? { deadlineAt: clockDeadline, totalSeconds: clockTotal } : null}
+                    interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
+                    rearrangeEligible={canRearrange && roster.seat_index === yourSeatIndex}
+                    pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
+                    legalTargets={roster.seat_index === yourSeatIndex ? legalTargets : []}
+                    onPickUp={roster.seat_index === yourSeatIndex ? pickUp : undefined}
+                    onDropOn={roster.seat_index === yourSeatIndex ? dropOn : undefined}
+                  />
+                </ActiveSeat>
+              );
+            })}
         </div>
         </div>
 

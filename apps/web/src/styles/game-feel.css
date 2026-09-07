@@ -1,0 +1,1220 @@
+/* ================================================================
+   PEAK3 · GAME-FEEL SYSTEM (components/game-feel)
+   ================================================================
+   Shared interaction primitives for every Arena game. Three motion levels,
+   named by what they communicate (see docs/design/DESIGN_SYSTEM.md):
+
+     Level 1  micro feedback      80-220ms   press, hover, selection, tick
+     Level 2  gameplay event     180-450ms   pick lock, swap, round change
+     Level 3  major moment      600-1500ms   intro, final reveal, win
+
+   Every effect here is decoration over a state the markup ALSO carries in
+   attributes and copy; with motion off the game still reads, it stops
+   moving. Tokens come from styles/v2/tokens.css. Per-mode styling layers
+   on top via each mode's own class, never by editing these.
+   ================================================================ */
+
+:root {
+  --gf-dur-micro: var(--v2-dur-control, 160ms);
+  --gf-dur-event: var(--v2-dur-reveal, 380ms);
+  --gf-dur-major: 900ms;
+  --gf-ease: var(--v2-ease-standard, ease);
+  --gf-ease-out: var(--v2-ease-out, ease-out);
+  --gf-ease-emphasized: var(--v2-ease-emphasized, cubic-bezier(0.2, 0, 0, 1));
+  --gf-accent: var(--v2-color-accent, var(--peak-accent, #f5c842));
+}
+
+/* ---------------------------------------------------------------
+   GameActionButton — press / pending / confirmed / error
+   --------------------------------------------------------------- */
+[data-state="pressed"] {
+  transform: scale(0.975);
+}
+button[data-state="pending"] {
+  cursor: progress !important;
+  opacity: 0.85 !important;
+}
+button[data-state="confirmed"] {
+  animation: gf-confirm var(--gf-dur-event) var(--gf-ease-emphasized) 1;
+}
+button[data-state="error"] {
+  animation: gf-error 420ms var(--gf-ease) 1;
+}
+@keyframes gf-confirm {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--gf-accent) 60%, transparent); transform: scale(1.02); }
+  100% { box-shadow: 0 0 0 10px transparent; transform: scale(1); }
+}
+@keyframes gf-error {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-3px); }
+  75%      { transform: translateX(3px); }
+}
+
+/* ---------------------------------------------------------------
+   TurnClock — number + depleting bar, every owner
+   --------------------------------------------------------------- */
+.gf-clock {
+  display: inline-grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "label value" "track track";
+  align-items: baseline;
+  column-gap: 0.5rem;
+  row-gap: 0.3rem;
+  min-width: 7.5rem;
+}
+.gf-clock[data-size="sm"] { min-width: 5.5rem; row-gap: 0.2rem; }
+.gf-clock-label {
+  grid-area: label;
+  font-family: var(--v2-font-mono, monospace);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted, #838799);
+  white-space: nowrap;
+}
+.gf-clock[data-owner="you"] .gf-clock-label { color: var(--gf-accent); }
+.gf-clock-value {
+  grid-area: value;
+  font-family: var(--v2-font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 1.125rem;
+  line-height: 1;
+  color: var(--v2-text-primary, #fff);
+}
+.gf-clock[data-size="sm"] .gf-clock-value { font-size: 0.9375rem; }
+.gf-clock[data-state="warning"] .gf-clock-value { color: var(--v2-color-negative, #f87171); }
+.gf-clock[data-state="warning"][data-reduced-motion="false"] .gf-clock-value {
+  animation: v2-arena-light-pulse 1.1s ease-in-out infinite;
+}
+.gf-clock[data-state="expired"] .gf-clock-value,
+.gf-clock[data-state="idle"] .gf-clock-value { color: var(--v2-text-muted, #838799); }
+.gf-clock-track {
+  grid-area: track;
+  display: block;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--v2-text-muted, #838799) 22%, transparent);
+  overflow: hidden;
+}
+.gf-clock-fill {
+  display: block;
+  height: 100%;
+  width: calc(var(--gf-clock-fraction, 0) * 100%);
+  border-radius: inherit;
+  background: var(--gf-accent);
+  transition: width 120ms linear, background-color var(--gf-dur-micro) var(--gf-ease);
+}
+.gf-clock[data-owner="bot"] .gf-clock-fill,
+.gf-clock[data-owner="rival"] .gf-clock-fill { background: var(--v2-text-secondary, #b4b8c5); }
+.gf-clock[data-state="warning"] .gf-clock-fill { background: var(--v2-color-negative, #f87171); }
+.gf-clock[data-reduced-motion="true"] .gf-clock-fill { transition: none; }
+.gf-clock-ellipsis::after {
+  content: "";
+  animation: gf-ellipsis 1.4s steps(1, end) infinite;
+}
+@keyframes gf-ellipsis {
+  0%   { content: "\00a0\00a0\00a0"; }
+  25%  { content: ".\00a0\00a0"; }
+  50%  { content: "..\00a0"; }
+  75%  { content: "..."; }
+  100% { content: "\00a0\00a0\00a0"; }
+}
+
+/* ---------------------------------------------------------------
+   RoundReveal — the round identifier lands, then the ceremony
+   --------------------------------------------------------------- */
+.gf-round {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  text-align: center;
+  pointer-events: none;
+}
+.gf-round[data-placement="overlay"] {
+  position: absolute;
+  inset: 0;
+  justify-content: center;
+  z-index: 45;
+}
+.gf-round-eyebrow {
+  font-family: var(--v2-font-mono, monospace);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gf-accent);
+}
+.gf-round-title {
+  font-family: var(--v2-font-display, serif);
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--v2-text-primary, #fff);
+  line-height: 1;
+}
+.gf-round-detail {
+  font-family: var(--v2-font-ui, sans-serif);
+  font-size: 0.875rem;
+  color: var(--v2-text-secondary, #b4b8c5);
+}
+.gf-round-rule {
+  display: block;
+  width: 3.5rem;
+  height: 2px;
+  margin-top: 0.4rem;
+  background: var(--gf-accent);
+  transform-origin: center;
+}
+.gf-round[data-reduced-motion="false"] .gf-round-title,
+.gf-round[data-reduced-motion="false"] .gf-round-eyebrow,
+.gf-round[data-reduced-motion="false"] .gf-round-detail {
+  animation: gf-round-in var(--gf-dur-event) var(--gf-ease-out) both;
+}
+.gf-round[data-reduced-motion="false"] .gf-round-rule {
+  animation: gf-rule-in var(--gf-dur-event) var(--gf-ease-emphasized) both;
+  animation-delay: 80ms;
+}
+@keyframes gf-round-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); letter-spacing: 0.08em; }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes gf-rule-in {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+/* ---------------------------------------------------------------
+   EventMoment — centred, compact, self-dismissing
+   --------------------------------------------------------------- */
+.gf-moment {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  transform: translate(-50%, -50%);
+  z-index: 46;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.6rem 1.1rem;
+  border-radius: var(--v2-radius-control, 10px);
+  border: 1px solid color-mix(in srgb, var(--gf-accent) 45%, var(--v2-border-subtle, #333));
+  background: color-mix(in srgb, var(--v2-bg-plane, #15171c) 92%, transparent);
+  box-shadow: var(--v2-elev-modal, 0 24px 64px -24px rgba(0,0,0,.7));
+  pointer-events: none;
+  text-align: center;
+}
+.gf-moment-title {
+  font-family: var(--v2-font-display, serif);
+  font-size: 1.25rem;
+  color: var(--v2-text-primary, #fff);
+  line-height: 1.15;
+}
+.gf-moment-detail {
+  font-family: var(--v2-font-mono, monospace);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-secondary, #b4b8c5);
+}
+.gf-moment[data-tone="accent"] { border-color: var(--gf-accent); }
+.gf-moment[data-tone="accent"] .gf-moment-detail { color: var(--gf-accent); }
+.gf-moment[data-tone="positive"] .gf-moment-detail { color: var(--v2-color-positive, #34d399); }
+.gf-moment[data-tone="negative"] .gf-moment-detail { color: var(--v2-color-negative, #f87171); }
+.gf-moment[data-reduced-motion="false"] {
+  animation: gf-moment-in var(--gf-dur-event) var(--gf-ease-emphasized) both;
+}
+@keyframes gf-moment-in {
+  0%   { opacity: 0; transform: translate(-50%, -50%) translateY(8px) scale(0.96); }
+  100% { opacity: 1; transform: translate(-50%, -50%) translateY(0) scale(1); }
+}
+
+/* ---------------------------------------------------------------
+   Pick lock / swap beat (useArrivals) — one beat, every court
+   PAINT-ONLY BY DEFAULT. 82-0's court geometry is immutable by contract
+   (E2: a slot's bounds never change across any state, including a swap),
+   so the base beat is light, edge and opacity — never a transform. A mode
+   whose cards may move (Three-Man Weave's seats) opts into the transform
+   variant below through its own class.
+   --------------------------------------------------------------- */
+[data-gf-lock="arrived"] > * {
+  animation: gf-pick-lock-paint 260ms var(--gf-ease-emphasized) 1;
+}
+[data-gf-lock="arrived"] [data-testid="peak-v2-court-slot"],
+[data-gf-lock="arrived"] [data-testid="court-slot"] {
+  animation: gf-pick-lock-edge 320ms var(--gf-ease-out) 1;
+}
+[data-gf-lock="swapped"] > * {
+  animation: gf-swap-paint 380ms var(--gf-ease-emphasized) 1;
+}
+@keyframes gf-pick-lock-paint {
+  0%   { opacity: 0.45; }
+  100% { opacity: 1; }
+}
+@keyframes gf-pick-lock-edge {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--gf-accent) 70%, transparent); border-color: var(--gf-accent); }
+  100% { box-shadow: 0 0 0 8px transparent; }
+}
+@keyframes gf-swap-paint {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--gf-accent) 60%, transparent); background-color: color-mix(in srgb, var(--gf-accent) 14%, transparent); }
+  100% { box-shadow: 0 0 0 8px transparent; background-color: transparent; }
+}
+/* The moving variant: cards that may travel (Three-Man Weave courts). */
+.tmw-court-seat [data-gf-lock="arrived"] > * {
+  animation: gf-pick-lock 260ms var(--gf-ease-emphasized) 1;
+}
+.tmw-court-seat [data-gf-lock="swapped"] > * {
+  animation: gf-swap 380ms var(--gf-ease-emphasized) 1;
+}
+@keyframes gf-pick-lock {
+  0%   { transform: translateY(-6px) scale(0.98); opacity: 0.5; }
+  60%  { transform: translateY(0) scale(1.015); opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+@keyframes gf-swap {
+  0%   { transform: scale(0.97); box-shadow: 0 0 0 0 color-mix(in srgb, var(--gf-accent) 60%, transparent); }
+  50%  { transform: scale(1.02); }
+  100% { transform: scale(1); box-shadow: 0 0 0 8px transparent; }
+}
+
+/* ---------------------------------------------------------------
+   ActiveSeat — active / receded / idle, and the completion trace
+   --------------------------------------------------------------- */
+.gf-seat {
+  position: relative;
+  transition:
+    transform var(--gf-dur-event) var(--gf-ease),
+    opacity var(--gf-dur-event) var(--gf-ease),
+    filter var(--gf-dur-event) var(--gf-ease);
+}
+.gf-seat[data-gf-seat="active"] {
+  transform: translateY(-2px);
+}
+.gf-seat[data-gf-seat="receded"] {
+  transform: translateY(0) scale(0.995);
+}
+.gf-seat[data-gf-complete="true"]::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 10px;
+  border: 1px solid var(--gf-accent);
+  pointer-events: none;
+  opacity: 0;
+  animation: gf-trace var(--gf-dur-major) var(--gf-ease-out) 1;
+}
+@keyframes gf-trace {
+  0%   { opacity: 0; clip-path: inset(0 100% 0 0); }
+  20%  { opacity: 1; }
+  100% { opacity: 0; clip-path: inset(0 0 0 0); }
+}
+
+/* ---------------------------------------------------------------
+   ResourceMeter — a resource that visibly changes (budget, credits)
+   --------------------------------------------------------------- */
+.gf-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.gf-meter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.gf-meter-label {
+  font-family: var(--v2-font-mono, monospace);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted, #838799);
+  white-space: nowrap;
+}
+.gf-meter-value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-family: var(--v2-font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 1.375rem;
+  line-height: 1;
+  color: var(--v2-text-primary, #fff);
+}
+.gf-meter[data-tone="accent"] .gf-meter-value > :first-child { color: var(--gf-accent); }
+.gf-meter[data-size="sm"] .gf-meter-value { font-size: 1.0625rem; }
+.gf-meter-projection {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--v2-text-secondary, #b4b8c5);
+  animation: gf-fade-in var(--gf-dur-micro) var(--gf-ease) both;
+}
+.gf-meter-track {
+  position: relative;
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--v2-text-muted, #838799) 22%, transparent);
+  overflow: hidden;
+}
+.gf-meter-fill,
+.gf-meter-projected {
+  position: absolute;
+  inset: 0 auto 0 0;
+  height: 100%;
+  border-radius: inherit;
+  transition: width var(--gf-dur-event) var(--gf-ease-emphasized);
+}
+.gf-meter-fill {
+  width: calc(var(--gf-meter-fraction, 0) * 100%);
+  background: var(--gf-accent);
+  z-index: 2;
+}
+.gf-meter[data-tone="neutral"] .gf-meter-fill { background: var(--v2-text-secondary, #b4b8c5); }
+.gf-meter-projected {
+  width: calc(var(--gf-meter-projected, 0) * 100%);
+  background: color-mix(in srgb, var(--gf-accent) 38%, transparent);
+  z-index: 1;
+}
+.gf-meter[data-projecting="true"] .gf-meter-fill {
+  width: calc(var(--gf-meter-projected, 0) * 100%);
+}
+.gf-meter[data-projecting="true"] .gf-meter-projected {
+  width: calc(var(--gf-meter-fraction, 0) * 100%);
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--gf-accent) 55%, transparent) 0 3px,
+    transparent 3px 6px
+  );
+}
+.gf-meter-reserve {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: calc(var(--gf-meter-reserve, 0) * 100%);
+  width: 2px;
+  background: var(--v2-text-primary, #fff);
+  opacity: 0.55;
+  z-index: 3;
+}
+.gf-meter-aside {
+  font-family: var(--v2-font-ui, sans-serif);
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary, #b4b8c5);
+}
+@keyframes gf-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ---------------------------------------------------------------
+   CardArrival — a new object enters
+   --------------------------------------------------------------- */
+.gf-arrival[data-reduced-motion="false"] {
+  animation: gf-arrive-up var(--gf-dur-event) var(--gf-ease-emphasized) both;
+}
+/* The stage variant never drops below a painted opacity: a hero object that
+   is live must be visible in EVERY frame (the auction's continuity contract),
+   so the entrance is travel and scale with only a light fade. */
+.gf-arrival[data-reduced-motion="false"][data-variant="stage"] {
+  animation-name: gf-arrive-stage;
+  animation-duration: 440ms;
+}
+@keyframes gf-arrive-stage {
+  0%   { opacity: 0.45; transform: translateY(16px) scale(0.975); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.gf-arrival[data-reduced-motion="false"][data-direction="down"] { animation-name: gf-arrive-down; }
+.gf-arrival[data-reduced-motion="false"][data-direction="left"] { animation-name: gf-arrive-left; }
+.gf-arrival[data-reduced-motion="false"][data-direction="right"] { animation-name: gf-arrive-right; }
+@keyframes gf-arrive-up {
+  0%   { opacity: 0; transform: translateY(14px) scale(0.985); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes gf-arrive-down {
+  0%   { opacity: 0; transform: translateY(-14px) scale(0.985); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes gf-arrive-left {
+  0%   { opacity: 0; transform: translateX(18px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+@keyframes gf-arrive-right {
+  0%   { opacity: 0; transform: translateX(-18px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+/* ---------------------------------------------------------------
+   RosterSlotLock — goal / target / pending / piece
+   --------------------------------------------------------------- */
+.gf-slot {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--v2-radius-control, 10px);
+  border: 1px dashed color-mix(in srgb, var(--v2-text-muted, #838799) 45%, transparent);
+  background: transparent;
+  transition:
+    border-color var(--gf-dur-micro) var(--gf-ease),
+    background-color var(--gf-dur-micro) var(--gf-ease),
+    box-shadow var(--gf-dur-event) var(--gf-ease);
+}
+.gf-slot[data-size="sm"] { min-height: 2.25rem; padding: 0.2rem 0.4rem; }
+.gf-slot[data-align="end"] {
+  grid-template-columns: auto minmax(0, 1fr) 2rem;
+  text-align: right;
+}
+.gf-slot[data-align="end"] .gf-slot-position { order: 3; }
+.gf-slot[data-align="end"] .gf-slot-body { order: 2; }
+.gf-slot[data-align="end"] .gf-slot-figure { order: 1; }
+.gf-slot-position {
+  font-family: var(--v2-font-mono, monospace);
+  font-size: 0.625rem;
+  font-weight: 700;
+  /* Secondary, not muted: at 10px bold on the warm panel the muted token
+     measured 4.23:1 in CI's axe pass (chromium-multiplayer, $20 Showdown
+     roster), under WCAG AA's 4.5:1. Secondary clears it in both themes. */
+  letter-spacing: 0.08em;
+  color: var(--v2-text-secondary, #8c8fa8);
+}
+.gf-slot-body {
+  min-width: 0;
+  font-family: var(--v2-font-ui, sans-serif);
+  font-size: 0.8125rem;
+  color: var(--v2-text-primary, #fff);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gf-slot-placeholder { color: var(--v2-text-muted, #838799); font-size: 0.75rem; }
+.gf-slot-figure {
+  font-family: var(--v2-font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--v2-text-secondary, #b4b8c5);
+  white-space: nowrap;
+}
+.gf-slot[data-state="targeted"] {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--gf-accent) 70%, transparent);
+  background: color-mix(in srgb, var(--gf-accent) 7%, transparent);
+}
+.gf-slot[data-state="targeted"] .gf-slot-placeholder { color: var(--gf-accent); }
+.gf-slot[data-state="pending"] {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--gf-accent) 50%, transparent);
+  background: color-mix(in srgb, var(--gf-accent) 10%, transparent);
+}
+.gf-slot[data-state="filled"] {
+  border-style: solid;
+  border-color: var(--v2-border-subtle, #2a2d35);
+  background: var(--v2-bg-raised, color-mix(in srgb, var(--v2-text-primary, #fff) 5%, transparent));
+}
+.gf-slot[data-state="filled"] .gf-slot-position { color: var(--gf-accent); }
+.gf-slot[data-state="filled"] .gf-slot-figure { color: var(--gf-accent); }
+.gf-slot[data-tone="rival"][data-state="filled"] .gf-slot-position,
+.gf-slot[data-tone="bot"][data-state="filled"] .gf-slot-position,
+.gf-slot[data-tone="rival"][data-state="filled"] .gf-slot-figure,
+.gf-slot[data-tone="bot"][data-state="filled"] .gf-slot-figure { color: var(--v2-text-secondary, #b4b8c5); }
+.gf-slot[data-gf-lock="arrived"][data-reduced-motion="false"] {
+  animation: gf-slot-lock 420ms var(--gf-ease-emphasized) 1;
+}
+.gf-slot[data-gf-lock="swapped"][data-reduced-motion="false"] {
+  animation: gf-swap-paint 380ms var(--gf-ease-emphasized) 1;
+}
+@keyframes gf-slot-lock {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--gf-accent) 75%, transparent); border-color: var(--gf-accent); background-color: color-mix(in srgb, var(--gf-accent) 22%, transparent); }
+  100% { box-shadow: 0 0 0 10px transparent; }
+}
+/* Override the generic arrival paint on the slot's children: the slot
+   itself carries the beat. */
+.gf-slot[data-gf-lock="arrived"] > * { animation: none; }
+
+/* ---------------------------------------------------------------
+   BidTransition — the standing figure changes hands
+   --------------------------------------------------------------- */
+.gf-bid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  text-align: center;
+}
+.gf-bid-figure {
+  position: relative;
+  display: inline-grid;
+  grid-template-areas: "figure";
+  align-items: center;
+  justify-items: center;
+  font-family: var(--v2-font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 3.25rem;
+  line-height: 1;
+  color: var(--gf-accent);
+}
+.gf-bid[data-size="md"] .gf-bid-figure { font-size: 2rem; }
+.gf-bid[data-holder="rival"] .gf-bid-figure,
+.gf-bid[data-holder="bot"] .gf-bid-figure { color: var(--v2-text-primary, #fff); }
+.gf-bid[data-holder="none"] .gf-bid-figure { color: var(--v2-text-muted, #838799); }
+.gf-bid-value,
+.gf-bid-outgoing { grid-area: figure; }
+.gf-bid-outgoing { opacity: 0; }
+.gf-bid[data-reduced-motion="false"][data-swapping="true"] .gf-bid-outgoing {
+  animation: gf-bid-out 380ms var(--gf-ease-emphasized) both;
+}
+.gf-bid[data-reduced-motion="false"][data-swapping="true"] .gf-bid-value {
+  animation: gf-bid-in 380ms var(--gf-ease-emphasized) both;
+}
+.gf-bid[data-reduced-motion="false"][data-swapping="true"][data-direction="up"] .gf-bid-figure {
+  animation: gf-bid-flash 380ms var(--gf-ease) 1;
+}
+@keyframes gf-bid-out {
+  0%   { opacity: 0.8; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-0.6em) scale(0.92); }
+}
+@keyframes gf-bid-in {
+  0%   { opacity: 0; transform: translateY(0.55em) scale(0.94); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes gf-bid-flash {
+  0%   { text-shadow: 0 0 0 transparent; }
+  30%  { text-shadow: 0 0 24px color-mix(in srgb, var(--gf-accent) 55%, transparent); }
+  100% { text-shadow: 0 0 0 transparent; }
+}
+.gf-bid-pending {
+  position: absolute;
+  left: 100%;
+  margin-left: 0.5rem;
+  font-size: 0.375em;
+  color: var(--v2-text-secondary, #b4b8c5);
+  white-space: nowrap;
+  animation: gf-fade-in var(--gf-dur-micro) var(--gf-ease) both;
+}
+.gf-bid-caption {
+  font-family: var(--v2-font-ui, sans-serif);
+  font-size: 0.8125rem;
+  color: var(--v2-text-secondary, #b4b8c5);
+}
+.gf-bid[data-holder="you"] .gf-bid-caption { color: var(--gf-accent); }
+
+/* ---------------------------------------------------------------
+   ResultReveal — the ending resolves in steps
+   --------------------------------------------------------------- */
+.gf-result { outline: none; }
+.gf-result-step[data-revealed="false"] {
+  opacity: 0;
+  visibility: hidden;
+}
+.gf-result[data-reduced-motion="false"] .gf-result-step[data-revealed="true"] {
+  animation: gf-arrive-up 520ms var(--gf-ease-emphasized) both;
+}
+
+/* Big turn clock: the auction / scoreboard treatment. */
+.gf-clock[data-size="lg"] {
+  min-width: 14rem;
+  row-gap: 0.45rem;
+}
+.gf-clock[data-size="lg"] .gf-clock-value { font-size: 2.75rem; }
+.gf-clock[data-size="lg"] .gf-clock-label { font-size: 0.75rem; }
+.gf-clock[data-size="lg"] .gf-clock-track { height: 6px; }
+.gf-clock[data-size="lg"][data-state="warning"][data-reduced-motion="false"] .gf-clock-track {
+  animation: v2-arena-light-pulse 1.1s ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------
+   Reduced motion: everything above is decoration over state
+   --------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  button[data-state="confirmed"],
+  button[data-state="error"],
+  .gf-round *,
+  .gf-moment,
+  [data-gf-lock="arrived"] > *,
+  [data-gf-lock="arrived"] [data-testid="peak-v2-court-slot"],
+  [data-gf-lock="arrived"] [data-testid="court-slot"],
+  [data-gf-lock="swapped"] > *,
+  .tmw-court-seat [data-gf-lock="arrived"] > *,
+  .tmw-court-seat [data-gf-lock="swapped"] > *,
+  .gf-seat[data-gf-complete="true"]::after,
+  .gf-clock-ellipsis::after,
+  .gf-arrival,
+  .gf-slot,
+  .gf-bid-outgoing,
+  .gf-bid-value,
+  .gf-bid-figure,
+  .gf-result-step,
+  .gf-meter-projection,
+  .gf-bid-pending {
+    animation: none !important;
+  }
+  .gf-meter-fill, .gf-meter-projected { transition: none; }
+  .gf-seat[data-gf-complete="true"]::after { opacity: 0.6; }
+  .gf-clock-ellipsis::after { content: "..."; }
+  [data-state="pressed"] { transform: none; }
+}
+
+/* ---------------------------------------------------------------
+   82-0 · the round card over the reels (chooser head zone)
+   --------------------------------------------------------------- */
+.gf-round.court-round-reveal {
+  border-radius: var(--v2-radius-control, 10px);
+  background: color-mix(in srgb, var(--v2-bg-surface, #101216) 82%, transparent);
+  backdrop-filter: blur(2px);
+  z-index: 5;
+}
+.gf-round.court-round-reveal .gf-round-title {
+  font-size: clamp(1.5rem, 4vw, 2.25rem);
+}
+
+/* ---------------------------------------------------------------
+   Peak Duel · the face-off and the staged reveal
+   --------------------------------------------------------------- */
+.duel-side {
+  border-radius: var(--v2-radius-control, 10px);
+  transition: transform var(--gf-dur-micro) var(--gf-ease), background-color var(--gf-dur-micro) var(--gf-ease), box-shadow var(--gf-dur-micro) var(--gf-ease);
+}
+.duel-side:not(:disabled):hover { background: color-mix(in srgb, var(--gf-accent) 5%, transparent); }
+.duel-side:not(:disabled):active { transform: scale(0.985); }
+.duel-side[data-pending="true"] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gf-accent) 60%, transparent);
+  animation: gf-duel-lock var(--gf-dur-event) var(--gf-ease-emphasized) 1;
+}
+@keyframes gf-duel-lock {
+  0%   { box-shadow: inset 0 0 0 1px var(--gf-accent), 0 0 0 0 color-mix(in srgb, var(--gf-accent) 50%, transparent); }
+  100% { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gf-accent) 60%, transparent), 0 0 0 10px transparent; }
+}
+.duel-reveal { position: relative; }
+.duel-reveal-card { position: relative; transition: transform var(--gf-dur-event) var(--gf-ease); }
+.duel-reveal[data-reduced-motion="false"] .duel-reveal-card[data-winner="true"] {
+  animation: gf-duel-winner 620ms var(--gf-ease-emphasized) 1;
+}
+@keyframes gf-duel-winner {
+  0%   { transform: scale(0.98); }
+  55%  { transform: scale(1.025); }
+  100% { transform: scale(1); }
+}
+.duel-reveal[data-reduced-motion="false"] .duel-reveal-verdict {
+  animation: gf-arrive-up 380ms var(--gf-ease-emphasized) both;
+  animation-delay: 420ms;
+}
+.duel-reveal[data-reduced-motion="false"] .duel-reveal-lane {
+  animation: gf-arrive-right 320ms var(--gf-ease-out) both;
+  animation-delay: calc(760ms + var(--duel-lane-index, 0) * 90ms);
+}
+.duel-reveal[data-reduced-motion="false"] .duel-reveal-explanation {
+  animation: gf-fade-in 320ms var(--gf-ease) both;
+  animation-delay: 1250ms;
+}
+.duel-streak-moment { top: 4.5rem; }
+@media (prefers-reduced-motion: reduce) {
+  .duel-side[data-pending="true"], .duel-reveal-card, .duel-reveal-verdict, .duel-reveal-lane, .duel-reveal-explanation { animation: none !important; }
+}
+
+/* ---------------------------------------------------------------
+   LifeMeter — lives as pieces; a lost one leaves a scar
+   --------------------------------------------------------------- */
+.gf-lives {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.gf-lives-label {
+  font-family: var(--v2-font-mono, monospace);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted, #838799);
+  white-space: nowrap;
+}
+.gf-lives-pips { display: inline-flex; align-items: center; gap: 0.3rem; }
+.gf-lives-pip {
+  position: relative;
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--v2-color-positive, #34d399);
+  background: var(--v2-color-positive, #34d399);
+  transition: background-color var(--gf-dur-event) var(--gf-ease), border-color var(--gf-dur-event) var(--gf-ease), transform var(--gf-dur-event) var(--gf-ease);
+}
+.gf-lives[data-size="sm"] .gf-lives-pip { width: 0.6rem; height: 0.6rem; }
+.gf-lives[data-size="lg"] .gf-lives-pip { width: 1.25rem; height: 1.25rem; border-width: 2px; }
+.gf-lives[data-size="lg"] .gf-lives-pips { gap: 0.5rem; }
+.gf-lives-pip[data-alive="false"] {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--v2-color-negative, #f87171) 55%, transparent);
+  border-style: dashed;
+}
+.gf-lives-pip[data-alive="false"]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 120%;
+  height: 1.5px;
+  background: color-mix(in srgb, var(--v2-color-negative, #f87171) 70%, transparent);
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+.gf-lives[data-danger="true"] .gf-lives-pip[data-alive="true"] {
+  background: var(--v2-color-negative, #f87171);
+  border-color: var(--v2-color-negative, #f87171);
+}
+.gf-lives[data-danger="true"][data-reduced-motion="false"] .gf-lives-pip[data-alive="true"] {
+  animation: gf-life-danger 2.2s ease-in-out infinite;
+}
+.gf-lives[data-beat="lost"][data-reduced-motion="false"] .gf-lives-pip[data-just-lost="true"] {
+  animation: gf-life-break 720ms var(--gf-ease-emphasized) 1;
+}
+.gf-lives[data-beat="lost"][data-reduced-motion="false"] .gf-lives-pip[data-alive="true"] {
+  animation: gf-life-survivor 900ms var(--gf-ease) 1;
+}
+.gf-lives[data-beat="gained"][data-reduced-motion="false"] .gf-lives-pip[data-alive="true"]:last-of-type {
+  animation: gf-life-gain 520ms var(--gf-ease-emphasized) 1;
+}
+.gf-lives-value {
+  font-family: var(--v2-font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  color: var(--v2-text-secondary, #b4b8c5);
+}
+.gf-lives[data-danger="true"] .gf-lives-value { color: var(--v2-color-negative, #f87171); }
+@keyframes gf-life-break {
+  0%   { transform: scale(1.35); background: var(--v2-color-negative, #f87171); border-color: var(--v2-color-negative, #f87171); box-shadow: 0 0 0 0 color-mix(in srgb, var(--v2-color-negative, #f87171) 70%, transparent); }
+  60%  { transform: scale(0.9); box-shadow: 0 0 0 10px transparent; }
+  100% { transform: scale(1); background: transparent; }
+}
+@keyframes gf-life-survivor {
+  0%, 100% { transform: scale(1); }
+  30%      { transform: scale(1.18); }
+  60%      { transform: scale(1); }
+}
+@keyframes gf-life-gain {
+  0%   { transform: scale(0.6); opacity: 0.3; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes gf-life-danger {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+/* ---------------------------------------------------------------
+   RunTrack — the run as chapters; the current mark is the brightest thing
+   --------------------------------------------------------------- */
+.gf-track { min-width: 0; }
+.gf-track-chapters {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.gf-track-chapters::-webkit-scrollbar { display: none; }
+.gf-track-chapter {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  border-top: 2px solid var(--v2-border-subtle, #2a2d35);
+  transition: border-color var(--gf-dur-event) var(--gf-ease);
+}
+.gf-track-chapter[data-state="done"] { border-top-color: color-mix(in srgb, var(--gf-accent) 55%, transparent); }
+.gf-track-chapter[data-state="current"] { border-top-color: var(--gf-accent); }
+/* A LOCKED chapter reads as "not yet" through its decoration (dots, rails)
+   and a quieter numeral -- never by fading the whole chapter. Whole-chapter
+   opacity put its 10px "Act" eyebrow and 11px mark labels at ~4.1:1 in CI's
+   axe pass (chromium-core, RUN THE TABLE restart dialog), under WCAG AA's
+   4.5:1, whichever text token they used. */
+.gf-track-chapter[data-state="locked"] .gf-track-dot,
+.gf-track-chapter[data-state="locked"] .gf-track-mark::before { opacity: 0.6; }
+.gf-track-chapter[data-state="locked"] .gf-track-chapter-numeral { color: var(--v2-text-secondary, #8c8fa8); }
+/* The chapter and mark labels use the SECONDARY text token, not muted: CI's
+   axe pass (chromium-core, RUN THE TABLE restart dialog) measured the muted
+   token at 4.23:1 on the warm track panel for the 10-11px labels, under
+   WCAG AA's 4.5:1. Secondary clears it in both themes. */
+.gf-track-chapter-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  font-family: var(--v2-font-mono, monospace);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-secondary, #8c8fa8);
+}
+.gf-track-chapter[data-state="current"] .gf-track-chapter-label { color: var(--gf-accent); }
+.gf-track-chapter-numeral {
+  font-family: var(--v2-font-display, serif);
+  font-size: 1rem;
+  letter-spacing: 0;
+  color: var(--v2-text-primary, #fff);
+}
+.gf-track-marks {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.gf-track-mark {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  flex: 1 1 0;
+  min-width: 0;
+  padding-top: 0.15rem;
+}
+.gf-track-mark::before {
+  content: "";
+  position: absolute;
+  top: 0.55rem;
+  left: 0.9rem;
+  right: -0.1rem;
+  height: 1px;
+  background: var(--v2-border-subtle, #2a2d35);
+}
+.gf-track-mark:last-child::before { display: none; }
+.gf-track-mark[data-row-state="done"]::before,
+.gf-track-mark[data-row-state="won"]::before,
+.gf-track-mark[data-row-state="lost"]::before,
+.gf-track-mark[data-row-state="drawn"]::before { background: color-mix(in srgb, var(--gf-accent) 45%, var(--v2-border-subtle, #2a2d35)); }
+.gf-track-dot {
+  position: relative;
+  z-index: 1;
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--v2-border, #3a3d45);
+  background: var(--v2-bg-page, #0b0c10);
+  transition: background-color var(--gf-dur-event) var(--gf-ease), border-color var(--gf-dur-event) var(--gf-ease), transform var(--gf-dur-event) var(--gf-ease);
+}
+.gf-track-mark[data-row-kind="boss"] .gf-track-dot {
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 3px;
+  transform: rotate(45deg);
+  border-width: 2px;
+  border-color: var(--v2-text-secondary, #b4b8c5);
+}
+.gf-track-mark[data-row-state="done"] .gf-track-dot,
+.gf-track-mark[data-row-state="won"] .gf-track-dot {
+  background: var(--gf-accent);
+  border-color: var(--gf-accent);
+}
+.gf-track-mark[data-row-state="won"] .gf-track-dot { background: var(--v2-color-positive, #34d399); border-color: var(--v2-color-positive, #34d399); }
+.gf-track-mark[data-row-state="lost"] .gf-track-dot { background: transparent; border-color: var(--v2-color-negative, #f87171); }
+.gf-track-mark[data-row-state="drawn"] .gf-track-dot { background: var(--v2-text-secondary, #b4b8c5); border-color: var(--v2-text-secondary, #b4b8c5); }
+.gf-track-mark[data-row-state="current"] .gf-track-dot {
+  border-color: var(--gf-accent);
+  background: color-mix(in srgb, var(--gf-accent) 30%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--gf-accent) 22%, transparent);
+}
+.gf-track-mark[data-row-kind="boss"][data-row-state="current"] .gf-track-dot {
+  background: var(--gf-accent);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--gf-accent) 25%, transparent);
+}
+.gf-track[data-reduced-motion="false"] .gf-track-mark[data-row-state="current"] .gf-track-dot {
+  animation: gf-track-now 2s ease-in-out infinite;
+}
+.gf-track-mark[data-life-lost="true"] .gf-track-dot::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  border: 1px solid color-mix(in srgb, var(--v2-color-negative, #f87171) 60%, transparent);
+}
+.gf-track-mark-label {
+  font-family: var(--v2-font-ui, sans-serif);
+  font-size: 0.6875rem;
+  line-height: 1.15;
+  color: var(--v2-text-secondary, #8c8fa8);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 0.3rem;
+}
+.gf-track-mark[data-row-state="current"] .gf-track-mark-label { color: var(--v2-text-primary, #fff); font-weight: 600; }
+.gf-track-mark[data-row-kind="boss"] .gf-track-mark-label { text-transform: uppercase; letter-spacing: 0.04em; font-family: var(--v2-font-mono, monospace); font-size: 0.625rem; }
+.gf-track-mark[data-row-state="lost"] .gf-track-mark-label { color: var(--v2-color-negative, #f87171); }
+.gf-track-mark[data-row-state="won"] .gf-track-mark-label { color: var(--v2-color-positive, #34d399); }
+@keyframes gf-track-now {
+  0%, 100% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--gf-accent) 22%, transparent); }
+  50%      { box-shadow: 0 0 0 7px color-mix(in srgb, var(--gf-accent) 10%, transparent); }
+}
+/* Compact: every chapter but the current one collapses to its marks. */
+.gf-track[data-compact="true"] .gf-track-chapter:not([data-state="current"]) .gf-track-mark-label,
+.gf-track[data-compact="true"] .gf-track-chapter:not([data-state="current"]) .gf-track-chapter-eyebrow { display: none; }
+.gf-track[data-compact="true"] .gf-track-chapter:not([data-state="current"]) { flex: 0 0 auto; padding-right: 0.5rem; }
+.gf-track[data-compact="true"] .gf-track-chapter:not([data-state="current"]) .gf-track-mark { min-width: 1.1rem; }
+.gf-track[data-compact="true"] .gf-track-chapter[data-state="current"] { flex: 1 1 auto; min-width: 12rem; }
+@media (max-width: 1023.98px) {
+  .gf-track .gf-track-chapter:not([data-state="current"]) .gf-track-mark-label,
+  .gf-track .gf-track-chapter:not([data-state="current"]) .gf-track-chapter-eyebrow { display: none; }
+  .gf-track .gf-track-chapter:not([data-state="current"]) { flex: 0 0 auto; padding-right: 0.5rem; }
+  .gf-track .gf-track-chapter:not([data-state="current"]) .gf-track-mark { min-width: 1.1rem; }
+  .gf-track .gf-track-chapter[data-state="current"] { flex: 1 1 auto; min-width: 11rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gf-lives-pip, .gf-track-dot { animation: none !important; transition: none; }
+}
+
+/* ===============================================================
+   Three-Man Weave pacing (pre-deploy polish)
+   Presentation only, over state the server has already applied:
+   the ceremony's lock moment, the previous-pick beat, the "taken
+   this roll" table state on the pick surface, and the viewer's own
+   seat on the end screen. Nothing here gates a control.
+   =============================================================== */
+
+/* THE LOCK MOMENT. The shared shell's accent wash arrives with the value;
+   TMW adds one pulse of the accent edge on the ceremony card and a brief
+   lift of the values, so the reels landing reads as a lock rather than a
+   stop. 400 ms, once, only while the ceremony says "locked". */
+.tmw-ceremony[data-stage="locked"] .v2-spin-axis {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v2-color-accent, #f5c842) 70%, transparent);
+}
+.tmw-ceremony[data-stage="locked"] .v2-spin-axis-value {
+  color: var(--v2-text-primary, #fff);
+}
+/* The axis labels (FRANCHISE / DECADE) on TMW's ceremony card read in the
+   secondary tone rather than muted: the card sits on the dimmed board, and
+   with the longer hold the resolved pair is on screen long enough to be
+   audited -- axe measured the muted label at 3.48:1 against the composited
+   plane. TMW-scoped; the shared shell is untouched. */
+.tmw-ceremony .v2-spin-axis-label {
+  color: var(--v2-text-secondary, #b4b8c5);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tmw-ceremony[data-stage="locked"] .v2-spin-axis {
+    animation: tmw-lock-pulse 400ms var(--gf-ease-emphasized) both;
+  }
+  .tmw-ceremony[data-stage="locked"] .v2-spin-axis-value {
+    animation: tmw-lock-lift 400ms var(--gf-ease-out) both;
+  }
+  .tmw-ceremony[data-stage="armed"] .v2-spin-axis-armed::after {
+    animation: tmw-armed-breathe 700ms ease-in-out infinite alternate;
+  }
+}
+@keyframes tmw-lock-pulse {
+  0%   { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v2-color-accent, #f5c842) 0%, transparent), 0 0 0 0 color-mix(in srgb, var(--v2-color-accent, #f5c842) 0%, transparent); }
+  35%  { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v2-color-accent, #f5c842) 90%, transparent), 0 0 0 6px color-mix(in srgb, var(--v2-color-accent, #f5c842) 18%, transparent); }
+  100% { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v2-color-accent, #f5c842) 70%, transparent), 0 0 0 0 color-mix(in srgb, var(--v2-color-accent, #f5c842) 0%, transparent); }
+}
+@keyframes tmw-lock-lift {
+  0%   { transform: translateY(0) scale(1); }
+  35%  { transform: translateY(-2px) scale(1.03); }
+  100% { transform: translateY(0) scale(1); }
+}
+@keyframes tmw-armed-breathe {
+  from { opacity: 0.45; width: 2.25rem; }
+  to   { opacity: 1; width: 3.5rem; }
+}
+
+/* THE PREVIOUS-PICK BEAT. The moment that names the pick that just handed
+   you the turn reads a size larger and in the accent edge; the cue under
+   it says the pick surface is opening and that a press opens it now. Both
+   are absolute over the courts, neither blocks them. */
+.gf-moment.tmw-moment--handoff {
+  border-color: var(--gf-accent);
+  padding: 0.75rem 1.4rem;
+}
+.gf-moment.tmw-moment--handoff .gf-moment-title {
+  font-size: 1.5rem;
+}
+.gf-moment.tmw-moment--handoff .gf-moment-detail {
+  color: var(--gf-accent);
+}
+.tmw-previous-pick-beat {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  transform: translate(-50%, calc(-50% + 4.6rem));
+  z-index: 46;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--gf-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--v2-bg-plane, #15171c) 92%, transparent);
+  color: var(--v2-text-primary, #fff);
+  cursor: pointer;
+  font: inherit;
+}
+.tmw-previous-pick-beat:focus-visible {
+  outline: 2px solid var(--gf-accent);
+  outline-offset: 2px;
+}
+.tmw-previous-pick-beat-label {
+  font-family: var(--v2-font-mono, monospace);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gf-accent);
+}
+.tmw-previous-pick-beat-hint {
+  font-family: var(--v2-font-ui, sans-serif);
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary, #b4b8c5);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tmw-previous-pick-beat {
+    animation: gf-moment-in var(--gf-dur-event) var(--gf-ease-emphasized) both;
+    animation-delay: 120ms;
+  }
+  /* The previous seat's card keeps its lock light for the whole beat. */
+  [data-beat="previous-pick"] .tmw-court-seat [data-gf-lock="arrived"] > * {
+    animation-duration: 900ms;
+  }
+}
+
+/* "TAKEN THIS ROLL" — the rule as table state, on the pick surface's head.
+   One chip per name already gone from this roll, edged in the seat's own
+   accent (`--seat-N-fill`, globals.css) and naming the seat in words. */
+.tmw-overlay-taken {
+  margin-top: 0.35rem;
+  min-height: 1.5rem;
+}
+.tmw-overlay-taken-open,
+.tmw-overlay-taken-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+}
+.tmw-overlay-taken-label {
+  font-family: var(--v2-font-mono, monospace);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted, #838799);
+}
+.tmw-overlay-taken-open .tmw-overlay-taken-label {
+  color: var(--gf-accent);
+}
+.tmw-overlay-taken-hint {
+  font-family: var(--v2-font-ui, sans-serif);
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary, #b4b8c5);
+}
+.tmw-overlay-taken-chip {
+  --seat-fill: var(--seat-1-fill);
+  --seat-ink: var(--seat-1-ink);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  max-width: 16rem;
+  padding: 0.2rem 0.55rem 0.2rem 0.5rem;
+  border: 1px solid var(--v2-border-subtle, #2a2d36);
+  border-left: 3px solid var(--seat-fill);
+  border-radius: var(--v2-radius-control, 8px);
+  background: var(--v2-bg-plane, #15171c);
+  line-height: 1.2;
+}
+.tmw-overlay-taken-chip[data-seat-accent="2"] { --seat-fill: var(--seat-2-fill); --seat-ink: var(--seat-2-ink); }
+.tmw-overlay-taken-chip[data-seat-accent="3"] { --seat-fill: var(--seat-3-fill); --seat-ink: var(--seat-3-ink); }
+.tmw-overlay-taken-seat {
+  font-family: var(--v2-font-mono, monospace);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--seat-ink, var(--v2-text-secondary));
+  white-space: nowrap;
+}
+.tmw-overlay-taken-name {
+  font-family: var(--v2-font-ui, sans-serif);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--v2-text-primary, #fff);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--v2-text-muted, #838799) 70%, transparent);
+  text-decoration-thickness: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tmw-overlay-taken-slot {
+  font-family: var(--v2-font-mono, monospace);
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: var(--v2-text-muted, #838799);
+}
+
+/* THE END SCREEN: YOUR SEAT, IN GOLD, WHATEVER THE PLACEMENT. The winner's
+   card keeps its lit ground; the viewer's card gets a solid accent edge, a
+   soft accent halo and a "Your seat" tab on its top edge — so 2nd and 3rd
+   are as findable as 1st and a card that is both says both. */
+[data-ui-version="v2"] .tmw-result-seat[data-yours="true"] {
+  position: relative;
+  border-style: solid;
+  border-color: var(--v2-color-accent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--v2-color-accent) 35%, transparent),
+    0 18px 40px -28px color-mix(in srgb, var(--v2-color-accent) 55%, transparent);
+}
+[data-ui-version="v2"] .tmw-result-seat-yours {
+  position: absolute;
+  top: -0.7rem;
+  left: var(--v2-space-4, 1rem);
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: var(--v2-color-accent);
+  color: var(--v2-text-inverse, #111);
+  font-family: var(--v2-font-mono, monospace);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+[data-ui-version="v2"] .tmw-result-seat[data-yours="true"] .tmw-result-seat-place {
+  color: var(--v2-text-primary);
+}
+[data-ui-version="v2"] .tmw-result-seat[data-yours="true"][data-winner="true"] .tmw-result-seat-place {
+  color: var(--v2-color-accent);
+}
+/* The standings strip: your row is set in the primary text and the tag in
+   the accent, so the winner's gold line and your line never read as one. */
+.tmw-result-standing[data-yours="true"] {
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--v2-color-accent, #f5c842);
+}
+.tmw-result-standing-you {
+  color: var(--v2-color-accent, #f5c842);
+  font-family: var(--v2-font-mono, monospace);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

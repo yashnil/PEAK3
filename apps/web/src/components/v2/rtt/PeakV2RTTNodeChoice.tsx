@@ -1,41 +1,24 @@
 "use client";
 
 /**
- * PeakV2RTTNodeChoice — the V2 "branching path" decision: two node-type
- * options, one stage (Pass 3). Ports `NodeChoice.tsx`'s exact node-
- * differentiation contract — icon, accent, purpose, the generator's own
- * summary (unless `shouldSuppressServerSummary`), and consequence — into
- * V2's hairline-and-typography grammar instead of legacy's bordered card.
+ * PeakV2RTTNodeChoice — the fork: two doors, one stop.
  *
- * `title` and `summary` are the generator's own text for this seed; the
- * client adds only the node-type identity (icon, accent, purpose,
- * consequence), same division of labor as `NodeChoice.tsx`.
+ * Two large pressable doors, each carrying only what the player needs to
+ * choose: the node kind (its glyph and accent), the generator's title for
+ * THIS seed, one line of purpose, one line of consequence. The long
+ * explanatory paragraph a Scout & Prepare node used to carry is now taught
+ * on the node itself, the first time it is opened (`PeakV2RTTCoach`).
  *
- * This is the one RTT decision screen genuinely ABOUT two different futures
- * — "You take one. The other closes for this run." (`RTT_COPY.branch`) — so
- * unlike every other V2 surface here the two options are allowed to look
- * different from each other. Each carries its own node-type accent
- * (`nodeTypeCopy(...).accentVar`, an existing frozen token, never a new
- * color) as a top hairline plus a small outlined icon glyph drawn from the
- * exact same `NODE_ICON_PATHS` stroke data `NodeChoice.tsx` uses, restyled
- * at V2 scale. Neither option gets a filled, bordered "card" treatment —
- * the whole block is a large tappable region, divided from its sibling and
- * from the rest of the page by rules and spacing, not a box.
- *
- * DOM ORDER kept identical to `NodeChoice.tsx` on purpose: the header
- * carries no buttons, and the option list is the first interactive content,
- * so `[data-testid="rtt-node-choice"] button` keeps meaning "the first
- * stage option" if this surface is ever wired in behind `?ui=v2`.
+ * DOM order is unchanged on purpose: the option list is the first
+ * interactive content, so `[data-testid="rtt-node-choice"] button` still
+ * means "the first stage option".
  */
 
 import type { NodeType, StageOption } from "@/types/run-the-table";
-import {
-  NODE_ICON_PATHS,
-  RTT_COPY,
-  nodeTypeCopy,
-  shouldSuppressServerSummary,
-} from "@/lib/run-the-table-copy";
-import PeakV2LiveHeader from "../PeakV2LiveHeader";
+import { NODE_ICON_PATHS, RTT_COPY, nodeTypeCopy } from "@/lib/run-the-table-copy";
+import GameActionButton from "@/components/game-feel/GameActionButton";
+import CardArrival from "@/components/game-feel/CardArrival";
+import PeakV2RTTDecisionHead from "./PeakV2RTTDecisionHead";
 
 interface Props {
   options: StageOption[];
@@ -43,152 +26,76 @@ interface Props {
   stage: number;
   stagesPerAct: number;
   busy: boolean;
-  onChoose: (option: StageOption) => void;
+  onChoose: (option: StageOption) => Promise<unknown>;
 }
 
-/**
- * The node-type glyph at V2 typographic scale.
- *
- * Draws the identical `NODE_ICON_PATHS` stroke data `NodeChoice.tsx`'s
- * `NodeTypeIcon` renders, but sized and colored inline rather than reusing
- * legacy's `.rtt-node-icon` CSS (built for legacy's larger card scale) —
- * `currentColor` tinted directly by the option's own `accentVar`, purely
- * decorative (the kind label beside it is the accessible name).
- */
 function NodeTypeGlyph({ type }: { type: NodeType }) {
   const copy = nodeTypeCopy(type);
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      width={15}
-      height={15}
-      aria-hidden="true"
-      focusable="false"
-      style={{ flexShrink: 0, color: copy.accentVar }}
-    >
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" width={18} height={18} aria-hidden="true" focusable="false" style={{ flexShrink: 0, color: copy.accentVar }}>
       <path d={NODE_ICON_PATHS[copy.icon]} />
     </svg>
   );
 }
 
-export default function PeakV2RTTNodeChoice({
-  options,
-  act,
-  stage,
-  stagesPerAct,
-  busy,
-  onChoose,
-}: Props) {
+export default function PeakV2RTTNodeChoice({ options, act, stage, stagesPerAct, busy, onChoose }: Props) {
   return (
-    <div data-testid="rtt-node-choice">
-      <PeakV2LiveHeader
-        as="h1"
-        title="Where does the front office spend this window?"
-        subtitle={RTT_COPY.branch}
-        status={
-          <span
-            style={{
-              fontFamily: "var(--v2-font-mono)",
-              fontSize: "0.6875rem",
-              fontWeight: 700,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-              color: "var(--v2-text-muted)",
-            }}
-          >
-            Act {act} · Stage {stage} of {stagesPerAct}
-          </span>
-        }
-      />
-
-      <ul className="grid grid-cols-1 gap-x-10 gap-y-6 sm:grid-cols-2">
-        {options.map((option) => {
+    <div data-testid="rtt-node-choice" className="rtt-fork">
+      <PeakV2RTTDecisionHead eyebrow={`Act ${act} · Stop ${stage} of ${stagesPerAct}`} title="Where next?" context={RTT_COPY.branch} />
+      <ul className="rtt-doors" data-count={options.length}>
+        {options.map((option, i) => {
           const copy = nodeTypeCopy(option.node_type);
           return (
-            <li key={option.node_id} className="min-w-0">
-              <button
-                type="button"
+            <CardArrival key={option.node_id} arrivalKey={option.node_id} as="li" variant="slot" className="rtt-door-arrival">
+              <GameActionButton
+                variant="secondary"
                 data-testid={`rtt-node-option-${option.node_id}`}
                 data-node-type={option.node_type}
-                onClick={() => onChoose(option)}
+                className="rtt-door"
+                style={{ ["--rtt-door-accent" as string]: copy.accentVar, ["--rtt-deal-index" as string]: i } as React.CSSProperties}
                 disabled={busy}
-                className="flex h-full w-full flex-col gap-2.5 pt-3 text-left transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--v2-bg-page)] disabled:cursor-not-allowed disabled:opacity-55"
-                style={{ borderTop: `2px solid ${copy.accentVar}` }}
+                pendingLabel={
+                  <span className="rtt-door-body">
+                    <span className="rtt-door-kind">
+                      <NodeTypeGlyph type={option.node_type} />
+                      <span style={{ color: copy.accentTextVar }}>{copy.label}</span>
+                    </span>
+                    <span className="rtt-door-title">Opening…</span>
+                  </span>
+                }
+                onAction={() => onChoose(option)}
               >
-                <span className="flex items-center gap-2">
-                  <NodeTypeGlyph type={option.node_type} />
-                  <span
-                    style={{
-                      fontFamily: "var(--v2-font-mono)",
-                      fontSize: "0.6875rem",
-                      fontWeight: 700,
-                      letterSpacing: "0.06em",
-                      textTransform: "uppercase",
-                      color: copy.accentTextVar,
-                    }}
-                  >
-                    {copy.label}
+                <span className="rtt-door-body">
+                  <span className="rtt-door-kind">
+                    <NodeTypeGlyph type={option.node_type} />
+                    <span style={{ color: copy.accentTextVar }}>{copy.label}</span>
                   </span>
+                  <span className="rtt-door-title">{option.title}</span>
+                  <span className="rtt-door-purpose">{copy.purpose}</span>
+                  <span className="rtt-door-consequence">{nodeConsequenceShort(option.node_type)}</span>
                 </span>
-
-                <span
-                  style={{
-                    fontFamily: "var(--v2-font-ui)",
-                    fontWeight: 700,
-                    fontSize: "0.9375rem",
-                    color: "var(--v2-text-primary)",
-                  }}
-                >
-                  {option.title}
-                </span>
-
-                {/* What this KIND of node is for — static, identical every run. */}
-                <span
-                  style={{
-                    fontFamily: "var(--v2-font-ui)",
-                    fontSize: "0.8125rem",
-                    color: "var(--v2-text-secondary)",
-                  }}
-                >
-                  {copy.purpose}
-                </span>
-
-                {/* What this PARTICULAR node is, in the generator's own words —
-                    suppressed only where `shouldSuppressServerSummary` says the
-                    generated line advertises a mechanic that does not exist. */}
-                {!shouldSuppressServerSummary(option.node_type) && (
-                  <span
-                    style={{
-                      fontFamily: "var(--v2-font-ui)",
-                      fontSize: "0.8125rem",
-                      color: "var(--v2-text-secondary)",
-                    }}
-                  >
-                    {option.summary}
-                  </span>
-                )}
-
-                {/* What actually happens if you take it. */}
-                <span
-                  className="mt-auto pt-1"
-                  style={{
-                    fontFamily: "var(--v2-font-ui)",
-                    fontSize: "0.75rem",
-                    color: "var(--v2-text-muted)",
-                  }}
-                >
-                  {copy.consequence}
-                </span>
-              </button>
-            </li>
+              </GameActionButton>
+            </CardArrival>
           );
         })}
       </ul>
     </div>
   );
+}
+
+/** One line per node kind — the full consequence text stays in "How to play"
+ *  and on the node itself. */
+function nodeConsequenceShort(type: NodeType): string {
+  switch (type) {
+    case "draft_room":
+      return "Sign one card or pass. Costs credits.";
+    case "trade_desk":
+      return "Swap one roster player. The refund offsets the incoming price.";
+    case "film_room":
+      return "Scout the boss free, or spend to shape the next market.";
+    case "rest_bank":
+      return "Recover a life or bank credits. Roster unchanged.";
+    default:
+      return "";
+  }
 }

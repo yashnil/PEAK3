@@ -22,7 +22,6 @@ REPO_ROOT = API_ROOT.parent.parent
 
 from app.repositories.arena_protocols import (
     COMMAND_TYPE_TIMEOUT,
-    MATCH_STATUS_ABANDONED,
     MATCH_STATUS_ACTIVE,
     MATCH_STATUS_COMPLETED,
     TURN_RESOLUTION_ACTION,
@@ -49,6 +48,7 @@ from app.services.three_man_weave.mode import (
     PHASE_PICK,
     PHASE_REVEAL,
     REJECT_NOT_YOUR_TURN,
+    REJECT_SHARED_TIMELINE,
     REJECT_UNKNOWN_COMMAND,
     REJECT_VERSION_MISMATCH,
     REVEAL_SECONDS,
@@ -695,47 +695,42 @@ def test_replaying_the_ceremony_timeout_is_identical(opening):
     assert first.events == second.events == ()
 
 
-def test_the_opening_ceremony_gets_a_longer_window_than_the_later_ones(opening):
-    """D1/D2. Round one runs the matchup card BEFORE the reel, so it needs a
-    longer window than a round that only rolls a franchise x decade.
+def test_the_ceremony_is_one_short_shared_beat_every_round(opening):
+    """The reveal is a recurring game beat, not a cinematic.
 
-    The two lengths fall out of the two code paths that already existed and
-    need no round-number test anywhere: matchmaking stamps the first turn from
-    `phase_seconds`, and `_reduce_pick` opens every later round itself.
+    Round one used to run a longer window because it carried the matchup card
+    as well as the reel; the matchup card is the briefing phase's own now
+    (`PHASE_INTRO`), so every round's ceremony is the same short beat. Bounded
+    on both sides: long enough for the reels to visibly decelerate and lock
+    and for the settled pair to be read, short enough not to become a tax on
+    the tenth match.
     """
     assert mode.phase_seconds(PHASE_REVEAL) == OPENING_REVEAL_SECONDS
-    assert OPENING_REVEAL_SECONDS > REVEAL_SECONDS
-    # Enough for an intro to be read AND for the settled pair to be perceived.
-    assert OPENING_REVEAL_SECONDS - REVEAL_SECONDS >= 4.0
-    assert REVEAL_SECONDS >= 4.0
+    assert OPENING_REVEAL_SECONDS == REVEAL_SECONDS
+    assert 2.0 <= REVEAL_SECONDS <= 4.0
+    # And the briefing is a short, timed phase in the same band: T0 -> ~3-5s.
+    assert 3.0 <= INTRO_SECONDS <= 5.0
+    assert mode.phase_seconds(PHASE_INTRO) == INTRO_SECONDS
 
 
 # ---------------------------------------------------------------------------
-# THE PRE-MATCH BRIEFING, AS A SERVER PHASE
+# THE PRE-MATCH BRIEFING, AS A SHORT SERVER-TIMED PHASE
 #
-# THE PRODUCTION REGRESSION THIS PINS. `ThreeManWeaveGame.tsx`'s `dismissIntro`
-# used to mark the briefing "seen" in localStorage and close `GameIntro` the
-# INSTANT the button was pressed, before the server had answered
-# `tmw_skip_intro` at all. A dropped response, a stale `expected_state_
-# version`, or the client's own `busy`/`inFlight` guard silently declining to
-# send left the match sitting in `PHASE_INTRO` on the server while the client
-# had already thrown away its only door out of it: the roll already visible
-# (drawn at match creation), "Rolling the next franchise and decade", "Standing
-# by", and no legal command anywhere -- reachable from a perfectly valid
-# reducer, because nothing here was ever wrong at the state-machine layer. The
-# fix lives in the client (`ThreeManWeaveGame.tsx::dismissIntro`, which now
-# waits for the server's own answer before closing the dialog); what belongs
-# here is proof that the AUTHORITATIVE transition `_reduce_skip_intro` drives
-# is itself correct, deterministic and reachable -- so a future regression in
-# either layer is caught at the layer it is in.
+# The briefing used to be a client dialog whose "Enter the draft room" button
+# sent `tmw_skip_intro`, which ended the phase for the WHOLE TABLE on one
+# player's click while the other two were still reading -- the players were no
+# longer entering the match together. It is now a real, short, timed turn:
+# it belongs to no seat, accepts nothing, and ends on its own deadline by
+# opening round one's ceremony, exactly as the ceremony's own deadline opens
+# the pick turn. Nothing here waits on a click, so nothing can be stranded on
+# one, and the 30-minute "abandon the match" backstop that the dialog needed
+# is gone with it.
 # ---------------------------------------------------------------------------
-def test_the_intro_phase_gates_everything_else(opening):
-    """PHASE_INTRO -> (tmw_skip_intro) -> PHASE_REVEAL, and nothing else moves
-    a match still sitting on the briefing.
 
-    Referenced by name in `test_every_round_opens_on_the_ceremony_and_no_mid_
-    round_pick_does` and in `test_arena_practice_e2e.py`'s `_skip_weave_intro_
-    if_open`, neither of which exercises the reducer's OWN transition directly.
+
+def test_the_intro_phase_gates_everything_else(opening):
+    """PHASE_INTRO -> (its own timeout) -> PHASE_REVEAL, and nothing else moves
+    a match still sitting on the briefing.
     """
     assert mode.initial_phase() == PHASE_INTRO
     assert mode.phase_seconds(PHASE_INTRO) == INTRO_SECONDS
@@ -754,21 +749,19 @@ def test_the_intro_phase_gates_everything_else(opening):
     assert not picked.accepted
     assert picked.rejection_code == REJECT_NOT_YOUR_TURN
 
-    # There is no ceremony to skip yet -- `tmw_skip_reveal` must not reach into
-    # the briefing and open the pick turn early.
-    skip_reveal_too_early = _reduce(
-        opening, _command(COMMAND_SKIP_REVEAL, {}, seat_index=0), open_turn=intro_turn
-    )
-    assert not skip_reveal_too_early.accepted
-    assert skip_reveal_too_early.rejection_code == REJECT_NOT_YOUR_TURN
+    # NO SEAT CAN END IT EARLY. Both former skip commands are refused with a
+    # specific reason, and the open turn is left exactly as it was.
+    for command in (COMMAND_SKIP_INTRO, COMMAND_SKIP_REVEAL):
+        refused = _reduce(opening, _command(command, {}, seat_index=1), open_turn=intro_turn)
+        assert not refused.accepted, command
+        assert refused.rejection_code == REJECT_SHARED_TIMELINE, command
+        assert refused.open_turn is None and refused.snapshot is None, command
 
-    # THE ACTUAL DOOR. Any seated participant's `tmw_skip_intro` ends the
-    # briefing for the whole table and opens round one's ceremony with the
-    # FULL matchup-card window, measured from the instant the skip landed.
-    at = NOW + timedelta(seconds=3.0)
-    out = _reduce(
-        opening, _command(COMMAND_SKIP_INTRO, {}, seat_index=1), open_turn=intro_turn, now=at
-    )
+    # THE ACTUAL DOOR: the briefing's OWN deadline. The foundation's sweep
+    # fires a timeout, and the mode answers by opening round one's ceremony
+    # with a FULL window measured from that instant.
+    at = NOW + timedelta(seconds=INTRO_SECONDS)
+    out = _reduce(opening, _timeout(), open_turn=intro_turn, now=at)
     assert out.accepted, out.rejection_message
     assert out.status == MATCH_STATUS_ACTIVE
     assert out.open_turn is not None
@@ -782,76 +775,35 @@ def test_the_intro_phase_gates_everything_else(opening):
     assert out.snapshot["current_roll"] == opening["current_roll"]
 
 
-def test_a_skip_intro_with_no_briefing_open_is_refused(opening):
-    """It cannot be used to reopen a phase that has already moved on.
-
-    Without this guard `tmw_skip_intro` posted after the briefing already
-    ended would re-open `PHASE_REVEAL`, resetting the table's ceremony clock
-    on demand.
-    """
-    refused = _reduce(
-        opening, _command(COMMAND_SKIP_INTRO, {}, seat_index=0), open_turn=_reveal_turn()
-    )
-    assert not refused.accepted
-    assert refused.rejection_code == REJECT_NOT_YOUR_TURN
-
-    also_refused = _reduce(
-        opening, _command(COMMAND_SKIP_INTRO, {}, seat_index=0), open_turn=None
-    )
-    assert not also_refused.accepted
-
-
-def test_the_intros_own_backstop_abandons_the_match_instead_of_opening_the_ceremony(
-    opening,
-):
-    """THE INVARIANT THAT MAKES THE BRIEFING SAFE TO GATE EVERYTHING ELSE ON.
-
-    Every other phase's timeout in this mode ADVANCES the match, because
-    reaching it means a player who was genuinely still deciding already acted
-    long before. The briefing has no such floor -- `GameIntro` has no
-    auto-dismiss -- so its own (very long) backstop must never do the thing
-    every other timeout does. If it opened the ceremony instead of abandoning
-    the match, this IS the exact defect `PHASE_INTRO` exists to close, just
-    reintroduced at its own boundary: a pick clock starting behind a briefing
-    nobody ever dismissed.
-    """
-    ended = NOW + timedelta(seconds=INTRO_SECONDS)
+def test_the_intros_own_deadline_commits_nothing_and_is_replay_safe(opening):
+    """The same properties the ceremony's own timeout already has."""
     before = copy.deepcopy(opening)
-    out = _reduce(opening, _timeout(), open_turn=_intro_turn(), now=ended)
-
-    assert out.accepted
-    assert out.status == MATCH_STATUS_ABANDONED
-    assert out.open_turn is None, "an abandoned match leaves no turn to time out again"
-    assert out.resolve_turn == TURN_RESOLUTION_TIMEOUT
-    assert out.events == ()
-    # Nothing was ever played: the snapshot is untouched, not merely unscored.
-    assert out.snapshot == before
-    assert out.snapshot["picks"] == []
+    at = NOW + timedelta(seconds=INTRO_SECONDS)
+    first = _reduce(opening, _timeout(key="sweep"), open_turn=_intro_turn(), now=at)
+    second = _reduce(opening, _timeout(key="sweep"), open_turn=_intro_turn(), now=at)
+    assert first.accepted and second.accepted
+    assert first.snapshot == before == second.snapshot
+    assert first.open_turn == second.open_turn
+    assert first.events == second.events == ()
+    assert first.results == ()
+    assert opening == before
 
 
 def test_a_fresh_match_never_reaches_an_active_state_with_no_open_turn_and_no_command():
     """END TO END: every ACTIVE state a brand-new match can reach either names
     an open turn or is terminal -- never both "active" and "nothing to do".
 
-    Walks the exact sequence a client drives: intro -> skip -> reveal -> its
-    own timeout -> pick. At every step where `status` is `MATCH_STATUS_ACTIVE`,
-    `open_turn` must be present, because an active match with no open turn and
-    no scheduled server transition is precisely the deadlock a newly-created
-    match must never be able to reach.
+    Walks the exact sequence the server drives on its own: intro -> its own
+    timeout -> reveal -> its own timeout -> pick. At every step where `status`
+    is `MATCH_STATUS_ACTIVE`, `open_turn` must be present, because an active
+    match with no open turn and no scheduled server transition is precisely
+    the deadlock a newly-created match must never be able to reach.
     """
     snapshot = mode.initial_snapshot(4242, _seats())
     assert mode.initial_phase() == PHASE_INTRO
 
-    steps = [
-        (_command(COMMAND_SKIP_INTRO, {}, seat_index=0), _intro_turn(), NOW),
-        (
-            _timeout(key="reveal-timeout"),
-            None,  # set below, once the intro step's own turn is known
-            NOW + timedelta(seconds=OPENING_REVEAL_SECONDS + 1),
-        ),
-    ]
-
-    out = _reduce(snapshot, steps[0][0], open_turn=steps[0][1], now=steps[0][2])
+    intro_ends = NOW + timedelta(seconds=INTRO_SECONDS)
+    out = _reduce(snapshot, _timeout(key="intro-timeout"), open_turn=_intro_turn(), now=intro_ends)
     assert out.accepted
     assert out.status == MATCH_STATUS_ACTIVE
     assert out.open_turn is not None, "active with no open turn -- the deadlock"
@@ -860,12 +812,18 @@ def test_a_fresh_match_never_reaches_an_active_state_with_no_open_turn_and_no_co
     reveal_turn = _turn(
         out.open_turn.phase, out.open_turn.seat_index, deadline=out.open_turn.deadline_at, seq=1
     )
-    out2 = _reduce(out.snapshot, steps[1][0], open_turn=reveal_turn, now=steps[1][2])
+    out2 = _reduce(
+        out.snapshot,
+        _timeout(key="reveal-timeout"),
+        open_turn=reveal_turn,
+        now=out.open_turn.deadline_at,
+    )
     assert out2.accepted
     assert out2.status == MATCH_STATUS_ACTIVE
     assert out2.open_turn is not None, "active with no open turn -- the deadlock"
     assert out2.open_turn.phase == PHASE_PICK
     assert out2.open_turn.seat_index is not None
+    assert out2.open_turn.deadline_at == out.open_turn.deadline_at + timedelta(seconds=TURN_SECONDS)
 
     # And the seat now on the clock has a legal command available -- the
     # actionable pick surface a real client would render.
@@ -873,50 +831,18 @@ def test_a_fresh_match_never_reaches_an_active_state_with_no_open_turn_and_no_co
     assert COMMAND_PICK in legal
 
 
-def test_skipping_the_reveal_opens_the_pick_turn_with_a_full_clock(opening):
-    """D1/D2. An intro nobody can skip is a tax on every returning player.
-
-    THE PROPERTY THAT MAKES IT SAFE: it is the same path the ceremony's own
-    expiry takes, so the pick deadline is measured from the instant the skip
-    landed. Skipping buys the drafter NO extra decision time -- it only stops
-    spending real time on an animation.
+def test_neither_shared_phase_can_be_skipped_from_any_state(opening):
+    """A seat cannot shorten the ceremony for the table, and cannot re-open a
+    phase that already moved on either: both former skip commands are refused
+    against every kind of open turn, and against no turn at all.
     """
-    at = NOW + timedelta(seconds=1.0)
-    out = _reduce(
-        opening,
-        _command(COMMAND_SKIP_REVEAL, {}, seat_index=0),
-        open_turn=_reveal_turn(),
-        now=at,
-    )
-    assert out.accepted, out.rejection_message
-    assert out.open_turn is not None
-    assert out.open_turn.phase == PHASE_PICK
-    assert out.open_turn.seat_index == opening["current_seat"]
-    assert out.open_turn.deadline_at == at + timedelta(seconds=TURN_SECONDS)
-    # A clock transition, not a game event: nothing is drafted by skipping.
-    assert out.events == ()
-    assert out.snapshot["picks"] == opening["picks"]
-
-
-def test_a_skip_with_no_ceremony_open_is_refused(opening):
-    """It cannot be used to shorten a DECISION window.
-
-    Without this guard `tmw_skip_reveal` posted during a pick turn would
-    re-open that turn -- resetting somebody's clock on demand.
-    """
-    refused = _reduce(
-        opening,
-        _command(COMMAND_SKIP_REVEAL, {}, seat_index=0),
-        open_turn=_turn(PHASE_PICK, 0, deadline=NOW + timedelta(seconds=TURN_SECONDS)),
-        now=NOW,
-    )
-    assert not refused.accepted
-    assert refused.open_turn is None
-
-    also_refused = _reduce(
-        opening, _command(COMMAND_SKIP_REVEAL, {}, seat_index=0), open_turn=None, now=NOW
-    )
-    assert not also_refused.accepted
+    pick_turn = _turn(PHASE_PICK, 0, deadline=NOW + timedelta(seconds=TURN_SECONDS))
+    for open_turn in (_intro_turn(), _reveal_turn(), pick_turn, None):
+        for command in (COMMAND_SKIP_INTRO, COMMAND_SKIP_REVEAL):
+            refused = _reduce(opening, _command(command, {}, seat_index=0), open_turn=open_turn)
+            assert not refused.accepted, (command, open_turn)
+            assert refused.rejection_code == REJECT_SHARED_TIMELINE, (command, open_turn)
+            assert refused.open_turn is None, (command, open_turn)
 
 
 def test_no_seat_may_pick_while_the_ceremony_is_running(opening):

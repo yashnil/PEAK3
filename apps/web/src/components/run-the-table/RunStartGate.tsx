@@ -2,12 +2,7 @@
 import { DailyDescriptor, RulesetMeta, RunReadiness, RunType } from "@/types/run-the-table";
 import type { ChallengeDescriptor } from "@/lib/run-the-table-api";
 import { TourLauncher } from "@/components/ui/GuidedTour";
-import {
-  NODE_TYPE_COPY,
-  RTT_COPY,
-  creditSinkPlainEffect,
-  lanesToWinSentence,
-} from "@/lib/run-the-table-copy";
+import { RTT_COPY, creditSinkPlainEffect, lanesToWinSentence } from "@/lib/run-the-table-copy";
 import PeakV2Shell from "@/components/v2/PeakV2Shell";
 import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
 import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
@@ -79,8 +74,6 @@ interface Props {
   challengeError?: string | null;
 }
 
-const NODE_ORDER = ["draft_room", "trade_desk", "film_room", "rest_bank"] as const;
-
 export default function RunStartGate({
   readiness,
   daily,
@@ -124,25 +117,21 @@ export default function RunStartGate({
           </h1>
           <p className="v2-page-lede">{RTT_COPY.promise}</p>
 
-          <div className="v2-rtt-gate-nodes">
-            {NODE_ORDER.map((type) => {
-              const copy = NODE_TYPE_COPY[type];
-              return (
-                <div key={type} className="v2-rtt-gate-node" style={{ borderTopColor: copy.accentVar }}>
-                  <span className="v2-rtt-gate-node-label" style={{ color: copy.accentTextVar }}>
-                    {copy.label}
-                  </span>
-                  <span className="v2-rtt-gate-node-purpose">{copy.purpose}</span>
-                </div>
-              );
-            })}
-          </div>
+          {/* THE WHOLE FIRST-SESSION BRIEF. Four lines, then start. Everything
+              else the run teaches when it first matters (`PeakV2RTTCoach`),
+              and the complete walkthrough stays one press away below. */}
+          <ol className="v2-rtt-gate-brief" data-testid="rtt-gate-brief">
+            <li>Build your roster.</li>
+            <li>Survive the run.</li>
+            <li>Spend credits carefully.</li>
+            <li>{lives ? `${lives} lives.` : "Lives are limited."}</li>
+          </ol>
 
           <div className="v2-rtt-gate-stats">
             {acts ? (
               <div className="v2-rtt-gate-stat" data-testid="rtt-gate-acts">
                 <span className="v2-rtt-gate-stat-value">{acts} acts</span>
-                <span className="v2-rtt-gate-stat-label">one of two nodes per stage</span>
+                <span className="v2-rtt-gate-stat-label">a boss at the end of each</span>
               </div>
             ) : null}
             {battles ? (
@@ -288,7 +277,7 @@ export default function RunStartGate({
           )}
 
           <div className="flex flex-wrap items-center gap-3 mt-1">
-            <TourLauncher label="Take the tour" autoStart={false} data-testid="rtt-start-tour" />
+            <TourLauncher label="How to play" autoStart={false} data-testid="rtt-start-tour" />
           </div>
         </div>
       </PeakV2Shell>

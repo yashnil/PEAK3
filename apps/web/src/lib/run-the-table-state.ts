@@ -12,6 +12,7 @@
  * server already awarded and formatting numbers the server already sent.
  */
 import { analytics, type AnalyticsEvent } from "@/lib/analytics";
+import { isNewer } from "@/lib/game-feel/authoritative";
 import { ordinal, ordinalFixed } from "@/lib/ordinal";
 import {
   ActiveNode,
@@ -1056,10 +1057,76 @@ export function runningSeries(lanes: BattleLanePublic[], count: number): SeriesC
 
 export const DECIDED_BY_LABELS: Record<string, string> = {
   lanes: "Decided on lanes won",
-  summed_margin: "Tied on lanes — decided on summed lane margin",
-  roster_total: "Tied on lanes and margin — decided on overall roster total",
+  // NOT "tied on lanes": under The Long Series a 3–2 lane count still falls
+  // short of the 4 needed and drops to this tiebreak. `battleResolution`
+  // states the count and the target together so the two never contradict.
+  summed_margin: "Decided on total lane margin",
+  roster_total: "Decided on overall roster total",
   exact_draw: "Dead even on every tiebreak",
 };
+
+/**
+ * THE OUTCOME, STATED SO IT CANNOT BE MISREAD.
+ *
+ * A boss battle is won outright only by reaching `lanes_to_win` lanes — three
+ * normally, four under The Long Series — and drawn lanes (The Standard's
+ * margin threshold) count for nobody. So a headline "3–2" can be a LOSS
+ * (4 needed, then the total lane margin went the other way) and "2–2" can be
+ * a WIN. The presentation must therefore always carry three facts together:
+ * the lane count, the count that was needed, and the rule that actually
+ * decided it, with its number. Pure reading of `BattlePublic`; nothing here
+ * decides anything.
+ */
+export interface BattleResolution {
+  stamp: "VICTORY" | "DEFEAT" | "DRAW";
+  /** "3–2 on lanes" */
+  count: string;
+  /** "first to 3" / "4 needed — 3–2 is not enough" */
+  target: string;
+  /** "Decided on lanes won" / "Decided on total lane margin −4.2" */
+  decider: string;
+  /** Signed total lane margin, when that is what decided it. */
+  marginValue: number | null;
+  /** True when the lane count alone would mislead (nobody reached the target). */
+  fellShort: boolean;
+  /** One sentence for screen readers and receipts. */
+  sentence: string;
+}
+
+export function battleResolution(battle: BattlePublic, lanesToWin?: number | null): BattleResolution {
+  const needed = lanesToWin ?? battle.lanes_to_win ?? 3;
+  const stamp: BattleResolution["stamp"] = battle.outcome === "win" ? "VICTORY" : battle.outcome === "loss" ? "DEFEAT" : "DRAW";
+  const count = `${battle.player_lanes_won}–${battle.opponent_lanes_won} on lanes`;
+  const reached = battle.player_lanes_won >= needed || battle.opponent_lanes_won >= needed;
+  const fellShort = !reached;
+  const drawnLanes = battle.ties;
+  let target: string;
+  if (reached) {
+    target = `first to ${needed}`;
+  } else if (battle.player_lanes_won === battle.opponent_lanes_won) {
+    target = `${needed} needed — level${drawnLanes > 0 ? ` with ${drawnLanes} ${drawnLanes === 1 ? "lane" : "lanes"} drawn` : ""}`;
+  } else {
+    target = `${needed} needed — ${battle.player_lanes_won}–${battle.opponent_lanes_won} is not enough`;
+  }
+  let decider: string;
+  let marginValue: number | null = null;
+  switch (battle.decided_by) {
+    case "lanes":
+      decider = DECIDED_BY_LABELS.lanes;
+      break;
+    case "summed_margin":
+      marginValue = battle.summed_margin;
+      decider = `${DECIDED_BY_LABELS.summed_margin} ${formatSigned(battle.summed_margin, 1)}`;
+      break;
+    case "roster_total":
+      decider = `${DECIDED_BY_LABELS.roster_total} ${battle.player_roster_total.toFixed(1)} to ${battle.opponent_roster_total.toFixed(1)}`;
+      break;
+    default:
+      decider = DECIDED_BY_LABELS.exact_draw;
+  }
+  const sentence = `${stamp}. ${count}, ${target}. ${decider}.`;
+  return { stamp, count, target, decider, marginValue, fellShort, sentence };
+}
 
 /** The verdict stamp. Present in the DOM at t=0 so nothing a screen reader or
  *  an impatient player needs is gated behind an animation. */
@@ -1477,4 +1544,315 @@ export function trackRunTheTable(event: RunTheTableAnalyticsEvent): void {
   // file this feature must not edit. The cast widens exactly once, here; every
   // call site stays fully typed against RunTheTableAnalyticsEvent.
   analytics.track(event as unknown as AnalyticsEvent);
+}
+
+// ---------------------------------------------------------------------------
+// Game-feel pass 3 — newer-wins guard, run track model, transition moments
+// ---------------------------------------------------------------------------
+
+
+/**
+ * May `next` replace `current` on screen?
+ *
+ * `action_count` is the run's version: every recorded action increments it,
+ * so a stale GET landing after a newer POST cannot roll the board back. A
+ * different `run_id` is always newer (a restart or Run It Back returns the
+ * successor). Same count with a different status is allowed defensively, the
+ * same allowance `isNewer` makes for a phase change.
+ */
+export function isNewerRun(
+  current: Pick<RunPublicState, "run_id" | "action_count" | "status"> | null,
+  next: Pick<RunPublicState, "run_id" | "action_count" | "status">,
+): boolean {
+  if (!current) return true;
+  if (next.run_id !== current.run_id) return true;
+  return isNewer(
+    { version: current.action_count, phase: current.status },
+    { version: next.action_count, phase: next.status },
+  );
+}
+
+export const ACT_NUMERALS = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"] as const;
+
+/** "I", "II", … — the chapter numeral the run track and act cards use. */
+export function actNumeral(act: number): string {
+  return ACT_NUMERALS[act - 1] ?? String(act);
+}
+
+export type RunTrackNodeState = "done" | "current" | "locked" | "won" | "lost" | "drawn";
+
+export interface RunTrackNode {
+  key: string;
+  kind: "stage" | "boss";
+  act: number;
+  stage: number | null;
+  state: RunTrackNodeState;
+  /** "Draft Room" for a resolved stage, "Draft or Scout" for a future one,
+   *  the boss name for a boss. */
+  label: string;
+  /** A boss lost cost a life; the track keeps that scar visible. */
+  lifeLost: boolean;
+}
+
+export interface RunTrackAct {
+  act: number;
+  numeral: string;
+  nodes: RunTrackNode[];
+  boss: RunTrackNode;
+  /** done | current | locked, derived from its nodes. */
+  state: "done" | "current" | "locked";
+}
+
+/**
+ * The run as chapters: one entry per act, its stages and its boss. The same
+ * `state.map` `ladderRows` reads — no act count is assumed, no future node's
+ * content is invented past the option TYPES the server already publishes.
+ */
+export function runTrackActs(map: MapAct[], currentAct?: number): RunTrackAct[] {
+  return map.map((act) => {
+    const nodes: RunTrackNode[] = act.stages.map((stage) => {
+      const chosen = stage.chosen_node_type ? NODE_TYPE_LABELS[stage.chosen_node_type] : null;
+      const shape = stage.option_types.map((t) => NODE_TYPE_LABELS[t].replace(" & Prepare", "")).join(" or ");
+      return {
+        key: `a${act.act}s${stage.stage}`,
+        kind: "stage",
+        act: act.act,
+        stage: stage.stage,
+        state: stage.state,
+        label: chosen ?? shape,
+        lifeLost: false,
+      };
+    });
+    const boss: RunTrackNode = {
+      key: `a${act.act}boss`,
+      kind: "boss",
+      act: act.act,
+      stage: null,
+      state: act.boss.state,
+      label: act.boss.name,
+      lifeLost: act.boss.state === "lost",
+    };
+    const all = [...nodes, boss];
+    // Between a boss and the next act's first stop (the second perk choice)
+    // the server marks no stage current, but the player IS in that act: the
+    // chapter reads current and its first stop is the step.
+    if (currentAct === act.act && !all.some((n) => n.state === "current")) {
+      const next = nodes.find((n) => n.state === "locked");
+      if (next) next.state = "current";
+    }
+    const state: RunTrackAct["state"] = all.some((n) => n.state === "current")
+      ? "current"
+      : all.every((n) => n.state === "locked")
+        ? "locked"
+        : "done";
+    return { act: act.act, numeral: actNumeral(act.act), nodes, boss, state };
+  });
+}
+
+export interface RunIdentity {
+  kind: RunType;
+  /** "Daily run", "Practice run", "Challenge run". */
+  title: string;
+  /** "2026-09-06 · seed 4471" / "seed 11". */
+  detail: string;
+  /** One sentence on comparability. */
+  note: string;
+}
+
+/** Who else is playing this exact board. Surfaced on every screen so a daily
+ *  never reads like a random practice run. */
+export function runIdentity(state: Pick<RunPublicState, "run_type" | "seed" | "date">): RunIdentity {
+  if (state.run_type === "daily") {
+    return {
+      kind: "daily",
+      title: "Daily run",
+      detail: `${state.date ?? "today"} · seed ${state.seed}`,
+      note: "Everyone plays this same board today.",
+    };
+  }
+  if (state.run_type === "challenge") {
+    return {
+      kind: "challenge",
+      title: "Challenge run",
+      detail: `seed ${state.seed}`,
+      note: "The same board the sender played.",
+    };
+  }
+  return {
+    kind: "standard",
+    title: "Practice run",
+    detail: `seed ${state.seed}`,
+    note: "A generated board — yours alone.",
+  };
+}
+
+export interface RunMoment {
+  id: string;
+  kind: "signed" | "traded" | "life_lost" | "life_recovered" | "credits" | "boss_won" | "boss_drawn" | "act_cleared" | "scouted";
+  title: string;
+  detail?: string;
+  tone: "neutral" | "accent" | "positive" | "negative";
+}
+
+function occupantMap(state: Pick<RunPublicState, "starters" | "bench">): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (const s of [...state.starters, ...state.bench]) out[s.slot_id] = s.card?.card_id ?? null;
+  return out;
+}
+
+function slotById(state: Pick<RunPublicState, "starters" | "bench">, slotId: string): RosterSlotPublic | null {
+  return [...state.starters, ...state.bench].find((s) => s.slot_id === slotId) ?? null;
+}
+
+/**
+ * What just happened between two consecutive snapshots of the same run, as
+ * the one event the room announces. Derived from real state in the same
+ * render the new snapshot lands — never from a timer, never before the
+ * roster it describes is on screen.
+ *
+ * Priority: a battle outcome (life lost / boss won) outranks a roster change,
+ * which outranks a credits-only change. Returns null when nothing announceable
+ * changed (a node opened, a reveal advanced).
+ */
+export function describeRunTransition(prev: RunPublicState | null, next: RunPublicState): RunMoment | null {
+  if (!prev || prev.run_id !== next.run_id) return null;
+  const id = `${next.run_id}:${next.action_count}`;
+
+  if (next.battles.length > prev.battles.length) {
+    const battle = next.battles[next.battles.length - 1];
+    const bossName = next.next_boss && next.next_boss.act === battle.act ? next.next_boss.name : `the Act ${battle.act} boss`;
+    if (battle.outcome === "loss") {
+      return {
+        id,
+        kind: "life_lost",
+        title: "Life lost",
+        detail: `Defeat to ${bossName} · ${next.lives} ${next.lives === 1 ? "life" : "lives"} left`,
+        tone: "negative",
+      };
+    }
+    if (battle.outcome === "win") {
+      return {
+        id,
+        kind: "boss_won",
+        title: `${bossName} beaten`,
+        detail: battle.credits_awarded > 0 ? `+${battle.credits_awarded} credits` : undefined,
+        tone: "positive",
+      };
+    }
+    return { id, kind: "boss_drawn", title: `Draw with ${bossName}`, detail: "No life lost", tone: "neutral" };
+  }
+
+  if (next.act > prev.act) {
+    return {
+      id,
+      kind: "act_cleared",
+      title: `Act ${actNumeral(prev.act)} cleared`,
+      detail: `Act ${actNumeral(next.act)} begins`,
+      tone: "accent",
+    };
+  }
+
+  // The opening reveal fills the roster too — that is the deal, not a
+  // signing, and the reveal surface already presents it card by card.
+  if (prev.reveal && !prev.reveal.roster.complete) return null;
+  const before = occupantMap(prev);
+  const after = occupantMap(next);
+  const changed = Object.keys(after).filter((k) => after[k] !== before[k] && after[k] !== null);
+  if (changed.length > 0) {
+    const slotId = changed[0];
+    const slot = slotById(next, slotId);
+    const card = slot?.card ?? null;
+    const spent = prev.credits - next.credits;
+    const traded = prev.active_node?.node_type === "trade_desk" && before[slotId] !== null;
+    return {
+      id,
+      kind: traded ? "traded" : "signed",
+      title: card?.player_name ?? "Signed",
+      detail: `${slot ? slotLabel(slot) : slotId}${spent > 0 ? ` · ${spent} credits` : spent < 0 ? ` · +${-spent} credits back` : " · free"}`,
+      tone: "accent",
+    };
+  }
+
+  if (next.lives > prev.lives) {
+    return { id, kind: "life_recovered", title: "Life recovered", detail: `${next.lives} of ${next.max_lives}`, tone: "positive" };
+  }
+  if (next.credits > prev.credits) {
+    return { id, kind: "credits", title: `+${next.credits - prev.credits} credits`, detail: "Banked", tone: "positive" };
+  }
+  if ((next.armed?.scouted_boss_acts.length ?? 0) > (prev.armed?.scouted_boss_acts.length ?? 0)) {
+    const prep = next.armed?.prep;
+    return {
+      id,
+      kind: "scouted",
+      title: "Boss scouted",
+      detail: prep ? `${prep.label} prepared +${prep.bonus}` : undefined,
+      tone: "accent",
+    };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Personal best (local only — RTT has no global leaderboard)
+// ---------------------------------------------------------------------------
+
+export const RUN_THE_TABLE_BEST_KEY = "peak3.run-the-table.best";
+
+export interface PersonalBest {
+  bosses_defeated: number;
+  roster_total: number;
+  table_cleared: boolean;
+  record: string;
+  seed: number;
+  at: string;
+}
+
+export function loadPersonalBest(): PersonalBest | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(RUN_THE_TABLE_BEST_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PersonalBest>;
+    if (typeof parsed.bosses_defeated !== "number" || typeof parsed.roster_total !== "number") return null;
+    return {
+      bosses_defeated: parsed.bosses_defeated,
+      roster_total: parsed.roster_total,
+      table_cleared: parsed.table_cleared === true,
+      record: typeof parsed.record === "string" ? parsed.record : "",
+      seed: typeof parsed.seed === "number" ? parsed.seed : 0,
+      at: typeof parsed.at === "string" ? parsed.at : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Ranks a receipt against the stored best: bosses beaten first, roster total
+ *  second. Returns whether THIS run is the new best, and what it beat. */
+export function recordPersonalBest(
+  receipt: Pick<RunReceipt, "bosses_defeated" | "roster_total" | "table_cleared" | "ran_the_table" | "record" | "seed">,
+  now: Date = new Date(),
+): { isNew: boolean; previous: PersonalBest | null } {
+  const previous = loadPersonalBest();
+  const cleared = receipt.table_cleared ?? receipt.ran_the_table;
+  const better =
+    !previous ||
+    receipt.bosses_defeated > previous.bosses_defeated ||
+    (receipt.bosses_defeated === previous.bosses_defeated && receipt.roster_total > previous.roster_total);
+  if (better && typeof window !== "undefined") {
+    const next: PersonalBest = {
+      bosses_defeated: receipt.bosses_defeated,
+      roster_total: receipt.roster_total,
+      table_cleared: cleared,
+      record: receipt.record,
+      seed: receipt.seed,
+      at: now.toISOString(),
+    };
+    try {
+      window.localStorage.setItem(RUN_THE_TABLE_BEST_KEY, JSON.stringify(next));
+    } catch {
+      // storage blocked — the run still ends; it just is not remembered.
+    }
+  }
+  return { isNew: better, previous };
 }

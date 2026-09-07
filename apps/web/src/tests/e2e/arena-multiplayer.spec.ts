@@ -60,24 +60,23 @@ async function expectNotAGeneric404(page: Page): Promise<void> {
 }
 
 /**
- * Dismiss Three-Man Weave's shared `GameIntro` briefing, if it's up.
+ * THE BRIEFING CANNOT BE DISMISSED -- and this proves it.
  *
- * gameplay-experience-polish: the briefing now shows once per match
- * regardless of entry point (this file's own quick-practice button included
- * — see `ThreeManWeaveGame.tsx`'s docstring on why it moved there from the
- * lobby). It is a real focus-trapped dialog, so every test that navigates
- * straight into a match must dismiss it before the room underneath is
- * interactable at all — `count() > 0` rather than a bare `.click()` because
- * a slow-loading run could already have it dismissed (a fresh browser
- * context never has, but this keeps the helper honest either way) and
- * because "not present" must not read as a failure here.
+ * Game-feel reconstruction: Three-Man Weave's pre-match briefing is a short,
+ * SERVER-TIMED phase (`turn_phase: "intro"`, ~4s) that every seat renders
+ * against the same server clock and that ends on its own deadline. It used
+ * to be a client dialog with an "Enter the draft room" button that ended the
+ * phase for the whole table on one player's click. The old helper clicked
+ * that button; this one asserts there is nothing to click, and that the
+ * room is the thing on screen. Every test that used to "dismiss the intro"
+ * still calls this, so the absence of a skip is checked on every path into
+ * a match.
  */
 async function dismissTmwIntro(page: Page): Promise<void> {
-  const start = page.getByTestId("game-intro-start");
-  if ((await start.count()) > 0) {
-    await start.click();
-    await expect(page.getByTestId("tmw-game-intro")).toHaveCount(0);
-  }
+  await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
+  expect(await page.getByTestId("game-intro-start").count()).toBe(0);
+  expect(await page.getByTestId("game-intro-skip").count()).toBe(0);
+  expect(await page.getByRole("button", { name: /skip (intro|reveal)|enter the draft room|draft now/i }).count()).toBe(0);
 }
 
 async function axeClean(page: Page, context: string): Promise<void> {
@@ -947,6 +946,148 @@ test.describe("Three-Man Weave", () => {
     }
   });
 
+  /**
+   * ONE SERVER TIMELINE FOR THREE HUMANS (game-feel reconstruction, Part B).
+   *
+   * Three real browser contexts seat three real accounts in one private
+   * room. When the last seat fills the server opens the briefing; every
+   * client must render the SAME phase and the SAME server turn, none of them
+   * may end it, and all three must reach the first pick on the server's own
+   * transition -- not on anybody's click.
+   */
+  test("three players enter the match on the same server timeline, and none can skip it", async ({
+    browser,
+  }) => {
+    test.setTimeout(120_000);
+    const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()]);
+    const pages = await Promise.all(contexts.map((c) => c.newPage()));
+    try {
+      const subs = ["tmw-sync-a", "tmw-sync-b", "tmw-sync-c"].map(uniqueSub);
+      await Promise.all(pages.map((page, i) => signInAs(contexts[i], page, subs[i])));
+
+      // Host creates the room and reads the code off the lobby.
+      const [host, guestB, guestC] = pages;
+      await host.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
+      // "Play With Friends" is a disclosure: it opens the create/join row.
+      await host.getByTestId("lobby-three_man_weave-private_room").click();
+      await host.getByTestId("lobby-three_man_weave-create-room").click();
+      const code = (await host.getByTestId("lobby-room-code").innerText({ timeout: 20_000 })).trim().replace(/\s+/g, "");
+      expect(code).toMatch(/^[A-Z0-9]{6}$/);
+
+      for (const guest of [guestB, guestC]) {
+        await guest.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
+        await guest.getByTestId("lobby-three_man_weave-private_room").click();
+        await guest.getByTestId("lobby-three_man_weave-join-code").fill(code);
+        await guest.getByTestId("lobby-three_man_weave-join-submit").click();
+        await guest.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+      }
+      await host.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+
+      // Everyone is in the room. The server's phase is the same on all three,
+      // keyed to the same server turn, and nobody has a skip.
+      for (const page of pages) await dismissTmwIntro(page);
+      const phases = await Promise.all(pages.map((p) => p.getByTestId("tmw-room").getAttribute("data-turn-phase")));
+      const seqs = await Promise.all(pages.map((p) => p.getByTestId("tmw-room").getAttribute("data-turn-seq")));
+      expect(new Set(phases).size, `phases diverged: ${phases.join(",")}`).toBe(1);
+      expect(new Set(seqs).size, `turn seqs diverged: ${seqs.join(",")}`).toBe(1);
+      expect(["intro", "reveal", "pick"]).toContain(phases[0]);
+
+      // Delay one player: guest C's tab does nothing at all. The other two
+      // still reach the first pick, and C lands on the same pick turn when it
+      // next reads -- nobody waited on anybody's click.
+      await Promise.all(
+        [host, guestB].map((p) =>
+          expect(p.getByTestId("tmw-room")).toHaveAttribute("data-turn-phase", "pick", { timeout: 40_000 }),
+        ),
+      );
+      await expect(guestC.getByTestId("tmw-room")).toHaveAttribute("data-turn-phase", "pick", { timeout: 10_000 });
+      const pickSeqs = await Promise.all(pages.map((p) => p.getByTestId("tmw-room").getAttribute("data-turn-seq")));
+      expect(new Set(pickSeqs).size, `pick turn seqs diverged: ${pickSeqs.join(",")}`).toBe(1);
+
+      // Exactly one seat is on the clock, and every client shows the SAME
+      // seat's clock running on that seat's court.
+      const onClock = await Promise.all(pages.map((p) => p.getByTestId("tmw-on-the-clock").first().innerText()));
+      expect(onClock.filter((t) => /Your pick/i.test(t)).length).toBe(1);
+      for (const page of pages) {
+        await expect(page.locator('[data-testid^="tmw-seat-clock-"]').first()).toHaveAttribute("data-state", /running|warning/);
+      }
+
+      // Reconnect one player mid-round: a reload lands on the same server
+      // phase and turn, not at the intro.
+      await guestB.reload({ waitUntil: "domcontentloaded" });
+      await expect(guestB.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
+      await expect(guestB.getByTestId("tmw-room")).toHaveAttribute("data-turn-phase", "pick");
+      expect(await guestB.getByTestId("tmw-room").getAttribute("data-turn-seq")).toBe(pickSeqs[0]);
+    } finally {
+      await Promise.all(contexts.map((c) => c.close()));
+    }
+  });
+
+  /**
+   * REPLAY IS ANOTHER GAME (game-feel reconstruction, Part G). Plays a whole
+   * bot match through the real UI -- six rounds, every human turn drafted
+   * with a single click on "Draft X at Y" -- then presses Play Again and
+   * asserts the next thing on screen is a FRESH match at its own intro,
+   * never the mode's landing page. Slow by construction (bot think time and
+   * the server-timed ceremony are real), so it carries its own budget.
+   */
+  test("@slow a finished bot match replays straight into a fresh match, with one click per draft", async ({
+    browser,
+  }) => {
+    test.setTimeout(480_000);
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
+      await signInAs(context, page, uniqueSub("tmw-replay"));
+      await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
+      await page.getByTestId("lobby-three_man_weave-practice").click();
+      await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+      const firstMatchUrl = page.url();
+      await dismissTmwIntro(page);
+
+      const room = page.getByTestId("tmw-room");
+      const overlay = page.getByTestId("tmw-pick-overlay");
+      const result = page.getByTestId("tmw-podium");
+      let drafts = 0;
+      // Six rounds x one human pick, each on the first legal candidate.
+      while (drafts < 6) {
+        const outcome = await Promise.race([
+          overlay.waitFor({ state: "visible", timeout: 120_000 }).then(() => "overlay" as const),
+          result.waitFor({ state: "visible", timeout: 120_000 }).then(() => "result" as const),
+        ]);
+        if (outcome === "result") break;
+        const list = page.getByTestId("tmw-candidate-list");
+        await list.locator("button:not([disabled])").first().click();
+        const confirm = page.getByTestId("tmw-confirm-pick");
+        if (await confirm.isDisabled()) {
+          await page.locator('[data-testid^="tmw-place-"][data-legal="true"]').first().click();
+        }
+        // ONE CLICK. The overlay must close on the command's own response.
+        const before = await room.getAttribute("data-turn-seq");
+        await confirm.click();
+        await expect(overlay).toHaveCount(0, { timeout: 10_000 });
+        expect(await room.getAttribute("data-turn-seq")).not.toBe(before);
+        drafts += 1;
+      }
+      await expect(result).toBeVisible({ timeout: 180_000 });
+
+      // PLAY AGAIN: one press, a NEW match id, and its own intro -- not the
+      // landing page's "Start a draft" gate.
+      await page.getByTestId("tmw-play-again").click();
+      await page.waitForURL((url) => /\/arena\/three-man-weave\/[0-9a-f-]{36}/.test(url.toString()) && url.toString() !== firstMatchUrl, {
+        timeout: 30_000,
+      });
+      expect(await page.getByTestId("tmw-start-gate").count()).toBe(0);
+      await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId("tmw-room")).toHaveAttribute("data-turn-phase", /intro|reveal/);
+      expect(await page.getByTestId("tmw-podium").count()).toBe(0);
+      // Clean state: no roster carries a pick from the finished match.
+      await expect(page.getByTestId("tmw-turnbar-round")).toContainText(/Round 1 of 6/);
+    } finally {
+      await context.close();
+    }
+  });
+
   test("the draft room has no serious accessibility violations", async ({ browser }) => {
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -981,20 +1122,16 @@ test.describe("The $20 Showdown", () => {
     await expect(page.getByTestId("td-game")).toBeVisible({ timeout: 20_000 });
   }
 
-  test("the intro is a real server phase: readable, skippable, and it costs no clock", async ({
+  test("the intro is a real server phase: readable, NOT skippable, and it costs no clock", async ({
     browser,
   }) => {
     /*
-     * C1. The competitive intro used to be a CLIENT beat while the server had
-     * already stamped the first lot's 25-second deadline, so it was spending
-     * the player's own decision time to explain the rules — and
-     * `affordableBeat` truncated or skipped it whenever that would push the
-     * remaining window below its floor, i.e. exactly when the player was
-     * newest to the mode.
-     *
-     * It is a real turn now (`mode.PHASE_INTRO`), belonging to no seat and
-     * accepting no bid, and the first auction turn opens with a FULL window
-     * measured from the moment it ends.
+     * C1 + final polish. The intro is a real turn (`mode.PHASE_INTRO`)
+     * belonging to no seat and accepting no bid, and — like Three-Man
+     * Weave's briefing — it is a SHARED timeline: no seat can end it early
+     * (`showdown_skip_intro` is refused with `shared_timeline`), and the first
+     * auction turn opens with a FULL window measured from the moment the
+     * intro's own deadline passes.
      */
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -1005,23 +1142,20 @@ test.describe("The $20 Showdown", () => {
       await expect(page.getByTestId("td-intro")).toBeVisible();
       await expect(room).toHaveAttribute("data-phase", "intro");
 
-      // NO DECISION CLOCK IS RUNNING. The controls are shut and the clock panel
-      // is in its held state rather than counting anything down.
-      await expect(page.getByTestId("td-bid-controls")).toHaveAttribute(
-        "data-live",
-        "false",
-      );
+      // NO DECISION CLOCK IS RUNNING and NO SKIP EXISTS.
+      await expect(page.getByTestId("td-bid-controls")).toHaveAttribute("data-live", "false");
       await expect(page.getByTestId("td-clock")).toHaveAttribute("data-mode", "held");
+      await expect(page.getByTestId("td-intro-start")).toHaveCount(0);
+      await expect(page.getByTestId("td-intro-countdown")).toContainText(/Lot 1 opens in \d+s/);
 
-      // IT IS LONG ENOUGH TO READ. Still up a full 2.5s in — the old beat could
-      // be cut to nothing.
+      // IT IS LONG ENOUGH TO READ, and Escape / a key press changes nothing.
       await page.waitForTimeout(2500);
+      await page.keyboard.press("Escape");
       await expect(page.getByTestId("td-intro")).toBeVisible();
+      await expect(room).toHaveAttribute("data-phase", "intro");
 
-      // AND SKIPPABLE, which really ends the server's turn rather than hiding
-      // an overlay over a board that still refuses every action.
-      await page.getByTestId("td-intro-start").click();
-      await expect(page.getByTestId("td-intro")).toHaveCount(0, { timeout: 10_000 });
+      // It ends on the server's own clock, for both seats.
+      await expect(page.getByTestId("td-intro")).toHaveCount(0, { timeout: 15_000 });
       await expect(room).not.toHaveAttribute("data-phase", "intro");
       await expect(page.getByTestId("td-candidate")).toBeVisible({ timeout: 15_000 });
 
@@ -1030,10 +1164,7 @@ test.describe("The $20 Showdown", () => {
       const controls = page.getByTestId("td-bid-controls");
       await expect(controls).toHaveAttribute("data-live", "true", { timeout: 40_000 });
       const seconds = Number(await page.getByTestId("td-timer-value").innerText());
-      expect(
-        seconds,
-        "the first lot's clock was already part-spent when it opened",
-      ).toBeGreaterThan(18);
+      expect(seconds, "the first lot's clock was already part-spent when it opened").toBeGreaterThan(18);
     } finally {
       await context.close();
     }
@@ -1068,7 +1199,8 @@ test.describe("The $20 Showdown", () => {
     const page = await context.newPage();
     try {
       await openAuction(context, page, "td-continuity");
-      await page.getByTestId("td-intro-start").click().catch(() => undefined);
+      // The intro is a shared timeline now: wait it out rather than skip it.
+      await page.getByTestId("td-intro").waitFor({ state: "detached", timeout: 20_000 }).catch(() => undefined);
       await expect(page.getByTestId("td-candidate")).toBeVisible({ timeout: 20_000 });
 
       await page.evaluate(() => {
@@ -1156,7 +1288,8 @@ test.describe("The $20 Showdown", () => {
     const page = await context.newPage();
     try {
       await openAuction(context, page, "td-forfeit");
-      await page.getByTestId("td-intro-start").click().catch(() => undefined);
+      // The intro is a shared timeline now: wait it out rather than skip it.
+      await page.getByTestId("td-intro").waitFor({ state: "detached", timeout: 20_000 }).catch(() => undefined);
       await expect(page.getByTestId("td-candidate")).toBeVisible({ timeout: 20_000 });
       const url = page.url();
 
@@ -1200,7 +1333,8 @@ test.describe("The $20 Showdown", () => {
     const page = await context.newPage();
     try {
       await openAuction(context, page, "td-opponent-clock");
-      await page.getByTestId("td-intro-start").click().catch(() => undefined);
+      // The intro is a shared timeline now: wait it out rather than skip it.
+      await page.getByTestId("td-intro").waitFor({ state: "detached", timeout: 20_000 }).catch(() => undefined);
       await expect(page.getByTestId("td-candidate")).toBeVisible({ timeout: 20_000 });
 
       // HAND THE TURN OVER. The opening bidder is drawn from the seed, so this
@@ -1221,13 +1355,20 @@ test.describe("The $20 Showdown", () => {
 
       await expect(clock).toHaveAttribute("data-direction", "down");
       await expect(page.getByTestId("td-timer")).toContainText("Time remaining");
-      // The value renders as "8s", so parse rather than coerce.
-      const read = async () =>
-        parseInt((await page.getByTestId("td-elapsed-value").innerText()).trim(), 10);
-      const first = await read();
-      await page.waitForTimeout(1200);
-      const second = await read();
-      expect(second, `the opponent clock went ${first} -> ${second}`).toBeLessThan(first);
+      // THE OPPONENT'S CLOCK DEPLETES. The shared `TurnClock` carries its
+      // fraction on `--gf-clock-fraction`; a bot now answers in well under
+      // two seconds (game-feel pass 2), so two whole-second readings 1.2s
+      // apart could straddle two different bot turns and both read "25".
+      // The bar's fraction drops below 1 within the first tick of any turn.
+      const turnClock = page.getByTestId("td-turn-clock");
+      await expect(turnClock).toHaveAttribute("data-owner", "bot");
+      await expect
+        .poll(
+          async () =>
+            Number(await turnClock.evaluate((el) => (el as HTMLElement).style.getPropertyValue("--gf-clock-fraction"))),
+          { timeout: 6_000, message: "the opponent clock never depleted" },
+        )
+        .toBeLessThan(1);
     } finally {
       await context.close();
     }

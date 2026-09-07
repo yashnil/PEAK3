@@ -93,9 +93,9 @@ export const REVEAL_BEAT_DURATION_MS: Record<RevealBeat, number> = {
   lights_lower: MOTION_DURATION_MS.slow, // 320ms, once per sequence
   role: 90,
   silhouette: 100,
-  identity: MOTION_DURATION_MS.reveal, // 400ms — --pk-dur-reveal, official
+  identity: 340, // was 400 (--pk-dur-reveal): the deal cannot be skipped now, so each card is a touch quicker
   window: 90,
-  score: MOTION_DURATION_MS.count, // 600ms — --pk-dur-count, official
+  score: 460, // was 600 (--pk-dur-count); the score still counts up on the face
   signature: 100,
   settle: 70,
   // "No dead air between cards" (§2 step 9) — the next card's `role` begins

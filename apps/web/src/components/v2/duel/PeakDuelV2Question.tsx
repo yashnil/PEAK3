@@ -16,6 +16,20 @@
  * uses) while the real `ArenaTimer` still runs, visually hidden, so the one
  * real expiry effect (`onExpire` → `handleTimeout` → the server-scored
  * no-pick) fires exactly once, from exactly one place, same as legacy.
+ *
+ * ENDLESS COMPOSITION (game-feel pass 3). Daily and Endless share this one
+ * component and the same card geometry contract (`duel-viewport.spec.ts`:
+ * the left card's top edge is the same y in the question and in the reveal,
+ * so nothing moves under the player). The two modes differ only through the
+ * root's `data-duel-mode` attribute, which `styles/v2/duel.css` keys on:
+ * Endless — untimed, no session dashes, no clock in the centre column —
+ * grows its two cards into framed scouting panels, extends the centre
+ * column into a full-height VERSUS axis (`.duel-versus-rule` hairlines +
+ * the VS mark), and lights the pair with the paired arena wash Daily
+ * already uses. Daily's markup, sizes and behaviour are byte-for-byte what
+ * they were: every Endless size is a CSS custom property whose fallback IS
+ * Daily's value (`--duel-name-size`, `--duel-vs-size`, `--duel-cta-*`,
+ * `--duel-side-idle-opacity`), never a second inline style.
  */
 
 import { useEffect, useState } from "react";
@@ -85,12 +99,15 @@ function DuelSidePanel({
       disabled={disabled}
       aria-pressed={selected}
       aria-label={`Select ${card.player_name}, ${card.duration_years}-year peak, ${card.start_season}${card.start_season !== card.end_season ? ` to ${card.end_season}` : ""}`}
-      className={`relative flex w-full flex-col items-start gap-4 p-2 text-left transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:cursor-not-allowed ${
+      className={`duel-side relative flex w-full flex-col items-start gap-4 p-2 text-left transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:cursor-not-allowed ${
         side === "right" ? "sm:items-end sm:text-right" : ""
       }`}
-      style={{ opacity: selected ? 1 : 0.92 }}
+      data-selected={selected ? "true" : "false"}
+      data-pending={selected && disabled ? "true" : "false"}
+      style={{ opacity: selected ? 1 : "var(--duel-side-idle-opacity, 0.92)" }}
     >
       <span
+        className="duel-side-key"
         style={{
           fontFamily: "var(--v2-font-mono)",
           fontSize: "0.6875rem",
@@ -107,26 +124,36 @@ function DuelSidePanel({
           in the mobile single-column stack — a deliberate mobile
           composition, not the desktop's right-flush text shrunk in place —
           and only flip to right-aligned at `sm:` and up. */}
-      <div className={`flex flex-col ${side === "right" ? "sm:items-end" : ""}`}>
+      <div className={`duel-side-identity flex flex-col ${side === "right" ? "sm:items-end" : ""}`}>
         <span
+          className="duel-side-name"
           style={{
             fontFamily: "var(--v2-font-ui)",
             fontWeight: 700,
-            fontSize: "1.25rem",
+            fontSize: "var(--duel-name-size, 1.25rem)",
             letterSpacing: "-0.006em",
             color: selected ? "var(--v2-color-accent)" : "var(--v2-text-primary)",
           }}
         >
           {card.player_name}
         </span>
-        <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-secondary)" }}>
+        <span className="duel-side-window" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "var(--duel-window-size, 0.75rem)", color: "var(--v2-text-secondary)" }}>
           {card.start_season === card.end_season ? card.start_season : `${card.start_season} to ${card.end_season}`} · {card.duration_years}-year
         </span>
       </div>
       {/* A visual echo of the real action, not a second interactive element
           — the whole panel above is already the real `<button>`, and a
           `<button>` nested inside a `<button>` is invalid HTML. */}
-      <span aria-hidden="true" style={{ ...v2ActionBaseStyle("sm"), border: "1px solid var(--v2-border)", color: "var(--v2-text-secondary)" }}>
+      <span
+        aria-hidden="true"
+        className="duel-side-cta"
+        style={{
+          ...v2ActionBaseStyle("sm"),
+          border: "1px solid var(--duel-cta-border, var(--v2-border))",
+          color: "var(--duel-cta-color, var(--v2-text-secondary))",
+          background: "var(--duel-cta-bg, transparent)",
+        }}
+      >
         Choose {card.player_name.split(" ").slice(-1)[0]}
       </span>
     </button>
@@ -166,7 +193,7 @@ export default function PeakDuelV2Question({
   const remaining = useRemainingSeconds(deadlineAt);
 
   return (
-    <div className="relative">
+    <div className="relative" data-duel-mode={mode}>
       {mode === "daily" ? (
         <>
           <PeakV2ArenaLight pair="cool" y="-10%" />
@@ -213,7 +240,17 @@ export default function PeakDuelV2Question({
           </div>
         ) : null}
 
-        <div className="mt-10 grid grid-cols-1 items-center gap-8 sm:grid-cols-[1fr_auto_1fr] sm:gap-4">
+        {/* `relative` so Endless's stage layer (absolutely positioned, so it
+            is NOT a grid item and adds no height) can sit behind the pair.
+            The `mt-10` header-to-grid gap is the geometry contract shared
+            with `PeakDuelV2Reveal` — see that file's comment above its grid. */}
+        <div className="duel-faceoff relative mt-10 grid grid-cols-1 items-center gap-8 sm:grid-cols-[1fr_auto_1fr] sm:gap-4">
+          {mode === "endless" ? (
+            <div className="duel-faceoff-stage" aria-hidden="true" data-testid="duel-faceoff-stage">
+              <PeakV2ArenaLight pair="cool" y="50%" intensity="focus" />
+              <PeakV2ArenaLight pair="warm" y="50%" intensity="focus" />
+            </div>
+          ) : null}
           <DuelSidePanel
             side="left"
             card={duel.left}
@@ -222,7 +259,8 @@ export default function PeakDuelV2Question({
             onChoose={() => onSelect(duel.left.peak_id)}
           />
 
-          <div className="flex flex-col items-center gap-2 py-2">
+          <div className="duel-versus flex flex-col items-center gap-2 py-2" data-testid="duel-versus-axis">
+            {mode === "endless" ? <span className="duel-versus-rule" aria-hidden="true" /> : null}
             <span
               style={{
                 fontFamily: "var(--v2-font-ui)",
@@ -268,10 +306,20 @@ export default function PeakDuelV2Question({
                 </span>
               </span>
             ) : (
-              <span style={{ fontFamily: "var(--v2-font-display)", fontStyle: "italic", fontSize: "1.5rem", color: "var(--v2-text-secondary)" }}>
+              <span
+                className="duel-versus-mark"
+                data-testid="peak-duel-v2-versus"
+                style={{
+                  fontFamily: "var(--v2-font-display)",
+                  fontStyle: "italic",
+                  fontSize: "var(--duel-vs-size, 1.5rem)",
+                  color: "var(--duel-vs-color, var(--v2-text-secondary))",
+                }}
+              >
                 vs
               </span>
             )}
+            {mode === "endless" ? <span className="duel-versus-rule" aria-hidden="true" /> : null}
           </div>
 
           <DuelSidePanel

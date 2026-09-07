@@ -47,3 +47,26 @@ export function isRosterComplete(state: CourtLineupPublicState): boolean {
 export function hasResult(state: CourtLineupPublicState): boolean {
   return state.simulation_result !== null;
 }
+
+/**
+ * 82-0 pacing (final pre-deploy polish). Client presentation only -- none of
+ * these gates a server command or changes a rule; each is the length of a
+ * beat the player is meant to REGISTER before the next one starts. Every
+ * value is a millisecond constant so a regression test can pin the band it
+ * was tuned into, and so the e2e suite's own budgets can be derived from it.
+ */
+export const COURT_PACING = {
+  /** The opening intro of a FRESHLY CREATED run (identity, one line, the
+   *  cue into round 1). Never replays on resume/reload. */
+  INTRO_MS: 3400,
+  /** The intro's exit fade -- the last part of INTRO_MS, not added to it. */
+  INTRO_EXIT_MS: 320,
+  /** Reduced motion: one static frame, held just long enough to read. */
+  INTRO_REDUCED_MS: 600,
+  /** The round card on screen BEFORE the reels start. Was 620 ms laid over
+   *  a reel that had already started; it now owns the stage, then hands
+   *  over. Band: 1.4-1.8 s. */
+  ROUND_REVEAL_MS: 1500,
+  /** The round card's exit, overlapping the reels' first frames. */
+  ROUND_REVEAL_EXIT_MS: 260,
+} as const;

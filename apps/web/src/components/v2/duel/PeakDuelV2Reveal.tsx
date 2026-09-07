@@ -50,6 +50,8 @@
  * hollow rather than promoting a side the model did not separate.
  */
 import { useEffect, useRef } from "react";
+import { EventMoment, ScoreTransition } from "@/components/game-feel";
+import { usePrefersReducedMotion } from "@/lib/a11y";
 import PeakV2LiveHeader from "../PeakV2LiveHeader";
 import PeakV2GameStatus from "../PeakV2GameStatus";
 import PeakV2PlayerIdentity from "../PeakV2PlayerIdentity";
@@ -137,8 +139,29 @@ export default function PeakDuelV2Reveal({
   const leftTag = sideTag(leftPicked, leftIsWinner);
   const rightTag = sideTag(rightPicked, rightIsWinner);
 
+  // THE REVEAL IS STAGED, NOT PAINTED (game-feel pass 2). The two scores count
+  // up to the server's numbers, the verdict lands, the five lanes assemble
+  // one after another, and the explanation reads last -- all as decoration
+  // over state that is in the DOM from the first frame, so the geometry the
+  // question left behind never moves and reduced motion simply shows it.
+  // A streak of three or more earns a compact moment; it is the one Level-2
+  // event in the loop that says the RUN, not the answer, is the story.
+  const reduced = usePrefersReducedMotion();
+  const streakMoment =
+    answer.correct && currentStreak >= 3 && currentStreak % (currentStreak >= 10 ? 5 : 1) === 0
+      ? {
+          id: `streak:${currentIndex}:${currentStreak}`,
+          kind: "streak",
+          title: `${currentStreak} in a row`,
+          detail: currentStreak >= 10 ? "On a heater" : currentStreak >= 5 ? "Hot hand" : "Streak",
+          tone: "accent" as const,
+          durationMs: 1200,
+        }
+      : null;
+
   return (
-    <div role="region" aria-label="Answer result">
+    <div role="region" aria-label="Answer result" className="duel-reveal" data-duel-mode={mode} data-outcome={answer.correct ? "correct" : "incorrect"} data-reduced-motion={reduced ? "true" : "false"}>
+      <EventMoment moment={streakMoment} testId="duel-streak-moment" className="duel-streak-moment" />
       <PeakV2LiveHeader
         as="h1"
         title={mode === "daily" ? "Peak Duel · Daily" : "Peak Duel · Endless"}
@@ -176,7 +199,7 @@ export default function PeakDuelV2Reveal({
           components for the same reason — verified by that file's own
           pixel-level assertions, not a coincidence. */}
       <div className="mt-10 grid grid-cols-1 items-start gap-6 sm:grid-cols-[1fr_auto_1fr] sm:gap-4">
-        <div data-testid="duel-card-left" className="flex flex-col items-start gap-1.5 text-left">
+        <div data-testid="duel-card-left" className="duel-reveal-card flex flex-col items-start gap-1.5 text-left" data-winner={leftIsWinner ? "true" : "false"} data-picked={leftPicked ? "true" : "false"}>
           <span
             style={{
               fontFamily: "var(--v2-font-mono)",
@@ -190,10 +213,10 @@ export default function PeakDuelV2Reveal({
             {leftTag.text}
           </span>
           <PeakV2PlayerIdentity name={duel.left.player_name} align="start" size="lg" state={leftIsWinner ? "current" : "default"} />
-          <PeakV2Score value={leftWindow.prime_score.toFixed(1)} tone={leftIsWinner ? "positive" : "neutral"} size="lg" />
+          <PeakV2Score value={<ScoreTransition value={leftWindow.prime_score} from={0} durationMs={720} format={(n) => n.toFixed(1)} />} tone={leftIsWinner ? "positive" : "neutral"} size="lg" />
         </div>
 
-        <div className="flex flex-col items-center gap-1 py-2 text-center">
+        <div className="duel-reveal-verdict flex flex-col items-center gap-1 py-2 text-center">
           {/* Same "Correct!" / "Not quite." wording legacy's `RevealPanel`
               used, relocated into this column so it costs no extra height
               above the row the cards themselves start on. */}
@@ -223,7 +246,7 @@ export default function PeakDuelV2Reveal({
           </span>
         </div>
 
-        <div data-testid="duel-card-right" className="flex flex-col items-start gap-1.5 text-left sm:items-end sm:text-right">
+        <div data-testid="duel-card-right" className="duel-reveal-card flex flex-col items-start gap-1.5 text-left sm:items-end sm:text-right" data-winner={rightIsWinner ? "true" : "false"} data-picked={rightPicked ? "true" : "false"}>
           <span
             style={{
               fontFamily: "var(--v2-font-mono)",
@@ -249,7 +272,7 @@ export default function PeakDuelV2Reveal({
           >
             {duel.right.player_name}
           </span>
-          <PeakV2Score value={rightWindow.prime_score.toFixed(1)} tone={rightIsWinner ? "positive" : "neutral"} size="lg" />
+          <PeakV2Score value={<ScoreTransition value={rightWindow.prime_score} from={0} durationMs={720} format={(n) => n.toFixed(1)} />} tone={rightIsWinner ? "positive" : "neutral"} size="lg" />
         </div>
       </div>
 
@@ -280,15 +303,15 @@ export default function PeakDuelV2Reveal({
         ) : null}
       </p>
       <div className="mt-2 flex flex-col gap-3">
-        {RANKING_COMPONENT_ORDER.map((key) => {
+        {RANKING_COMPONENT_ORDER.map((key, laneIndex) => {
           const comp = answer.component_comparison[key];
           if (!comp) return null;
           const leftValue = winnerIsLeft ? comp.winner : comp.loser;
           const rightValue = winnerIsLeft ? comp.loser : comp.winner;
           const max = Math.max(Math.abs(leftValue), Math.abs(rightValue), 1) * 1.15;
           return (
+            <div key={key} className="duel-reveal-lane" style={{ ["--duel-lane-index" as string]: laneIndex } as React.CSSProperties}>
             <PeakV2DataLane
-              key={key}
               label={RANKING_COMPONENT_LABEL[key]}
               tone={RANKING_COMPONENT_TONE[key]}
               leftLabel=""
@@ -304,12 +327,13 @@ export default function PeakDuelV2Reveal({
               // terms, constant for the whole comparison.
               pickedSide={ownerSide}
             />
+            </div>
           );
         })}
       </div>
 
       <p
-        className="mt-6 max-w-[64ch] border-l-2 pl-3 italic"
+        className="duel-reveal-explanation mt-6 max-w-[64ch] border-l-2 pl-3 italic"
         style={{ borderColor: "var(--v2-color-accent)", fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}
       >
         {answer.explanation}

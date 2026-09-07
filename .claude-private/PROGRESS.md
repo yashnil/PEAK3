@@ -1,3 +1,250 @@
+# Final pre-deploy polish pass — progress (2026-09-07)
+
+Branch `feature/game-feel-reconstruction` (pass 3 checkpoint `1cd0bbd`).
+Design note: `docs/design/GAME_FEEL.md` "Final pre-deploy polish pass".
+
+## Showdown (main session)
+- Intro is a shared timeline: server refuses `showdown_skip_intro`
+  (`shared_timeline`); client shows a countdown, no button, Escape inert.
+  Tests: `test_arena_twenty_dollar.py` (refusal for both seats),
+  `twenty-dollar.test.tsx` (intro holds), e2e intro test rewritten; the
+  two-tab spec and continuity tests wait the intro out.
+- Bot think ranges: quick 0.55–1.05, ordinary 0.9–1.9, contested 1.9–2.9,
+  war 0.55–1.15 (`test_twenty_dollar_bot_timing.py` re-pinned; contested
+  ceiling < TURN_SECONDS/8).
+- SOLD hold 2.2 s; next lot card enters +320 ms.
+
+## Run the Table (main session)
+- Skip-all removed from both reveal surfaces (V2 lineup + legacy surface);
+  per-card beats 340/460 ms; unit tests mock `reveal-timing` to 1 ms beats;
+  e2e waits for `rtt-reveal-continue-*` (FULL_RUN_TIMEOUT 300 s).
+- `battleResolution()` + `rtt-battle-resolution`/`rtt-battle-decider`
+  testids; receipt journey rows carry the same three facts (`battles` prop).
+- CSS polish appended to `styles/v2/rtt.css`; handle prompt deferred on
+  `/arena/run-the-table`; heading/container focus rings suppressed.
+
+## 82-0 (subagent): gate recomposed (`.v2-court-gate*`), `PeakV2CourtIntro`
+3.4 s on new runs only, round card 1500 ms held before reels (was 620 ms over
+a running reel; replay-on-resume root cause = chooser effect keyed on panel
+`open`), absorb 450 ms, "Data receipt" tag → seed line, result in five
+sections. Report: `game-feel-pass3-review/court-polish.md`.
+## Three-Man Weave (subagent): `REVEAL_SECONDS` 3.0 → 4.0; ceremony marks
+0–1550 card / armed / reels / 400 ms lock / hold; previous-pick beat 900 ms
+before the overlay; taken-this-roll chips; "YOUR SEAT" end-screen mark.
+Report: `game-feel-pass3-review/tmw-polish.md`.
+## Verification: frontend-verify 120/2411 + build; API 1833; model 1866;
+e2e multiplayer 31, courtbuilder 99, RTT 21 (desktop+mobile).
+
+# Game-feel reconstruction pass 3 — progress
+
+Branch: `feature/game-feel-reconstruction` (checkpoint `4d590e1` = pass 2,
+2026-09-06). Design note: `docs/design/GAME_FEEL.md` ("Run the Table" section).
+Fact bank: `docs/implementation/NBA_FACT_BANK_AUDIT.md` §10.
+
+## Run the Table — rebuilt as a run
+- Orchestrator (`RunTheTableGame.tsx`) on `useCommandLane` + `isNewerRun`
+  (`action_count` as the version); every announcement derived from two
+  snapshots (`describeRunTransition`); projected credits while a card is
+  selected; act transitions and the failure ending (battle shown before the
+  receipt); tour never auto-starts (`How to play` button).
+- New: `PeakV2RTTShell` (header + `RunTrack` + decision/rail + phone bar),
+  `PeakV2RTTRoster`, `PeakV2RTTOfferCard`, `PeakV2RTTDecisionHead`,
+  `PeakV2RTTCoach` + `lib/run-the-table-coach.ts`; rebuilt draft room, fork,
+  perks, written choice, credit sinks, boss title card, paired deal, matchup
+  board, staged battle result, ending sequence; trade desk/scout re-headed.
+- Shared primitives: `LifeMeter`, `RunTrack` (`components/game-feel`),
+  `ResultReveal.startComplete`. CSS: `styles/v2/rtt.css` rewritten (class
+  roots renamed `rtt-run`/`rtt-stage`/`rtt-lineup`/`rtt-receipt` to avoid the
+  legacy `.rtt-shell` grid in globals.css), primitives in `game-feel.css`.
+- Start gate: four-line brief replaces the node grid; launcher = "How to play".
+- Tests: `run-the-table-run.test.tsx` (28), v3 fixtures versioned per call
+  (the newer-wins guard drops a fixture created before the board), e2e
+  `run-the-table.spec.ts`: tour test → teaches-itself; + game-feel, duplicate
+  press/resume, @mobile composition tests.
+- QA drivers (scratchpad): `rtt-drive.mjs` (strategies buy/best/pass,
+  viewport, throttle), `rtt-resume.mjs`. Before/after shots in
+  `scratchpad/before/*`, `scratchpad/after/*`.
+
+## Other workstreams (subagents, reports in scratchpad `REPORT_*.md`)
+- Showdown bot v5: see `REPORT_showdown_bot_v5.md`.
+- Fact bank spot-check: 62 checked, 4 false claims + 7 overstatements fixed,
+  44 URLs repointed, 0 removed; audit §10.
+- TMW flake: stale poll ceiling after the seatless briefing turn; test now
+  state-based + seed-pinned worst case (`apps/api/tests/test_arena_practice_e2e.py`).
+- Peak Duel Endless: `data-duel-mode`, `styles/v2/duel.css`, versus axis,
+  framed panels; Daily unchanged; `peak-duel-v2-question.test.tsx` (10).
+
+# Game-feel reconstruction pass 2 — progress
+
+Branch: `feature/game-feel-reconstruction` (continues from `4b2e9f5`, 2026-09-06).
+Design note: `docs/design/GAME_FEEL.md` (Showdown section + new primitives).
+Fact bank note: `docs/implementation/NBA_FACT_BANK_AUDIT.md` §9.
+
+## Showdown — root causes and fixes
+- Bot reply took 4-5 s to appear: think range 2.6-4.2 s sized to a 2 s poll,
+  plus the poll landing a full interval late. Now `config.BOT_THINK_RANGES`
+  (quick 0.25-0.65 / ordinary 0.35-1.3 / contested 1.2-1.8 sometimes / war
+  0.3-0.85), classified by `TwentyDollarBot.decision_kind` from the bot's own
+  projection via the mode's `bot_think_seconds(..., snapshot=)`; the view
+  publishes `bot_reply_in_seconds` (`bots.bot_reply_in_seconds`) and the room
+  reads once at that instant + a retry ladder. Measured after: 0.4-2.0 s.
+- Human controls held shut by client beats (1.1 s reveal + 0.7 s handoff) and
+  by a 1.6 s SOLD overlay intercepting clicks while the 25 s clock ran. Beats
+  removed from `useShowdownPhase`; the SOLD stamp is an absolutely positioned,
+  `pointer-events: none` overlay; only the lot card animates in (controls
+  never move under the pointer).
+- Room rewritten on `useCommandLane` + `isNewer` (one snapshot per render);
+  first-read effect fires once per match id; polling re-arms after EVERY read
+  (an unchanged read used to leave no timer: measured 97 s stall); drift
+  correction only for same-version reads. `useCommandLane` now returns a
+  memoised object (a fresh object per render re-fired dependent effects).
+- Bid proposal is local: figure, "Bid $N" label and projected budget update in
+  the same frame; proposal keyed to the legal floor and re-based in render
+  (an effect-based re-base swallowed a press that landed before it ran).
+- Bot v4 (`nba_peak/twenty_dollar/bot.py`): six-way rank band (public
+  knowledge; still not the score), replacement level falling with chances
+  left per slot, money rate from discretionary budget per slot, pacing cap,
+  endgame spend, skip-economy opening rule, jump raises. Sim (300 seeds each):
+  win vs rank-aware human proxy 71% -> 93%, vs max-raiser 84% -> 97%, vs
+  min-opener 79% -> 92%; roster total 329 -> 345; self-play 50%.
+- Result is a staged sequence (`ResultReveal`): closed -> rosters (count-up)
+  -> money -> comparison -> verdict -> moments -> actions; Play Again creates a
+  fresh practice match and `router.replace`s (keyed room).
+
+## Shared primitives added (`components/game-feel`, `styles/game-feel.css`)
+`ResourceMeter`, `CardArrival`, `RosterSlotLock`, `BidTransition`,
+`ResultReveal`/`RevealStep`; `TurnClock` gained `size="lg"`.
+
+## Fact of the Day
+- `FACT_BANK_VERSION` = `basketball_facts_v3`; heading "Basketball Fact of the
+  Day". 53 editorial entries added (rules/equipment, FIBA, women's, college,
+  3x3, wheelchair, historic leagues, terminology, analytics); 11 widely known
+  NBA milestones scored below the homepage tier. Bank 187 -> 257; tier 93 ->
+  135 (121 editorial). Founder should open each new `source_url` before deploy
+  (§9.4 lists them).
+
+## Peak Duel
+- Reveal staged: scores count up, verdict lands, lanes assemble, explanation
+  last; streak moment at 3+; press/lock feedback on the face-off panels.
+  Card geometry unchanged (duel-viewport contract).
+
+## Late fixes from the e2e run
+- A failed FIRST read (fresh dev server + session still hydrating produced a
+  403) left the room on the "not your seat" gate with no poll to correct it.
+  `load` now retries 400/800/1600 ms before showing the gate (404 excepted);
+  unit-tested.
+- `the opponent's clock counts DOWN` e2e assumed 2.6-4.2 s bot turns; it now
+  polls the `TurnClock` fraction below 1.
+- The opponent-action `EventMoment` sat over the player identity on phones;
+  it now lands under the bid figure (`.sd-bid-moment`).
+- Lobby / private-room e2e failures in the first full run were the reused
+  API's flags (public queue off, alpha labels); rerun against a CI-flagged API.
+
+## Tests
+- Python: `tests/twenty_dollar` 250 pass (calibration sweep updated for the
+  band); API arena suites pass except the PRE-EXISTING flaky
+  `test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock` (TMW poll
+  count 24/25 depends on the random practice seed; 1 in 5 runs fails on
+  `main` too). Fact suites 292 pass; route 8 pass.
+- Web: `twenty-dollar-room.test.tsx` rewritten (15), `twenty-dollar-phase`
+  rewritten (9), Showdown e2e subset 8/8 (chromium-multiplayer).
+
+## Manual QA (Playwright-driven, real servers)
+- Showdown before: click->visual 25-35 ms, bot visible 4.1-5.2 s, SOLD overlay
+  blocked clicks 1.87 s per lot, controls live ~5.8 s after own action.
+- Showdown after (desktop, phone, 400 ms throttled): click->visual 26-58 ms,
+  bot visible 0.4-2.0 s (one 3.3 s contested call), no blocked clicks.
+- Peak Duel daily: 10 picks, pick->reveal 38-50 ms.
+
+## Open / not met
+- RTT and 82-0 were audited by screenshot and their e2e suites, not
+  re-designed; see the final report for the per-mode scores.
+
+
+---
+
+# Interaction, synchronization & game-feel reconstruction — progress
+
+Branch: `feature/game-feel-reconstruction` (from `main` @ `a51bbf7`, 2026-09-05).
+Design note: `docs/design/GAME_FEEL.md`.
+
+## Root causes fixed
+- TMW "Draft X at Y" needed several clicks: candidate/slot clicks fired a server
+  `tmw_stage_pick` that set `inFlight`, and `pick()` silently returned while it
+  was in flight. Now: `useCommandLane` serializes commands; the pick queues
+  behind the stage and runs against the version current at execution.
+- Stale poll overwrite: `refresh` applied any response whose version differed
+  (`!==`). Now `isNewer` (strictly newer version) guards every apply.
+- Swap notice written before the server answered. Now the moment is derived
+  from the response snapshot in the same render (`describeTransition`).
+- Intro was a per-player client dialog ending the phase for the table on one
+  click, with a 30-min abandon backstop. Now `PHASE_INTRO` is a 4.0s timed
+  server turn whose timeout opens the ceremony; `tmw_skip_intro`/`tmw_skip_reveal`
+  refused (`shared_timeline`). `REVEAL_SECONDS` 4.6 → 3.0.
+- Play Again pushed the mode landing page. Now bot mode creates a fresh match
+  and `router.replace`s into it; loader keys the game by match id.
+- 82-0: an open slot became a dead `<div>` while `busy` (the double click).
+  Now slots stay buttons (pending / inert), rows show pending on press.
+
+## Server
+- `ArenaMatchView` += `turn_seq`, `turn_elapsed_seconds`, `turn_total_seconds`.
+- `three_man_weave/mode.py`: timed intro, refused skips, shorter reveal;
+  `_abandon_match`/`_reduce_skip_*` removed. Tests rewritten in
+  `test_three_man_weave_mode.py`, `test_arena_practice_e2e.py`.
+
+## Client
+- New: `lib/game-feel/{authoritative,arrivals}.ts`, `components/game-feel/*`,
+  `styles/game-feel.css` (imported in `app/layout.tsx`).
+- TMW: `ThreeManWeaveGame.tsx` rewritten (Room snapshot, lane, moments, replay);
+  `PeakV2TMWReveal.tsx` rewritten (server timeline, RoundReveal beat, no skip);
+  `PeakV2TMWCourts/Court` (ActiveSeat, per-seat TurnClock, useArrivals);
+  `PickOverlay` (GameActionButton); `PeakV2TMWResult` (count-up, Back to mode);
+  `ThreeManWeaveLoader` (keyed game). `WeaveSpinner.tsx` (dead) deleted.
+- 82-0: `CourtBuilder` on the lane with pending targets + moments; `PeakV2CourtLive`
+  (arrivals lock, ScoreTransition record, EventMoment); `PeakV2CourtSlotCard`
+  (pending/inert); `PeakV2CourtChooser` (RoundReveal, GameActionButtons);
+  `EligiblePlayerSearch` (pending row); `PeakV2CourtResult` (record count-up);
+  `PlayAgainPanel` (GameActionButton).
+
+## Tests added
+- `game-feel.test.tsx` (19), `three-man-weave-game-feel.test.tsx` (8),
+  `court-builder-game-feel.test.tsx` (3); briefing tests rewritten in
+  `three-man-weave-components.test.tsx`; e2e: three-human synchronized intro,
+  `@slow` bot-match replay; `dismissTmwIntro` now asserts no skip exists.
+
+## Manual QA (Playwright-driven, real servers, 2026-09-05)
+- Bot match, 6 rounds: confirm → pending immediately; overlay closed on the
+  command response in 118–275 ms; Play Again → new match at intro in 482 ms.
+- 3 humans in a private room: identical `turn_seq` at intro/reveal/pick on
+  every client; backgrounded tab caught up; reload landed on the same pick
+  turn; double-click sent one draft (119 ms).
+- 82-0, two full games: row/slot pending immediately; placement ready 57–210 ms
+  after candidate click; slot filled 99–1150 ms after slot click (server time);
+  Play Again → fresh round 1.
+- Not yet observed live: a legal between-turn swap (random rosters had no
+  legal target); covered by unit test.
+
+## Verification (2026-09-05)
+- API unit: 1820 passed (scripts/ci/api-unit-tests.sh).
+- Web unit: 2350+ passed (vitest), typecheck clean, lint 0 warnings.
+- e2e chromium-multiplayer "Three-Man Weave": 8/8 (incl. new sync-intro test,
+  which first exposed a pre-existing crash when a guest lands on a still-
+  forming private room -- fixed with `FormingRoom` in the loader; and the
+  @slow full-match replay test, ~4 min).
+- e2e chromium-courtbuilder: 99/99. First run had 4 failures: 2 were the
+  documented `.env` vs CI `PEAK3_COURTBUILDER_LEADERBOARD_ENABLED` divergence
+  (API restarted with the CI value → pass); 2 were the E2 "court geometry is
+  immutable" contract catching the shared swap beat's `transform` -- the base
+  `[data-gf-lock]` beat is now paint-only (opacity/box-shadow) and the moving
+  variant is scoped to `.tmw-court-seat`.
+- e2e chromium-multiplayer (Showdown + two-tab): 22/22; mobile-chrome: 3/3.
+- scripts/ci/frontend-verify.sh: typecheck, lint 0 warnings, 2351 vitest, clean production build -- green.
+
+## Status: COMPLETE, uncommitted on the branch, awaiting founder review.
+
+
+---
+
 # Arena Archive visual-polish program — progress
 
 Branch: `feature/arena-archive-visual-polish`. Started from `4534534`

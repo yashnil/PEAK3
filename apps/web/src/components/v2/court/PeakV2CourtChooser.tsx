@@ -26,6 +26,9 @@ import PeakV2DockedPanel from "../PeakV2DockedPanel";
 import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
 import PeakV2DisplayEmphasis from "../PeakV2DisplayEmphasis";
 import PeakV2SecondaryAction from "../PeakV2SecondaryAction";
+import { GameActionButton, RoundReveal } from "@/components/game-feel";
+import { useEffect, useState } from "react";
+import { COURT_PACING } from "@/lib/court-state";
 import SpinStage from "@/components/court/SpinStage";
 import EligiblePlayerSearch from "@/components/court/EligiblePlayerSearch";
 import type { CurrentSpin, SpinCandidate } from "@/types/perfect-season";
@@ -51,14 +54,28 @@ export interface PeakV2CourtChooserProps {
   candidates: SpinCandidate[] | null;
   onSelectCandidate: (playerSlug: string) => void;
   busy: boolean;
+  /** Which command the builder's lane holds, and which candidate row it is
+   *  about -- the row shows pending, the others stay disabled buttons. */
+  pendingKind?: string | null;
+  pendingSlug?: string | null;
+  /** Changes per new round (and per new game). Identifies WHICH round the
+   *  card below belongs to; the card's own lifetime is the caller's. */
+  roundKey?: string;
+  /** THE ROUND CARD IS THE CALLER'S STATE, keyed on the authoritative round
+   *  (`CourtBuilder`: once per `game:round`, before the reels, never
+   *  re-triggered by reopening this panel). This component only renders it
+   *  and holds the reels while it is up. It used to own a local timer keyed
+   *  on the panel OPENING, which is why "Resume selection" replayed
+   *  "Round N" every time. */
+  roundCardOpen?: boolean;
   respinPending: boolean;
 
   canRespinTeam: boolean;
   canRespinSeason: boolean;
   teamRespinsLeft: number;
   seasonRespinsLeft: number;
-  onRespinTeam: () => void;
-  onRespinSeason: () => void;
+  onRespinTeam: () => Promise<unknown> | void;
+  onRespinSeason: () => Promise<unknown> | void;
 
   difficulty: "easy" | "hard";
   hintUsed: boolean;
@@ -67,7 +84,7 @@ export interface PeakV2CourtChooserProps {
    *  `highlightSlug` marker — same identity legacy's search list marks,
    *  never a score (ADR-005 Decision 6 has none to leak). */
   hintSlug?: string | null;
-  onHint: () => void;
+  onHint: () => Promise<unknown> | void;
 }
 
 export default function PeakV2CourtChooser({
@@ -90,6 +107,10 @@ export default function PeakV2CourtChooser({
   candidates,
   onSelectCandidate,
   busy,
+  pendingKind = null,
+  pendingSlug = null,
+  roundKey,
+  roundCardOpen = false,
   respinPending,
   canRespinTeam,
   canRespinSeason,
@@ -103,6 +124,29 @@ export default function PeakV2CourtChooser({
   hintSlug = null,
   onHint,
 }: PeakV2CourtChooserProps) {
+  // ROUND START (82-0 pacing): the round identifier owns the stage for
+  // `COURT_PACING.ROUND_REVEAL_MS` while the reels wait at their start row
+  // (`SpinStage start={false}`), then hands over -- the reels begin as the
+  // card leaves. The card's open/closed state is the caller's, keyed on the
+  // round; this only keeps the card mounted for its short exit so it can
+  // fade rather than vanish. `leaving` is derived from the open -> closed
+  // edge, never from the panel opening.
+  // Derived-from-props during render (React's sanctioned pattern), NOT in an
+  // effect: an effect would commit one frame with the card unmounted before
+  // re-mounting it as "leaving" -- a visible blink on the hand-over.
+  const [prevOpen, setPrevOpen] = useState(roundCardOpen);
+  const [leavingFor, setLeavingFor] = useState<string | null>(null);
+  if (prevOpen !== roundCardOpen) {
+    setPrevOpen(roundCardOpen);
+    if (prevOpen && !roundCardOpen && roundKey) setLeavingFor(roundKey);
+  }
+  useEffect(() => {
+    if (leavingFor === null) return;
+    const id = window.setTimeout(() => setLeavingFor(null), COURT_PACING.ROUND_REVEAL_EXIT_MS);
+    return () => window.clearTimeout(id);
+  }, [leavingFor]);
+  const roundCardLeaving = leavingFor !== null && leavingFor === roundKey;
+
   return (
     <PeakV2DockedPanel
       open={open}
@@ -222,9 +266,18 @@ export default function PeakV2CourtChooser({
               of the list's height for a single button. */}
           <div className="flex flex-wrap items-center gap-2">
             {difficulty === "easy" && !collapsed && ceremonyRevealed ? (
-              <PeakV2SecondaryAction data-testid="hint-btn" size="sm" className="whitespace-nowrap" onClick={onHint} disabled={busy || respinPending || hintUsed}>
+              <GameActionButton
+                variant="secondary"
+                data-testid="hint-btn"
+                size="sm"
+                className="whitespace-nowrap"
+                onAction={onHint}
+                pending={pendingKind === "hint"}
+                pendingLabel="Asking PEAK3…"
+                disabled={busy || respinPending || hintUsed}
+              >
                 {hintUsed ? "Hint used" : "Give me a suggestion"}
-              </PeakV2SecondaryAction>
+              </GameActionButton>
             ) : null}
             <PeakV2SecondaryAction data-testid="minimize-overlay-btn" size="sm" className="whitespace-nowrap" onClick={onClose}>
               View court
@@ -232,9 +285,22 @@ export default function PeakV2CourtChooser({
           </div>
         </div>
 
-        <div className="mt-4">
+        <div className="relative mt-4" data-testid="spin-stage-frame">
+          {roundCardOpen || roundCardLeaving ? (
+            <div className="court-round-reveal-wrap" data-leaving={roundCardLeaving ? "true" : "false"} data-testid="court-round-reveal-wrap">
+              <RoundReveal
+                open
+                eyebrow="82-0 PEAK Season"
+                title={`Round ${roundNumber}`}
+                detail={`of ${totalRounds} · a real team-season is being drawn`}
+                testId="court-round-reveal"
+                className="court-round-reveal"
+              />
+            </div>
+          ) : null}
           <SpinStage
             key={roundNumber}
+            start={!roundCardOpen}
             spin={spin}
             roundNumber={roundNumber}
             totalRounds={totalRounds}
@@ -249,16 +315,16 @@ export default function PeakV2CourtChooser({
             collapsed={collapsed}
             teamAction={
               !collapsed && ceremonyRevealed && spin.spin_type === "team_year" ? (
-                <PeakV2SecondaryAction data-testid="respin-team-btn" size="sm" className="whitespace-nowrap" disabled={busy || !canRespinTeam} onClick={onRespinTeam}>
+                <GameActionButton variant="secondary" data-testid="respin-team-btn" size="sm" className="whitespace-nowrap" disabled={busy || !canRespinTeam} pending={pendingKind === "respin_team"} pendingLabel="Respinning…" onAction={onRespinTeam}>
                   Respin team ({teamRespinsLeft} left)
-                </PeakV2SecondaryAction>
+                </GameActionButton>
               ) : null
             }
             seasonAction={
               !collapsed && ceremonyRevealed && spin.spin_type === "team_year" ? (
-                <PeakV2SecondaryAction data-testid="respin-season-btn" size="sm" className="whitespace-nowrap" disabled={busy || !canRespinSeason} onClick={onRespinSeason}>
+                <GameActionButton variant="secondary" data-testid="respin-season-btn" size="sm" className="whitespace-nowrap" disabled={busy || !canRespinSeason} pending={pendingKind === "respin_season"} pendingLabel="Respinning…" onAction={onRespinSeason}>
                   Respin season ({seasonRespinsLeft} left)
-                </PeakV2SecondaryAction>
+                </GameActionButton>
               ) : null
             }
           />
@@ -296,7 +362,7 @@ export default function PeakV2CourtChooser({
               </p>
             ) : null}
             <div>
-              <EligiblePlayerSearch candidates={candidates} onSelect={onSelectCandidate} disabled={busy || respinPending} highlightSlug={hintSlug} />
+              <EligiblePlayerSearch candidates={candidates} onSelect={onSelectCandidate} disabled={busy || respinPending} pendingSlug={pendingSlug} highlightSlug={hintSlug} />
             </div>
           </div>
         ) : null}

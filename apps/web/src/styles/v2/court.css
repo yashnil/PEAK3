@@ -633,30 +633,9 @@
 }
 
 /* ---- 3. PICK LOCK ----
-   A drafted player ARRIVES, LOCKS, SETTLES. 240ms, inside the contract's
-   150-300ms card-lock band. Triggered by an empty->filled diff of the real
-   roster snapshot, never by a timer, and nothing waits on it: the next
-   server action is not gated behind this. */
-[data-ui-version="v2"] [data-locking="true"] > * {
-  animation: tmw-pick-lock 240ms var(--v2-ease-emphasized, ease-out) 1;
-}
-
-@keyframes tmw-pick-lock {
-  0%   { transform: translateY(-5px) scale(0.985); opacity: 0.55; }
-  60%  { transform: translateY(0) scale(1.012); opacity: 1; }
-  100% { transform: translateY(0) scale(1); opacity: 1; }
-}
-
-/* The same beat on the tile's edge, so the lock reads as the slot CLOSING
-   around the player rather than only as the card moving. */
-[data-ui-version="v2"] [data-locking="true"] [data-testid="peak-v2-court-slot"] {
-  animation: tmw-pick-lock-edge 240ms var(--v2-ease-out, ease-out) 1;
-}
-
-@keyframes tmw-pick-lock-edge {
-  0%   { border-color: var(--v2-color-accent); }
-  100% { border-color: inherit; }
-}
+   Now the SHARED beat in styles/game-feel.css (`[data-gf-lock]`, driven by
+   `useArrivals`): the same lock every court in the Arena uses, so a drafted
+   player arrives the same way here as a placed card does in 82-0. */
 
 /* ---- 4. ROUND TRANSITION ----
    The ceremony scrim arrives instead of appearing: a short fade so the draft
@@ -683,8 +662,6 @@
 @media (prefers-reduced-motion: reduce) {
   [data-ui-version="v2"] .tmw-thinking::after,
   [data-ui-version="v2"] .tmw-court-active[data-v2-court-presentation="lit"],
-  [data-ui-version="v2"] [data-locking="true"] > *,
-  [data-ui-version="v2"] [data-locking="true"] [data-testid="peak-v2-court-slot"],
   [data-ui-version="v2"] [data-testid="tmw-ceremony-scrim"],
   [data-ui-version="v2"] [data-testid="tmw-ceremony-scrim"] .tmw-ceremony {
     animation: none;
@@ -1113,4 +1090,456 @@
 [data-ui-version="v2"] .roster-board-bench-row {
   padding-top: var(--v2-space-2);
   padding-bottom: var(--v2-space-4);
+}
+
+/* ================================================================
+   82-0 · START GATE (final pre-deploy polish)
+   ================================================================
+   The gate used to borrow Run the Table's node classes, which no longer
+   exist, so its four steps and both difficulty options rendered as bare
+   inline text. This is the page's own composition: header, four steps on
+   a ruled grid, the run's shape as three facts, difficulty as two option
+   cards, one CTA row. Editorial rules and spacing carry the hierarchy —
+   no boxes except the two things that are actually buttons.
+   ================================================================ */
+.v2-court-gate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--v2-space-8);
+  padding: var(--v2-space-10) 0 var(--v2-space-12);
+}
+.v2-court-gate-head { display: flex; flex-direction: column; }
+.v2-court-gate-title { font-size: var(--v2-display-size-moment); }
+.v2-court-gate-lede { max-width: 56ch; }
+
+.v2-court-gate-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--v2-space-6);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.v2-court-gate-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--v2-space-2);
+  padding-top: var(--v2-space-3);
+  border-top: 1px solid var(--v2-border-subtle);
+  min-width: 0;
+}
+.v2-court-gate-step-n {
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--v2-color-accent);
+}
+.v2-court-gate-step-label {
+  font-family: var(--v2-font-display);
+  font-size: var(--v2-display-size-line);
+  line-height: 1.1;
+  color: var(--v2-text-primary);
+}
+.v2-court-gate-step-purpose {
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--v2-text-secondary);
+}
+
+.v2-court-gate-facts { display: flex; flex-wrap: wrap; gap: var(--v2-space-6); }
+.v2-court-gate-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding-left: var(--v2-space-3);
+  border-left: 1px solid var(--v2-border-subtle);
+}
+.v2-court-gate-fact:first-child { padding-left: 0; border-left: none; }
+.v2-court-gate-fact-value {
+  font-family: var(--v2-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: var(--v2-mono-feature);
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: var(--v2-text-primary);
+}
+.v2-court-gate-fact-label { font-family: var(--v2-font-ui); font-size: 0.6875rem; color: var(--v2-text-muted); }
+
+.v2-court-gate-notice {
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--v2-text-secondary);
+  border-left: 2px solid var(--v2-color-accent);
+  padding-left: var(--v2-space-3);
+  margin: 0;
+}
+
+.v2-court-gate-difficulty { display: flex; flex-direction: column; gap: var(--v2-space-3); }
+.v2-court-gate-section-label {
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+.v2-court-gate-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--v2-space-3);
+}
+.v2-court-gate-option {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--v2-space-2);
+  text-align: left;
+  padding: var(--v2-space-4) var(--v2-space-5);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  background: var(--v2-bg-plane);
+  color: var(--v2-text-primary);
+  cursor: pointer;
+  transition: border-color var(--v2-dur-control) var(--v2-ease-standard),
+              background-color var(--v2-dur-control) var(--v2-ease-standard),
+              box-shadow var(--v2-dur-control) var(--v2-ease-standard);
+}
+.v2-court-gate-option:hover { border-color: var(--v2-border); }
+.v2-court-gate-option:focus-visible { outline: 2px solid var(--v2-color-accent); outline-offset: 2px; }
+.v2-court-gate-option[aria-pressed="true"] {
+  border-color: var(--v2-color-accent);
+  box-shadow: inset 0 0 0 1px var(--v2-color-accent);
+  background: color-mix(in srgb, var(--v2-color-accent) 6%, var(--v2-bg-plane));
+}
+.v2-court-gate-option[data-tone="negative"][aria-pressed="true"] {
+  border-color: var(--v2-color-negative);
+  box-shadow: inset 0 0 0 1px var(--v2-color-negative);
+  background: color-mix(in srgb, var(--v2-color-negative) 6%, var(--v2-bg-plane));
+}
+.v2-court-gate-option-label {
+  font-family: var(--v2-font-display);
+  font-size: 1.25rem;
+  line-height: 1.1;
+  color: var(--v2-color-accent);
+}
+.v2-court-gate-option[data-tone="negative"] .v2-court-gate-option-label { color: var(--v2-color-negative); }
+.v2-court-gate-option-purpose {
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--v2-text-secondary);
+}
+
+.v2-court-gate-error { font-family: var(--v2-font-ui); font-size: 0.8125rem; color: var(--v2-color-negative); margin: 0; }
+
+.v2-court-gate-cta {
+  display: flex;
+  align-items: center;
+  gap: var(--v2-space-5);
+  padding-top: var(--v2-space-2);
+}
+.v2-court-gate-footnote {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--v2-text-muted);
+  max-width: 40ch;
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .v2-court-gate { gap: var(--v2-space-6); padding-top: var(--v2-space-6); }
+  .v2-court-gate-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--v2-space-5); }
+  .v2-court-gate-cta { flex-direction: column; align-items: stretch; gap: var(--v2-space-3); }
+  .v2-court-gate-footnote { max-width: none; }
+}
+@media (max-width: 480px) {
+  .v2-court-gate-steps, .v2-court-gate-options { grid-template-columns: minmax(0, 1fr); }
+  .v2-court-gate-facts { flex-direction: column; gap: var(--v2-space-2); }
+  .v2-court-gate-fact { padding-left: 0; border-left: none; }
+}
+
+/* ================================================================
+   82-0 · THE OPENING INTRO (a freshly created run, once)
+   ================================================================
+   Fixed over the mounted court, above the docked chooser's own layer.
+   Beats are animation delays on `data-beat`; the only timer is the one
+   that ends it (`COURT_PACING.INTRO_MS`). `data-leaving` fades the whole
+   stage out over its last `INTRO_EXIT_MS`, so the court is what remains.
+   ================================================================ */
+.v2-court-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--v2-space-6);
+  background: color-mix(in srgb, var(--v2-bg-base, #0b0c10) 96%, transparent);
+  animation: v2-court-intro-in var(--v2-dur-reveal) var(--v2-ease-out) both;
+}
+.v2-court-intro[data-leaving="true"] {
+  animation: v2-court-intro-out 320ms var(--v2-ease-in) both;
+  pointer-events: none;
+}
+.v2-court-intro-stage { width: min(56rem, 100%); }
+.v2-court-intro-eyebrow {
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--v2-color-accent);
+}
+.v2-court-intro-title {
+  margin: var(--v2-space-4) 0 0;
+  font-family: var(--v2-font-display);
+  font-weight: 400;
+  font-size: var(--v2-display-size-hero);
+  line-height: var(--v2-display-leading);
+  letter-spacing: var(--v2-display-track);
+  color: var(--v2-text-primary);
+}
+.v2-court-intro-title em { font-style: italic; color: var(--v2-color-accent); }
+.v2-court-intro-rule {
+  display: block;
+  width: 4rem;
+  height: 2px;
+  margin: var(--v2-space-5) auto 0;
+  background: var(--v2-color-accent);
+  transform-origin: center;
+}
+.v2-court-intro-line {
+  margin: var(--v2-space-5) 0 0;
+  max-width: 44ch;
+  font-family: var(--v2-font-ui);
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--v2-text-secondary);
+}
+.v2-court-intro-cue {
+  margin: var(--v2-space-8) 0 0;
+  font-family: var(--v2-font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+.v2-court-intro[data-reduced-motion="false"] [data-beat] {
+  animation: v2-court-intro-beat 520ms var(--v2-ease-out) both;
+}
+.v2-court-intro[data-reduced-motion="false"] [data-beat="1"] { animation-delay: 120ms; }
+.v2-court-intro[data-reduced-motion="false"] [data-beat="2"] { animation-delay: 320ms; }
+.v2-court-intro[data-reduced-motion="false"] [data-beat="3"] { animation: v2-court-intro-rule 520ms var(--v2-ease-emphasized) 640ms both; }
+.v2-court-intro[data-reduced-motion="false"] [data-beat="4"] { animation-delay: 900ms; }
+.v2-court-intro[data-reduced-motion="false"] [data-beat="5"] { animation-delay: 2000ms; }
+@keyframes v2-court-intro-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes v2-court-intro-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes v2-court-intro-beat {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes v2-court-intro-rule { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .v2-court-intro, .v2-court-intro[data-leaving="true"], .v2-court-intro [data-beat] { animation: none !important; }
+}
+
+/* ================================================================
+   82-0 · THE ROUND CARD, BEFORE THE REELS
+   ================================================================
+   `CourtBuilder` opens the card once per authoritative round for
+   `COURT_PACING.ROUND_REVEAL_MS`; the reels wait at their start row
+   (`SpinStage start={false}`, `data-held="true"`). The wrap exists so the
+   card can leave over `ROUND_REVEAL_EXIT_MS` as the reels begin, rather
+   than vanish on the same frame. The shared `RoundReveal` primitive is
+   untouched — only its container is styled here.
+   ================================================================ */
+.court-round-reveal-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+.court-round-reveal-wrap[data-leaving="true"] {
+  animation: v2-court-round-out 260ms var(--v2-ease-in) both;
+}
+@keyframes v2-court-round-out {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-6px); }
+}
+/* The card now owns the stage for a real beat, so it reads as a title, not
+   a flash: an opaque surface (the reels behind it are at their start row
+   and must not read through) and the round number at display scale. */
+[data-ui-version="v2"] .gf-round.court-round-reveal {
+  background: color-mix(in srgb, var(--v2-bg-surface, #101216) 94%, transparent);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--v2-border-subtle);
+}
+[data-ui-version="v2"] .gf-round.court-round-reveal .gf-round-title {
+  font-size: clamp(2rem, 5vw, 3rem);
+}
+/* The reels wait: the stage reads dimmed and still until the clock starts. */
+[data-ui-version="v2"] [data-testid="spin-stage"][data-held="true"] .spin-lockup-grid {
+  opacity: 0.55;
+  transition: opacity 260ms var(--v2-ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .court-round-reveal-wrap[data-leaving="true"] { animation: none; opacity: 0; }
+}
+
+/* ================================================================
+   82-0 · PROVENANCE (the board / result seed line, no tag)
+   ================================================================ */
+[data-ui-version="v2"] .v2-court-provenance {
+  font-family: var(--v2-font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+  color: var(--v2-text-muted);
+}
+[data-ui-version="v2"] .v2-court-provenance > summary {
+  color: var(--v2-text-muted);
+  list-style: none;
+}
+[data-ui-version="v2"] .v2-court-provenance > summary::-webkit-details-marker { display: none; }
+[data-ui-version="v2"] .v2-court-provenance > summary::after {
+  content: " ·  details";
+  color: var(--v2-text-muted);
+  opacity: 0.7;
+}
+[data-ui-version="v2"] .v2-court-provenance[open] > summary::after { content: ""; }
+[data-ui-version="v2"] .v2-court-provenance > summary:hover { color: var(--v2-text-secondary); }
+
+/* ================================================================
+   82-0 · RESULT — READING ORDER
+   ================================================================
+   Five sections after the hero, each opened by an index + label on a
+   hairline with real room above it; the actions grouped on one plane;
+   the small print last and smallest. Hierarchy by size, tone and spacing,
+   not by boxes.
+   ================================================================ */
+[data-ui-version="v2"] .v2-court-result-tier {
+  font-family: var(--v2-font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--v2-color-accent);
+}
+[data-ui-version="v2"] .v2-court-result-section {
+  margin-top: var(--v2-space-10);
+}
+[data-ui-version="v2"] .v2-court-result-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--v2-space-3);
+  padding-bottom: var(--v2-space-3);
+  border-bottom: 1px solid var(--v2-border-subtle);
+}
+[data-ui-version="v2"] .v2-court-result-index {
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--v2-color-accent);
+}
+[data-ui-version="v2"] .v2-court-result-label {
+  font-family: var(--v2-font-display);
+  font-size: var(--v2-display-size-line);
+  line-height: 1.1;
+  color: var(--v2-text-primary);
+}
+[data-ui-version="v2"] .v2-court-result-aside {
+  margin-left: auto;
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  color: var(--v2-text-muted);
+  white-space: nowrap;
+}
+[data-ui-version="v2"] .v2-run-stat-name[data-tone="positive"] { color: var(--v2-color-positive); }
+[data-ui-version="v2"] .v2-run-stat-name[data-tone="caution"] { color: var(--accent-orange); }
+
+[data-ui-version="v2"] .v2-court-result-factors {
+  margin: var(--v2-space-4) 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--v2-space-2);
+}
+[data-ui-version="v2"] .v2-court-result-factors li {
+  position: relative;
+  padding-left: var(--v2-space-5);
+  font-family: var(--v2-font-ui);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--v2-text-primary);
+}
+[data-ui-version="v2"] .v2-court-result-factors li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.7em;
+  width: 0.75rem;
+  height: 1px;
+  background: var(--v2-color-accent);
+}
+[data-ui-version="v2"] .v2-court-result-note {
+  margin: var(--v2-space-4) 0 0;
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--v2-text-muted);
+  max-width: 68ch;
+}
+[data-ui-version="v2"] .v2-court-result-model {
+  display: flex;
+  flex-direction: column;
+  gap: var(--v2-space-6);
+  margin-top: var(--v2-space-4);
+}
+[data-ui-version="v2"] .v2-court-result-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin-top: var(--v2-space-4);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+  background: var(--v2-bg-plane);
+  overflow: hidden;
+}
+[data-ui-version="v2"] .v2-court-result-action {
+  padding: var(--v2-space-5);
+  min-width: 0;
+  border-bottom: 1px solid var(--v2-border-subtle);
+}
+[data-ui-version="v2"] .v2-court-result-action:nth-child(odd) { border-right: 1px solid var(--v2-border-subtle); }
+[data-ui-version="v2"] .v2-court-result-action:last-child,
+[data-ui-version="v2"] .v2-court-result-action:nth-last-child(2):nth-child(odd) { border-bottom: 0; }
+[data-ui-version="v2"] .v2-court-result-footnotes {
+  margin-top: var(--v2-space-10);
+  padding-top: var(--v2-space-4);
+  border-top: 1px solid var(--v2-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: var(--v2-space-3);
+}
+[data-ui-version="v2"] .v2-court-result-footnote {
+  margin: 0;
+  font-family: var(--v2-font-ui);
+  font-size: 0.6875rem;
+  line-height: 1.55;
+  color: var(--v2-text-muted);
+  max-width: 78ch;
+}
+@media (max-width: 720px) {
+  [data-ui-version="v2"] .v2-court-result-section { margin-top: var(--v2-space-8); }
+  [data-ui-version="v2"] .v2-court-result-actions-grid { grid-template-columns: minmax(0, 1fr); }
+  [data-ui-version="v2"] .v2-court-result-action:nth-child(odd) { border-right: 0; }
+  [data-ui-version="v2"] .v2-court-result-action:nth-last-child(2):nth-child(odd) { border-bottom: 1px solid var(--v2-border-subtle); }
+  [data-ui-version="v2"] .v2-court-result-aside { display: none; }
 }

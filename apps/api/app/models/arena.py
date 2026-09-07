@@ -176,6 +176,31 @@ class ArenaMatchView(BaseModel):
     #: "the clock I am on" and "the clock somebody is on" drive different UI and
     #: several surfaces correctly render nothing when the first is null.
     turn_seconds_remaining: Optional[float] = None
+    #: THE OPEN TURN'S IDENTITY AND ITS OWN TIMELINE, published to every seat.
+    #:
+    #: Game-feel reconstruction: a client that animates a phase (the pre-match
+    #: intro, the franchise x decade reveal, a turn clock) must render against
+    #: the SERVER's timeline, not against a browser timer that started when the
+    #: response happened to land. `turn_seq` keys the animation to one exact
+    #: turn (a reconnect mid-phase resumes rather than replays), and
+    #: `turn_elapsed_seconds` / `turn_total_seconds` say how far into that
+    #: phase the server is right now, so two clients that fetched at different
+    #: instants still derive the same stage. `turn_seconds_remaining` above is
+    #: `total - elapsed` and is kept for the surfaces that already read it.
+    turn_seq: Optional[int] = None
+    turn_elapsed_seconds: Optional[float] = None
+    turn_total_seconds: Optional[float] = None
+    #: HOW LONG UNTIL THE BOT ON THE OPEN TURN MAY MOVE, in seconds; None when
+    #: the open turn is not a bot's (a human's, nobody's, a seatless beat).
+    #:
+    #: Bots move lazily: the first authoritative read after their think time
+    #: has elapsed is the one that applies the move. A client polling on a
+    #: fixed cadence therefore saw a bot's reply up to a whole interval late
+    #: on top of the think time, and an auction against an opponent who
+    #: answers five seconds after every raise reads as a frozen page. This
+    #: lets the room schedule ONE read for the instant the reply is due. Zero
+    #: means "due now": the next read will carry the move.
+    bot_reply_in_seconds: Optional[float] = None
     # The highest event seq this seat may see, so a client can poll
     # /events?after_seq=N without guessing.
     latest_event_seq: int = -1

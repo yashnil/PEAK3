@@ -51,7 +51,6 @@ from typing import Optional
 
 from app.repositories.arena_protocols import (
     COMMAND_TYPE_TIMEOUT,
-    MATCH_STATUS_ABANDONED,
     MATCH_STATUS_ACTIVE,
     MATCH_STATUS_COMPLETED,
     TURN_RESOLUTION_ACTION,
@@ -119,115 +118,83 @@ PHASE_PICK = "pick"
 #: rather than an animation a client happens to be part-way through.
 PHASE_REVEAL = "reveal"
 
-#: THE CEREMONY'S LENGTH ON ROUNDS TWO THROUGH SIX, in seconds.
+#: THE CEREMONY'S LENGTH, in seconds -- ONE SHARED BEAT, EVERY ROUND.
 #:
 #: `clock.enforce` charges no action-grace to a turn nobody can act on, so this
-#: is the whole wall-clock duration rather than a floor. Reduced motion does not
-#: shorten it: the ceremony still has to be READ, and cutting the hold would
-#: give a reduced-motion player less time to take in the same information. The
-#: client drops the movement, not the beat.
+#: is the whole wall-clock duration rather than a floor. It is sized for a
+#: short, recurring game beat rather than a cinematic: a round card, the
+#: franchise and decade reels accelerating, decelerating and locking, and a
+#: hold long enough for the settled pair to be read before the pick clock
+#: opens. The roll stays printed on the board and in the pick surface's own
+#: header afterwards, so the hold does not have to carry the whole round.
 #:
-#: Was 3.2s, which had to cover the reel's own ~1.6s of travel AND the hold in
-#: which the answer is actually read. The franchise x decade is the single fact
-#: the entire round is played against and it was on screen, settled, for under
-#: a second and a half before the pick panel opened over it -- players reported
-#: the roll "flashing past". The reveal is now split so the settled pair holds
-#: for ~3.0s on its own.
+#: IT COSTS THE DRAFTER NOTHING. The reveal is its own server turn; the pick
+#: turn is opened afterwards with a FULL `TURN_SECONDS` measured from the
+#: moment the reveal ended (`_open_pick_turn`), so ceremony time is never
+#: decision time.
 #:
-#: IT COSTS THE DRAFTER NOTHING, which is the property that makes lengthening
-#: it safe. The reveal is its own server turn; the pick turn is opened
-#: afterwards with a FULL `TURN_SECONDS` measured from the moment the reveal
-#: ended (`_open_pick_turn`), so ceremony time is never decision time.
-REVEAL_SECONDS = 4.6
+#: IT CANNOT BE SKIPPED, BY ANYONE. The roll is one shared fact revealed to
+#: all three seats at once; a per-seat "skip" put the seats on different
+#: presentations of the same turn (one player watching the reel while another
+#: had already ended it for the table). The whole timeline of a match --
+#: briefing, reveal, pick -- is now server-timed and identical for every
+#: client; clients animate against `turn_elapsed_seconds` and never decide
+#: when a phase ends. See `reduce` for the refused commands.
+#:
+#: 4.0, FROM 3.0 (pre-deploy polish). Three seconds held a 0.55 s round card,
+#: a 1.2 s reel, a 0.3 s lock and about a second of hold, and the round card
+#: was gone before it registered. The client's ceremony now spends the window
+#: as: ROUND card ~1.5 s, an armed beat, the reels, a 0.4 s lock, then a hold
+#: on the pair until this deadline opens the pick turn (`PeakV2TMWReveal`).
+#: Still one shared server window for every seat; nothing per-seat changed.
+REVEAL_SECONDS = 4.0
 
-#: THE CEREMONY'S LENGTH ON ROUND ONE, which also carries the matchup card.
-#:
-#: Round one opens on the match itself -- the title, the three competitors with
-#: the human marked, and the objective -- before the reel. That intro was a 30%
-#: share of a 3.2s window, i.e. under a second: not enough to read three seat
-#: names, let alone the objective. It gets ~4.6s of its own here.
-#:
-#: WHY THIS IS A DIFFERENT CONSTANT RATHER THAN A LONGER `REVEAL_SECONDS`.
-#: Only the first turn of a match runs the intro, and only the first turn is
-#: stamped by `phase_seconds` (matchmaking opens it; the reducer opens every
-#: later round and uses `REVEAL_SECONDS` directly). So the two lengths fall out
-#: of the two code paths that already existed, and no round-number test is
-#: needed anywhere.
-#:
-#: SIZED FOR ITS OWN CONTENT ONLY -- the matchup card plus the reel, nothing
-#: else. A compliance review correctly rejected an earlier version of this
-#: pass that lengthened this constant to 20.0s so the client's pre-match
-#: briefing (`GameIntro`) would not be cut off underneath it: that only
-#: guaranteed safety for a NORMAL read, not for "the dialog is left open
-#: arbitrarily long", which is the actual invariant a pre-game briefing has
-#: to satisfy. The real fix is `PHASE_INTRO` below, a genuinely gating phase
-#: with no bound on how long a player may sit on it; once that exists, this
-#: constant goes back to being purely a presentation-pacing number and is
-#: restored to its original, content-appropriate value.
-OPENING_REVEAL_SECONDS = 9.2
+#: Round one's ceremony window. It used to carry the matchup card as well and
+#: so ran longer; the matchup card is now the briefing phase's own
+#: (`PHASE_INTRO` below), so the opening reveal is the same beat as every
+#: later one. Kept as its own name because `_open_ceremony_turn` is a
+#: different code path from `_commit`, and the two lengths being equal is a
+#: decision rather than a coincidence.
+OPENING_REVEAL_SECONDS = REVEAL_SECONDS
 
-#: THE PRE-MATCH BRIEFING, AS A REAL SERVER TURN -- and the ONLY phase a
-#: match may open on.
+#: THE PRE-MATCH BRIEFING, AS A REAL, SHORT, SERVER-TIMED TURN -- and the ONLY
+#: phase a match may open on.
 #:
-#: THE DEFECT THIS FIXES. `GameIntro` (`ThreeManWeaveGame.tsx`) has no
-#: auto-dismiss by design -- Escape/backdrop/Start/Skip are the only ways it
-#: closes, all player-driven -- so nothing bounds how long a player may sit
-#: on it. An earlier version of this pass lengthened `OPENING_REVEAL_SECONDS`
-#: to 20.0s on the theory that this "comfortably outlasts a normal read".
-#: That is not the invariant a pre-game briefing has to satisfy: the
-#: requirement is that NO length of time spent reading it -- one second,
-#: twenty, sixty, an idle tab left open for arbitrarily long -- may consume
-#: any of it. A longer fixed window is safe for the median player and wrong
-#: for exactly the player this component exists to protect.
+#: WHAT IT IS. When the last seat is filled the match enters this phase
+#: (`initial_phase`) for `INTRO_SECONDS`: the title card, the three seats with
+#: the viewer marked, the objective. It belongs to no seat, accepts no command
+#: from anybody (human or bot) and ends on its OWN deadline by opening round
+#: one's ceremony (`_open_ceremony_turn`), exactly the way the ceremony's own
+#: end opens the pick turn. Every client renders the same phase against the
+#: same server clock (`turn_elapsed_seconds`), so three players enter the
+#: match together rather than each on their own dismissal.
 #:
-#: THE FIX IS THE SAME PATTERN `PHASE_REVEAL` ALREADY ESTABLISHES, applied
-#: one layer earlier: a real turn, in its own phase, belonging to no seat,
-#: accepting no command from anybody. `initial_phase()` now opens every
-#: match here instead of directly on `PHASE_REVEAL` -- round one's ceremony
-#: (and by extension every later round, and every pick turn) cannot begin
-#: until this phase ends, by an explicit `COMMAND_SKIP_INTRO` or by its own
-#: (very long -- see `INTRO_SECONDS`) timeout. Because nothing downstream can
-#: open until this phase closes, no human pick deadline can ever be created
-#: while a player is legitimately still on it, for any duration -- including
-#: past this phase's own backstop timeout (see `INTRO_SECONDS` and
-#: `_abandon_match`): that timeout ends the MATCH, not the phase, so it can
-#: never be the thing that opens the ceremony a player never asked for.
+#: WHAT IT REPLACED. The briefing used to be a client dialog with a
+#: "Enter the draft room" button that sent `tmw_skip_intro`, which ended the
+#: phase for the whole table on ONE player's click while the other two were
+#: still reading -- the players were no longer entering the match together.
+#: Because the dialog had no auto-dismiss, the phase then needed a 30-minute
+#: backstop that ABANDONED the match rather than advancing it. A timed phase
+#: needs neither: nothing waits on a click, so nothing can be stranded on one.
+#:
+#: WHY THE TIMEOUT ADVANCES HERE (unlike the old backstop). Reaching this
+#: phase's deadline no longer means "nobody is here"; it means the briefing
+#: has been shown. Advancing is the same safe transition the ceremony's own
+#: timeout already makes, and the pick clock that eventually follows is still
+#: opened with a full window measured from the END of the reveal, never from
+#: match creation.
 PHASE_INTRO = "intro"
 
-#: HOW LONG THE INTRO PHASE MAY RUN BEFORE THE MATCH IS ABANDONED.
-#:
-#: NOT a reading-time budget -- `COMMAND_SKIP_INTRO` is what a real player
-#: uses to end it, the instant they dismiss the dialog, so a fast reader
-#: never waits out this number. This is purely the "the tab was abandoned
-#: entirely, nobody is ever coming back to click anything" backstop every
-#: other phase in this mode already has (`REVEAL_SECONDS`, `TURN_SECONDS`),
-#: sized far beyond any plausible reading time -- including someone who
-#: walks away mid-read for a couple of minutes -- specifically so it can
-#: never be mistaken for the reading-time protection mechanism. That
-#: mechanism is the phase's existence, not its length.
-#:
-#: WHAT FIRING IT DOES IS DIFFERENT FROM EVERY OTHER PHASE'S TIMEOUT, ON
-#: PURPOSE. `REVEAL_SECONDS`/`TURN_SECONDS` timing out ADVANCES the match --
-#: that is safe there because a player who is genuinely still reading the
-#: ceremony dismisses it long before its own timeout, so reaching it means
-#: the match is meant to move on. The intro has no such floor: GameIntro
-#: has no auto-dismiss, so a still-open browser tab can sit on `PHASE_INTRO`
-#: indefinitely with nobody having done anything wrong. Advancing to
-#: `PHASE_REVEAL` on this timeout -- the very bug this phase exists to
-#: close -- would silently start the ceremony, and from there the pick
-#: clock, behind a briefing dialog nobody dismissed. So this timeout
-#: `_abandon_match`s instead: `MATCH_STATUS_ABANDONED`, no open turn, no
-#: further command ever accepted (`apply_command` refuses anything against
-#: a `TERMINAL_MATCH_STATUSES` match before a reducer runs) -- the same
-#: "cannot silently progress" guarantee every other terminal status here
-#: already gets, applied to the one phase where "keep going" is unsafe.
-INTRO_SECONDS = 1800.0
+#: How long the briefing is on screen. T0 -> T0 + INTRO_SECONDS, then the
+#: round-one ceremony. Short enough to read once and not resent on the tenth
+#: match; long enough that three seat names and one objective line are
+#: actually legible.
+INTRO_SECONDS = 4.0
 
-#: The command a client sends to end the pre-match briefing early. See
-#: `_reduce_skip_intro`.
+#: FORMER client commands, kept as names so a stale client is refused with a
+#: specific reason rather than "unknown command". Neither is accepted from
+#: any seat any more -- see `REJECT_SHARED_TIMELINE` and `reduce`.
 COMMAND_SKIP_INTRO = "tmw_skip_intro"
-
-#: The command a client sends to end the ceremony early. See `_reduce_skip_reveal`.
 COMMAND_SKIP_REVEAL = "tmw_skip_reveal"
 
 COMMAND_PICK = "tmw_pick"
@@ -255,6 +222,9 @@ REJECT_BAD_PAYLOAD = "bad_payload"
 REJECT_NO_LEGAL_PICK = "no_legal_pick"
 REJECT_NO_FEASIBLE_ROLL = "no_feasible_roll"
 REJECT_VERSION_MISMATCH = "ruleset_version_mismatch"
+#: A seat tried to end a shared, server-timed phase (the briefing or the
+#: ceremony) early. The match timeline is one object for the whole table.
+REJECT_SHARED_TIMELINE = "shared_timeline"
 
 
 class ThreeManWeaveMode:
@@ -280,9 +250,9 @@ class ThreeManWeaveMode:
 
     def initial_phase(self) -> str:
         # EVERY match opens on the pre-match briefing, never directly on the
-        # ceremony -- see `PHASE_INTRO`. `_reduce_skip_intro`/its own timeout
-        # is what opens round one's `PHASE_REVEAL`, exactly the way the
-        # ceremony's own end already opens the pick turn.
+        # ceremony -- see `PHASE_INTRO`. Its own timeout is what opens round
+        # one's `PHASE_REVEAL`, exactly the way the ceremony's own end opens
+        # the pick turn.
         return PHASE_INTRO
 
     def phase_seconds(self, phase: str) -> float:
@@ -299,8 +269,8 @@ class ThreeManWeaveMode:
         where the pre-match briefing (`PHASE_INTRO`) and the opening
         ceremony's own window are both looked up: they are the only phases
         matchmaking ever opens directly. Every later round is opened by
-        `_reduce_pick`/`_reduce_skip_intro`/`_reduce_skip_reveal` with their
-        own constant.
+        `_commit` (a round boundary) or by the intro's own timeout
+        (`_open_ceremony_turn`) with their own constant.
         """
         if phase == PHASE_INTRO:
             return INTRO_SECONDS
@@ -408,24 +378,29 @@ class ThreeManWeaveMode:
         in_intro = data.open_turn is not None and data.open_turn.phase == PHASE_INTRO
 
         if command.command_type == COMMAND_TYPE_TIMEOUT:
-            # A TIMEOUT ON THE BRIEFING IS NOT THE BRIEFING ENDING -- unlike
-            # every other phase in this mode, nothing safe follows it. See
-            # `INTRO_SECONDS`/`_abandon_match`: this is the "nobody is ever
-            # coming back" backstop, so it ends the MATCH, never the phase --
-            # it must never be the thing that opens the ceremony, or the pick
-            # clock behind it, for a briefing nobody dismissed. Handled first,
-            # before the (pre-existing) reveal check below, since a match can
-            # be in only one of the two seatless phases at a time.
+            # A TIMEOUT ON THE BRIEFING IS THE BRIEFING ENDING: it opens round
+            # one's ceremony with a full window measured from this instant.
+            # See `PHASE_INTRO` for why this is now the same safe transition
+            # the ceremony's own expiry makes. Handled first, before the
+            # reveal check below, since a match can be in only one of the two
+            # seatless phases at a time.
             if in_intro:
-                return self._abandon_match(data, state)
+                return self._open_ceremony_turn(data, state)
             # A timeout ON THE CEREMONY is not a forfeit -- it is the ceremony
             # ending. Handled before `_reduce_timeout`, which would otherwise
             # auto-pick for a seat that has not been given its turn yet.
             if data.open_turn is not None and data.open_turn.phase == PHASE_REVEAL:
                 return self._open_pick_turn(data, state)
             return self._reduce_timeout(data, state)
-        if command.command_type == COMMAND_SKIP_INTRO:
-            return self._reduce_skip_intro(data, state)
+        if command.command_type in (COMMAND_SKIP_INTRO, COMMAND_SKIP_REVEAL):
+            # THE TIMELINE IS SHARED. No seat may end the briefing or the
+            # ceremony for the table; both phases end on their own server
+            # deadline for every client at once. Refused with a specific
+            # code so a stale client can say why rather than "unknown".
+            return _reject(
+                REJECT_SHARED_TIMELINE,
+                "The match timeline is shared by every seat and cannot be skipped.",
+            )
         # NOBODY ACTS UNDER THE BRIEFING, human or bot -- the bot driver is
         # also stopped upstream by `phase_accepts_action`; this is the rule
         # itself, so a command that arrives by any other route is refused
@@ -461,8 +436,6 @@ class ThreeManWeaveMode:
                     "The franchise and decade are still being revealed.",
                 )
             return self._reduce_stage_pick(data, state)
-        if command.command_type == COMMAND_SKIP_REVEAL:
-            return self._reduce_skip_reveal(data, state)
         if command.command_type == COMMAND_REARRANGE:
             return self._reduce_rearrange(data, state)
         return _reject(
@@ -772,45 +745,14 @@ class ThreeManWeaveMode:
             status=MATCH_STATUS_ACTIVE,
         )
 
-    def _reduce_skip_intro(
-        self, data: ReducerInput, state: D.DraftState
-    ) -> ReducerOutput:
-        """End the pre-match briefing NOW, on a player's say-so.
-
-        THE AUTHORITATIVE HALF OF THE FIX. `ThreeManWeaveGame.tsx`'s
-        `GameIntro` closes on Start, Skip, Escape or a backdrop click -- all
-        of them call this the instant the dialog closes, for whichever seat
-        closed it. Nothing about the ceremony or the pick turn can begin
-        before this runs at least once (see `initial_phase`), so however long
-        a player sits on the dialog, no clock anywhere in the match was
-        running during that time.
-
-        IT ENDS THE BRIEFING FOR THE TABLE, the same choice `_reduce_skip_
-        reveal` already makes for the ceremony and for the same reason: the
-        briefing is one shared fact shown to all three seats at once (a
-        practice match's two bot seats have no dialog to dismiss, so a human
-        seat closing it is the only way this phase ever ends before its own
-        backstop timeout), and a per-seat version would put seats on
-        different clocks for a phase that precedes anyone's turn.
-        """
-        if data.open_turn is None or data.open_turn.phase != PHASE_INTRO:
-            return _reject(
-                REJECT_NOT_YOUR_TURN,
-                "There is no briefing to skip.",
-            )
-        return self._open_ceremony_turn(data, state)
-
     def _open_ceremony_turn(self, data: ReducerInput, state: D.DraftState) -> ReducerOutput:
         """End the briefing and open round one's ceremony with a FULL window.
 
-        REACHED ONLY BY A PLAYER'S OWN SAY-SO (`_reduce_skip_intro`) -- the
-        intro's own backstop timeout does NOT reach this; see
-        `_abandon_match`. `data.now` is therefore always the instant a real
-        player actually dismissed the briefing, so the ceremony's
-        `OPENING_REVEAL_SECONDS` window is measured from THIS moment, never
-        from match creation. The reel and matchup card therefore always get
-        their full, undiminished presentation regardless of how long the
-        briefing itself was up.
+        REACHED ONLY BY THE BRIEFING'S OWN DEADLINE (its timeout, swept by the
+        foundation's clock). `data.now` is the instant the sweep fired, so the
+        ceremony's `OPENING_REVEAL_SECONDS` window is measured from THIS
+        moment, never from match creation, and every client sees the same
+        transition at the same server instant.
 
         The snapshot is unchanged: the briefing ending is a clock transition,
         not a game event. Round one's roll already exists (drawn at match
@@ -830,82 +772,6 @@ class ThreeManWeaveMode:
             ),
             status=MATCH_STATUS_ACTIVE,
         )
-
-    def _abandon_match(self, data: ReducerInput, state: D.DraftState) -> ReducerOutput:
-        """The intro's own backstop timeout fires: end the MATCH, not the phase.
-
-        See `INTRO_SECONDS` for why this differs from every other phase's
-        timeout in this mode. Reaching this means the briefing has been open
-        for 1800 seconds with nobody -- not one of however many human seats
-        this match has -- ever sending `COMMAND_SKIP_INTRO`. That is not "a
-        slow reader"; `COMMAND_SKIP_INTRO` costs nothing and fires the moment
-        `GameIntro` closes for ANY seat (`_reduce_skip_intro`), so a table
-        with even one attentive human never reaches this. It is the "tab
-        abandoned entirely" case the docstring on `INTRO_SECONDS` names, and
-        the only safe response to it is to stop, not to advance: opening the
-        ceremony here would start it -- and, once ITS OWN timeout later
-        fires, the pick clock after it -- behind a briefing dialog nobody
-        ever dismissed, which is the exact defect `PHASE_INTRO` exists to
-        close.
-
-        `MATCH_STATUS_ABANDONED` (not `MATCH_STATUS_COMPLETED`): nothing was
-        ever played -- no roster holds a pick, there is no scoreline to
-        settle -- so there is nothing to score a receipt for, unlike a
-        mid-draft forfeit. `open_turn=None` leaves no turn to time out again;
-        `apply_command` refuses every command against a
-        `TERMINAL_MATCH_STATUSES` match before any reducer runs, so no
-        further state change of any kind -- pick, rearrange, another
-        timeout -- reaches this match again. The snapshot itself is
-        untouched (still zero picks, still round one's original roll): this
-        is a clock verdict, not a game event, so there is nothing to narrate
-        and no roster to rewrite.
-        """
-        return ReducerOutput(
-            accepted=True,
-            snapshot=self._to_snapshot(state),
-            events=(),
-            resolve_turn=TURN_RESOLUTION_TIMEOUT,
-            open_turn=None,
-            status=MATCH_STATUS_ABANDONED,
-        )
-
-    def _reduce_skip_reveal(
-        self, data: ReducerInput, state: D.DraftState
-    ) -> ReducerOutput:
-        """End the ceremony NOW, on a player's say-so.
-
-        WHY THE PRODUCT NEEDS IT. The reveal is deliberately long enough to be
-        read -- an intro that cannot be read is not an intro. A returning player
-        has read it, and making them sit through it every match is the reason
-        skippable intros exist at all.
-
-        WHY IT IS A SERVER COMMAND AND NOT A CLIENT DISMISS. The ceremony is a
-        real turn with a real deadline, and the pick turn does not open until it
-        ends. A client that merely hid the overlay would show a player a board
-        they still could not act on, with a "Draft now" button that drafts
-        nothing -- the exact class of client/server disagreement the reveal
-        phase was introduced to remove.
-
-        WHAT IT DOES NOT GRANT. It calls `_open_pick_turn`, the same path the
-        ceremony's own expiry takes, so the pick deadline is `data.now +
-        TURN_SECONDS`. Skipping therefore buys the drafter no extra decision
-        time -- it only stops spending real time on an animation -- and it
-        cannot be used to shorten anybody's clock, because it cannot run once
-        the pick turn is open.
-
-        IT ENDS THE CEREMONY FOR THE TABLE, which is correct rather than
-        merely convenient: the roll is one shared fact revealed to all three
-        seats at once, and the alternative (a per-seat reveal) would put seats
-        on different clocks for the same turn. Any seated participant may call
-        it; there is nothing to gain by calling it early, since the seat that
-        picks first is decided by the draft order and not by this.
-        """
-        if data.open_turn is None or data.open_turn.phase != PHASE_REVEAL:
-            return _reject(
-                REJECT_NOT_YOUR_TURN,
-                "There is no reveal to skip.",
-            )
-        return self._open_pick_turn(data, state)
 
     def _open_pick_turn(self, data: ReducerInput, state: D.DraftState) -> ReducerOutput:
         """End the ceremony and hand the first seat a FULL decision window.
@@ -1127,7 +993,7 @@ class ThreeManWeaveMode:
             # Repositioning your own roster is legal whenever the match is
             # live, on or off the clock -- it takes nothing from anybody.
             # `match.is_live()` (not just `state.is_complete`) gates this: an
-            # ABANDONED match (see `_abandon_match`) leaves the snapshot
+            # ABANDONED match (the foundation's own status) leaves the snapshot
             # completely untouched -- still round one's original roll, still
             # zero picks made -- so `state.is_complete` alone would not catch
             # it, and a stale client would be told a pick was legal for a

@@ -99,6 +99,11 @@ export interface PeakV2CourtSlotCardProps {
   slot: CourtSlotPublic;
   isPendingTarget?: boolean;
   onClick?: () => void;
+  /** This slot's own placement request is in flight. */
+  pending?: boolean;
+  /** Another slot's request is in flight: still a real button, just
+   *  disabled -- never a dead element a click falls through. */
+  inert?: boolean;
   pendingFit?: RoleFit;
   pendingFitSeverity?: FitSeverity | null;
   pendingPrimaryPosition?: string | null;
@@ -113,6 +118,8 @@ export default function PeakV2CourtSlotCard({
   slot,
   isPendingTarget,
   onClick,
+  pending = false,
+  inert = false,
   pendingFit,
   pendingFitSeverity,
   pendingPrimaryPosition,
@@ -324,7 +331,7 @@ export default function PeakV2CourtSlotCard({
   // So the hint is now purely the ACTION, and fit is carried by the two
   // channels that already exist and do not need reading: the slot's own border
   // tier (`court-slot-pending-{strong,stretch,weak}`) and the single badge.
-  const pendingHint = "Place here";
+  const pendingHint = pending ? "Placing…" : "Place here";
   const body = (
     <PeakV2CourtSlot
       position={SLOT_LABELS[slot.slot_type] ?? slot.slot_type}
@@ -445,7 +452,16 @@ export default function PeakV2CourtSlotCard({
 
   if (clickable) {
     return (
-      <button type="button" {...sharedAttrs} onClick={onClick} className={`flex w-full flex-col gap-1 text-left ${fixedHeightClass}`}>
+      <button
+        type="button"
+        {...sharedAttrs}
+        onClick={onClick}
+        disabled={inert}
+        aria-busy={pending || undefined}
+        data-state={pending ? "pending" : inert ? "inert" : "ready"}
+        className={`flex w-full flex-col gap-1 text-left ${fixedHeightClass}`}
+        style={pending ? { opacity: 0.85, cursor: "progress" } : inert ? { cursor: "wait" } : undefined}
+      >
         {body}
         {fitCaption}
         {pendingBadge}

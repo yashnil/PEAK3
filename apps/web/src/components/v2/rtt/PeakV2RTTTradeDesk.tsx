@@ -47,12 +47,13 @@ import {
   tradeOutgoing,
 } from "@/lib/run-the-table-state";
 import { bossRelevanceSentence, creditsForegoneSentence, nodeTypeCopy } from "@/lib/run-the-table-copy";
-import PeakV2LiveHeader from "../PeakV2LiveHeader";
+import PeakV2RTTDecisionHead from "./PeakV2RTTDecisionHead";
+import PeakV2RTTCoach from "./PeakV2RTTCoach";
+import GameActionButton from "@/components/game-feel/GameActionButton";
 import PeakV2PlayerIdentity from "../PeakV2PlayerIdentity";
 import PeakV2Score from "../PeakV2Score";
 import PeakV2DataLane from "../PeakV2DataLane";
 import PeakV2Rule from "../PeakV2Rule";
-import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
 import PeakV2SecondaryAction from "../PeakV2SecondaryAction";
 import { v2ToneVar } from "../v2-tone";
 import type { V2ComponentTone, V2Tone } from "../v2-tone";
@@ -86,8 +87,11 @@ interface Props {
   node: ActiveNode;
   credits: number;
   busy: boolean;
-  onTrade: (outgoingSlotId: string, incomingCardId: string, netCost: number) => void;
-  onDecline: () => void;
+  onTrade: (outgoingSlotId: string, incomingCardId: string, netCost: number) => Promise<unknown>;
+  onDecline: () => Promise<unknown>;
+  act?: number;
+  stage?: number;
+  stagesPerAct?: number;
   /** The current act's Scout & Prepare report, if taken — same payoff as
    *  `PeakV2RTTDraftRoom`/legacy `TradeDesk`: an incoming card whose
    *  strongest lane counters the scouted weakness gets the "Scouted: hits
@@ -200,6 +204,9 @@ export default function PeakV2RTTTradeDesk({
   onTrade,
   onDecline,
   scoutIntel = null,
+  act,
+  stage,
+  stagesPerAct,
 }: Props) {
   const incoming = tradeIncoming(node);
   const outgoing = tradeOutgoing(node);
@@ -226,14 +233,17 @@ export default function PeakV2RTTTradeDesk({
   }
 
   return (
-    <div data-testid="rtt-trade-desk">
-      <PeakV2LiveHeader title="Trade Desk" subtitle={node.summary} as="h1" />
-      {/* Plain-language layer from `run-the-table-copy`, not invented here,
-          so this cannot drift from the one the node picker and the tour
-          show — same source the legacy component reads. */}
-      <p className="mt-2" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.75rem", color: "var(--v2-text-muted)" }}>
-        {nodeTypeCopy("trade_desk").consequence}
-      </p>
+    <div data-testid="rtt-trade-desk" className="rtt-trade">
+      <PeakV2RTTDecisionHead
+        eyebrow={act ? `Act ${act} · Stop ${stage} of ${stagesPerAct} · Trade Desk` : "Trade Desk"}
+        title={review ? `${review.outgoing.card.player_name} out, ${review.incoming.player_name} in?` : "Make a trade, or stand pat."}
+        context={review ? `Net ${review.net} credits.` : node.summary}
+        aside={<PeakV2RTTCoach coach="first_choice" active={review === null} />}
+      />
+      <details className="rtt-perk-rule rtt-trade-rule">
+        <summary>How refunds work</summary>
+        <span>{nodeTypeCopy("trade_desk").consequence}</span>
+      </details>
 
       <div className="mt-4 grid gap-8 sm:grid-cols-2">
         {/* ---- Step 1 — who leaves --------------------------------------- */}
@@ -495,16 +505,18 @@ export default function PeakV2RTTTradeDesk({
         )}
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <PeakV2PrimaryAction
+          <GameActionButton
             size="sm"
+            data-testid="rtt-trade-confirm"
             disabled={busy || !canConfirm}
-            onClick={() => {
-              if (!review || !canConfirm) return;
-              onTrade(review.outgoing.slot_id, review.incoming.card_id, review.net);
+            pendingLabel="Trading…"
+            onAction={() => {
+              if (!review || !canConfirm) return Promise.resolve(null);
+              return onTrade(review.outgoing.slot_id, review.incoming.card_id, review.net);
             }}
           >
             Confirm trade
-          </PeakV2PrimaryAction>
+          </GameActionButton>
           <PeakV2SecondaryAction
             size="sm"
             disabled={busy || (pickedIn === null && pickedOut === null)}
@@ -517,9 +529,9 @@ export default function PeakV2RTTTradeDesk({
 
       {node.can_decline ? (
         <div className="mt-4">
-          <PeakV2SecondaryAction data-testid="rtt-trade-decline" disabled={busy} onClick={onDecline}>
+          <GameActionButton variant="secondary" size="sm" data-testid="rtt-trade-decline" disabled={busy} pendingLabel="Declining…" onAction={onDecline}>
             Decline · stand pat
-          </PeakV2SecondaryAction>
+          </GameActionButton>
         </div>
       ) : null}
     </div>

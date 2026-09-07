@@ -17,13 +17,9 @@ import PeakV2CourtPanel from "../PeakV2CourtPanel";
 import PeakV2CourtSlot from "../PeakV2CourtSlot";
 import type { ArenaSeatPublic, TmwEdgeBand, TmwRoster, TmwSlotType } from "@/types/three-man-weave";
 import { TMW_STARTER_SLOTS, TMW_SLOT_LABELS, TMW_SLOT_TYPES } from "@/types/three-man-weave";
-import { useEffect, useRef, useState } from "react";
 import { TMW_EDGE_LABELS, benchSlots, positionsLine } from "@/lib/three-man-weave-state";
-
-/** The pick-lock beat, inside the V2 motion contract's card-lock band
- *  (150-300ms). Purely presentational: nothing waits on it, and the next
- *  server action is never gated behind it. */
-const PICK_LOCK_MS = 240;
+import { useArrivals } from "@/lib/game-feel/arrivals";
+import { TurnClock } from "@/components/game-feel";
 
 const AREA: Record<(typeof TMW_STARTER_SLOTS)[number], string> = {
   PG: "pg",
@@ -42,6 +38,9 @@ export interface PeakV2TMWCourtProps {
   isOnTurn: boolean;
   edge?: TmwEdgeBand | null;
   lit: boolean;
+  /** The open turn's clock, rendered ON this court while it is on the clock
+   *  -- the same depleting `TurnClock` for the viewer, a rival or a bot. */
+  clock?: { deadlineAt: number | null; totalSeconds: number } | null;
   /**
    * Between-turn rearrangement (Pass 4, TMW-10 ported to V2) — only ever
    * passed for the viewer's OWN court; the other two stay read-only, same
@@ -79,6 +78,7 @@ export default function PeakV2TMWCourt({
   isOnTurn,
   edge,
   lit,
+  clock = null,
   interactive = false,
   rearrangeEligible = interactive,
   pickedUpSlot = null,
@@ -90,36 +90,14 @@ export default function PeakV2TMWCourt({
   const name = seat?.display_name ?? `Seat ${roster.seat_index + 1}`;
   const filled = Object.values(roster.slots).filter(Boolean).length;
 
-  // PICK LOCK: which slot just became occupied, for one short beat.
-  //
-  // Derived by diffing the roster this render against the roster last
-  // render — so it fires on a REAL state change (the server's pick landing
-  // in the snapshot) and never on a timer. `justLocked` clears itself after
-  // the beat, so a re-render for any other reason cannot replay it, and a
-  // slot that merely changed occupant during a rearrange is not a new pick.
-  const previousSlots = useRef<Record<string, string | null>>({});
-  const [justLocked, setJustLocked] = useState<TmwSlotType | null>(null);
-  const currentKeys = TMW_SLOT_TYPES.map((t) => `${t}:${roster.slots[t]?.player_slug ?? ""}`).join("|");
-
-  useEffect(() => {
-    const prev = previousSlots.current;
-    const next: Record<string, string | null> = {};
-    let arrived: TmwSlotType | null = null;
-    for (const slotType of TMW_SLOT_TYPES) {
-      const slug = roster.slots[slotType]?.player_slug ?? null;
-      next[slotType] = slug;
-      // Only an EMPTY -> FILLED transition is a pick arriving. A swap
-      // between two occupied slots is a rearrangement, not a draft.
-      if (slug && prev[slotType] === null) arrived = slotType;
-    }
-    const isFirstRender = Object.keys(prev).length === 0;
-    previousSlots.current = next;
-    if (isFirstRender || !arrived) return;
-    setJustLocked(arrived);
-    const id = window.setTimeout(() => setJustLocked(null), PICK_LOCK_MS);
-    return () => window.clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentKeys]);
+  // PICK LOCK / SWAP BEAT: which slots just changed, from the real roster
+  // diff (`useArrivals`) -- the shared beat every court in the Arena uses.
+  // Fires on the server's pick landing in the snapshot, never on a timer.
+  const occupants: Record<string, string | null> = {};
+  for (const slotType of TMW_SLOT_TYPES) occupants[slotType] = roster.slots[slotType]?.player_slug ?? null;
+  const beat = useArrivals(occupants);
+  const lockOf = (slotType: TmwSlotType): "arrived" | "swapped" | undefined =>
+    beat.arrived.includes(slotType) ? "arrived" : beat.swapped.includes(slotType) ? "swapped" : undefined;
   const bench = benchSlots(roster);
   const moving = pickedUpSlot !== null;
   const legal = new Set(legalTargets);
@@ -196,6 +174,21 @@ export default function PeakV2TMWCourt({
         </p>
       ) : null}
 
+      {/* THE TURN CLOCK, ON THE COURT THAT IS ON IT. Every seat gets the same
+          moving, depleting treatment -- the room no longer goes visually
+          dead while a bot or a rival deliberates. */}
+      {clock && isOnTurn ? (
+        <TurnClock
+          deadlineAt={clock.deadlineAt}
+          totalSeconds={clock.totalSeconds}
+          owner={turnOwner}
+          label={turnOwner === "you" ? "Your pick" : turnOwner === "bot" ? "Thinking" : "Choosing"}
+          size="sm"
+          testId={`tmw-seat-clock-${roster.seat_index}`}
+          className="w-full"
+        />
+      ) : null}
+
       <div
         className="grid gap-2"
         style={{
@@ -206,7 +199,7 @@ export default function PeakV2TMWCourt({
         {TMW_STARTER_SLOTS.map((slot) => {
           const pick = roster.slots[slot] ?? null;
           return (
-            <div key={slot} style={{ gridArea: AREA[slot] }} data-locking={justLocked === slot ? "true" : undefined}>
+            <div key={slot} style={{ gridArea: AREA[slot] }} data-gf-lock={lockOf(slot)}>
               <PeakV2CourtSlot
                 position={slot}
                 player={pick ? { name: pick.player_name, meta: `${pick.scoring_card ? `${pick.scoring_card.season} ${pick.scoring_card.team_id}` : "—"} · ${positionsLine(pick)}` } : undefined}
@@ -241,7 +234,7 @@ export default function PeakV2TMWCourt({
               (design-review/14), which made the single most under-rated
               decision in the draft look like an afterthought. */}
           {bench.map(({ slotType, pick }) => (
-            <div key={slotType} data-locking={justLocked === slotType ? "true" : undefined}>
+            <div key={slotType} data-gf-lock={lockOf(slotType)}>
             <PeakV2CourtSlot
               position={TMW_SLOT_LABELS[slotType]}
               bench

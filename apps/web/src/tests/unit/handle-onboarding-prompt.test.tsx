@@ -182,6 +182,9 @@ describe("during a live Arena match", () => {
     "/play/daily",
     "/play/endless",
     "/daily/grid",
+    // Final polish pass: a run in progress is a live board on its own route.
+    "/arena/run-the-table",
+    "/arena/run-the-table?seed=11",
   ]) {
     it(`stays hidden on ${route}`, async () => {
       mockPathname = route;

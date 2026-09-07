@@ -27,7 +27,14 @@ const TOTAL_ROUNDS = 8;
 // known cost from a deliberate product change, so every test that plays a
 // full TOTAL_ROUNDS-round draft calls `test.setTimeout(FULL_DRAFT_TIMEOUT_MS)`
 // as its first line.
-const FULL_DRAFT_TIMEOUT_MS = 60_000;
+//
+// Final polish (82-0 pacing): the round card now holds the reels for 1.5s
+// before every round's spin (COURT_PACING.ROUND_REVEAL_MS) and the outcome
+// absorbs 150ms longer before the list opens, so a full draft carries
+// ~13s more of deliberate, product-owned time; the intro before round 1
+// (COURT_PACING.INTRO_MS, 3.4s) is waited out by `beginRun` itself. 90s
+// keeps the same slack the 60s budget had over the old ~29s draft.
+const FULL_DRAFT_TIMEOUT_MS = 90_000;
 
 /** Play one full round: select the first candidate, place into the first
  * open slot. The select click still races its network response via
@@ -135,6 +142,18 @@ async function beginRun(page: Page): Promise<void> {
   ]);
   await expect(page.locator('[data-testid="court-builder"]')).toBeVisible({ timeout: 15_000 });
   await page.locator('[data-testid="court-slot"]').first().waitFor({ state: "visible", timeout: 15_000 });
+  await waitForOpeningIntro(page);
+}
+
+/** Final polish (82-0 pacing): a FRESHLY CREATED run opens with the 82-0
+ * intro (`PeakV2CourtIntro`, COURT_PACING.INTRO_MS = 3.4s; ~0.6s under
+ * reduced motion) before the round-1 chooser mounts. It is presentation
+ * only -- no server call, no state -- and every timing assertion in this
+ * suite is about what happens AFTER it: the reel, the lock, the list. So
+ * "the board is ready" means the intro has left. A resumed run (`?game=`)
+ * never shows it, which `toHaveCount(0)` also satisfies immediately. */
+async function waitForOpeningIntro(page: Page): Promise<void> {
+  await expect(page.locator('[data-testid="court-intro"]')).toHaveCount(0, { timeout: 15_000 });
 }
 
 /**
@@ -246,7 +265,12 @@ test.describe("CourtBuilder full attempt", () => {
     expect(page.url()).toBe(finishedGameUrl);
     await expect(page.locator('[data-testid="season-result"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid="spin-stage"]')).toHaveAttribute("data-phase", "revealed", { timeout: 5_000 });
+    // A new run opens with the intro (final polish), then its own round-1
+    // card and ceremony -- the ceremony budget below is measured from the
+    // intro leaving, same as `beginRun`.
+    await expect(page.locator('[data-testid="court-intro"]')).toBeVisible();
+    await waitForOpeningIntro(page);
+    await expect(page.locator('[data-testid="spin-stage"]')).toHaveAttribute("data-phase", "revealed", { timeout: 8_000 });
     const roundText = await page.locator('[data-testid="spin-stage"]').getByText(/Round 1 \/ 8/).count();
     expect(roundText).toBeGreaterThan(0);
   });
@@ -2677,8 +2701,15 @@ test.describe("W5: spin reveal polish", () => {
   });
 
   test("both reels produce a detent tick, and the ceremony stays inside its timing budget", async ({ page }) => {
-    const started = Date.now();
     await startCourtBuilder(page);
+    // The clock starts once the board is ready, not at navigation. The final
+    // polish pass deliberately put the 82-0 intro (COURT_PACING.INTRO_MS,
+    // 3.4s) in front of the reel, and page start-up on a loaded runner sits on
+    // top of that: CI measured 12,032ms from `goto` against the old 12,000ms
+    // ceiling (PR #26 run 34148299440) with the ceremony itself unchanged.
+    // This budget is about the CEREMONY, so it is measured from the moment
+    // `startCourtBuilder` returns (intro gone, board mounted).
+    const started = Date.now();
     const stage = page.locator('[data-testid="spin-stage"]');
     await expect(stage).toHaveAttribute("data-phase", "revealed", { timeout: 5_000 });
 
@@ -2706,10 +2737,11 @@ test.describe("W5: spin reveal polish", () => {
     // detenting twice, which is the stutter the derived-from-state-machine
     // design exists to prevent; `<= 1` means a reel snapped without its beat.
     expect(ticks, "each reel must contribute exactly one detent tick").toBe(2);
-    // The reveal must not have grown: SPIN_MS + LOCK_MS + COUNT_MS is ~2.77s,
-    // and page start-up is included in this measurement, so 12s is a generous
-    // ceiling that still fails loudly if someone doubles the ceremony.
-    expect(Date.now() - started).toBeLessThan(12_000);
+    // The reveal must not have grown: the round card (COURT_PACING, 1.5s) plus
+    // SPIN_MS + LOCK_MS + COUNT_MS (~2.77s) plus the reels' own settle is
+    // ~4.5s on a quiet machine, measured from board-ready. 8s leaves room for
+    // a loaded runner and still fails if someone doubles the ceremony.
+    expect(Date.now() - started).toBeLessThan(8_000);
   });
 
   test("the finished roll is announced once, as a complete pair, through one live region", async ({ page }) => {

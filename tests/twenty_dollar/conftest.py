@@ -13,6 +13,7 @@ import pytest
 from nba_peak.twenty_dollar import feasibility, rules
 from nba_peak.twenty_dollar import state as S
 from nba_peak.twenty_dollar.bot import TwentyDollarBot
+from nba_peak.twenty_dollar.config import rank_band
 from nba_peak.twenty_dollar.config import ROSTER_SIZE, SLOTS
 from nba_peak.twenty_dollar.pool import get_pool
 
@@ -85,7 +86,11 @@ def bot_strategy(
     def play(state, seat_index, pool, rng):
         public, private, _ = S.project(state, seat_index, pool)
         if with_tier:
-            private = {**private, "candidate_tier": state.get("current_candidate_tier")}
+            private = {
+                **private,
+                "candidate_tier": state.get("current_candidate_tier"),
+                "candidate_band": rank_band(pool.get(state["current_candidate"]).rank),
+            }
         command, payload = policy.decide(public, private, rng)
         return command, int(payload.get("amount", 0))
 

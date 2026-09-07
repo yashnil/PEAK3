@@ -44,11 +44,12 @@ import {
   sinkUnavailableReason,
 } from "@/lib/run-the-table-copy";
 import { LANE_TOKEN_BY_FIELD, ROLE_LABELS } from "@/lib/run-the-table-state";
-import PeakV2LiveHeader from "../PeakV2LiveHeader";
+import PeakV2RTTDecisionHead from "./PeakV2RTTDecisionHead";
+import PeakV2RTTCoach from "./PeakV2RTTCoach";
+import GameActionButton from "@/components/game-feel/GameActionButton";
 import PeakV2Rule from "../PeakV2Rule";
 import PeakV2PlayerIdentity from "../PeakV2PlayerIdentity";
 import PeakV2Score from "../PeakV2Score";
-import PeakV2SecondaryAction from "../PeakV2SecondaryAction";
 import PeakV2DataLane from "../PeakV2DataLane";
 import { v2ToneVar } from "../v2-tone";
 import type { V2ComponentTone, V2Tone } from "../v2-tone";
@@ -97,9 +98,12 @@ interface Props {
   node: ActiveNode;
   credits: number;
   busy: boolean;
-  onScoutBoss: (lane: LaneField) => void;
-  onShapeMarket: (role: Role) => void;
-  onReserveCard: (cardId: string) => void;
+  onScoutBoss: (lane: LaneField) => Promise<unknown>;
+  onShapeMarket: (role: Role) => Promise<unknown>;
+  onReserveCard: (cardId: string) => Promise<unknown>;
+  act?: number;
+  stage?: number;
+  stagesPerAct?: number;
 }
 
 export default function PeakV2RTTScoutPrepare({
@@ -109,6 +113,9 @@ export default function PeakV2RTTScoutPrepare({
   onScoutBoss,
   onShapeMarket,
   onReserveCard,
+  act,
+  stage,
+  stagesPerAct,
 }: Props) {
   // Kept for prop-contract parity with legacy `ScoutPrepare` (same caller,
   // same call site) — unused here because the "costs N of your M credits"
@@ -127,7 +134,7 @@ export default function PeakV2RTTScoutPrepare({
   if (!scout) {
     return (
       <div data-testid="rtt-scout-prepare" role="alert">
-        <PeakV2LiveHeader title={node.title} as="h1" />
+        <PeakV2RTTDecisionHead eyebrow="Scout & Prepare" title={node.title} />
         <p style={SECONDARY_STYLE}>
           This node needs a newer PEAK3 API than the one answering right now.
         </p>
@@ -142,9 +149,17 @@ export default function PeakV2RTTScoutPrepare({
   const sinks = new Map((node.credit_sinks ?? []).map((s) => [s.id, s]));
 
   return (
-    <div data-testid="rtt-scout-prepare">
-      <PeakV2LiveHeader title={node.title} subtitle={node.summary} as="h1" />
-      <p style={SECONDARY_STYLE}>{copy.consequence}</p>
+    <div data-testid="rtt-scout-prepare" className="rtt-scout">
+      <PeakV2RTTDecisionHead
+        eyebrow={act ? `Act ${act} · Stop ${stage} of ${stagesPerAct} · Scout & Prepare` : "Scout & Prepare"}
+        title={node.title}
+        context={node.summary}
+        aside={<PeakV2RTTCoach coach="first_scout" active />}
+      />
+      <details className="rtt-perk-rule rtt-trade-rule">
+        <summary>What each branch does</summary>
+        <span>{copy.consequence}</span>
+      </details>
 
       <ul className="mt-4 flex flex-col" data-testid="rtt-scout-branches">
         {scout.choices.map((choice) => {
@@ -357,7 +372,7 @@ function ScoutBossPanel({
                 type="button"
                 data-testid={`rtt-scout-prepare-${prep.lane}`}
                 data-would-flip={prep.would_flip ? "true" : "false"}
-                onClick={() => onPrepare(prep.lane)}
+                onClick={() => void onPrepare(prep.lane)}
                 disabled={busy}
                 className="flex w-full flex-col gap-1 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-60"
                 style={{
@@ -444,13 +459,9 @@ function RolePanel({
       <ul className="flex flex-wrap gap-2">
         {roles.map((role) => (
           <li key={role}>
-            <PeakV2SecondaryAction
-              size="sm"
-              disabled={busy || !available}
-              onClick={() => onChoose(role)}
-            >
+            <GameActionButton variant="secondary" size="sm" disabled={busy || !available} pendingLabel="Arming…" onAction={() => onChoose(role)} data-testid={`rtt-scout-role-${role}`}>
               {ROLE_LABELS[role]}
-            </PeakV2SecondaryAction>
+            </GameActionButton>
           </li>
         ))}
       </ul>
@@ -487,7 +498,7 @@ function ReservePanel({
               <button
                 type="button"
                 data-testid={`rtt-scout-reserve-${candidate.card_id}`}
-                onClick={() => onChoose(candidate.card_id)}
+                onClick={() => void onChoose(candidate.card_id)}
                 disabled={busy || blocked}
                 className="flex w-full items-center justify-between gap-4 py-3.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-60"
                 style={{ borderBottom: "1px solid var(--v2-border-subtle)", opacity: blocked ? 0.6 : 1 }}

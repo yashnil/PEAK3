@@ -1,51 +1,44 @@
 /**
- * The auction room, wired to a fake server.
+ * The auction room, wired to a fake server (game-feel pass 2).
  *
- * WHY THIS FILE EXISTS. Every other test in this workstream renders a component
- * with props handed to it directly, so none of them could answer a question
- * about the WIRING — which state reaches which child, and when.
+ * Every other Showdown test renders a component with props handed to it
+ * directly; this one answers questions about the WIRING — which state
+ * reaches which child, when, and what leaves the client on a press:
  *
- * It was written to chase a reported "there is no countdown anywhere on the
- * auction screen", and the first thing it established is that there was no such
- * defect: the review frame had been captured 1,600 ms after the board appeared,
- * which is inside the lot-reveal beat, and the reveal beat holding the clock is
- * exactly what S20-02 asks for. The report was a photograph of correct
- * behaviour.
- *
- * WHAT IT PINS NOW is the set of clock states the room can actually be in, and
- * the rule that none of them is blank. The server sends `seconds_remaining` to
- * exactly one seat (`arena.py`), so `null` is the normal answer for the whole
- * of the opponent's turn and for every beat — and the old surface handed that
- * null to `ArenaTimer`, whose `--idle` state is a label and no digits. Correct
- * for a shared component; an empty rectangle as this mode's clock.
+ *   * a bid press is acknowledged in the same tick and emits exactly ONE
+ *     command, however fast the second press lands;
+ *   * stepping the proposed bid updates the figure, the action label and the
+ *     projected budget with no request;
+ *   * the authoritative response reconciles the budget and the standing bid;
+ *   * an OLDER poll landing after a newer command response is dropped;
+ *   * the bot's reply is read when the server says it is due, not a poll
+ *     interval later;
+ *   * Play Again deals a fresh practice match and replaces the route.
  */
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import type {
-  TwentyDollarMatchView,
-  TwentyDollarPrivateState,
-  TwentyDollarPublicState,
-} from "@/lib/twenty-dollar-api";
+import type { TwentyDollarMatchView, TwentyDollarPrivateState, TwentyDollarPublicState } from "@/lib/twenty-dollar-api";
 
 const getMatch = vi.fn();
 const submitCommand = vi.fn();
+const startPractice = vi.fn();
+const replace = vi.fn();
+const push = vi.fn();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push, replace, refresh: vi.fn() }),
 }));
 
 vi.mock("@/lib/twenty-dollar-api", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/twenty-dollar-api")>(
-    "@/lib/twenty-dollar-api",
-  );
+  const actual = await vi.importActual<typeof import("@/lib/twenty-dollar-api")>("@/lib/twenty-dollar-api");
   return {
     ...actual,
     twentyDollarApi: {
       getMatch: (...args: unknown[]) => getMatch(...args),
       submitCommand: (...args: unknown[]) => submitCommand(...args),
-      startPractice: vi.fn(),
+      startPractice: (...args: unknown[]) => startPractice(...args),
     },
   };
 });
@@ -71,16 +64,12 @@ function seat(index: number, overrides = {}) {
   };
 }
 
-/**
- * A view shaped exactly like the server's. The defaults reproduce the state
- * the review frame was captured in: lot 1, the bot has already declined, the
- * human is on the clock with a full window.
- */
 type ViewOverrides = Partial<Omit<TwentyDollarMatchView, "public_state" | "private_state">> & {
   public_state?: Partial<TwentyDollarPublicState>;
   private_state?: Partial<TwentyDollarPrivateState>;
 };
 
+/** Lot 1, the bot has already declined, the human is on the clock. */
 function view(overrides: ViewOverrides = {}): TwentyDollarMatchView {
   const publicOverrides = overrides.public_state ?? {};
   const privateOverrides = overrides.private_state ?? {};
@@ -102,6 +91,9 @@ function view(overrides: ViewOverrides = {}): TwentyDollarMatchView {
     legal_commands: ["bid", "pass"],
     current_turn_seat_index: 0,
     seconds_remaining: 25,
+    turn_seconds_remaining: 25,
+    turn_phase: "auction",
+    bot_reply_in_seconds: null,
     latest_event_seq: 3,
     room_code: null,
     ...overrides,
@@ -136,6 +128,7 @@ function view(overrides: ViewOverrides = {}): TwentyDollarMatchView {
       qualified_pool_size: 500,
       history: [],
       seat_names: ["You", "IsoKing"],
+      lot_kind: "standard",
       ...publicOverrides,
     },
     private_state: {
@@ -160,343 +153,393 @@ function view(overrides: ViewOverrides = {}): TwentyDollarMatchView {
   } as TwentyDollarMatchView;
 }
 
+/** The same lot after the human opened at `amount` and the bot is on the clock. */
+/** `afterOpen`'s `bot_reply_in_seconds` (0.8 s) plus the room's
+ *  `BOT_REPLY_SLACK_MS` (60 ms): the one deadline the bot-reply read is
+ *  armed for. Kept beside the fixture so a change to either is visible here. */
+const BOT_REPLY_DEADLINE_MS = 0.8 * 1000 + 60;
+
+function afterOpen(amount: number, version = 3): TwentyDollarMatchView {
+  return view({
+    state_version: version,
+    seconds_remaining: null,
+    turn_seconds_remaining: 25,
+    bot_reply_in_seconds: 0.8,
+    current_turn_seat_index: 1,
+    public_state: {
+      active_seat: 1,
+      high_bidder: 0,
+      current_bid: amount,
+      minimum_bid: amount + 1,
+      lot_actions: [{ seat_index: 0, action: "bid", amount }],
+      seats: [seat(0, { lot_bid: amount }), seat(1)],
+    },
+    private_state: { is_your_turn: false, your_lot_bid: amount, minimum_bid: amount + 1, bid_blocked_reason: "not_your_turn" },
+  });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   window.localStorage.clear();
   resetMemoryCursors();
   getMatch.mockReset();
   submitCommand.mockReset();
+  startPractice.mockReset();
+  replace.mockReset();
+  push.mockReset();
 });
 
 afterEach(() => {
   vi.useRealTimers();
 });
 
-/** Mount, dismiss the intro, and settle every beat. */
 async function openRoom(first: TwentyDollarMatchView = view()) {
   getMatch.mockResolvedValue(first);
   render(<TwentyDollarGame matchId={MATCH_ID} />);
-  await waitFor(() => expect(screen.getByTestId("td-table")).toBeInTheDocument());
-  const start = screen.queryByTestId("td-intro-start");
-  if (start) {
-    await act(async () => {
-      start.click();
-    });
-  }
-  await act(async () => {
-    vi.advanceTimersByTime(2500);
-  });
+  await waitFor(() => expect(screen.getByTestId("td-game")).toBeInTheDocument());
+  // Let the mount's passive effects settle before anything is pressed.
+  await act(async () => {});
 }
 
 // ---------------------------------------------------------------------------
-// The clock, in every state the room can be in
+// Immediate acknowledgement, local manipulation
 // ---------------------------------------------------------------------------
 
-describe("the clock is never blank", () => {
-  it("runs a real countdown on the human's own turn, once the beats have passed", async () => {
+describe("the proposed bid is local and immediate", () => {
+  it("steps the figure, the action label and the projected budget with no request", async () => {
     await openRoom();
-    expect(screen.getByTestId("td-clock")).toHaveAttribute("data-mode", "countdown");
-    expect(screen.getByTestId("td-timer-value")).toBeInTheDocument();
-    expect(Number(screen.getByTestId("td-timer-value").textContent)).toBeGreaterThan(0);
-    // The consequence of expiry, named before it happens.
-    expect(screen.getByTestId("td-timer-consequence")).toHaveTextContent(/./);
+    const calls = getMatch.mock.calls.length;
+    expect(screen.getByTestId("td-bid-amount")).toHaveTextContent("$1");
+    expect(screen.getByTestId("td-submit-bid")).toHaveTextContent("Bid $1");
+    expect(screen.getByTestId("td-projection")).toHaveTextContent("Leaves you $19");
+
+    fireEvent.click(screen.getByTestId("td-bid-plus"));
+    fireEvent.click(screen.getByTestId("td-bid-plus"));
+    fireEvent.click(screen.getByTestId("td-bid-plus-2"));
+
+    expect(screen.getByTestId("td-bid-amount")).toHaveTextContent("$5");
+    expect(screen.getByTestId("td-submit-bid")).toHaveTextContent("Bid $5");
+    expect(screen.getByTestId("td-projection")).toHaveTextContent("Leaves you $15");
+    // The budget meter projects the same number.
+    expect(screen.getByTestId("td-budget-meter-0")).toHaveAttribute("data-projected", "15");
+    expect(submitCommand).not.toHaveBeenCalled();
+    expect(getMatch.mock.calls.length).toBe(calls);
   });
 
-  it("keeps counting across polls rather than blanking between them", async () => {
+  it("Max means the legal ceiling, not the whole budget", async () => {
     await openRoom();
-    const first = Number(screen.getByTestId("td-timer-value").textContent);
-    await act(async () => {
-      vi.advanceTimersByTime(6_000);
-    });
-    expect(screen.getByTestId("td-clock")).toHaveAttribute("data-mode", "countdown");
-    expect(Number(screen.getByTestId("td-timer-value").textContent)).toBeLessThanOrEqual(first);
+    fireEvent.click(screen.getByTestId("td-bid-max"));
+    expect(screen.getByTestId("td-bid-amount")).toHaveTextContent("$16");
+    expect(screen.getByTestId("td-projection")).toHaveTextContent("$4 reserved");
+  });
+});
+
+describe("submitting a bid", () => {
+  it("is acknowledged in the same tick, locks the figure, and freezes the clock", async () => {
+    await openRoom();
+    const pending = deferred<unknown>();
+    submitCommand.mockReturnValue(pending.promise);
+    fireEvent.click(screen.getByTestId("td-bid-plus"));
+    fireEvent.click(screen.getByTestId("td-submit-bid"));
+
+    // Same tick: pending state on the button, the clock frozen, the figure locked.
+    expect(screen.getByTestId("td-submit-bid")).toHaveAttribute("data-state", "pending");
+    await waitFor(() => expect(screen.getByTestId("td-clock")).toHaveAttribute("data-mode", "pending"));
+    expect(screen.getByTestId("td-pending")).toHaveTextContent("Sending $2");
+    expect(screen.getByTestId("td-bid-plus")).toBeDisabled();
+    expect(screen.getByTestId("td-standing-amount-pending")).toHaveTextContent("$2");
+
+    pending.resolve({ accepted: true, replayed: false, match: afterOpen(2) });
+    await waitFor(() => expect(screen.getByTestId("td-standing-amount")).toHaveTextContent("$2"));
+    // Reconciled from the server, not from the local proposal.
+    expect(screen.getByTestId("td-standing-holder")).toHaveTextContent("You lead");
+    expect(screen.getByTestId("td-clock")).toHaveAttribute("data-mode", "elapsed");
   });
 
-  /**
-   * THE STATE THAT WAS REPORTED AS A MISSING CLOCK. During the lot-reveal beat
-   * the human's decision has not opened yet, so there is deliberately nothing
-   * counting — that hold IS S20-02. What was wrong was the rendering: a null
-   * deadline reached `ArenaTimer`, which drew its label-only idle state, and a
-   * reviewer photographing that moment reasonably read it as a missing clock.
-   * It now states the window it is about to give.
-   */
-  it("says what it is holding during the reveal beat, instead of going empty", async () => {
+  it("emits exactly ONE command for a rapid double press", async () => {
     await openRoom();
-    expect(screen.getByTestId("td-clock")).toHaveAttribute("data-mode", "countdown");
-
-    // A new lot arrives: the reveal beat opens and the decision is deliberately
-    // not live yet.
-    getMatch.mockResolvedValue(
-      view({
-        state_version: 4,
-        public_state: { lot_index: 1, lot_actions: [] },
-      }),
-    );
-    await act(async () => {
-      vi.advanceTimersByTime(2_100);
-    });
-
-    const clock = screen.getByTestId("td-clock");
-    expect(clock).toHaveAttribute("data-mode", "held");
-    expect(clock).toHaveTextContent(/your clock/i);
-    expect(clock).toHaveTextContent(/opens in a moment/i);
-    expect(clock).toHaveTextContent("25s");
-    // The band the reviewer photographed contained a label and nothing else.
-    expect(clock.textContent?.trim().length).toBeGreaterThan(30);
-
-    // ...and the beat ends on its own, handing the countdown back.
-    await act(async () => {
-      vi.advanceTimersByTime(1_400);
-    });
-    expect(screen.getByTestId("td-clock")).toHaveAttribute("data-mode", "countdown");
+    const pending = deferred<unknown>();
+    submitCommand.mockReturnValue(pending.promise);
+    const button = screen.getByTestId("td-submit-bid");
+    fireEvent.click(button);
+    fireEvent.click(button);
+    fireEvent.click(screen.getByTestId("td-pass"));
+    expect(submitCommand).toHaveBeenCalledTimes(1);
+    expect(submitCommand.mock.calls[0][1]).toBe("bid");
+    expect(submitCommand.mock.calls[0][2]).toEqual({ amount: 1 });
+    pending.resolve({ accepted: true, replayed: false, match: afterOpen(1) });
+    await waitFor(() => expect(screen.getByTestId("td-standing-amount")).toHaveTextContent("$1"));
+    expect(submitCommand).toHaveBeenCalledTimes(1);
   });
 
-  /**
-   * THE BOT'S TURN IS NOT A DEADLINE WE HAVE. `arena.py` reports
-   * `seconds_remaining` to exactly one seat, so the other seat's is `null` by
-   * design — for the entire duration of every bot turn, on every lot. Counting
-   * DOWN would mean manufacturing a deadline out of `TURN_SECONDS` and hoping
-   * it matched; counting UP is true.
-   */
-  it("counts UP on the opponent's turn instead of inventing a deadline", async () => {
-    await openRoom(
-      view({
-        seconds_remaining: null,
-        current_turn_seat_index: 1,
-        public_state: { active_seat: 1, lot_actions: [] },
-        private_state: { is_your_turn: false, bid_blocked_reason: "not_your_turn" },
-      }),
-    );
-    const clock = screen.getByTestId("td-clock");
-    expect(clock).toHaveAttribute("data-mode", "elapsed");
-    expect(clock).toHaveTextContent(/time elapsed/i);
-    await act(async () => {
-      vi.advanceTimersByTime(3_000);
+  it("derives the idempotency key from the intent and the version current at execution", async () => {
+    await openRoom();
+    submitCommand.mockResolvedValue({ accepted: true, replayed: false, match: afterOpen(1) });
+    fireEvent.click(screen.getByTestId("td-submit-bid"));
+    await waitFor(() => expect(submitCommand).toHaveBeenCalledTimes(1));
+    expect(submitCommand.mock.calls[0][3]).toBe(2);
+    expect(submitCommand.mock.calls[0][4]).toBe(`${MATCH_ID}:0:2:bid:amount=1`);
+  });
+
+  it("explains a rejection and shows the error beat, then keeps the board the server sent", async () => {
+    await openRoom();
+    submitCommand.mockResolvedValue({
+      accepted: false,
+      replayed: false,
+      rejection_code: "bid_too_low",
+      message: "You must raise to at least $3.",
+      match: view({ state_version: 4, public_state: { current_bid: 2, high_bidder: 1, minimum_bid: 3, lot_actions: [{ seat_index: 1, action: "bid", amount: 2 }] }, private_state: { minimum_bid: 3 } }),
     });
-    expect(screen.getByTestId("td-elapsed-value")).toHaveTextContent(/[1-9]\d*s/);
-    // And it does NOT answer to the countdown's name: `td-timer-value` means
-    // "the human's remaining decision time" to the browser suite, and an
-    // elapsed count under that name would satisfy assertions about the window.
-    expect(screen.queryByTestId("td-timer-value")).toBeNull();
+    fireEvent.click(screen.getByTestId("td-submit-bid"));
+    await waitFor(() => expect(screen.getByTestId("td-error")).toBeInTheDocument());
+    expect(screen.getByTestId("td-submit-bid")).toHaveAttribute("data-state", "error");
+    expect(screen.getByTestId("td-standing-amount")).toHaveTextContent("$2");
+    // Re-based onto the new floor once the request settled.
+    expect(screen.getByTestId("td-bid-amount")).toHaveTextContent("$3");
   });
 });
 
 // ---------------------------------------------------------------------------
-// Turn surfaces (the TMW-07 defect, reproduced here and reduced)
+// Newer wins
 // ---------------------------------------------------------------------------
 
-describe("whose turn it is", () => {
-  it("is said by the room banner and the seat marker, and by nothing else", async () => {
+describe("stale responses", () => {
+  it("drops an OLDER poll that lands after a newer command response", async () => {
     await openRoom();
-    // FOUR surfaces answered this: a `Your move` banner, an `ON THE CLOCK` chip,
-    // the clock's `YOUR TURN` label and a `Your move — open or pass.` line under
-    // the auction log. Two remain and they do different jobs — one is the
-    // room-level statement, one marks the seat. The clock now reports TIME, and
-    // the waiting line is gone.
-    expect(screen.queryAllByTestId("td-turn-indicator")).toHaveLength(1);
-    expect(screen.getByTestId("td-seat-live-0")).toHaveTextContent(/on the clock/i);
-    expect(screen.queryByTestId("td-waiting")).toBeNull();
-    expect(screen.getByTestId("td-clock")).not.toHaveTextContent(/your turn/i);
+    const slowPoll = deferred<TwentyDollarMatchView>();
+    getMatch.mockReturnValueOnce(slowPoll.promise);
+    // Force a poll now (visibility wake) so it is in flight before the command.
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    submitCommand.mockResolvedValue({ accepted: true, replayed: false, match: afterOpen(1, 3) });
+    fireEvent.click(screen.getByTestId("td-submit-bid"));
+    await waitFor(() => expect(screen.getByTestId("td-standing-amount")).toHaveTextContent("$1"));
+    // The old poll finally answers with version 2: it must not roll the board back.
+    await act(async () => {
+      slowPoll.resolve(view());
+    });
+    expect(screen.getByTestId("td-standing-amount")).toHaveTextContent("$1");
+    expect(screen.getByTestId("td-standing-holder")).toHaveTextContent("You lead");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The bot's reply is read when it is due
+// ---------------------------------------------------------------------------
+
+describe("reading the bot's reply", () => {
+  it("schedules one read for `bot_reply_in_seconds`, not a fixed interval later", async () => {
+    // THE CONTRACT: after the human's bid lands, the room arms exactly ONE
+    // read for the server-published `bot_reply_in_seconds` (0.8 s) plus the
+    // client's intentional slack (`BOT_REPLY_SLACK_MS`, 60 ms) — 860 ms — and
+    // reads nothing before it.
+    //
+    // WHY THE TIMER IS OBSERVED, NOT INFERRED. The previous version waited
+    // for the clock to enter `elapsed` mode and then advanced fake time in
+    // two 500 ms steps. The clock flips in the same render the command
+    // response lands, but the scheduling EFFECT runs after that render — on
+    // a slow CI runner the first advance could happen before the timeout
+    // was armed, and the second then never reached its deadline
+    // ("expected 1 to be 2"). Spying on `setTimeout` waits for the arm
+    // itself, and the deadline is measured from the fake clock's reading at
+    // the instant it was armed, so the auto-advancing fake clock
+    // (`shouldAdvanceTime`) cannot skew the boundary either.
+    const original = window.setTimeout;
+    let armedAt: number | null = null;
+    const timeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(((...args: Parameters<typeof window.setTimeout>) => {
+      if (args[1] === BOT_REPLY_DEADLINE_MS && armedAt === null) armedAt = Date.now();
+      return original.apply(window, args);
+    }) as unknown as typeof window.setTimeout);
+    try {
+      await openRoom();
+      submitCommand.mockResolvedValue({ accepted: true, replayed: false, match: afterOpen(1) });
+      const replied = view({
+        state_version: 4,
+        public_state: { current_bid: 2, high_bidder: 1, minimum_bid: 2, lot_actions: [{ seat_index: 0, action: "bid", amount: 1 }, { seat_index: 1, action: "bid", amount: 2 }] },
+        private_state: { minimum_bid: 3 },
+      });
+      getMatch.mockResolvedValue(replied);
+      fireEvent.click(screen.getByTestId("td-submit-bid"));
+
+      // The read is ARMED for exactly 0.8 s + 60 ms — and only once.
+      await waitFor(() => expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), BOT_REPLY_DEADLINE_MS));
+      expect(timeoutSpy.mock.calls.filter((call) => call[1] === BOT_REPLY_DEADLINE_MS)).toHaveLength(1);
+      expect(armedAt).not.toBeNull();
+      const before = getMatch.mock.calls.length;
+
+      // Not yet: 60 ms short of the deadline, measured from the arm.
+      await act(async () => {
+        vi.advanceTimersByTime(Math.max(0, (armedAt as number) + BOT_REPLY_DEADLINE_MS - 60 - Date.now()));
+      });
+      expect(getMatch.mock.calls.length).toBe(before);
+
+      // Crossing the deadline fires exactly one read.
+      await act(async () => {
+        vi.advanceTimersByTime(Math.max(1, (armedAt as number) + BOT_REPLY_DEADLINE_MS + 1 - Date.now()));
+      });
+      expect(getMatch.mock.calls.length).toBe(before + 1);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+    await waitFor(() => expect(screen.getByTestId("td-standing-amount")).toHaveTextContent("$2"));
+    // The opponent's raise is announced as a moment, and the turn banner says so.
+    expect(screen.getByTestId("td-moment")).toHaveTextContent("IsoKing raises to $2");
+    expect(screen.getByTestId("td-turn-indicator")).toHaveTextContent(/your move/i);
+  });
+
+  it("does not read again immediately when the turn stays with the human", async () => {
+    await openRoom();
+    const before = getMatch.mock.calls.length;
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+    });
+    expect(getMatch.mock.calls.length).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The clock and the turn surface
+// ---------------------------------------------------------------------------
+
+describe("the clock", () => {
+  it("counts down on the human's own turn", async () => {
+    await openRoom();
+    expect(screen.getByTestId("td-clock")).toHaveAttribute("data-mode", "countdown");
+    expect(screen.getByTestId("td-turn-clock")).toHaveAttribute("data-owner", "you");
+    expect(screen.getByTestId("td-turn-clock-value")).toHaveTextContent("25");
+  });
+
+  it("counts DOWN against the published deadline on the bot's turn, and says the bot is thinking", async () => {
+    await openRoom(afterOpen(1));
+    const clock = screen.getByTestId("td-clock");
+    expect(clock).toHaveAttribute("data-mode", "elapsed");
+    expect(clock).toHaveAttribute("data-direction", "down");
+    expect(screen.getByTestId("td-turn-clock")).toHaveAttribute("data-owner", "bot");
+    expect(screen.getByTestId("td-turn-clock-label")).toHaveTextContent(/IsoKing is thinking/);
+    expect(screen.getByTestId("td-elapsed-value")).toHaveTextContent("25s");
   });
 
   it("keeps exactly one aria-live region tracking play", async () => {
     await openRoom();
     const live = document.querySelectorAll('[aria-live]:not([aria-live="off"])');
     // `ArenaTimer`'s threshold announcer is a screen-reader-only region that
-    // speaks at 10s, 5s and expiry — it is not a turn surface, and it is
-    // explicitly not per-second.
+    // speaks at 10s, 5s and expiry — it is not a turn surface.
     const turnRegions = [...live].filter((n) => !n.classList.contains("sr-only"));
     expect(turnRegions).toHaveLength(1);
     expect(turnRegions[0]).toHaveAttribute("data-testid", "td-turn-indicator");
   });
+});
 
-  it("marks the active seat as a state on the card", async () => {
+// ---------------------------------------------------------------------------
+// Rosters and money
+// ---------------------------------------------------------------------------
+
+describe("the rosters are lineups", () => {
+  it("marks the slot the live candidate would fill as a target on your lineup", async () => {
     await openRoom();
-    expect(screen.getByTestId("td-budget-0")).toHaveAttribute("data-active", "true");
-    expect(screen.getByTestId("td-budget-1")).toHaveAttribute("data-active", "false");
+    expect(screen.getByTestId("td-slot-0-SF")).toHaveAttribute("data-state", "targeted");
+    expect(screen.getByTestId("td-slot-0-PG")).toHaveAttribute("data-state", "empty");
+  });
+
+  it("locks a slot and reconciles the budget when the server says the lot sold", async () => {
+    await openRoom();
+    const sold = view({
+      state_version: 5,
+      public_state: {
+        lot_index: 1,
+        candidate: { player_slug: "next-up", player_name: "Next Up", anchor_season: "2001-02", team: "SAS", positions: ["C"] },
+        seats: [
+          seat(0, { budget: 17, filled_slots: 1, roster: [{ player_slug: "jamaal-wilkes", player_name: "Jamaal Wilkes", anchor_season: "1979-80", price: 3, slot: "SF", prime_score: 61.2, autofilled: false }], open_slots: ["PG", "SG", "PF", "C"] }),
+          seat(1),
+        ],
+        history: [
+          {
+            lot_index: 0, round_index: 0, opening_seat: 1, bids: [3, 0], timed_out: [false, false], winner_seat: 0, price: 3, decided_by: "bid", lot_kind: "standard", actions: [], slot_options: ["SF"], candidate_tier: "101-250",
+            candidate: { player_slug: "jamaal-wilkes", player_name: "Jamaal Wilkes", anchor_season: "1979-80", team: "LAL", positions: ["SF"], row_id: "r", rank: 150, prime_score: 61.2, components: {}, component_index: {}, model_version: "peak3_v1" },
+          },
+        ],
+      },
+      private_state: { candidate_fits: ["C"], reserve_floor: 3, max_bid: 14 },
+    });
+    getMatch.mockResolvedValue(sold);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitFor(() => expect(screen.getByTestId("td-slot-0-SF")).toHaveAttribute("data-state", "filled"));
+    expect(screen.getByTestId("td-slot-0-SF")).toHaveAttribute("data-gf-lock", "arrived");
+    expect(screen.getByTestId("td-budget-meter-0")).toHaveAttribute("data-value", "17");
+    // The SOLD moment plays over the stage and never blocks the live controls.
+    expect(screen.getByTestId("td-lot-reveal")).toHaveTextContent("SOLD");
+    expect(screen.getByTestId("td-lot-reveal")).toHaveTextContent("61.2");
+    expect(screen.getByTestId("td-bid-controls")).toHaveAttribute("data-live", "true");
+    expect(screen.getByTestId("td-submit-bid")).toBeEnabled();
+    expect(screen.getByTestId("td-candidate")).toHaveTextContent("Next Up");
   });
 });
 
 // ---------------------------------------------------------------------------
-// The empty-bid placeholder
+// Play Again
 // ---------------------------------------------------------------------------
 
-describe("the current-bid block before anyone opens", () => {
-  it("shows a real zero rather than a bar that reads as a loading skeleton", async () => {
-    await openRoom();
-    // An em dash at `clamp(2.75rem, 9vw, 4rem)` renders as a thick grey
-    // horizontal bar directly under the "CURRENT BID" label. Reviewers read it
-    // as a skeleton, which is exactly what a placeholder glyph at display size
-    // looks like.
-    const amount = screen.getByTestId("td-standing-amount");
-    expect(amount).toHaveTextContent("$0");
-    expect(amount.textContent).not.toContain("—");
-    expect(screen.getByTestId("td-standing-holder")).toHaveTextContent(/floor is open/i);
-  });
-
-  it("shows the standing bid once it exists", async () => {
-    await openRoom(
-      view({
-        public_state: { current_bid: 6, high_bidder: 1, minimum_bid: 7 },
-      }),
-    );
-    expect(screen.getByTestId("td-standing-amount")).toHaveTextContent("$6");
-    expect(screen.getByTestId("td-standing-holder")).toHaveTextContent("IsoKing leads");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// S20-08, end to end through the room
-// ---------------------------------------------------------------------------
-
-describe("submitting freezes the clock (S20-08), end to end", () => {
-  it("replaces the countdown with the submitted action while the request is out", async () => {
-    await openRoom();
-    expect(screen.getByTestId("td-clock")).toHaveAttribute("data-mode", "countdown");
-
-    let release: (value: unknown) => void = () => {};
-    submitCommand.mockImplementation(
-      () => new Promise((resolve) => { release = resolve; }),
-    );
-
+describe("Play Again", () => {
+  it("deals a fresh practice match and replaces the route", async () => {
+    const receipt = {
+      ruleset_version: "twenty_dollar_v3", model_version: "peak3_v1", starting_budget: 20, slots: ["PG", "SG", "SF", "PF", "C"],
+      seats: [
+        { seat_index: 0, roster_total: 300, spent: 18, budget_remaining: 2, peak3_per_dollar: 16.6, components: {}, roster: [] },
+        { seat_index: 1, roster_total: 280, spent: 17, budget_remaining: 3, peak3_per_dollar: 16.4, components: {}, roster: [] },
+      ],
+      positional: [], best_bargain: null, biggest_overpay: null, most_decisive: null, autofilled: false, rounds_played: 12,
+      component_disclosure: { shown: [], absent: [], count: 5, house_count: 6, note: "" },
+      settlement: { winner_seat: 0, outcome: "decided", decided_by: "roster_total", levels: [], rules_version: "x" },
+    };
+    await openRoom(view({ status: "completed", state_version: 40, public_state: { phase: "complete", active_seat: null, candidate: null, receipt }, turn_phase: null }));
+    startPractice.mockResolvedValue({ match_id: "m-next" });
+    await waitFor(() => expect(screen.getByTestId("td-result")).toBeInTheDocument());
     await act(async () => {
-      screen.getByTestId("td-submit-bid").click();
+      vi.advanceTimersByTime(4000);
     });
-
-    expect(screen.getByTestId("td-clock")).toHaveAttribute("data-mode", "pending");
-    expect(screen.queryByTestId("td-timer-value")).toBeNull();
-    expect(screen.getByTestId("td-pending")).toHaveTextContent("Sending your $1 bid…");
-
-    await act(async () => {
-      release({ accepted: true, replayed: false, match: view({ state_version: 3 }) });
-    });
-    await waitFor(() => expect(screen.queryByTestId("td-pending")).toBeNull());
-  });
-
-  it("derives a fresh idempotency key per intent, so a retry cannot replay a stale verdict", async () => {
-    await openRoom();
-    submitCommand.mockResolvedValue({
-      accepted: true,
-      replayed: false,
-      match: view({ state_version: 3 }),
-    });
-
-    await act(async () => {
-      screen.getByTestId("td-submit-bid").click();
-    });
-    await waitFor(() => expect(submitCommand).toHaveBeenCalled());
-    const firstKey = submitCommand.mock.calls[0][4];
-    expect(firstKey).toContain(MATCH_ID);
-    expect(firstKey).toContain("bid");
-    expect(firstKey).toContain("amount=1");
+    fireEvent.click(screen.getByTestId("td-play-again"));
+    await waitFor(() => expect(startPractice).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/arena/twenty-dollar/m-next"));
   });
 });
 
 // ---------------------------------------------------------------------------
-// PEAK3 — a bot's reply is polled for as soon as it is likely due, rather than
-// waiting on whatever is left of the fixed 2s interval. Handing the turn to a
-// seat other than the human's own arms ONE extra poll timed just past the
-// server's minimum deliberation.
-//
-// RETIMED WITH THE SERVER. The Showdown bot now deliberates for a seeded
-// 2.6-4.2s (`nba_peak.twenty_dollar.config.bot_think_seconds`) instead of
-// falling back to the platform's flat 1.2s default. 1.2s sat BELOW the room's
-// own 2000ms poll, which is why the bot's raise used to land in the same poll
-// that opened its turn and the opponent was never seen thinking. The follow-up
-// poll therefore moved from ~1400ms to ~2800ms; left where it was it would now
-// fire before the earliest possible reply and read nothing.
-//
-// WHAT THIS PROVES, given the interval ALSO fires at 2000ms: by ~3200ms an
-// armed follow-up produces a SECOND read (interval at 2000 + follow-up at
-// 2800). Without it there would be exactly one. Counting reads rather than
-// timing a single one is what keeps this robust — the suite runs under
-// `shouldAdvanceTime: true`, where wall-clock jitter shifts a fake-timer
-// boundary by tens of milliseconds and a check pinned to an exact mark flakes.
+// The first read
 // ---------------------------------------------------------------------------
-describe("a bot's move is polled for without waiting out the fixed interval", () => {
-  it("arms an extra poll when the turn passes to the bot, on top of the ordinary interval", async () => {
-    await openRoom();
-    getMatch.mockClear();
-    submitCommand.mockResolvedValue({
-      accepted: true,
-      replayed: false,
-      match: view({
-        state_version: 3,
-        public_state: { active_seat: 1, current_bid: 1, high_bidder: 0 },
-      }),
-    });
 
+describe("the first read", () => {
+  it("retries a transient refusal before showing the not-your-seat gate", async () => {
+    // A freshly started server plus a session still hydrating produced a
+    // 403 on the very first request in a real two-tab run; the room must
+    // read again rather than settle on it.
+    const { TwentyDollarAPIError } = await import("@/lib/twenty-dollar-api");
+    getMatch.mockRejectedValueOnce(new TwentyDollarAPIError(403, "not your seat", "not_your_seat"));
+    getMatch.mockResolvedValue(view());
+    render(<TwentyDollarGame matchId={MATCH_ID} />);
     await act(async () => {
-      screen.getByTestId("td-submit-bid").click();
+      vi.advanceTimersByTime(500);
     });
-    await waitFor(() => expect(submitCommand).toHaveBeenCalled());
-
-    // Far too early for either mechanism -- proves this isn't an immediate,
-    // unconditional re-poll on every submit.
-    await act(async () => {
-      vi.advanceTimersByTime(200);
-    });
-    expect(getMatch).not.toHaveBeenCalled();
-
-    // Past the fixed interval (~2000ms) but short of the follow-up (~2800ms):
-    // exactly one read so far, from the interval alone.
-    await act(async () => {
-      vi.advanceTimersByTime(2200);
-    });
-    expect(getMatch).toHaveBeenCalledTimes(1);
-
-    // Past the follow-up and still short of the interval's second tick
-    // (~4000ms): the extra read has landed. This is the assertion that would
-    // fail if the follow-up were dropped or left at its old 1400ms timing.
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
+    await waitFor(() => expect(screen.getByTestId("td-game")).toBeInTheDocument());
+    expect(screen.queryByTestId("td-match-error")).not.toBeInTheDocument();
     expect(getMatch).toHaveBeenCalledTimes(2);
   });
 
-  it("does not poll again immediately when the turn stays with the human", async () => {
-    await openRoom();
-    getMatch.mockClear();
-    submitCommand.mockResolvedValue({
-      accepted: false,
-      replayed: false,
-      rejection_code: "bid_too_low",
-      message: "Bid too low.",
-      match: view({ state_version: 3, public_state: { active_seat: 0 } }),
-    });
-
-    await act(async () => {
-      screen.getByTestId("td-submit-bid").click();
-    });
-    await waitFor(() => expect(submitCommand).toHaveBeenCalled());
-
-    // No bot to catch, so nothing should poll again this soon.
-    await act(async () => {
-      vi.advanceTimersByTime(900);
-    });
-    expect(getMatch).not.toHaveBeenCalled();
-  });
-
-  it("does not poll again immediately once the match is complete", async () => {
-    await openRoom();
-    getMatch.mockClear();
-    submitCommand.mockResolvedValue({
-      accepted: true,
-      replayed: false,
-      match: view({
-        state_version: 3,
-        public_state: { phase: "complete", active_seat: null },
-      }),
-    });
-
-    await act(async () => {
-      screen.getByTestId("td-submit-bid").click();
-    });
-    await waitFor(() => expect(submitCommand).toHaveBeenCalled());
-
-    await act(async () => {
-      vi.advanceTimersByTime(900);
-    });
-    expect(getMatch).not.toHaveBeenCalled();
+  it("shows the gate at once for a match that does not exist", async () => {
+    const { TwentyDollarAPIError } = await import("@/lib/twenty-dollar-api");
+    getMatch.mockRejectedValue(new TwentyDollarAPIError(404, "no such match", "not_found"));
+    render(<TwentyDollarGame matchId={MATCH_ID} />);
+    await waitFor(() => expect(screen.getByTestId("td-match-error")).toBeInTheDocument());
+    expect(getMatch).toHaveBeenCalledTimes(1);
   });
 });

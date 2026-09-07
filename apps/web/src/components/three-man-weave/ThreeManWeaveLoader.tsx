@@ -64,6 +64,12 @@ export default function ThreeManWeaveLoader({ matchId }: { matchId?: string }) {
   useEffect(() => {
     if (!matchId) return;
     let cancelled = false;
+    // A NEW MATCH ID IS A NEW ROOM. Play Again replaces the route with the
+    // next match's id; nothing from the finished match may survive into it,
+    // so the previous match is dropped before the new one is read and the
+    // game below is keyed by match id (a fresh mount, fresh state).
+    setMatch(null);
+    setLoadError(null);
     getMatch(matchId)
       .then((value) => {
         if (!cancelled) setMatch(value as TmwMatchView);
@@ -95,7 +101,17 @@ export default function ThreeManWeaveLoader({ matchId }: { matchId?: string }) {
     }
   }, []);
 
-  if (match) return <ThreeManWeaveGame initialMatch={match} />;
+  // A ROOM THAT IS STILL FILLING IS NOT A MATCH YET. A guest who joins a
+  // private room while a seat is still empty is routed here with the match
+  // in `forming`: no snapshot, no rosters, no turn. The room used to render
+  // that empty projection and throw (the "Application error" page a
+  // three-human browser test surfaced). This waits, visibly, and polls until
+  // the last seat fills -- then the game mounts on the server's own intro,
+  // at the same moment it does for everyone else.
+  if (match && match.status === "forming") {
+    return <FormingRoom match={match} onActive={setMatch} />;
+  }
+  if (match) return <ThreeManWeaveGame key={match.match_id} initialMatch={match} />;
 
   if (matchId && loadError) {
     const notYours = loadError.status === 403;
@@ -232,6 +248,71 @@ export default function ThreeManWeaveLoader({ matchId }: { matchId?: string }) {
             <HowToPlay title={meta.name} rules={meta.rules} testId="tmw-rules" />
           ) : null}
         </section>
+      </div>
+    </PeakV2Shell>
+  );
+}
+
+const FORMING_POLL_MS = 1000;
+
+/**
+ * The seats filling, on the match route itself.
+ */
+function FormingRoom({
+  match,
+  onActive,
+}: {
+  match: TmwMatchView;
+  onActive: (next: TmwMatchView) => void;
+}) {
+  const [latest, setLatest] = useState<TmwMatchView>(match);
+  useEffect(() => {
+    let cancelled = false;
+    const id = window.setInterval(async () => {
+      try {
+        const next = (await getMatch(match.match_id)) as TmwMatchView;
+        if (cancelled) return;
+        setLatest(next);
+        if (next.status !== "forming") onActive(next);
+      } catch {
+        // transient; the next tick retries
+      }
+    }, FORMING_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [match.match_id, onActive]);
+  const seated = latest.seats.length;
+  return (
+    <PeakV2Shell width="live">
+      <div
+        className="pk-depth pk-crown mx-auto my-16 flex max-w-xl flex-col items-start gap-3 rounded-2xl p-8"
+        role="status"
+        data-testid="tmw-forming"
+        style={{ border: "1px solid var(--v2-border-subtle)" }}
+      >
+        <StatusChip tone="accent">Filling the room</StatusChip>
+        <h1
+          className="text-2xl font-bold"
+          style={{ fontFamily: "var(--v2-font-display)", color: "var(--v2-text-primary)" }}
+        >
+          Waiting for the last seat
+        </h1>
+        <p className="text-sm leading-relaxed" style={{ color: "var(--v2-text-secondary)" }}>
+          {seated} of {latest.seat_count} seated. The draft opens for everyone at once the moment the
+          room is full.
+        </p>
+        {latest.room_code ? (
+          <p
+            className="text-sm"
+            data-testid="tmw-forming-code"
+            style={{ fontFamily: "var(--v2-font-mono)", color: "var(--v2-text-primary)" }}
+          >
+            Room code · {latest.room_code}
+          </p>
+        ) : null}
+        <PeakV2SecondaryAction href="/arena/lobby">Back to the lobby</PeakV2SecondaryAction>
       </div>
     </PeakV2Shell>
   );

@@ -238,19 +238,6 @@ export default function RevealSequenceSurface({
                   Pause
                 </button>
               )}
-              <button
-                type="button"
-                data-testid={`rtt-reveal-skip-${kind}`}
-                onClick={sequence.skipAll}
-                className="rtt-tap pk-lift pk-press rounded-lg px-4 text-xs font-semibold uppercase tracking-wide"
-                style={{
-                  background: "var(--bg-surface)",
-                  color: "var(--text-primary)",
-                  border: "1px solid var(--border-emphasis)",
-                }}
-              >
-                Skip all
-              </button>
             </div>
           )}
 

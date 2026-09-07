@@ -1,55 +1,35 @@
 "use client";
 
 /**
- * PeakV2RTTResult — the V2 "Broadcast Arena" final run receipt for RUN THE
- * TABLE. Direct counterpart to `PeakV2ShowdownResult.tsx` and
- * `PeakV2CourtResult.tsx`: same CINEMATIC hero → `PeakV2Rule` → LIVE
- * hairline-divided sections pattern, applied to the exact data
- * `RunResult.tsx` (legacy) already receives from `build_receipt()` — no
- * field dropped, nothing re-derived beyond picking which already-sent field
- * to lead with, same discipline the legacy screen's own docstring documents.
+ * PeakV2RTTResult — the run ends in a sequence, not a dashboard.
  *
- * Before this file existed, `screen === "result"` fell through RTT's own
- * `v2Content = surface` default (`RunTheTableGame.tsx`), so every run under
- * `?ui=v2` ended on the fully legacy-styled `RunResult` — the same class of
- * gap `PeakV2RTTBossLineup`'s roster-reveal branch fixed for the opening
- * reveal. This closes the last one: RTT now has a real V2 screen for every
- * moment, including its own ending.
+ *   RUN ENDED / TABLE CLEARED (the stamp, with the engine's verdict)
+ *   → how far you got (the track, boss by boss)
+ *   → the roster you built
+ *   → the score assembles (roster total, five lanes)
+ *   → what mattered (MVP, best move, decisive mistake, closest lost lane, credits)
+ *   → personal best (local — RUN THE TABLE has no global leaderboard yet)
+ *   → Run it back
  *
- * CINEMATIC: how deep the run got (`runOutcome`/`endedInAct`/`actsTotal`),
- * the verdict stamp (`runVerdict`, engine string once `outcome` exists,
- * re-derived otherwise — never the retired "RUN COMPLETE"), the engine's own
- * headline/story, and the record line (record · lives left · roster total).
- *
- * LIVE: boss journey (`receipt.battles`, one row per act — the "bosses
- * faced" story), run MVP, best move (acquisition or trade, whichever scored
- * higher — `RunResult.tsx`'s own `mostValuable` selection, ported verbatim),
- * largest mistake (only when a real negative exists — never a placeholder),
- * closest lost lane, credits, final roster, five-lane profile, front office
- * perks, decision timeline (`state.map`, optional), the semantic receipt
- * items (`receiptItems`, coloured by `kind` and only by `kind`), the
- * leaderboard's explicit "not ranked yet", and the same four actions legacy
- * offers (run it back, back to Arena, challenge a friend, copy summary,
- * share card) — same handlers, same clipboard/canvas logic, restyled.
- *
- * EVERY NUMBER IS THE SERVER'S: nothing here computes a PEAK3 score, delta,
- * or verdict — every value is a field already on `RunReceipt` or a helper
- * `RunResult.tsx` itself already calls from `lib/run-the-table-state.ts`.
+ * A Level-3 moment for a full clear, a plainer one for a failure; a click
+ * anywhere completes it and reduced motion shows it complete. Every number
+ * is a field already on `RunReceipt` or a helper `lib/run-the-table-state`
+ * exposes — nothing is derived here beyond choosing what to lead with.
  */
 
-import { useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowLeft, Camera, Check, Copy, Link as LinkIcon, RotateCcw } from "lucide-react";
-import PeakV2CinematicStage from "../PeakV2CinematicStage";
-import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
-import PeakV2Rule from "../PeakV2Rule";
-import PeakV2DataLane from "../PeakV2DataLane";
-import PeakV2PlayerIdentity from "../PeakV2PlayerIdentity";
-import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
+import ResultReveal, { RevealStep } from "@/components/game-feel/ResultReveal";
+import ScoreTransition from "@/components/game-feel/ScoreTransition";
+import GameActionButton from "@/components/game-feel/GameActionButton";
+import PeakV2ArenaLight from "../PeakV2ArenaLight";
 import PeakV2SecondaryAction from "../PeakV2SecondaryAction";
 import { v2ToneVar, type V2Tone } from "../v2-tone";
-import type { MapAct, RunReceipt, RunVersions } from "@/types/run-the-table";
+import type { BattlePublic, MapAct, RunReceipt, RunVersions } from "@/types/run-the-table";
 import {
   DECIDED_BY_LABELS,
+  actNumeral,
+  battleResolution,
   buildRunShareText,
   challengeUrl,
   formatReceiptItem,
@@ -58,79 +38,42 @@ import {
   receiptItemColorVar,
   receiptItems,
   receiptLaneProfile,
+  recordPersonalBest,
   runOutcome,
   runVerdict,
-  signedColorVar,
   slotLabel,
   trackRunTheTable,
+  type PersonalBest,
 } from "@/lib/run-the-table-state";
-import {
-  PERK_EXACT_RULE_LABEL,
-  perkPlainEffect,
-  perkStrategyHint,
-} from "@/lib/run-the-table-copy";
+import { PERK_EXACT_RULE_LABEL, perkPlainEffect } from "@/lib/run-the-table-copy";
 import { drawShareCard } from "@/lib/run-the-table-share-card";
 
-const LANE_TOKEN_TO_TONE: Record<string, V2Tone> = {
-  si: "si",
-  tp: "tp",
-  rec: "rec",
-  po: "po",
-  team: "team",
-};
+const LANE_TOKEN_TO_TONE: Record<string, V2Tone> = { si: "si", tp: "tp", rec: "rec", po: "po", team: "team" };
 
-const SECTION_HEAD_STYLE: CSSProperties = {
-  fontFamily: "var(--v2-font-mono)",
-  fontSize: "0.6875rem",
-  fontWeight: 700,
-  letterSpacing: "0.06em",
-  textTransform: "uppercase",
-  color: "var(--v2-text-muted)",
-};
+const STEPS_CLEARED = [
+  { name: "ending", at: 0 },
+  { name: "journey", at: 900 },
+  { name: "roster", at: 1500 },
+  { name: "score", at: 2100 },
+  { name: "facts", at: 2700 },
+  { name: "best", at: 3100 },
+  { name: "actions", at: 3400 },
+] as const;
 
-const BODY_STYLE: CSSProperties = {
-  fontFamily: "var(--v2-font-ui)",
-  fontSize: "0.8125rem",
-  color: "var(--v2-text-secondary)",
-};
+const STEPS_ENDED = [
+  { name: "ending", at: 0 },
+  { name: "journey", at: 600 },
+  { name: "roster", at: 1000 },
+  { name: "score", at: 1400 },
+  { name: "facts", at: 1800 },
+  { name: "best", at: 2100 },
+  { name: "actions", at: 2300 },
+] as const;
 
-const MUTED_STYLE: CSSProperties = {
-  fontFamily: "var(--v2-font-ui)",
-  fontSize: "0.75rem",
-  color: "var(--v2-text-muted)",
-};
-
-/** Same three-way mapping `outcomeColorVar` uses, expressed as a `V2Tone` so
- *  the cinematic light and the headline color both come from the shared V2
- *  token layer (`--v2-color-positive`/`accent`/`negative` alias the exact
- *  `--correct`/`--peak-accent`/`--incorrect` vars `outcomeColorVar` returns —
- *  see `styles/v2/tokens.css` — so this is the same three colors, not a
- *  second interpretation of the outcome). */
 function outcomeTone(outcome: ReturnType<typeof runOutcome>): V2Tone {
   if (outcome === "table_cleared") return "positive";
   if (outcome === "ended_at_final_boss") return "accent";
   return "negative";
-}
-
-function CalloutRow({ tag, headline, body, testId }: { tag: string; headline: ReactNode; body: ReactNode; testId?: string }) {
-  return (
-    <li
-      className="flex items-start justify-between gap-4 py-3"
-      style={{ borderBottom: "1px solid var(--v2-border-subtle)" }}
-      data-testid={testId}
-    >
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span style={SECTION_HEAD_STYLE}>{tag}</span>
-        <span style={BODY_STYLE}>{body}</span>
-      </div>
-      <span
-        className="shrink-0 text-right"
-        style={{ fontFamily: "var(--v2-font-mono)", fontVariantNumeric: "tabular-nums", fontSize: "0.9375rem", fontWeight: 700, color: "var(--v2-text-primary)" }}
-      >
-        {headline}
-      </span>
-    </li>
-  );
 }
 
 interface Props {
@@ -139,27 +82,42 @@ interface Props {
   busy: boolean;
   actsTotal?: number | null;
   map?: MapAct[] | null;
-  onRunItBack: () => void;
-  /** Kept on the contract, not offered as a button — see `RunResult.tsx`'s
-   *  own note on why the player-facing "Replay this seed" affordance was
-   *  removed while the seed itself stays deterministic. */
+  /** The resolved battles, for the exact resolution line per act. */
+  battles?: BattlePublic[] | null;
+  onRunItBack: () => Promise<unknown>;
   onReplaySeed: () => void;
   onChallenge: () => Promise<string | null>;
+  /** A resumed terminal run shows the finished receipt at once. */
+  resumed?: boolean;
 }
 
 type CopiedKind = "summary" | "challenge" | null;
 
-export default function PeakV2RTTResult({ receipt, versions, busy, actsTotal, map, onRunItBack, onChallenge }: Props) {
+export default function PeakV2RTTResult({ receipt, versions, busy, actsTotal, map, battles = null, onRunItBack, onChallenge, resumed = false }: Props) {
   const [copied, setCopied] = useState<CopiedKind>(null);
   const [challengeError, setChallengeError] = useState<string | null>(null);
+  const [best, setBest] = useState<{ isNew: boolean; previous: PersonalBest | null } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const roster = [...receipt.starters, ...receipt.bench];
   const outcome = runOutcome(receipt, actsTotal);
   const verdict = runVerdict(receipt, actsTotal);
+  const cleared = outcome === "table_cleared";
   const tone = outcomeTone(outcome);
   const items = receiptItems(receipt);
   const lanes = receiptLaneProfile(receipt.lane_profile);
+  const livesLost = Math.max(0, receipt.battles.filter((b) => b.outcome === "loss").length);
+  const steps = cleared ? STEPS_CLEARED : STEPS_ENDED;
+
+  // Personal best is recorded once per receipt (keyed on the seed and the
+  // record), on the client, after mount.
+  const recordedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const key = `${receipt.seed}:${receipt.record}:${receipt.roster_total}`;
+    if (recordedRef.current === key) return;
+    recordedRef.current = key;
+    setBest(recordPersonalBest(receipt));
+  }, [receipt]);
 
   function flash(kind: Exclude<CopiedKind, null>) {
     setCopied(kind);
@@ -203,8 +161,6 @@ export default function PeakV2RTTResult({ receipt, versions, busy, actsTotal, ma
     trackRunTheTable({ type: "rtt_shared", surface: "card" });
   }
 
-  // ---- Best move: the higher-scoring of best acquisition / best trade —
-  // ported verbatim from RunResult.tsx's own `mostValuable` selection. ----
   const bestAcq = receipt.best_acquisition;
   const bestTrade = receipt.best_trade;
   const mostValuable: { kind: "acquisition"; data: NonNullable<typeof bestAcq> } | { kind: "trade"; data: NonNullable<typeof bestTrade> } | null =
@@ -218,8 +174,6 @@ export default function PeakV2RTTResult({ receipt, versions, busy, actsTotal, ma
           ? { kind: "trade", data: bestTrade }
           : null;
 
-  // ---- Largest mistake: the most negative real value already on the
-  // receipt — ported verbatim from RunResult.tsx. ----
   const worstContribution =
     receipt.marginal_contributions.length > 0
       ? receipt.marginal_contributions.reduce((min, c) => (c.marginal_contribution < min.marginal_contribution ? c : min))
@@ -232,9 +186,7 @@ export default function PeakV2RTTResult({ receipt, versions, busy, actsTotal, ma
       delta: bestAcq.score_delta,
       detail: (
         <>
-          <strong style={{ color: "var(--v2-text-primary)" }}>{bestAcq.player_name}</strong> for {bestAcq.cost} credits in Act{" "}
-          {bestAcq.act} —{" "}
-          <span style={{ color: "var(--v2-color-negative)" }}>{formatSigned(bestAcq.score_delta, 2)}</span> PEAK3 over{" "}
+          <strong>{bestAcq.player_name}</strong> for {bestAcq.cost} credits in Act {bestAcq.act} — <span style={{ color: "var(--v2-color-negative)" }}>{formatSigned(bestAcq.score_delta, 2)}</span> PEAK3 over{" "}
           {bestAcq.replaced?.player_name ?? "an empty slot"}.
         </>
       ),
@@ -246,8 +198,7 @@ export default function PeakV2RTTResult({ receipt, versions, busy, actsTotal, ma
       delta: bestTrade.score_delta,
       detail: (
         <>
-          <strong style={{ color: "var(--v2-text-primary)" }}>{bestTrade.incoming.player_name}</strong> for{" "}
-          {bestTrade.outgoing.player_name} — net {bestTrade.net_cost} credits,{" "}
+          <strong>{bestTrade.incoming.player_name}</strong> for {bestTrade.outgoing.player_name} — net {bestTrade.net_cost} credits,{" "}
           <span style={{ color: "var(--v2-color-negative)" }}>{formatSigned(bestTrade.score_delta, 2)}</span> PEAK3.
         </>
       ),
@@ -259,394 +210,275 @@ export default function PeakV2RTTResult({ receipt, versions, busy, actsTotal, ma
       delta: worstContribution.marginal_contribution,
       detail: (
         <>
-          <strong style={{ color: "var(--v2-text-primary)" }}>{worstContribution.player_name}</strong>{" "}
-          {worstContribution.anchor_season} — the roster would have scored{" "}
-          <span style={{ color: "var(--v2-color-positive)" }}>{formatSigned(-worstContribution.marginal_contribution, 2)}</span> higher
-          without them.
+          <strong>{worstContribution.player_name}</strong> {worstContribution.anchor_season} — the roster would have scored{" "}
+          <span style={{ color: "var(--v2-color-positive)" }}>{formatSigned(-worstContribution.marginal_contribution, 2)}</span> higher without them.
         </>
       ),
     });
   }
-  const largestMistake =
-    mistakeCandidates.length > 0 ? mistakeCandidates.reduce((worst, m) => (m.delta < worst.delta ? m : worst)) : null;
-
+  const largestMistake = mistakeCandidates.length > 0 ? mistakeCandidates.reduce((worst, m) => (m.delta < worst.delta ? m : worst)) : null;
   const closestLostBattle = receipt.closest_battle && receipt.closest_battle.outcome !== "win" ? receipt.closest_battle : null;
   const timelineRows = map ? ladderRows(map).filter((r) => r.state !== "locked") : [];
+  const reachedAct = receipt.battles.length > 0 ? Math.max(...receipt.battles.map((b) => b.act)) : 1;
 
   return (
-    <div data-testid="rtt-result">
-      {/* CINEMATIC — depth reached, the verdict stamp, the engine's own
-          headline/story, and the record line. */}
-      <PeakV2CinematicStage light={{ y: "-6%", tone }}>
-        <span style={SECTION_HEAD_STYLE}>
-          {outcome === "table_cleared"
-            ? `Cleared all ${actsTotal ?? receipt.battles.length} acts`
-            : outcome === "ended_at_final_boss"
-              ? `Reached the final boss${actsTotal ? ` · Act ${actsTotal}` : ""}`
-              : `Reached Act ${receipt.battles.length > 0 ? Math.max(...receipt.battles.map((b) => b.act)) : 1}${actsTotal ? ` of ${actsTotal}` : ""}`}
-        </span>
-        <div className="mt-2" data-testid="rtt-result-verdict" data-outcome={outcome}>
-          <PeakV2ResultHeadline as="h1" scale="hero" style={{ color: v2ToneVar(tone) }}>
-            {verdict}
-          </PeakV2ResultHeadline>
-        </div>
-        <p className="mt-3 max-w-md" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.9375rem", fontWeight: 700, color: "var(--v2-text-primary)" }}>
-          {receipt.headline}
-        </p>
-        <p className="mt-1 max-w-md" style={BODY_STYLE}>
-          {receipt.story}
-        </p>
-        <p className="mt-4" style={{ fontFamily: "var(--v2-font-mono)", fontVariantNumeric: "tabular-nums", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}>
-          Record {receipt.record} · {receipt.lives_remaining} lives left · roster total {receipt.roster_total.toFixed(1)}
-        </p>
-      </PeakV2CinematicStage>
-
-      <PeakV2Rule spacing="lg" />
-
-      {/* LIVE — boss journey: one row per act, the bosses faced. */}
-      {receipt.battles.length > 0 && (
-        <div data-testid="rtt-result-battles">
-          <span style={SECTION_HEAD_STYLE}>Boss journey</span>
-          <ul className="mt-3 flex flex-col">
-            {receipt.battles.map((b) => (
-              <li
-                key={`${b.act}-${b.boss_id}`}
-                data-testid={`rtt-result-battle-${b.act}`}
-                data-outcome={b.outcome}
-                className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2.5"
-                style={{ borderBottom: "1px solid var(--v2-border-subtle)" }}
-              >
-                <span style={{ fontFamily: "var(--v2-font-ui)", fontWeight: 700, fontSize: "0.8125rem", color: "var(--v2-text-primary)" }}>
-                  Act {b.act}
-                </span>
-                <span
-                  style={{
-                    fontFamily: "var(--v2-font-mono)",
-                    fontSize: "0.6875rem",
-                    fontWeight: 700,
-                    letterSpacing: "0.04em",
-                    textTransform: "uppercase",
-                    color:
-                      b.outcome === "win" ? "var(--v2-color-positive)" : b.outcome === "loss" ? "var(--v2-color-negative)" : "var(--v2-text-secondary)",
-                  }}
-                >
-                  {b.outcome === "win" ? "Won" : b.outcome === "loss" ? "Lost" : "Drew"}
-                </span>
-                <span style={{ fontFamily: "var(--v2-font-mono)", fontVariantNumeric: "tabular-nums", fontSize: "0.75rem", color: "var(--v2-text-secondary)" }}>
-                  {b.player_lanes_won}–{b.opponent_lanes_won} on lanes
-                </span>
-                <span style={MUTED_STYLE}>{DECIDED_BY_LABELS[b.decided_by] ?? "Decided on lanes won"}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <PeakV2Rule spacing="lg" />
-
-      {/* LIVE — the run's highlights: MVP, best move, largest mistake
-          (only when real), closest lost lane, credits. One hairline-divided
-          list, not four bordered tiles. */}
-      <div>
-        <span style={SECTION_HEAD_STYLE}>The run, in five facts</span>
-        <ul className="mt-3 flex flex-col" data-testid="rtt-result-facts">
-          {receipt.run_mvp ? (
-            <CalloutRow
-              testId="rtt-result-mvp"
-              tag="Run MVP"
-              headline={formatSigned(receipt.run_mvp.marginal_contribution, 2)}
-              body={
-                <>
-                  <strong style={{ color: "var(--v2-text-primary)" }}>{receipt.run_mvp.player_name}</strong> {receipt.run_mvp.anchor_season} —
-                  removing them costs the roster this much overall total.
-                </>
-              }
-            />
-          ) : null}
-          {mostValuable ? (
-            <CalloutRow
-              testId="rtt-result-best-move"
-              tag={mostValuable.kind === "acquisition" ? "Best move · Acquisition" : "Best move · Trade"}
-              headline={
-                <span style={{ color: signedColorVar(mostValuable.data.score_delta) }}>{formatSigned(mostValuable.data.score_delta, 2)}</span>
-              }
-              body={
-                mostValuable.kind === "acquisition" ? (
-                  <>
-                    <strong style={{ color: "var(--v2-text-primary)" }}>{mostValuable.data.player_name}</strong> for {mostValuable.data.cost} credits
-                    in Act {mostValuable.data.act} over {mostValuable.data.replaced?.player_name ?? "an empty slot"}.
-                  </>
-                ) : (
-                  <>
-                    <strong style={{ color: "var(--v2-text-primary)" }}>{mostValuable.data.incoming.player_name}</strong> for{" "}
-                    {mostValuable.data.outgoing.player_name} — net {mostValuable.data.net_cost} credits.
-                  </>
-                )
-              }
-            />
-          ) : null}
-          {largestMistake ? (
-            <CalloutRow
-              testId="rtt-result-largest-mistake"
-              tag={largestMistake.label}
-              headline={<span style={{ color: "var(--v2-color-negative)" }}>{formatSigned(largestMistake.delta, 2)}</span>}
-              body={largestMistake.detail}
-            />
-          ) : null}
-          {closestLostBattle ? (
-            <CalloutRow
-              testId="rtt-result-closest-lost"
-              tag="Closest lost lane"
-              headline={closestLostBattle.tightest_lane_margin.toFixed(2)}
-              body={
-                <>
-                  Act {closestLostBattle.act} — {closestLostBattle.outcome}, lanes {closestLostBattle.lanes}.
-                </>
-              }
-            />
-          ) : null}
-          <CalloutRow
-            testId="rtt-result-credits"
-            tag="Credits"
-            headline={receipt.credits_remaining}
-            body={
-              <>
-                Started with {receipt.starting_credits} · spent {receipt.credits_spent} · refunded {receipt.credits_refunded} · finished
-                holding this many.
-              </>
-            }
-          />
-        </ul>
-      </div>
-
-      <PeakV2Rule spacing="lg" />
-
-      {/* LIVE — final roster. */}
-      <div>
-        <span style={SECTION_HEAD_STYLE}>Final roster</span>
-        <ul className="mt-3 grid grid-cols-1 gap-x-6 sm:grid-cols-2" data-testid="rtt-result-roster">
-          {roster.map((entry) => (
-            <li
-              key={entry.slot_id}
-              className="flex items-center justify-between gap-3 py-2.5"
-              style={{ borderBottom: "1px solid var(--v2-border-subtle)" }}
-            >
-              <PeakV2PlayerIdentity
-                name={entry.player_name}
-                meta={`${slotLabel({ slot_id: entry.slot_id, role: entry.role, is_starter: true })} · ${entry.window}`}
-                size="sm"
-              />
-              <span
-                className="shrink-0"
-                style={{ fontFamily: "var(--v2-font-mono)", fontVariantNumeric: "tabular-nums", fontSize: "0.8125rem", fontWeight: 700, color: "var(--v2-color-accent)" }}
-              >
-                {entry.prime_score.toFixed(1)}
+    <ResultReveal steps={steps} startComplete={resumed} sequenceKey={`${receipt.seed}:${receipt.record}`} testId="rtt-result-reveal" className="rtt-ending">
+      {({ revealed, complete }) => (
+        <div data-testid="rtt-result" className="rtt-receipt" data-outcome={outcome} data-complete={complete ? "true" : "false"}>
+          <RevealStep name="ending" revealed={revealed} className="rtt-ending-stage" as="section">
+            <PeakV2ArenaLight y="-8%" tone={tone} intensity="focus" />
+            <div className="rtt-ending-body">
+              <span className="rtt-eyebrow rtt-ending-eyebrow" data-testid="rtt-ending-kind">
+                {cleared ? "Final boss cleared" : "Run ended"}
+                {" · "}
+                {cleared ? `all ${actsTotal ?? receipt.battles.length} acts` : outcome === "ended_at_final_boss" ? `at the final boss` : `Act ${actNumeral(reachedAct)}${actsTotal ? ` of ${actsTotal}` : ""}`}
               </span>
-            </li>
-          ))}
-        </ul>
-      </div>
+              <h1 className="rtt-ending-stamp" data-testid="rtt-result-verdict" data-outcome={outcome} style={{ color: v2ToneVar(tone) }}>
+                {verdict}
+              </h1>
+              <p className="rtt-ending-headline">{receipt.headline}</p>
+              <p className="rtt-ending-story">{receipt.story}</p>
+              <p className="rtt-ending-record">
+                Record {receipt.record} · {receipt.lives_remaining} {receipt.lives_remaining === 1 ? "life" : "lives"} left · {receipt.credits_remaining} credits unspent
+              </p>
+            </div>
+          </RevealStep>
 
-      <PeakV2Rule spacing="lg" />
+          <RevealStep name="journey" revealed={revealed} className="rtt-result-section" as="section" testId="rtt-result-battles">
+            <span className="rtt-eyebrow">How far you got</span>
+            <ol className="rtt-journey">
+              {(map ? map : []).map((act) => {
+                const battle = receipt.battles.find((b) => b.act === act.act) ?? null;
+                return (
+                  <li key={act.act} className="rtt-journey-act" data-state={act.boss.state} data-testid={battle ? `rtt-result-battle-${act.act}` : undefined} data-outcome={battle?.outcome}>
+                    <span className="rtt-journey-numeral">{actNumeral(act.act)}</span>
+                    <span className="rtt-journey-boss">{act.boss.name}</span>
+                    <span className="rtt-journey-outcome" data-outcome={battle?.outcome ?? "none"}>
+                      {battle ? (battle.outcome === "win" ? "Won" : battle.outcome === "loss" ? "Lost · life" : "Drew") : "Not reached"}
+                    </span>
+                    {battle ? (
+                      <span className="rtt-fineprint" data-testid={`rtt-result-battle-${act.act}-resolution`}>
+                        {(() => {
+                          const full = battles?.find((b) => b.act === act.act) ?? null;
+                          if (full) {
+                            const r = battleResolution(full, full.lanes_to_win);
+                            return `${r.count} · ${r.target} · ${r.decider}`;
+                          }
+                          return `${battle.player_lanes_won}–${battle.opponent_lanes_won} · ${DECIDED_BY_LABELS[battle.decided_by] ?? "Decided on lanes won"}`;
+                        })()}
+                      </span>
+                    ) : null}
+                  </li>
+                );
+              })}
+              {!map && receipt.battles.length > 0
+                ? receipt.battles.map((b) => (
+                    <li key={`${b.act}-${b.boss_id}`} className="rtt-journey-act" data-testid={`rtt-result-battle-${b.act}`} data-outcome={b.outcome}>
+                      <span className="rtt-journey-numeral">{actNumeral(b.act)}</span>
+                      <span className="rtt-journey-outcome" data-outcome={b.outcome}>
+                        {b.outcome === "win" ? "Won" : b.outcome === "loss" ? "Lost · life" : "Drew"}
+                      </span>
+                      <span className="rtt-fineprint">
+                        {b.player_lanes_won}–{b.opponent_lanes_won}
+                      </span>
+                    </li>
+                  ))
+                : null}
+            </ol>
+          </RevealStep>
 
-      {/* LIVE — five-lane profile, real component tones. */}
-      <div data-testid="rtt-result-lanes">
-        <span style={SECTION_HEAD_STYLE}>Five-lane profile</span>
-        <div className="mt-4 flex flex-col gap-3">
-          {lanes.map((lane) => (
-            <PeakV2DataLane
-              key={lane.lane}
-              label={lane.label}
-              tone={LANE_TOKEN_TO_TONE[lane.token] ?? "accent"}
-              leftLabel=""
-              leftValue={lane.value.toFixed(1)}
-              scaleMin={0}
-              scaleMax={100}
-            />
-          ))}
-        </div>
-        <p className="mt-3" style={MUTED_STYLE}>
-          Strongest: {receipt.strongest_lane.label} {receipt.strongest_lane.value.toFixed(1)} · weakest: {receipt.weakest_lane.label}{" "}
-          {receipt.weakest_lane.value.toFixed(1)}
-        </p>
-      </div>
-
-      <PeakV2Rule spacing="lg" />
-
-      {/* LIVE — front office perks (Systems). */}
-      <div>
-        <span style={SECTION_HEAD_STYLE}>Front office perks</span>
-        {receipt.systems.length === 0 ? (
-          <p className="mt-2" style={MUTED_STYLE}>
-            No perk was ever selected.
-          </p>
-        ) : (
-          <div className="mt-3 flex flex-col gap-3">
-            {receipt.systems.map((sys) => {
-              const plain = perkPlainEffect(sys.id);
-              const hint = perkStrategyHint(sys.id);
-              return (
-                <div key={sys.id} data-testid={`rtt-result-system-${sys.id}`}>
-                  <p style={BODY_STYLE}>
-                    <span style={{ fontWeight: 700, color: "var(--v2-color-accent)" }}>{sys.name}</span> — {plain ?? sys.summary}
-                  </p>
-                  {hint ? (
-                    <p className="mt-0.5" style={MUTED_STYLE}>
-                      {hint}
-                    </p>
-                  ) : null}
-                  {plain ? (
-                    <details data-testid={`rtt-result-system-rule-${sys.id}`} className="mt-0.5">
-                      <summary style={{ ...MUTED_STYLE, cursor: "pointer", textDecoration: "underline", textUnderlineOffset: "2px" }}>
-                        {PERK_EXACT_RULE_LABEL}
-                        <span className="sr-only"> for {sys.name}</span>
-                      </summary>
-                      <p className="pt-0.5" style={MUTED_STYLE}>
-                        {sys.summary}
-                      </p>
-                    </details>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* LIVE — decision timeline (optional: only when `map` was supplied). */}
-      {timelineRows.length > 0 && (
-        <>
-          <PeakV2Rule spacing="lg" />
-          <div>
-            <span style={SECTION_HEAD_STYLE}>Decision timeline</span>
-            <ol className="mt-3 flex flex-wrap gap-2" data-testid="rtt-result-timeline" aria-label="The run's stages, in order">
-              {timelineRows.map((row) => (
-                <li
-                  key={row.key}
-                  data-testid={`rtt-result-timeline-${row.key}`}
-                  className="flex flex-col items-center gap-0.5 px-2 py-1.5 text-center"
-                  style={{
-                    borderBottom: `2px solid ${
-                      row.kind === "boss"
-                        ? row.state === "won"
-                          ? "var(--v2-color-positive)"
-                          : row.state === "lost"
-                            ? "var(--v2-color-negative)"
-                            : "var(--v2-border)"
-                        : "var(--v2-border-subtle)"
-                    }`,
-                    minWidth: 76,
-                  }}
-                >
-                  <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.625rem", textTransform: "uppercase", color: "var(--v2-text-muted)" }}>
-                    {row.kind === "boss" ? `Act ${row.act} boss` : `Act ${row.act}·${row.stage}`}
+          <RevealStep name="roster" revealed={revealed} className="rtt-result-section" as="section">
+            <span className="rtt-eyebrow">The roster you built</span>
+            <ul className="rtt-result-roster" data-testid="rtt-result-roster">
+              {roster.map((entry) => (
+                <li key={entry.slot_id} className="rtt-result-roster-row">
+                  <span className="rtt-result-roster-slot">{slotLabel({ slot_id: entry.slot_id, role: entry.role, is_starter: true })}</span>
+                  <span className="rtt-result-roster-name">
+                    {entry.player_name}
+                    <span className="rtt-fineprint"> {entry.window}</span>
                   </span>
-                  <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.6875rem", fontWeight: 700, color: "var(--v2-text-primary)" }}>
-                    {row.kind === "boss"
-                      ? row.state === "won"
-                        ? "Won"
-                        : row.state === "lost"
-                          ? "Lost"
-                          : row.state === "drawn"
-                            ? "Drew"
-                            : row.sublabel
-                      : row.sublabel}
-                  </span>
+                  <span className="rtt-result-roster-score">{entry.prime_score.toFixed(1)}</span>
                 </li>
               ))}
-            </ol>
-          </div>
-        </>
-      )}
+            </ul>
+          </RevealStep>
 
-      <PeakV2Rule spacing="lg" />
+          <RevealStep name="score" revealed={revealed} className="rtt-result-section" as="section" testId="rtt-result-lanes">
+            <div className="rtt-result-score">
+              <span className="rtt-eyebrow">Roster total</span>
+              <span className="rtt-result-score-value" data-testid="rtt-result-roster-total">
+                <ScoreTransition value={receipt.roster_total} from={revealed("score") && !resumed ? 0 : undefined} durationMs={900} format={(n) => n.toFixed(1)} />
+              </span>
+              <span className="rtt-fineprint">
+                {livesLost} {livesLost === 1 ? "life" : "lives"} lost · {receipt.credits_spent} credits spent · {receipt.credits_remaining} left
+              </span>
+            </div>
+            <ul className="rtt-result-lanes">
+              {lanes.map((lane) => (
+                <li key={lane.lane} className="rtt-dna-row">
+                  <span className="rtt-dna-label" style={{ color: v2ToneVar(LANE_TOKEN_TO_TONE[lane.token] ?? "accent") }}>
+                    {lane.label}
+                  </span>
+                  <span className="rtt-dna-track" aria-hidden="true">
+                    <span className="rtt-dna-fill" style={{ width: `${Math.max(2, Math.min(100, lane.value))}%`, background: v2ToneVar(LANE_TOKEN_TO_TONE[lane.token] ?? "accent") }} />
+                  </span>
+                  <span className="rtt-dna-value">{lane.value.toFixed(1)}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="rtt-fineprint">
+              Strongest: {receipt.strongest_lane.label} {receipt.strongest_lane.value.toFixed(1)} · weakest: {receipt.weakest_lane.label} {receipt.weakest_lane.value.toFixed(1)}
+            </p>
+          </RevealStep>
 
-      {/* The semantic receipt — colour comes from `kind` and from nothing
-          else, never from the sign of the number beside it. */}
-      <div>
-        <span style={SECTION_HEAD_STYLE}>Why this run ended this way</span>
-        {items.length === 0 ? (
-          <p className="mt-2" style={MUTED_STYLE}>
-            Not enough happened to explain.
-          </p>
-        ) : (
-          <ul className="mt-3 flex flex-col" data-testid="rtt-result-reasons">
-            {items.map((item, i) => (
-              <li
-                key={`${item.kind}-${i}`}
-                data-testid={`rtt-result-item-${i}`}
-                data-kind={item.kind}
-                className="flex items-baseline gap-3 py-2"
-                style={{ borderBottom: "1px solid var(--v2-border-subtle)" }}
-              >
-                <span
-                  className="min-w-12 shrink-0 whitespace-nowrap text-right"
-                  style={{ fontFamily: "var(--v2-font-mono)", fontVariantNumeric: "tabular-nums", fontSize: "0.75rem", fontWeight: 700, color: receiptItemColorVar(item.kind) }}
-                >
-                  {formatReceiptItem(item)}
-                </span>
-                <span style={BODY_STYLE}>{item.label}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+          <RevealStep name="facts" revealed={revealed} className="rtt-result-section" as="section">
+            <span className="rtt-eyebrow">What mattered</span>
+            <ul className="rtt-facts" data-testid="rtt-result-facts">
+              {receipt.run_mvp ? (
+                <Fact testId="rtt-result-mvp" tag="Strongest pick" value={formatSigned(receipt.run_mvp.marginal_contribution, 2)}>
+                  <strong>{receipt.run_mvp.player_name}</strong> {receipt.run_mvp.anchor_season} — removing them costs the roster this much.
+                </Fact>
+              ) : null}
+              {mostValuable ? (
+                <Fact testId="rtt-result-best-move" tag={mostValuable.kind === "acquisition" ? "Best signing" : "Best trade"} value={formatSigned(mostValuable.data.score_delta, 2)} tone={mostValuable.data.score_delta >= 0 ? "positive" : "negative"}>
+                  {mostValuable.kind === "acquisition" ? (
+                    <>
+                      <strong>{mostValuable.data.player_name}</strong> for {mostValuable.data.cost} credits in Act {mostValuable.data.act} over {mostValuable.data.replaced?.player_name ?? "an empty slot"}.
+                    </>
+                  ) : (
+                    <>
+                      <strong>{mostValuable.data.incoming.player_name}</strong> for {mostValuable.data.outgoing.player_name} — net {mostValuable.data.net_cost} credits.
+                    </>
+                  )}
+                </Fact>
+              ) : null}
+              {largestMistake ? (
+                <Fact testId="rtt-result-largest-mistake" tag="Decisive mistake" value={formatSigned(largestMistake.delta, 2)} tone="negative">
+                  {largestMistake.detail}
+                </Fact>
+              ) : null}
+              {closestLostBattle ? (
+                <Fact testId="rtt-result-closest-lost" tag="Closest lost lane" value={closestLostBattle.tightest_lane_margin.toFixed(2)}>
+                  Act {closestLostBattle.act} — {closestLostBattle.outcome}, lanes {closestLostBattle.lanes}.
+                </Fact>
+              ) : null}
+              <Fact testId="rtt-result-credits" tag="Credits" value={String(receipt.credits_remaining)}>
+                Started with {receipt.starting_credits} · spent {receipt.credits_spent} · refunded {receipt.credits_refunded} · finished holding this many.
+              </Fact>
+            </ul>
+            {items.length > 0 ? (
+              <ul className="rtt-reasons" data-testid="rtt-result-reasons">
+                {items.map((item, i) => (
+                  <li key={`${item.kind}-${i}`} data-testid={`rtt-result-item-${i}`} data-kind={item.kind} className="rtt-reason">
+                    <span className="rtt-reason-value" style={{ color: receiptItemColorVar(item.kind) }}>
+                      {formatReceiptItem(item)}
+                    </span>
+                    <span>{item.label}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {receipt.systems.length > 0 ? (
+              <div className="rtt-fineprint rtt-result-perks">
+                Perks:{" "}
+                {receipt.systems.map((sys, i) => (
+                  <span key={sys.id} data-testid={`rtt-result-system-${sys.id}`}>
+                    {i > 0 ? " · " : ""}
+                    <strong>{sys.name}</strong> — {perkPlainEffect(sys.id) ?? sys.summary}
+                    {perkPlainEffect(sys.id) ? (
+                      <details className="rtt-perk-rule" data-testid={`rtt-result-system-rule-${sys.id}`} style={{ display: "inline-block", marginLeft: 4 }}>
+                        <summary>{PERK_EXACT_RULE_LABEL}</summary>
+                        <span>{sys.summary}</span>
+                      </details>
+                    ) : null}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {timelineRows.length > 0 ? (
+              <ol className="rtt-timeline" data-testid="rtt-result-timeline" aria-label="The run's stops, in order">
+                {timelineRows.map((row) => (
+                  <li key={row.key} data-testid={`rtt-result-timeline-${row.key}`} className="rtt-timeline-stop" data-kind={row.kind} data-state={row.state}>
+                    <span className="rtt-fineprint">{row.kind === "boss" ? `Act ${row.act} boss` : `Act ${row.act}·${row.stage}`}</span>
+                    <span>{row.kind === "boss" ? (row.state === "won" ? "Won" : row.state === "lost" ? "Lost" : row.state === "drawn" ? "Drew" : row.sublabel) : row.sublabel}</span>
+                  </li>
+                ))}
+              </ol>
+            ) : null}
+          </RevealStep>
 
-      <PeakV2Rule spacing="lg" />
+          <RevealStep name="best" revealed={revealed} className="rtt-result-section" as="section" testId="rtt-result-best">
+            <span className="rtt-eyebrow">Personal best</span>
+            {best === null ? null : best.isNew ? (
+              <p className="rtt-best" data-testid="rtt-result-best-new" data-new="true">
+                <strong>New personal best.</strong> {receipt.bosses_defeated} {receipt.bosses_defeated === 1 ? "boss" : "bosses"} beaten, roster total {receipt.roster_total.toFixed(1)}
+                {best.previous ? ` — up from ${best.previous.bosses_defeated} and ${best.previous.roster_total.toFixed(1)}.` : "."}
+              </p>
+            ) : (
+              <p className="rtt-best" data-testid="rtt-result-best-standing" data-new="false">
+                Your best stands at {best.previous?.bosses_defeated} {best.previous?.bosses_defeated === 1 ? "boss" : "bosses"} and roster total {best.previous?.roster_total.toFixed(1)}. This run: {receipt.bosses_defeated} and{" "}
+                {receipt.roster_total.toFixed(1)}.
+              </p>
+            )}
+            <p className="rtt-fineprint" data-testid="rtt-result-leaderboard">
+              Not ranked — RUN THE TABLE has no global leaderboard in this build. Personal bests live in this browser.
+            </p>
+          </RevealStep>
 
-      {/* Leaderboard — an explicit "not ranked yet", never a silent
-          omission. RTT has no leaderboard contract yet. */}
-      <div data-testid="rtt-result-leaderboard">
-        <span style={SECTION_HEAD_STYLE}>Leaderboard</span>
-        <p className="mt-2" style={MUTED_STYLE}>
-          Not ranked yet — RUN THE TABLE doesn&apos;t have a global leaderboard in this build.
-        </p>
-      </div>
-
-      <PeakV2Rule spacing="lg" />
-
-      {/* Actions — the same four legacy offers, same handlers. */}
-      {challengeError && (
-        <p role="alert" className="mb-3" style={{ ...BODY_STYLE, color: "var(--v2-color-negative)" }}>
-          {challengeError}
-        </p>
-      )}
-      <div className="flex flex-wrap items-center gap-3">
-        <PeakV2PrimaryAction data-testid="rtt-run-it-back" onClick={onRunItBack} disabled={busy}>
-          <RotateCcw size={13} aria-hidden="true" />
-          Run it back
-        </PeakV2PrimaryAction>
-        <PeakV2SecondaryAction href="/arena" data-testid="rtt-back-to-arena">
-          <ArrowLeft size={13} aria-hidden="true" />
-          Back to Arena
-        </PeakV2SecondaryAction>
-        <PeakV2SecondaryAction data-testid="rtt-challenge" onClick={handleChallenge} disabled={busy}>
-          {copied === "challenge" ? <Check size={13} aria-hidden="true" /> : <LinkIcon size={13} aria-hidden="true" />}
-          {copied === "challenge" ? "Link copied!" : "Challenge a friend"}
-        </PeakV2SecondaryAction>
-        <PeakV2SecondaryAction data-testid="rtt-copy-summary" onClick={handleCopySummary}>
-          {copied === "summary" ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
-          {copied === "summary" ? "Copied!" : "Copy summary"}
-        </PeakV2SecondaryAction>
-        <PeakV2SecondaryAction data-testid="rtt-share-card" onClick={handleShareCard}>
-          <Camera size={13} aria-hidden="true" />
-          Share card (image)
-        </PeakV2SecondaryAction>
-      </div>
-      <canvas ref={canvasRef} aria-hidden="true" data-testid="rtt-share-canvas" style={{ display: "none" }} />
-
-      <details className="mt-8" style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.625rem", color: "var(--v2-text-muted)" }} data-testid="rtt-data-receipt">
-        <summary style={{ cursor: "pointer", color: "var(--v2-text-secondary)" }}>Data receipt</summary>
-        <div className="flex flex-wrap gap-x-3 gap-y-1 pt-2">
-          <span>Seed {receipt.seed}</span>
-          <span>{receipt.run_type}</span>
-          {receipt.date && <span>{receipt.date}</span>}
-          <span>{versions.engine_version}</span>
-          <span>{versions.ruleset_version}</span>
-          <span>{versions.card_pool_version}</span>
-          <span>{versions.peak3_model_version}</span>
+          <RevealStep name="actions" revealed={revealed} className="rtt-result-actions-step" as="section">
+            {challengeError ? (
+              <p role="alert" className="rtt-commit-short">
+                {challengeError}
+              </p>
+            ) : null}
+            <div className="rtt-result-actions">
+              <GameActionButton data-testid="rtt-run-it-back" disabled={busy} pendingLabel="Dealing a new run…" onAction={onRunItBack}>
+                <RotateCcw size={13} aria-hidden="true" />
+                Run it back
+              </GameActionButton>
+              <PeakV2SecondaryAction data-testid="rtt-challenge" onClick={handleChallenge} disabled={busy}>
+                {copied === "challenge" ? <Check size={13} aria-hidden="true" /> : <LinkIcon size={13} aria-hidden="true" />}
+                {copied === "challenge" ? "Link copied!" : "Challenge a friend"}
+              </PeakV2SecondaryAction>
+              <PeakV2SecondaryAction data-testid="rtt-copy-summary" onClick={handleCopySummary}>
+                {copied === "summary" ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+                {copied === "summary" ? "Copied!" : "Copy summary"}
+              </PeakV2SecondaryAction>
+              <PeakV2SecondaryAction data-testid="rtt-share-card" onClick={handleShareCard}>
+                <Camera size={13} aria-hidden="true" />
+                Share card
+              </PeakV2SecondaryAction>
+              <PeakV2SecondaryAction href="/arena" data-testid="rtt-back-to-arena">
+                <ArrowLeft size={13} aria-hidden="true" />
+                Back to Arena
+              </PeakV2SecondaryAction>
+            </div>
+            <canvas ref={canvasRef} aria-hidden="true" data-testid="rtt-share-canvas" style={{ display: "none" }} />
+            <details className="rtt-data-receipt" data-testid="rtt-data-receipt">
+              <summary>Data receipt</summary>
+              <div>
+                <span>Seed {receipt.seed}</span> <span>{receipt.run_type}</span> {receipt.date ? <span>{receipt.date}</span> : null} <span>{versions.engine_version}</span> <span>{versions.ruleset_version}</span>{" "}
+                <span>{versions.card_pool_version}</span> <span>{versions.peak3_model_version}</span>
+              </div>
+            </details>
+          </RevealStep>
         </div>
-      </details>
-    </div>
+      )}
+    </ResultReveal>
+  );
+}
+
+function Fact({ tag, value, children, testId, tone }: { tag: string; value: string; children: ReactNode; testId?: string; tone?: "positive" | "negative" }) {
+  const style: CSSProperties | undefined = tone ? { color: v2ToneVar(tone) } : undefined;
+  return (
+    <li className="rtt-fact" data-testid={testId}>
+      <span className="rtt-fact-text">
+        <span className="rtt-eyebrow">{tag}</span>
+        <span className="rtt-fact-body">{children}</span>
+      </span>
+      <span className="rtt-fact-value" style={style}>
+        {value}
+      </span>
+    </li>
   );
 }

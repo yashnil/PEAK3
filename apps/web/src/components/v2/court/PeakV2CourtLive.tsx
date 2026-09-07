@@ -26,12 +26,22 @@ import PeakV2PlayerIdentity from "../PeakV2PlayerIdentity";
 import PeakV2CourtSlotCard from "./PeakV2CourtSlotCard";
 import CourtLayout from "@/components/court/CourtLayout";
 import LiveBuildPanel from "@/components/court/LiveBuildPanel";
+import { EventMoment, GameActionButton, ScoreTransition, type EventMomentData } from "@/components/game-feel";
+import { useArrivals } from "@/lib/game-feel/arrivals";
 import type { CourtLineupPublicState, CourtSlotPublic, SlotType } from "@/types/perfect-season";
 
 export interface PeakV2CourtLiveProps {
   state: CourtLineupPublicState;
   phase: string;
   busy: boolean;
+  /** Which command the builder's lane holds, and which slot it is about --
+   *  so THAT slot shows pending while the others stay real, disabled
+   *  buttons (never dead `<div>`s a click can fall through). */
+  pendingKind?: string | null;
+  pendingSlot?: SlotType | null;
+  /** What the latest snapshot just did. Rendered over the court. */
+  moment?: EventMomentData | null;
+  onMomentDone?: (id: string) => void;
   starterSlots: CourtSlotPublic[];
   benchSlots: CourtSlotPublic[];
   movingSlot: SlotType | null;
@@ -41,7 +51,7 @@ export interface PeakV2CourtLiveProps {
   onSwapTarget: (slotType: SlotType) => void;
   onCancelMove: () => void;
   slotLabel: (slot: SlotType) => string;
-  onComplete: () => void;
+  onComplete: () => Promise<unknown> | void;
   /** True whenever the chooser exists but is minimized -- the one moment
    *  there is currently no way back into it (Pass 7, task §5). */
   showResumeSelection: boolean;
@@ -64,6 +74,10 @@ export default function PeakV2CourtLive({
   state,
   phase,
   busy,
+  pendingKind = null,
+  pendingSlot = null,
+  moment = null,
+  onMomentDone,
   starterSlots,
   benchSlots,
   movingSlot,
@@ -82,25 +96,46 @@ export default function PeakV2CourtLive({
   pendingSelectionPosition,
   onSwitchSelection,
 }: PeakV2CourtLiveProps) {
+  // THE PICK LOCK, from the real roster diff: a slot that just went EMPTY ->
+  // FILLED locks for a beat, two that just traded occupants light together.
+  const occupants: Record<string, string | null> = {};
+  for (const slot of state.slots) {
+    occupants[slot.slot_type] = slot.filled
+      ? `${slot.player_name ?? slot.slot_type}|${slot.season ?? slot.anchor_season ?? ""}`
+      : null;
+  }
+  const beat = useArrivals(occupants);
+
   function renderSlot(slot: CourtSlotPublic) {
     const pendingSlotFit = phase === "placing" ? state.pending_selection?.fit_by_open_slot?.[slot.slot_type] : undefined;
     const isSwapTarget = movingSlot != null && movingSlot !== slot.slot_type;
     const isMovingSource = movingSlot === slot.slot_type;
     const blockedDuringPlacement = phase === "placing" && slot.filled && movingSlot == null;
+    // A PLACEABLE SLOT STAYS A BUTTON WHILE A REQUEST IS IN FLIGHT. It used
+    // to lose its handler on `busy` and render as a plain div for the round
+    // trip -- a click then hit nothing and read as "I had to click twice".
+    // The one slot being placed into shows PENDING; the rest are disabled
+    // buttons, so a click is refused visibly rather than swallowed.
+    const placeable = !isSwapTarget && phase === "placing" && !slot.filled;
+    const lock = beat.arrived.includes(slot.slot_type) ? "arrived" : beat.swapped.includes(slot.slot_type) ? "swapped" : undefined;
     return (
-      <PeakV2CourtSlotCard
-        slot={slot}
-        isPendingTarget={phase === "placing" && !slot.filled}
-        onClick={!isSwapTarget && phase === "placing" && !slot.filled && !busy ? () => onPlace(slot.slot_type) : undefined}
-        pendingFit={pendingSlotFit?.role_fit}
-        pendingFitSeverity={pendingSlotFit?.role_fit_severity}
-        pendingPrimaryPosition={phase === "placing" ? state.pending_selection?.primary_position : undefined}
-        onMove={rearrangeAvailable && slot.filled && movingSlot == null && !busy ? () => onStartMove(slot.slot_type) : undefined}
-        onSwapTarget={isSwapTarget && !busy ? () => onSwapTarget(slot.slot_type) : undefined}
-        onCancelMove={isMovingSource ? onCancelMove : undefined}
-        movingFromSlotLabel={movingSlot ? slotLabel(movingSlot) : null}
-        blockedDuringPlacement={blockedDuringPlacement}
-      />
+      <div data-gf-lock={lock} className="contents">
+        <PeakV2CourtSlotCard
+          slot={slot}
+          isPendingTarget={phase === "placing" && !slot.filled}
+          onClick={placeable ? () => onPlace(slot.slot_type) : undefined}
+          pending={placeable && pendingSlot === slot.slot_type}
+          inert={placeable && busy && pendingSlot !== slot.slot_type}
+          pendingFit={pendingSlotFit?.role_fit}
+          pendingFitSeverity={pendingSlotFit?.role_fit_severity}
+          pendingPrimaryPosition={phase === "placing" ? state.pending_selection?.primary_position : undefined}
+          onMove={rearrangeAvailable && slot.filled && movingSlot == null && !busy ? () => onStartMove(slot.slot_type) : undefined}
+          onSwapTarget={isSwapTarget && !busy ? () => onSwapTarget(slot.slot_type) : undefined}
+          onCancelMove={isMovingSource ? onCancelMove : undefined}
+          movingFromSlotLabel={movingSlot ? slotLabel(movingSlot) : null}
+          blockedDuringPlacement={blockedDuringPlacement}
+        />
+      </div>
     );
   }
 
@@ -130,15 +165,29 @@ export default function PeakV2CourtLive({
           status={<PeakV2GameStatus label={isComplete ? "Complete" : "Live"} state={isComplete ? "idle" : "active"} />}
           instrument={
             record ? (
+              // THE PROJECTION MOVES when a placement moves it (ScoreTransition):
+              // the consequence of a pick is a number travelling to the
+              // server's new value, not a number silently replaced.
               <PeakV2Score
                 role="moment"
                 size="lg"
                 tone="accent"
                 label="Projected season"
+                data-testid="projected-record"
                 value={
-                  record.low_wins === record.high_wins
-                    ? `${record.low_wins}-${82 - record.low_wins}`
-                    : `${record.low_wins}-${82 - record.low_wins} to ${record.high_wins}-${82 - record.high_wins}`
+                  record.low_wins === record.high_wins ? (
+                    <>
+                      <ScoreTransition value={record.low_wins} testId="projected-low-wins" />-
+                      <ScoreTransition value={82 - record.low_wins} />
+                    </>
+                  ) : (
+                    <>
+                      <ScoreTransition value={record.low_wins} testId="projected-low-wins" />-
+                      <ScoreTransition value={82 - record.low_wins} /> to{" "}
+                      <ScoreTransition value={record.high_wins} testId="projected-high-wins" />-
+                      <ScoreTransition value={82 - record.high_wins} />
+                    </>
+                  )
                 }
               />
             ) : null
@@ -153,16 +202,19 @@ export default function PeakV2CourtLive({
           Build eight exact player-season cards from real rosters. PEAK3 rewards talent first, then fit.
         </p>
 
+        {/* THE BOARD'S PROVENANCE, without a tag. The disclosure used to be
+            labelled "Data receipt" -- a debug-panel name on a game screen.
+            The one fact a player might actually want in view (the seed that
+            reproduces this board) is now the summary line itself; the
+            versions and the respin tally stay behind it. Same testids. */}
         <details
           data-testid="board-receipt"
-          className="mt-1"
-          style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.625rem", color: "var(--v2-text-muted)" }}
+          className="mt-1 v2-court-provenance"
         >
-          <summary className="cursor-pointer select-none" style={{ color: "var(--v2-text-secondary)" }}>
-            Data receipt
+          <summary className="cursor-pointer select-none">
+            Seed {state.board_seed}
           </summary>
           <div className="flex flex-wrap gap-x-3 gap-y-0.5 pt-1">
-            <span>Seed {state.board_seed}</span>
             <span>{state.card_pool_version}</span>
             <span>{state.board_generator_version}</span>
             {state.experimental_team_year_data_version ? <span>{state.experimental_team_year_data_version}</span> : null}
@@ -279,14 +331,23 @@ export default function PeakV2CourtLive({
           </div>
         ) : null}
 
-        <div data-testid="court-grid" className="mt-4 flex flex-col gap-2.5">
+        <div data-testid="court-grid" className="relative mt-4 flex flex-col gap-2.5">
           <CourtLayout starterSlots={starterSlots} benchSlots={benchSlots} renderSlot={renderSlot} />
+          {/* WHAT THE LAST SNAPSHOT DID, over the court it changed. */}
+          <EventMoment moment={moment} onDone={onMomentDone} testId="court-moment" />
 
           {phase === "complete" && state.status === "rounds_complete" ? (
             <div className="mt-2">
-              <PeakV2PrimaryAction data-testid="complete-season-btn" onClick={onComplete} disabled={busy} className="w-full">
-                {busy ? "Simulating…" : "Lock roster & simulate"}
-              </PeakV2PrimaryAction>
+              <GameActionButton
+                data-testid="complete-season-btn"
+                onAction={onComplete}
+                pending={pendingKind === "complete"}
+                pendingLabel="Simulating…"
+                disabled={busy}
+                className="w-full"
+              >
+                Lock roster & simulate
+              </GameActionButton>
             </div>
           ) : null}
         </div>

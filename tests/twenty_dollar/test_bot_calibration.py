@@ -38,6 +38,7 @@ from nba_peak.twenty_dollar.config import (
     ROSTER_SIZE,
     STANDARD_MARKET_LOTS,
     STARTING_BUDGET,
+    rank_band,
 )
 from nba_peak.twenty_dollar.pool import get_pool
 
@@ -82,7 +83,11 @@ def _play(seed: int, pool, policy: TwentyDollarBot) -> dict:
             S.resolve_unwinnable_lot(state, pool)
             continue
         public, private, legal = S.project(state, seat_index, pool)
-        private = {**private, "candidate_tier": state.get("current_candidate_tier")}
+        private = {
+            **private,
+            "candidate_tier": state.get("current_candidate_tier"),
+            "candidate_band": rank_band(pool.get(state["current_candidate"]).rank),
+        }
         command, payload = policy.decide(public, private, rng)
         assert command in legal, (
             f"seed {seed}: policy chose {command!r}, legal was {legal}"
@@ -569,7 +574,11 @@ def test_the_bot_does_not_read_the_hidden_score(pool):
     banned = {"prime_score", "rank", "components", "component_index"}
     state = S.initial_state(seed=4242)
     public, private, _ = S.project(state, state["active_seat"], pool)
-    private = {**private, "candidate_tier": state.get("current_candidate_tier")}
+    private = {
+        **private,
+        "candidate_tier": state.get("current_candidate_tier"),
+        "candidate_band": rank_band(pool.get(state["current_candidate"]).rank),
+    }
 
     def walk(node, path):
         if isinstance(node, dict):
@@ -582,8 +591,11 @@ def test_the_bot_does_not_read_the_hidden_score(pool):
 
     walk(public.get("candidate"), "public.candidate")
     walk(private, "private")
-    # And the tier really is only the coarse band, not a rank.
+    # And the tier really is only the coarse band, not a rank -- and so is the
+    # six-way band: a label, never a number.
     assert private["candidate_tier"] in {"1-100", "101-250", "251-500", "unranked"}
+    assert private["candidate_band"] in {"1-10", "11-25", "26-50", "51-100", "101-250", "251-500"}
+    assert not isinstance(private["candidate_band"], (int, float))
 
 
 def test_a_human_pass_does_not_force_a_bot_pass_over_many_seeds(pool):
@@ -620,14 +632,21 @@ def test_the_bot_makes_bounded_nonoptimal_decisions(pool):
     state = S.initial_state(seed=2024)
     opener = state["active_seat"]
     other = 1 - opener
-    # Walk the price up to roughly where a top-100 candidate is valued, so the
+    # Walk the price up to EXACTLY where the bot values the candidate, so the
     # stay/step-away decision is genuinely marginal. Below the ceiling the
     # answer is always "raise" and above it always "step away"; only at the
     # ceiling do the jitter and the stretch/flinch draws decide anything.
-    S.submit_action(state, opener, S.COMMAND_BID, 6, pool)
+    # v5 reads the ceiling off the policy rather than hard-coding "$6": the
+    # per-lot opinion moves the number, and a test pinned to one price would
+    # be measuring the calibration rather than the bounded mistakes.
+    public, private, _ = S.project(state, other, pool)
+    private = {**private, "candidate_tier": "1-100", "candidate_band": "11-25"}
+    ceiling = policy.valuation(public, private)["ceiling"]
+    assert ceiling >= 3, ceiling
+    S.submit_action(state, opener, S.COMMAND_BID, ceiling, pool)
 
     public, private, _ = S.project(state, other, pool)
-    private = {**private, "candidate_tier": "1-100"}
+    private = {**private, "candidate_tier": "1-100", "candidate_band": "11-25"}
 
     decisions = Counter()
     for index in range(500):

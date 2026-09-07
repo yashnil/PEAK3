@@ -20,6 +20,7 @@ regression in registration fails HERE.
 """
 from __future__ import annotations
 
+import math
 from datetime import datetime, timedelta, timezone
 
 import anyio
@@ -33,11 +34,12 @@ from app.main import app
 from app.repositories.arena_protocols import COMMAND_TYPE_TIMEOUT, CommandRequest
 from app.services.arena import bots as bot_service
 from app.services.arena import clock
+from app.services.arena import matchmaking as mm
 from app.services.arena.modes import registry as mode_registry
 from app.services.three_man_weave import mode as tmw_module
 from app.services.twenty_dollar import mode as td_module
 
-from nba_peak.three_man_weave.config import ROUNDS
+from nba_peak.three_man_weave.config import BOT_THINK_SECONDS_MAX, ROUNDS
 
 TMW = "three_man_weave"
 TWENTY = "twenty_dollar"
@@ -98,6 +100,18 @@ def _real_modes_registered():
     app.dependency_overrides.clear()
 
 
+#: How much of a bot's think time ONE `_poll` lets elapse, in seconds.
+#:
+#: Three-Man Weave draws its think time from 4-10 seconds per (seat, turn)
+#: (`nba_peak.three_man_weave.config.bot_think_seconds`), so under this driver
+#: a bot pick legitimately costs `ceil(think / 5)` polls: one when the draw is
+#: under five seconds, two otherwise. A test that budgets polls per bot turn
+#: must budget from THIS number and the reply the server publishes, never from
+#: a flat "one poll per pick" -- see
+#: `test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock`.
+BOT_AGE_PER_POLL_SECONDS = 5.0
+
+
 def _age_open_turn(match_id: str, seconds: float) -> None:
     """Backdate the open turn so a bot's think delay has elapsed.
 
@@ -145,63 +159,19 @@ def _expire_ceremony(match_id: str) -> None:
             turn.deadline_at = past
 
 
-def _skip_weave_intro_if_open(client: TestClient, match_id: str) -> bool:
-    """Dismiss Three-Man Weave's pre-match briefing with the real command a
-    player uses, instead of letting `_expire_ceremony` force its OWN
-    backstop timeout. Returns whether it was open (and so dismissed).
-
-    THE DEFECT THIS AVOIDS. `_expire_ceremony` forces ANY currently-open
-    seatless turn's deadline into the past so `_poll` can sweep tests that
-    are not about that phase past it -- correct for a CEREMONY (its timeout
-    just opens the next turn) and correct for $20 Showdown's own short
-    `PHASE_INTRO` (unchanged, same). Three-Man Weave's `PHASE_INTRO` backstop
-    means something different ON PURPOSE now (see `_abandon_match` in
-    `three_man_weave.mode`): reaching it means nobody ever dismissed the
-    briefing, so it ABANDONS the match instead of advancing it. Routing a
-    generic sweep through that path would silently abandon every Weave
-    match under test here that has not been explicitly dismissed yet --
-    the exact defect `test_the_intros_own_backstop_abandons_the_match_
-    instead_of_opening_the_ceremony` pins for a real idle player, now
-    wearing a test-helper hat instead. A real player dismisses the briefing
-    by sending `tmw_skip_intro`; so does this, whenever the open turn is
-    Weave's own intro.
-
-    KEYED ON THE MATCH'S MODE, not the phase name alone: both modes' intro
-    phases are literally the string `"intro"`, so a name-only check here
-    would send Weave's command against a Showdown match too.
-    """
-    match = _memory_arena_repo._matches.get(match_id)
-    if match is None or match.mode != tmw_module.mode.mode:
-        return False
-    for turn in _memory_arena_repo._turns.get(match_id, []):
-        if (
-            turn.resolved_at is None
-            and turn.seat_index is None
-            and turn.phase == tmw_module.PHASE_INTRO
-        ):
-            view = client.get(f"/api/v1/arena/matches/{match_id}").json()
-            _command(client, match_id, view, "tmw_skip_intro", {})
-            return True
-    return False
-
-
 def _poll(client: TestClient, match_id: str) -> dict:
     """Sweep past whichever seatless turn (if any) is open, exactly one
-    phase transition at a time -- the same guarantee it made before Weave's
-    intro grew its own real dismiss command.
+    phase transition at a time, then read the match as a real client would.
 
-    Dismissing an open intro (`_skip_weave_intro_if_open`) already opens the
-    ceremony that follows it, with a fresh, untouched deadline -- calling
-    `_expire_ceremony` in the SAME poll would immediately force THAT open
-    too, overshooting to the pick phase in one call where callers ask for
-    "past the intro" and expect to land on the ceremony. So the two are
-    mutually exclusive within one `_poll`: an intro dismissal is a whole
-    phase transition on its own; only when there was no intro to dismiss
-    does the ceremony's own (pre-existing) sweep run instead.
+    Both of Three-Man Weave's seatless phases -- the briefing and the
+    ceremony -- are short, server-timed turns that end on their own deadline
+    (`three_man_weave.mode.PHASE_INTRO`/`PHASE_REVEAL`), so one helper covers
+    both: move the open seatless turn's deadline into the past and let the
+    foundation's own lazy sweep fire on the read. A bot's think delay is aged
+    on the same call so a bot turn advances under polling alone.
     """
-    _age_open_turn(match_id, 5.0)
-    if not _skip_weave_intro_if_open(client, match_id):
-        _expire_ceremony(match_id)
+    _age_open_turn(match_id, BOT_AGE_PER_POLL_SECONDS)
+    _expire_ceremony(match_id)
     response = client.get(f"/api/v1/arena/matches/{match_id}")
     assert response.status_code == 200, response.text
     return response.json()
@@ -548,34 +518,122 @@ def test_the_weaves_snake_order_is_exactly_the_published_one():
     assert order == expected
 
 
-def test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock():
+#: Practice seeds whose TWELVE bot picks ALL draw a think time above
+#: `BOT_AGE_PER_POLL_SECONDS`, one per human seat (`config.human_seat_index`).
+#: Found by an offline scan of `bot_think_seconds(seed, seat, turn_seq)` over
+#: the draft's turn schedule (intro = turn 0, then per round one ceremony turn
+#: and three picks in snake order); every draw is at least 5.5 s so none sits
+#: on the one-poll/two-poll boundary. This is the configuration that made the
+#: flat ceiling fail: two polls per pick, twelve picks, plus the briefing.
+WEAVE_SLOW_BOT_SEEDS = {0: 40, 1: 37, 2: 49}
+
+
+@pytest.mark.parametrize(
+    "seed",
+    [None, *WEAVE_SLOW_BOT_SEEDS.values()],
+    ids=["seed-drawn", *(f"slow-bots-human-seat-{i}" for i in WEAVE_SLOW_BOT_SEEDS)],
+)
+def test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock(monkeypatch, seed):
     """Bots must not stall. Two bot picks per round used to cost 90 seconds of
-    wall clock; here they resolve on consecutive polls."""
+    wall clock; here every one resolves inside the reply time the server
+    publishes for it.
+
+    THE GUARANTEE IS PER TURN, NOT A FLAT POLL COUNT. The server publishes
+    `bot_reply_in_seconds` -- how long until the bot on the clock is allowed
+    to move -- and `_poll` lets exactly `BOT_AGE_PER_POLL_SECONDS` of that
+    elapse per call. So the poll that first covers the published reply is the
+    one that must carry the move (the driver is lazy: the first read after
+    the think time has elapsed applies it). A bot needing even one poll more
+    than `ceil(reply / BOT_AGE_PER_POLL_SECONDS)` is a bot being held past
+    its own published clock, which is the regression this test exists for.
+
+    WHY THE OLD FLAT CEILING FLAKED. `polls_waiting_on_bots <= 24` was set when
+    a bot thought for 1-5 s and so always moved on the first aged poll (12
+    polls, 2x slack). Two things then changed underneath it: the think time
+    became 4-10 s (a pick now costs one poll or two, so twelve picks max out
+    at exactly 24), and the briefing became a seatless server turn
+    (`PHASE_INTRO`) whose one poll this driver was filing under "waiting on
+    bots". The count was therefore `1 + sum(ceil(think_i / 5))`, and for the
+    ~11% of seeds where all twelve draws land at or above 5 s it is 25. The
+    briefing now has its own bucket, the per-turn budget is derived from the
+    published reply, and the worst case is pinned by seed so it runs every
+    time rather than one run in nine.
+
+    Runs once on a production-drawn seed and once per human seat on a seed
+    whose every bot draw is slow -- the pinned cases are exactly the ones that
+    used to fail, and on them the bot count must land ON the derived ceiling,
+    which is what proves the arithmetic rather than merely tolerating it.
+    """
+    if seed is not None:
+        monkeypatch.setattr(mm, "_new_seed", lambda: seed)
     client = _client_as("user-a")
     view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
     match_id = view["match_id"]
     you = view["your_seat_index"]
+    if seed is not None:
+        assert _memory_arena_repo._matches[match_id].seed == seed
+        assert you == next(s for s, v in WEAVE_SLOW_BOT_SEEDS.items() if v == seed)
 
-    # THE TWO WAITS ARE COUNTED SEPARATELY, and that separation is the point.
-    # A seat other than yours holding the turn now means one of two completely
-    # different things: a bot is thinking, or the franchise x decade ceremony
-    # is running (which belongs to no seat at all). Adding them together would
-    # have let a bot regress all the way to needing a timeout while the total
-    # stayed under a ceiling loosened to accommodate six ceremonies -- so the
-    # budget this test exists to enforce is kept on the bot count alone.
+    # THE THREE WAITS ARE COUNTED SEPARATELY, and that separation is the point.
+    # A seat other than yours holding the turn now means one of three
+    # completely different things: a bot is thinking, the franchise x decade
+    # ceremony is running, or the pre-match briefing is up (the last two
+    # belong to no seat at all). Adding them together would let a bot regress
+    # all the way to needing a timeout while the total stayed under a ceiling
+    # loosened to accommodate the seatless phases -- so the budget this test
+    # exists to enforce is kept on the bot turns alone.
+    polls_waiting_on_briefing = 0
     polls_waiting_on_bots = 0
     polls_waiting_on_ceremony = 0
+    # One record per bot turn: the reply the server published the first time
+    # the turn was seen, and how many polls it then took to resolve. A bot
+    # turn is "the same turn" while `state_version` is unchanged -- the only
+    # command that can move the version during a bot's wait is the bot's own.
+    bot_turns: list[dict] = []
+    waiting: dict | None = None
     for _ in range(400):
         if view["public_state"]["is_complete"]:
             break
-        if view.get("turn_phase") == tmw_module.PHASE_REVEAL:
+        phase = view.get("turn_phase")
+        if phase == tmw_module.PHASE_INTRO:
+            assert view["current_turn_seat_index"] is None
+            polls_waiting_on_briefing += 1
+            view = _poll(client, match_id)
+            continue
+        if phase == tmw_module.PHASE_REVEAL:
+            assert view["current_turn_seat_index"] is None
             polls_waiting_on_ceremony += 1
             view = _poll(client, match_id)
             continue
-        if view["current_turn_seat_index"] != you:
+        seat = view["current_turn_seat_index"]
+        if seat != you:
             polls_waiting_on_bots += 1
+            reply = view["bot_reply_in_seconds"]
+            assert reply is not None, (
+                f"a bot seat {seat} is on the clock in phase {phase!r} with no "
+                "published reply time"
+            )
+            assert 0.0 <= reply <= BOT_THINK_SECONDS_MAX, reply
+            if waiting is None or waiting["version"] != view["state_version"]:
+                waiting = {
+                    "version": view["state_version"], "seat": seat,
+                    "reply": reply, "polls": 0,
+                }
+                bot_turns.append(waiting)
+            waiting["polls"] += 1
+            # EVERY BOT TURN RESOLVES WITHIN ITS PUBLISHED REPLY. The published
+            # value is rounded to the millisecond, so half a millisecond is
+            # allowed back before dividing; it never adds a poll except when
+            # the reply sits on an exact multiple of the aging step.
+            budget = max(1, math.ceil((waiting["reply"] + 0.0005) / BOT_AGE_PER_POLL_SECONDS))
+            assert waiting["polls"] <= budget, (
+                f"bot seat {seat} published a reply of {waiting['reply']}s "
+                f"(budget {budget} polls of {BOT_AGE_PER_POLL_SECONDS}s) and "
+                f"still held the turn on poll {waiting['polls']}"
+            )
             view = _poll(client, match_id)
             continue
+        waiting = None
         legal = view["private_state"].get("legal_picks") or {}
         slug = sorted(legal)[0]
         view = _command(
@@ -584,10 +642,25 @@ def test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock():
         )["match"]
 
     assert view["public_state"]["is_complete"]
-    # 12 bot picks in a 3-seat, 6-round draft. One poll each is the floor; a
-    # generous ceiling still fails loudly if a bot ever needs a timeout.
-    # UNCHANGED from before the ceremony existed -- that is the guarantee.
-    assert polls_waiting_on_bots <= 24, polls_waiting_on_bots
+    # The briefing is one seatless turn and `_poll` expires it on sight.
+    assert polls_waiting_on_briefing == 1, polls_waiting_on_briefing
+    # 12 bot picks in a 3-seat, 6-round draft, every one of them seen.
+    assert len(bot_turns) == ROUNDS * 2, [t["seat"] for t in bot_turns]
+    # The ceiling, DERIVED rather than declared: the longest think time the
+    # foundation lets a mode name, in polls, per bot pick. 6 x 2 x ceil(10/5)
+    # = 24 today, and it moves with the constants instead of going stale.
+    polls_per_pick_at_most = math.ceil(BOT_THINK_SECONDS_MAX / BOT_AGE_PER_POLL_SECONDS)
+    ceiling = ROUNDS * 2 * polls_per_pick_at_most
+    assert polls_waiting_on_bots <= ceiling, (polls_waiting_on_bots, ceiling)
+    if seed is not None:
+        # The pinned seeds are the worst case by construction: every reply
+        # is longer than one poll's aging, so every pick costs the maximum
+        # and the total lands exactly on the ceiling -- neither above it
+        # (a stalled bot) nor below it (the seed is not the case it claims).
+        assert all(t["reply"] > BOT_AGE_PER_POLL_SECONDS for t in bot_turns), (
+            [t["reply"] for t in bot_turns]
+        )
+        assert polls_waiting_on_bots == ceiling, (polls_waiting_on_bots, ceiling)
     # Six rounds, six ceremonies. Each costs the poll that expires it plus the
     # one that sees the pick turn; anything beyond that would mean a reveal was
     # being re-entered rather than resolved once.
@@ -675,9 +748,8 @@ def test_no_reachable_state_has_an_open_turn_with_no_seat_no_command_and_no_dead
 
             # (B) EITHER A BOT'S TURN OR A SEATLESS PHASE (the briefing or the
             # ceremony). Both must actually advance under polling alone --
-            # `_poll` is exactly a real client's own polling: it dismisses an
-            # open briefing with the real `tmw_skip_intro` command, ages a
-            # bot's think delay, and sweeps an overdue ceremony -- never a
+            # `_poll` is exactly a real client's own polling: it ages a bot's
+            # think delay and sweeps an overdue seatless turn -- never a
             # test-only shortcut into the reducer.
             polls_waiting_on_bots_or_ceremony += 1
             view = _poll(client, match_id)
@@ -960,65 +1032,59 @@ def test_a_reconnect_mid_ceremony_reconstructs_it_for_every_seat():
 # ---------------------------------------------------------------------------
 # THE PRE-MATCH BRIEFING (`PHASE_INTRO`), THROUGH THE REAL ROUTES
 #
-# A compliance review correctly rejected an earlier version of this pass that
-# only lengthened `OPENING_REVEAL_SECONDS` so a normal read of `GameIntro`
-# would not be cut off underneath it -- that protects the median player and
-# nobody else. The required invariant is stronger: WHILE THE BRIEFING IS
-# VISIBLE, NO HUMAN PICK CLOCK MAY START OR TICK, for one second or for
-# arbitrarily long. These tests hold the briefing open far longer than any
-# real reading would ever take and prove nothing moved underneath it.
+# The briefing is a short, SERVER-TIMED phase every client renders against
+# the same clock (game-feel reconstruction). What can only be seen here is
+# the wiring: the foundation opens it with the mode's own length, publishes
+# its timeline to every seat, refuses every command against it, leaves the
+# bots alone, and ends it -- for the whole table at once -- on its own
+# deadline, never on any one player's click.
 # ---------------------------------------------------------------------------
 
 
 def test_the_intro_phase_gates_everything_else():
-    """LEAVE THE BRIEFING OPEN FOR WELL OVER TWO MINUTES. Nothing may move.
+    """WHILE THE BRIEFING IS UP, NOTHING MOVES -- and nobody can end it early.
 
-    Deliberately does NOT use `_poll`: that helper's `_expire_ceremony` exists
-    to sweep past a seatless turn QUICKLY for tests that are not about the
-    seatless turn itself. This test is about it, so it ages the turn's
-    `opened_at` by 150 seconds -- comfortably past the ceremony's own 9.2s,
-    the 45s human decision window, and the ">2 minutes" this was explicitly
-    asked to clear -- while leaving `deadline_at` (`INTRO_SECONDS`, 1800s)
-    untouched, then reads the match with a PLAIN, unmodified GET, exactly as
-    an idle real client's own poll would.
+    Ages the turn's `opened_at` by two seconds (well inside `INTRO_SECONDS`)
+    while leaving `deadline_at` untouched, then reads the match with a PLAIN
+    GET, exactly as a real client's own poll would.
     """
     from app.services.arena import bots as bot_module
 
     client = _client_as("user-a")
     view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
     match_id = view["match_id"]
-    you = view["your_seat_index"]
 
     assert view["turn_phase"] == tmw_module.PHASE_INTRO
     assert view["current_turn_seat_index"] is None
+    # THE TIMELINE IS PUBLISHED, not just a countdown: which turn this is,
+    # how long it is, and how far in the server is.
+    assert view["turn_seq"] is not None
+    assert view["turn_total_seconds"] == pytest.approx(tmw_module.INTRO_SECONDS, abs=0.5)
+    assert 0.0 <= view["turn_elapsed_seconds"] <= view["turn_total_seconds"]
+    assert view["turn_seconds_remaining"] == pytest.approx(
+        view["turn_total_seconds"] - view["turn_elapsed_seconds"], abs=0.5
+    )
     before_rosters = view["public_state"]["rosters"]
     assert all(
         all(pick is None for pick in roster["slots"].values()) for roster in before_rosters
     ), "a fresh match must not already have picks"
 
-    # WELL OVER TWO MINUTES, simulated on the stored turn rather than waited
-    # out in real time. `deadline_at` is untouched, so this does not force an
-    # expiry -- it proves one does not happen on its own either.
-    _age_open_turn(match_id, 150.0)
+    _age_open_turn(match_id, 2.0)
 
     after = client.get(f"/api/v1/arena/matches/{match_id}").json()
-    # 1. NO HUMAN PICK DEADLINE HAS BEEN CONSUMED. Still the briefing, still
-    #    nobody's turn, still the same state version (nothing was even
-    #    written -- a plain read triggers no sweep here, because the
-    #    deadline itself has not passed).
+    # 1. Still the briefing, still nobody's turn, nothing written.
     assert after["turn_phase"] == tmw_module.PHASE_INTRO
     assert after["current_turn_seat_index"] is None
     assert after["state_version"] == view["state_version"]
+    assert after["turn_elapsed_seconds"] >= 2.0
 
-    # 2. NO FALLBACK PICK OCCURRED, and no roster changed at all.
+    # 2. No fallback pick occurred, and no roster changed at all.
     assert after["public_state"]["rosters"] == before_rosters
     assert after["public_state"]["current_round"] == 1
 
-    # 3. NO BOT DRAFT PROGRESSION. Driven directly, with every think delay
-    #    long since elapsed by the same 150s aging above, so nothing except
-    #    the phase is holding a bot back -- exactly
-    #    `test_no_seat_can_act_while_a_weave_ceremony_is_open`'s method,
-    #    applied to the briefing instead of the ceremony.
+    # 3. No bot draft progression, driven directly with every think delay
+    #    long since elapsed.
+    _age_open_turn(match_id, 150.0)
     steps = anyio.run(
         bot_module.drive_pending_bots,
         _memory_arena_repo,
@@ -1029,8 +1095,7 @@ def test_the_intro_phase_gates_everything_else():
     )
     assert steps == 0, "a bot acted underneath the pre-match briefing"
 
-    # 4. A HUMAN PICK ATTEMPT IS REFUSED FOR WHEN IT ARRIVED, not silently
-    #    accepted against a turn that does not belong to anyone yet.
+    # 4. A human pick attempt is refused for when it arrived.
     refreshed = client.get(f"/api/v1/arena/matches/{match_id}").json()
     refused = _command(
         client, match_id, refreshed, "tmw_pick",
@@ -1039,40 +1104,45 @@ def test_the_intro_phase_gates_everything_else():
     assert refused["accepted"] is False
     assert refused["rejection_code"] == "not_your_turn"
 
-    # 5. DISMISS/SKIP THE BRIEFING NOW, well after the 150s idle stretch, and
-    #    prove the ceremony that follows gets its FULL, undiminished window
-    #    measured from THIS instant -- not from match creation, and not
-    #    shortened by any of the idle time above.
-    skipped = _command(client, match_id, refreshed, "tmw_skip_intro", {})
-    assert skipped["accepted"], skipped
-    match_after_skip = skipped["match"]
-    assert match_after_skip["turn_phase"] == tmw_module.PHASE_REVEAL
-    assert match_after_skip["current_turn_seat_index"] is None
+    # 5. NOBODY CAN END IT EARLY. The former skip commands are refused with a
+    #    specific reason and the phase is untouched.
+    for command in ("tmw_skip_intro", "tmw_skip_reveal"):
+        refused_skip = _command(client, match_id, refreshed, command, {})
+        assert refused_skip["accepted"] is False, command
+        assert refused_skip["rejection_code"] == tmw_module.REJECT_SHARED_TIMELINE, command
+        assert refused_skip["match"]["turn_phase"] == tmw_module.PHASE_INTRO, command
+
+    # 6. ITS OWN DEADLINE ENDS IT, on a plain read, and the ceremony that
+    #    follows gets its FULL window measured from that sweep.
+    _expire_ceremony(match_id)
+    swept = client.get(f"/api/v1/arena/matches/{match_id}").json()
+    assert swept["turn_phase"] == tmw_module.PHASE_REVEAL
+    assert swept["current_turn_seat_index"] is None
     ceremony = _open_turn(match_id)
     assert ceremony.phase == tmw_module.PHASE_REVEAL
     assert (ceremony.deadline_at - ceremony.opened_at).total_seconds() == pytest.approx(
         tmw_module.OPENING_REVEAL_SECONDS, abs=0.5
-    ), "the ceremony's window was diminished by time spent on the briefing"
+    )
+    assert swept["turn_total_seconds"] == pytest.approx(
+        tmw_module.OPENING_REVEAL_SECONDS, abs=0.5
+    )
 
-    # And the normal sequence resumes correctly from there: let the ceremony
-    # run out too, exactly as a real client's polling does, and confirm the
-    # FIRST pick turn also gets a full, undiminished window.
+    # And the normal sequence resumes correctly from there: the ceremony runs
+    # out too, and the FIRST pick turn gets a full, undiminished window.
     resumed = _poll(client, match_id)
     assert resumed["turn_phase"] == tmw_module.PHASE_PICK
     pick_turn = _open_turn(match_id)
     assert (pick_turn.deadline_at - pick_turn.opened_at).total_seconds() == pytest.approx(
         tmw_module.TURN_SECONDS, abs=0.5
     )
+    assert resumed["turn_total_seconds"] == pytest.approx(tmw_module.TURN_SECONDS, abs=0.5)
 
 
-def test_a_reconnect_during_the_intro_phase_does_not_bypass_the_gate():
-    """A second client reading the match while the briefing is still up must
-    see exactly the same gate the first client does -- not a stale or
-    seat-specific view that lets it slip past.
-
-    Three human seats, the same reason `test_a_reconnect_mid_ceremony_
-    reconstructs_it_for_every_seat` uses three: the claim is about every
-    seat, and with bots in the other chairs there would be nobody to ask.
+def test_every_seat_enters_the_match_on_the_same_server_timeline():
+    """THREE HUMANS, ONE TIMELINE. Every seat sees the same briefing turn
+    (same `turn_seq`, same length), no seat can end it for the others, and
+    when its deadline passes every seat lands on the same ceremony turn --
+    none of them on a click.
     """
     host = _client_as("user-a")
     room = host.post("/api/v1/arena/matches/private", json={"mode": TMW}).json()
@@ -1084,81 +1154,55 @@ def test_a_reconnect_during_the_intro_phase_does_not_bypass_the_gate():
         )
         assert joined.status_code == 200, joined.text
 
-    # Idle well past any real reading time, same as the test above, before
-    # anybody reconnects.
-    _age_open_turn(match_id, 150.0)
-
+    seqs = set()
     for sub in ("user-a", "user-b", "user-c"):
         client = _client_as(sub)
         view = client.get(f"/api/v1/arena/matches/{match_id}").json()
         assert view["status"] == "active", sub
-        # EVERY SEAT SEES THE SAME GATE: still the briefing, nobody's turn,
-        # and a pick attempt from THIS seat is refused for when it arrived --
-        # not merely unoffered by `legal_commands` (which never lists
-        # `tmw_skip_intro`/`tmw_pick` specially; the reducer is the actual
-        # authority, exactly as it already is for the ceremony).
         assert view["turn_phase"] == tmw_module.PHASE_INTRO, sub
         assert view["current_turn_seat_index"] is None, sub
+        assert view["turn_total_seconds"] == pytest.approx(tmw_module.INTRO_SECONDS, abs=0.5), sub
+        seqs.add(view["turn_seq"])
         refused = _command(
             client, match_id, view, "tmw_pick",
             {"player_slug": "anyone", "slot_type": "PG"},
         )
         assert refused["accepted"] is False, sub
         assert refused["rejection_code"] == "not_your_turn", sub
+        skipped = _command(client, match_id, view, "tmw_skip_intro", {})
+        assert skipped["accepted"] is False, sub
+        assert skipped["rejection_code"] == tmw_module.REJECT_SHARED_TIMELINE, sub
+        assert skipped["match"]["turn_phase"] == tmw_module.PHASE_INTRO, sub
+    assert len(seqs) == 1, "every seat must be watching the same briefing turn"
 
-    # Any seated participant dismissing it ends the briefing for the table --
-    # the same choice `_reduce_skip_reveal` already makes for the ceremony.
-    guest_b = _client_as("user-b")
-    view = guest_b.get(f"/api/v1/arena/matches/{match_id}").json()
-    skipped = _command(guest_b, match_id, view, "tmw_skip_intro", {})
-    assert skipped["accepted"], skipped
-    assert skipped["match"]["turn_phase"] == tmw_module.PHASE_REVEAL
+    _expire_ceremony(match_id)
+    reveal_seqs = set()
+    for sub in ("user-a", "user-b", "user-c"):
+        client = _client_as(sub)
+        view = client.get(f"/api/v1/arena/matches/{match_id}").json()
+        assert view["turn_phase"] == tmw_module.PHASE_REVEAL, sub
+        assert view["current_turn_seat_index"] is None, sub
+        reveal_seqs.add(view["turn_seq"])
+    assert len(reveal_seqs) == 1, "every seat must land on the same ceremony turn"
 
 
-def test_the_intros_own_backstop_abandons_the_match_instead_of_opening_the_ceremony():
-    """PAST `INTRO_SECONDS` ITSELF, THE MATCH ABANDONS -- IT DOES NOT ADVANCE.
+def test_the_intros_own_deadline_opens_the_ceremony_for_the_table():
+    """PAST `INTRO_SECONDS`, THE MATCH ADVANCES -- it does not abandon.
 
-    THE DEFECT THIS PINS. `test_the_intro_phase_gates_everything_else` proves
-    150 seconds of idle time -- comfortably UNDER the 1800s backstop --
-    consumes nothing, because the backstop's own deadline has not passed yet.
-    It does not exercise what happens once that deadline actually IS reached:
-    an earlier version of `_abandon_match` did not exist, and the intro's own
-    `COMMAND_TYPE_TIMEOUT` opened the ceremony (`_open_ceremony_turn`) exactly
-    as a real player's `tmw_skip_intro` does. That is safe for a player who is
-    still there to dismiss the briefing, but the backstop firing means the
-    opposite -- nobody ever did -- so it silently started the ceremony, and
-    from there eventually the pick clock, behind a `GameIntro` dialog with no
-    auto-dismiss of its own. A still-connected but genuinely idle tab (the
-    exact case the backstop exists for) would poll its way into an active
-    draft nobody at the table ever asked to begin.
-
-    THE PROOF. Backdates the open turn's `opened_at` AND `deadline_at` by
-    `INTRO_SECONDS + 120` seconds -- past the backstop itself, not merely past
-    a normal reading time -- then reads the match with a plain GET, exactly as
-    an idle real client's own poll does. `apply_command` refuses every command
-    against a `TERMINAL_MATCH_STATUSES` match before any reducer runs, so
-    every one of the checks below is enforced by the framework itself, not by
-    this mode remembering to ask.
+    The old 30-minute "abandon the match" backstop existed only because the
+    briefing was a client dialog with no auto-dismiss. A timed phase needs no
+    such backstop: reaching its deadline means the briefing has been shown,
+    and the ceremony that follows is the same safe transition the ceremony's
+    own expiry makes. Backdates BOTH `opened_at` and `deadline_at` well past
+    the phase, then reads with a plain GET.
     """
-    from app.repositories.arena_protocols import (
-        MATCH_STATUS_ABANDONED,
-        REJECT_MATCH_NOT_LIVE,
-        TERMINAL_MATCH_STATUSES,
-    )
-    from app.services.arena import bots as bot_module
-
     client = _client_as("user-a")
     view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
     match_id = view["match_id"]
     assert view["turn_phase"] == tmw_module.PHASE_INTRO
     before_rosters = view["public_state"]["rosters"]
 
-    # PAST THE BACKSTOP ITSELF -- not merely idle, but the 1800s deadline
-    # actually elapsed, plus a two-minute margin. Both fields move together
-    # so the turn honestly represents a briefing genuinely open that long,
-    # the same discipline `_expire_ceremony` documents for seatless turns.
     turn = _open_turn(match_id)
-    assert turn.phase == tmw_module.PHASE_INTRO
     elapsed = timedelta(seconds=tmw_module.INTRO_SECONDS + 120.0)
     for stored in _memory_arena_repo._turns.get(match_id, []):
         if stored.turn_seq == turn.turn_seq:
@@ -1166,110 +1210,42 @@ def test_the_intros_own_backstop_abandons_the_match_instead_of_opening_the_cerem
             stored.deadline_at = stored.deadline_at - elapsed
 
     after = client.get(f"/api/v1/arena/matches/{match_id}").json()
-
-    # A) THE MATCH ABANDONED SAFELY. Terminal, not active -- and specifically
-    #    the status that means "nothing was ever played" rather than
-    #    `completed` (a forfeit's status; this match has no roster to score).
-    assert after["status"] == MATCH_STATUS_ABANDONED
-    assert MATCH_STATUS_ABANDONED in TERMINAL_MATCH_STATUSES
-
-    # It must not enter an actionable draft phase: no open turn at all, so
-    # neither the ceremony nor the pick phase -- the two phases the old
-    # behavior could reach -- was entered.
-    assert after["turn_phase"] is None
+    assert after["status"] == "active"
+    assert after["turn_phase"] == tmw_module.PHASE_REVEAL
     assert after["current_turn_seat_index"] is None
-    assert after["turn_phase"] != tmw_module.PHASE_REVEAL
-    assert after["turn_phase"] != tmw_module.PHASE_PICK
-
-    # NO ROSTER/PICK PROGRESSION. Still round one, still nobody drafted.
+    # Nothing was played by the transition itself.
     assert after["public_state"]["rosters"] == before_rosters
     assert after["public_state"]["current_round"] == 1
-    assert all(
-        all(pick is None for pick in roster["slots"].values())
-        for roster in after["public_state"]["rosters"]
+    # And the ceremony's window is measured from the sweep, not from the
+    # long-past deadline: a reconnecting client lands INSIDE it.
+    assert 0.0 <= after["turn_elapsed_seconds"] <= after["turn_total_seconds"]
+    assert after["turn_total_seconds"] == pytest.approx(
+        tmw_module.OPENING_REVEAL_SECONDS, abs=0.5
     )
-
-    # The seat sees nothing legal either -- not just refused server-side, but
-    # never OFFERED, so a client cannot even render an actionable control.
-    assert after["legal_commands"] == []
-
-    # NO BOT DRAFT PROGRESSION. Driven directly, exactly as
-    # `test_the_intro_phase_gates_everything_else` checks for the un-expired
-    # case -- there is no open turn for a bot to act on at all now.
-    steps = anyio.run(
-        bot_module.drive_pending_bots,
-        _memory_arena_repo,
-        tmw_module.mode,
-        tmw_module.mode.reduce,
-        match_id,
-        datetime.now(timezone.utc),
-    )
-    assert steps == 0, "a bot acted on an abandoned match"
-
-    # A human pick attempt is refused FOR THE MATCH BEING OVER, not merely
-    # "not your turn" -- the correct reason once the match itself is
-    # terminal, and proof `apply_command`'s own liveness gate is what is
-    # actually protecting this, not a reducer-level check that could regress
-    # independently of it.
-    refused_pick = _command(
-        client, match_id, after, "tmw_pick",
-        {"player_slug": "anyone", "slot_type": "PG"},
-    )
-    assert refused_pick["accepted"] is False
-    assert refused_pick["rejection_code"] == REJECT_MATCH_NOT_LIVE
-
-    # And an explicit skip, arriving after the match has already ended itself,
-    # is refused the same way -- not treated as a second, redundant dismissal.
-    refused_skip = _command(client, match_id, after, "tmw_skip_intro", {})
-    assert refused_skip["accepted"] is False
-    assert refused_skip["rejection_code"] == REJECT_MATCH_NOT_LIVE
 
 
 def test_round_ones_ceremony_is_the_modes_own_length():
     """ROUND ONE'S CEREMONY IS NOT A 45-SECOND DECISION.
 
-    THE DEFECT THIS PINS. The FIRST turn of a match is not opened by the mode's
-    reducer -- `matchmaking._open_play` opens it. It asked the mode which PHASE
-    to open, via `initial_phase()`, and then stamped the deadline as
-    `now + mode.turn_seconds`: the DECISION window. So rounds two through six,
-    whose turns come from the mode's own `TurnDraft`, held the ceremony for
-    `REVEAL_SECONDS`, and round one held it for forty-five seconds -- a player
-    stared at the reveal for three quarters of a minute before the first panel
-    opened.
-
-    The seam that was missing is `modes.phase_seconds`: a mode may now say how
-    long a PHASE lasts, not only how long a decision does. This test is the
-    contract for it, and it is deliberately measured against the mode's own
-    constant rather than a literal, so changing `REVEAL_SECONDS` cannot leave a
-    stale number here.
+    The FIRST turn of a match is opened by `matchmaking._open_play`, which
+    asks the mode for a phase (`initial_phase`) and for that phase's own
+    length (`modes.phase_seconds`). The ceremony that follows the briefing is
+    opened by the reducer with `OPENING_REVEAL_SECONDS`; this pins that the
+    seam is honoured end to end and that the ceremony is a short beat, not a
+    decision window.
     """
     client = _client_as("user-a")
     view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
     match_id = view["match_id"]
-    # Past the pre-match briefing (`PHASE_INTRO`) first -- see
-    # `test_the_intro_phase_gates_everything_else` for that phase on its own.
     _poll(client, match_id)
     turn = _open_turn(match_id)
     assert turn.phase == tmw_module.PHASE_REVEAL
     held = (turn.deadline_at - turn.opened_at).total_seconds()
-    # ROUND ONE'S CEREMONY IS THE LONGER ONE, and deliberately so: it runs the
-    # matchup card -- title, the three competitors with the human marked, the
-    # objective -- BEFORE the franchise x decade reel. That intro used to be a
-    # 30% share of a 3.2s window, i.e. under a second for three seat names, and
-    # `OPENING_REVEAL_SECONDS` is the constant that fixed it. Rounds two
-    # through six run `REVEAL_SECONDS` and are covered by the sweep above.
     assert held == pytest.approx(tmw_module.OPENING_REVEAL_SECONDS, abs=0.5), held
-    assert tmw_module.OPENING_REVEAL_SECONDS > tmw_module.REVEAL_SECONDS
-    # And emphatically NOT the decision window, which is what it used to be.
     assert held < tmw_module.TURN_SECONDS / 2, (
         f"round one held the ceremony for {held}s against a "
         f"{tmw_module.TURN_SECONDS}s decision window"
     )
-
-
-# ---------------------------------------------------------------------------
-# Access
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("mode", [TMW, TWENTY])

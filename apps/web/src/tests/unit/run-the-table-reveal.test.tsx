@@ -267,15 +267,13 @@ describe("RevealSequenceSurface", () => {
     expect(screen.getAllByLabelText("Not revealed yet").length).toBeGreaterThanOrEqual(6);
   });
 
-  it("skip all resolves every slot with the server's own names, in order — no client invention", async () => {
+  it("the deal cannot be skipped: no Skip all, and the first card settles on its own beat with the server's own name", async () => {
     const { rerender } = render(<RevealHarness revealTrack={track(0)} />);
     await userEvent.click(screen.getByTestId("rtt-reveal-start-roster"));
     rerender(<RevealHarness revealTrack={track(7)} />);
-    await userEvent.click(await screen.findByTestId("rtt-reveal-skip-roster"));
-    for (let i = 0; i < 7; i += 1) {
-      expect(await screen.findByText(`Player ${i}`)).toBeInTheDocument();
-    }
-    expect(screen.queryByLabelText("Not revealed yet")).not.toBeInTheDocument();
+    await screen.findByTestId("rtt-reveal-pause-roster");
+    expect(screen.queryByTestId("rtt-reveal-skip-roster")).not.toBeInTheDocument();
+    expect(await screen.findByText("Player 0", {}, { timeout: 4000 })).toBeInTheDocument();
   });
 
   it("reduced motion renders the fully-resolved roster the instant the batch lands, with no animation to skip", async () => {
@@ -354,10 +352,11 @@ describe("RevealSequenceSurface — boss auto-reveal", () => {
     expect(screen.queryByTestId("rtt-reveal-start-boss")).not.toBeInTheDocument();
   });
 
-  it("still exposes Skip all once the boss sequence is auto-started, for a player who wants to bypass it", async () => {
+  it("never exposes Skip all on the boss deal either — only Pause", async () => {
     const { rerender } = render(<RevealHarness revealTrack={track(0)} kind="boss" />);
     rerender(<RevealHarness revealTrack={track(7)} kind="boss" />);
-    expect(await screen.findByTestId("rtt-reveal-skip-boss")).toBeInTheDocument();
+    expect(await screen.findByTestId("rtt-reveal-pause-boss")).toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-reveal-skip-boss")).not.toBeInTheDocument();
   });
 
   it("the roster path is unaffected — still requires the manual press", async () => {

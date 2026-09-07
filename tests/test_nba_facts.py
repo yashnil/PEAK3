@@ -165,7 +165,7 @@ def test_the_bank_serialises_and_round_trips(bank):
 
 
 def test_no_fact_mentions_the_model(bank):
-    """The heading is "NBA Fact of the Day", and the content has to match it.
+    """The heading is "Basketball Fact of the Day", and the content has to match it.
 
     A visitor lands on the homepage before they know what PEAK3 is, so a fact
     they cannot evaluate without the model is a fact they skip.
