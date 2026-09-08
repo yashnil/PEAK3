@@ -80,6 +80,7 @@ import numpy as np
 from nba_peak.daily_grid.constraints import (
     Constraint,
     V3_ADDED_CONSTRAINT_IDS,
+    V4_ADDED_CONSTRAINT_IDS,
     all_constraints,
 )
 from nba_peak.daily_grid.pool import GridPool, load_pool
@@ -104,13 +105,22 @@ DAILY_GRID_VERSION_V2 = "daily_grid.v2"
 # old one.
 DAILY_GRID_VERSION_V3 = "daily_grid.v3"
 
+# v4: adds four whole constraint FAMILIES -- career stage (age), production
+# rate bands (per 75 possessions), shooting (era-relative efficiency, three-
+# point volume) and usage -- taking the taxonomy from 71 constraints in 8
+# families to 83 in 12, and adds the family-level cross-day diversity rule
+# below (`_family_novelty_ok`). Effective only for a board date strictly after
+# FAMILY_CUTOVER_DATE; every earlier date keeps resolving under the version
+# that was in force when it shipped.
+DAILY_GRID_VERSION_V4 = "daily_grid.v4"
+
 # The symbol every external caller imports as "the current taxonomy version".
 # Code that needs to know what a SPECIFIC DATE's board actually resolves
 # under -- generation, the seed, the board id -- must go through
 # _version_for_date(date_str), never this constant directly, because a date
 # at or before the cutover has to keep resolving under v2 even after this
 # constant moves on to v4, v5, etc.
-DAILY_GRID_VERSION = DAILY_GRID_VERSION_V3
+DAILY_GRID_VERSION = DAILY_GRID_VERSION_V4
 
 # THE CUTOVER. A board date <= this value resolves EXACTLY as it always has:
 # same version salt (v2), same frozen v2 taxonomy (no Sixth Man of the Year /
@@ -120,6 +130,23 @@ DAILY_GRID_VERSION = DAILY_GRID_VERSION_V3
 # already have seen (today's included) is touched.
 NOVELTY_CUTOVER_DATE = "2026-08-25"
 
+# THE SECOND CUTOVER, same contract as the first. A date at or before this
+# resolves under v3 exactly as it always has -- v3 salt, v3 taxonomy (none of
+# the four v4 families), v3 novelty rules, same seed, same board_id. Only a
+# date strictly after it picks up v4. Set to the date the v4 taxonomy shipped,
+# so no board a player could already have seen is touched.
+FAMILY_CUTOVER_DATE = "2026-09-08"
+
+# The version ladder, OLDEST FIRST: each entry is the date at or before which a
+# board resolves under that version. Written as a table rather than a chain of
+# comparisons so adding v5 is one row, and so the ordering invariant (the
+# cutovers must ascend) is visible at a glance rather than implied by control
+# flow.
+_VERSION_LADDER: tuple[tuple[str, str], ...] = (
+    (NOVELTY_CUTOVER_DATE, DAILY_GRID_VERSION_V2),
+    (FAMILY_CUTOVER_DATE, DAILY_GRID_VERSION_V3),
+)
+
 
 def _version_for_date(date_str: str) -> str:
     """Which taxonomy version `date_str` resolves under, absent an explicit
@@ -127,32 +154,40 @@ def _version_for_date(date_str: str) -> str:
 
     Plain string comparison: YYYY-MM-DD sorts chronologically, and the caller
     is always a date that has already been through validate_grid_date. Pure
-    and total -- every date is on exactly one side of the cutover.
+    and total -- every date lands on exactly one rung of `_VERSION_LADDER`, or
+    past the end of it on the current version.
     """
-    return (
-        DAILY_GRID_VERSION_V2
-        if date_str <= NOVELTY_CUTOVER_DATE
-        else DAILY_GRID_VERSION_V3
-    )
+    for cutover, version in _VERSION_LADDER:
+        if date_str <= cutover:
+            return version
+    return DAILY_GRID_VERSION
 
 
-def _legacy_v2_taxonomy(taxonomy: Sequence[Constraint]) -> list[Constraint]:
-    """Reconstruct the EXACT v2 constraint list -- same members, same
-    relative order -- by filtering the v3-added ids back out of the current
-    full taxonomy.
+def _legacy_taxonomy(taxonomy: Sequence[Constraint], version: str) -> list[Constraint]:
+    """`taxonomy` reduced to exactly the population `version` sampled from.
 
-    Why filtering rather than maintaining a second registry: constraints.py
-    only ever APPENDS new constraints to the end of their category block (its
-    own stated convention), so removing exactly the ids that did not exist in
-    v2 reproduces v2's list byte-for-byte in composition -- and generation
-    samples from this list by index against a date-seeded RNG
-    (`rng.sample(taxonomy, ...)`), so the length and order of the population
-    passed in is itself part of what a legacy date's determinism depends on.
-    Silently leaving new constraints in for an old date would reshuffle what
-    every past board resolves to, even the ones nothing about this change
-    touches.
+    Each version's additions are filtered back out cumulatively, so a v2 date
+    sees neither the v3 award ids nor the v4 families and a v3 date sees the
+    v3 ids but not the v4 families.
+
+    WHY FILTERING RATHER THAN MAINTAINING A REGISTRY PER VERSION:
+    constraints.py only ever APPENDS new constraints to the end of their
+    category block (its own stated convention), so removing exactly the ids
+    that did not exist at a given version reproduces that version's list
+    byte-for-byte in composition -- and generation samples from this list BY
+    INDEX against a date-seeded RNG (`rng.sample(taxonomy, ...)`), so the
+    length and order of the population passed in is itself part of what a
+    legacy date's determinism depends on. Silently leaving newer constraints
+    in for an old date would reshuffle what every past board resolves to, even
+    the ones nothing about the change touches.
     """
-    return [c for c in taxonomy if c.id not in V3_ADDED_CONSTRAINT_IDS]
+    drop: set[str] = set()
+    if version in (DAILY_GRID_VERSION_V2, DAILY_GRID_VERSION_V3):
+        drop |= V4_ADDED_CONSTRAINT_IDS
+    if version == DAILY_GRID_VERSION_V2:
+        drop |= V3_ADDED_CONSTRAINT_IDS
+    return [c for c in taxonomy if c.id not in drop]
+
 
 # Namespace prefix -- never share a raw date salt with another game's daily
 # seed (same discipline as nba_peak/perfect_season/daily.py).
@@ -192,6 +227,16 @@ MAX_PER_CATEGORY = 2          # no category may own a whole axis
 # availability quiz rather than a puzzle.
 MAX_CONTEXT_CONSTRAINTS = 1
 
+# v4: the same argument as MAX_CONTEXT_CONSTRAINTS, applied to the whole group
+# of "what shape was this season" families now that there are four of them.
+# Two rate/efficiency/usage/workload axes crossed is a real puzzle; three or
+# more is a statistical filter with a basketball label, and it crowds out the
+# franchises, awards and eras a player actually recognises. The cap counts
+# `context` too, so it strictly tightens the previous rule rather than
+# replacing it.
+_STYLE = frozenset({"context", "production", "shooting", "usage"})
+MAX_STYLE_CONSTRAINTS = 2
+
 # Every board needs at least two constraints a fan can anchor on that are not
 # a franchise, a position or a workload line: awards, playoff outcomes, eras.
 # Raised from 1 in 11C -- with the PEAK3-native axes gone there is room for
@@ -199,7 +244,24 @@ MAX_CONTEXT_CONSTRAINTS = 1
 MIN_ANCHOR_CONSTRAINTS = 2
 
 # Categories that a casual fan recognizes without knowing PEAK3 at all.
-_RECOGNIZABLE = frozenset({"team", "award", "era", "position", "outcome", "context"})
+_RECOGNIZABLE = frozenset(
+    {
+        "team",
+        "award",
+        "era",
+        "position",
+        "outcome",
+        "context",
+        # v4 families. All four are plain basketball facts a fan recognises
+        # without knowing PEAK3 exists -- how old the player was, what he did
+        # per possession, how efficiently he shot, how much of the offence he
+        # ran. That is exactly the test this set encodes.
+        "career",
+        "production",
+        "shooting",
+        "usage",
+    }
+)
 _PEAK3_NATIVE = frozenset({"peak", "component"})
 # "Interesting on their own" -- the categories that carry basketball meaning
 # beyond roster membership, listed height and minutes played.
@@ -302,6 +364,27 @@ PAIR_COOLDOWN_BOARDS = 10
 # How many boards of history `_recent_usage` actually walks. Must cover the
 # longer of the two cooldowns above.
 NOVELTY_HISTORY_WINDOW = max(CATEGORY_COOLDOWN_BOARDS, PAIR_COOLDOWN_BOARDS)
+
+# FAMILY-LEVEL DIVERSITY, across adjacent days (v4).
+#
+# The id and pair cooldowns above stop the same AXIS and the same MATCHUP
+# recurring. They do not stop the same KIND of board recurring: three
+# franchises and three decades on Monday, three franchises and three decades on
+# Tuesday, with six different ids each time, satisfies both and still reads as
+# the same puzzle twice. `MAX_PER_CATEGORY` caps a family at two of the six
+# slots on ANY ONE board, so "dominating" means taking that maximum on
+# consecutive days -- which is what this forbids: a family that took two slots
+# on the immediately previous board may take at most one today.
+#
+# ONE BOARD OF LOOKBACK, not several. The rule has to bite on the pattern
+# players actually notice (yesterday and today) without disqualifying so much
+# of the taxonomy that composition -- whose accepted combinations are already
+# concentrated in the small anchor families -- starts failing. Extending it to
+# two or three boards would mean up to six families capped at once, against
+# twelve families of which four have three or fewer members. Measured over
+# 365 days, one board of lookback rejects candidates rarely enough not to
+# move the attempt distribution (see scripts/audit_daily_grid_novelty.py).
+FAMILY_COOLDOWN_BOARDS = 1
 
 # Attempts spent insisting on the strict novelty filter before falling back to
 # ordinary (non-novelty-filtered) generation, drawing from the FULL taxonomy.
@@ -691,22 +774,40 @@ _THROWBACK_ERA_IDS = frozenset({"era_1980s", "era_1990s"})
 # "Open Court": the board is asking who was actually on the floor -- listed
 # position, minutes per game, games played -- rather than what they won.
 _OPEN_COURT_CATEGORIES = frozenset({"position", "context"})
+# v4 families, as themes. The four new families are real subjects a board can
+# be ABOUT, and they need their own honest descriptions for two reasons: a
+# board built largely from them would otherwise be labelled by whichever old
+# predicate happened to scrape through, and `resolve_theme_id` needs at least
+# two true descriptions per board to guarantee it can always skip yesterday's.
+_YOUNG_CONSTRAINT_IDS = frozenset({"career_age_23_under"})
+_VETERAN_CONSTRAINT_IDS = frozenset({"career_age_30_over", "career_age_34_over"})
+# "Efficiency Night": the board is asking how the player scored -- shot diet,
+# era-relative efficiency, share of the offence -- rather than how much.
+_EFFICIENCY_CATEGORIES = frozenset({"shooting", "usage"})
 
 #: Every theme the game can print, `theme_id -> display label`.
 #:
-#: ORDER IS THE PRIORITY ORDER, rarest applicable predicate first (measured
-#: over 1,100 consecutive daily keys: outcome>=2 9.9 %, throwback 30.6 %,
-#: defence 39.7 %, modern 40.2 %, award>=2 40.3 %, team>=2 60.5 %,
-#: outcome>=1 67.5 %, position-or-context ~92 %). A dict preserves insertion
+#: ORDER IS THE PRIORITY ORDER, rarest applicable predicate first. Re-measured
+#: over 300 consecutive v4 keys after the four new families shipped, because
+#: the old ordering was measured against a taxonomy that no longer exists:
+#: outcome>=2 5.0 %, production>=2 7.0 %, young 15.3 %, veteran 20.3 %,
+#: throwback 22.7 %, award>=2 27.3 %, modern 28.3 %, defence 30.0 %,
+#: team>=2 32.0 %, shooting-or-usage 36.3 %, production>=1 48.0 %,
+#: outcome>=1 55.7 %, position-or-context 57.0 %. A dict preserves insertion
 #: order, and `theme_candidates` walks it once.
 THEME_LABELS: "OrderedDict[str, str]" = OrderedDict(
     (
         ("ring-chasers", "Ring Chasers"),
+        ("box-score-night", "Box Score Night"),
+        ("young-legs", "Young Legs"),
+        ("veteran-night", "Veteran Night"),
         ("throwback-night", "Throwback Night"),
-        ("two-way-night", "Two-Way Night"),
-        ("modern-era", "Modern Era"),
         ("award-season", "Award Season"),
+        ("modern-era", "Modern Era"),
+        ("two-way-night", "Two-Way Night"),
         ("franchise-icons", "Franchise Icons"),
+        ("efficiency-night", "Efficiency Night"),
+        ("engine-room", "Engine Room"),
         ("playoff-pressure", "Playoff Pressure"),
         ("open-court", "Open Court"),
     )
@@ -725,8 +826,52 @@ def _slugify(label: str) -> str:
     return "-".join(part for part in label.lower().replace("/", " ").split() if part)
 
 
+#: The priority order each taxonomy version publishes labels in.
+#:
+#: A PUBLISHED BOARD'S LABEL IS PART OF THE PUBLISHED BOARD. The v4 families
+#: needed their own themes and a re-measured ordering, and reordering the one
+#: shared list changed the primary label of 14 in 100 already-published legacy
+#: boards -- same axes, same cells, same hash, different title on the archive
+#: page. So the ordering is versioned exactly like the taxonomy is: a date
+#: resolves its label through the order that was in force when its board
+#: shipped. The v4 predicates cannot fire on a legacy board anyway (its
+#: taxonomy has none of those families), so only the ORDER differs.
+_THEME_ORDER_LEGACY: tuple[str, ...] = (
+    # The eight the pre-v4 taxonomy could produce, in the order it produced
+    # them.
+    "ring-chasers",
+    "throwback-night",
+    "two-way-night",
+    "modern-era",
+    "award-season",
+    "franchise-icons",
+    "playoff-pressure",
+    "open-court",
+    # The v4 themes, APPENDED rather than absent. A real legacy board can
+    # never satisfy any of these -- its taxonomy has none of those families --
+    # so appending them changes no published legacy label. What it does do is
+    # keep `theme_candidates` total: a caller that hands the FULL taxonomy to
+    # a legacy date (tests do exactly this) gets a board whose axes the legacy
+    # order alone cannot describe, and a short candidate list is what makes
+    # `resolve_theme_id` unable to skip yesterday's label.
+    "box-score-night",
+    "young-legs",
+    "veteran-night",
+    "efficiency-night",
+    "engine-room",
+)
+
+_THEME_ORDER_V4: tuple[str, ...] = tuple(THEME_LABELS)
+
+
+def _theme_order(version: str) -> tuple[str, ...]:
+    return _THEME_ORDER_V4 if version == DAILY_GRID_VERSION_V4 else _THEME_ORDER_LEGACY
+
+
 def theme_candidates(
-    rows: Sequence[Constraint], cols: Sequence[Constraint]
+    rows: Sequence[Constraint],
+    cols: Sequence[Constraint],
+    version: str = DAILY_GRID_VERSION,
 ) -> tuple[str, ...]:
     """Every theme id that TRUTHFULLY describes this axis set, rarest first.
 
@@ -746,23 +891,26 @@ def theme_candidates(
     ids = {c.id for c in axes}
     categories = [c.category for c in axes]
 
-    candidates: list[str] = []
-    if categories.count("outcome") >= 2:
-        candidates.append("ring-chasers")
-    if ids & _THROWBACK_ERA_IDS:
-        candidates.append("throwback-night")
-    if ids & _DEFENSIVE_CONSTRAINT_IDS:
-        candidates.append("two-way-night")
-    if ids & _MODERN_ERA_IDS:
-        candidates.append("modern-era")
-    if categories.count("award") >= 2:
-        candidates.append("award-season")
-    if categories.count("team") >= 2:
-        candidates.append("franchise-icons")
-    if categories.count("outcome") >= 1:
-        candidates.append("playoff-pressure")
-    if any(category in _OPEN_COURT_CATEGORIES for category in categories):
-        candidates.append("open-court")
+    true_of_this_board = {
+        "ring-chasers": categories.count("outcome") >= 2,
+        "box-score-night": categories.count("production") >= 2,
+        "young-legs": bool(ids & _YOUNG_CONSTRAINT_IDS),
+        "veteran-night": bool(ids & _VETERAN_CONSTRAINT_IDS),
+        "throwback-night": bool(ids & _THROWBACK_ERA_IDS),
+        "award-season": categories.count("award") >= 2,
+        "modern-era": bool(ids & _MODERN_ERA_IDS),
+        "two-way-night": bool(ids & _DEFENSIVE_CONSTRAINT_IDS),
+        "franchise-icons": categories.count("team") >= 2,
+        "efficiency-night": any(c in _EFFICIENCY_CATEGORIES for c in categories),
+        "engine-room": categories.count("production") >= 1,
+        "playoff-pressure": categories.count("outcome") >= 1,
+        "open-court": any(c in _OPEN_COURT_CATEGORIES for c in categories),
+    }
+    candidates = [
+        theme_id
+        for theme_id in _theme_order(version)
+        if true_of_this_board.get(theme_id)
+    ]
 
     if not candidates:
         # Unreachable with the shipped composition rules (every board carries a
@@ -846,6 +994,9 @@ def _composition_ok(
         return False
 
     if categories.count("context") > MAX_CONTEXT_CONSTRAINTS:
+        return False
+
+    if sum(1 for cat in categories if cat in _STYLE) > MAX_STYLE_CONSTRAINTS:
         return False
 
     # Phase 11C: the score/component axes are capped by the date's allowance,
@@ -1035,7 +1186,12 @@ def _axis_fingerprint_for(
     cached = _AXIS_FINGERPRINT_CACHE.get(date_str)
     if cached is not None:
         return cached
-    core = _board_core(date_str, pool, None, DAILY_GRID_VERSION_V3)
+    # THE VERSION THE DATE ITSELF RESOLVES UNDER, not a hardcoded one. This
+    # read `DAILY_GRID_VERSION_V3` while v3 was the only post-cutover version;
+    # with a second cutover in place that would fingerprint a v4 date against
+    # a v3 board it does not have, so history and the boards it describes
+    # would be different puzzles.
+    core = _board_core(date_str, pool, None, _version_for_date(date_str))
     fingerprint = (
         tuple(c.id for c in core.rows),
         tuple(c.id for c in core.cols),
@@ -1048,7 +1204,7 @@ def _recent_usage(
     date_str: str,
     pool: GridPool | None,
     window: int = NOVELTY_HISTORY_WINDOW,
-) -> tuple[dict[str, int], dict[frozenset[str], int]]:
+) -> tuple[dict[str, int], dict[frozenset[str], int], dict[str, int]]:
     """How recently each axis id, and each (row, col) CELL PAIR, appeared on
     a board immediately before `date_str` -- distance 1 = the board
     immediately before this one, 2 = the one before that, and so on. Only the
@@ -1093,6 +1249,10 @@ def _recent_usage(
 
     id_last_seen: dict[str, int] = {}
     pair_last_seen: dict[frozenset[str], int] = {}
+    # How many axis slots each FAMILY took on the boards inside
+    # FAMILY_COOLDOWN_BOARDS. See `_family_novelty_ok`.
+    family_load: dict[str, int] = {}
+    families = _family_by_id(pool)
     cursor = date_str
     for distance in range(1, window + 1):
         cursor = _previous_date(cursor)
@@ -1101,10 +1261,57 @@ def _recent_usage(
         row_ids, col_ids = _axis_fingerprint_for(cursor, pool)
         for constraint_id in row_ids + col_ids:
             id_last_seen.setdefault(constraint_id, distance)
+            if distance <= FAMILY_COOLDOWN_BOARDS:
+                family = families.get(constraint_id)
+                if family is not None:
+                    family_load[family] = family_load.get(family, 0) + 1
         for row_id in row_ids:
             for col_id in col_ids:
                 pair_last_seen.setdefault(frozenset((row_id, col_id)), distance)
-    return id_last_seen, pair_last_seen
+    return id_last_seen, pair_last_seen, family_load
+
+
+def _family_by_id(pool: GridPool | None) -> dict[str, str]:
+    """Constraint id -> family, for the real default taxonomy.
+
+    A separate lookup rather than a field on the fingerprint because the
+    fingerprint is deliberately just ids (see `_axis_fingerprint_for`), and
+    because a constraint's family is a property of the taxonomy rather than of
+    any board -- reading it here keeps the cached history immutable when the
+    taxonomy grows.
+    """
+    return {c.id: c.category for c in all_constraints(pool)}
+
+
+def _family_novelty_ok(
+    rows: Sequence[Constraint],
+    cols: Sequence[Constraint],
+    family_load: dict[str, int],
+) -> bool:
+    """Does this candidate avoid repeating YESTERDAY'S dominant family?
+
+    A family that took the per-board maximum (`MAX_PER_CATEGORY`, two of six
+    axes) on the immediately previous board may take at most one slot here.
+    That is the whole rule: it targets the pattern a player notices -- two
+    franchise axes and two decade axes, again -- without capping families that
+    merely appeared.
+
+    Rejects AFTER the draw rather than filtering the population, unlike the id
+    cooldown: a family filter would remove up to two whole families at once,
+    and the taxonomy's smallest families have two or three members, so
+    pre-filtering could delete a category composition still requires. Rejecting
+    post-hoc is safe here precisely because the rule is narrow -- it only ever
+    fires on a candidate that gave a specific family two slots.
+    """
+    if not family_load:
+        return True
+    counts: dict[str, int] = {}
+    for constraint in list(rows) + list(cols):
+        counts[constraint.category] = counts.get(constraint.category, 0) + 1
+    for family, taken in counts.items():
+        if taken >= MAX_PER_CATEGORY and family_load.get(family, 0) >= MAX_PER_CATEGORY:
+            return False
+    return True
 
 
 def _cooling_down_ids(id_last_seen: dict[str, int]) -> frozenset[str]:
@@ -1197,8 +1404,8 @@ def _generate_core(
     # _legacy_v2_taxonomy(). Only applies to the auto/default taxonomy: a
     # caller that hands its own `constraints` (tests do) gets exactly that
     # list, at every date, unchanged from before this pass.
-    if using_default_taxonomy and version == DAILY_GRID_VERSION_V2:
-        taxonomy = _legacy_v2_taxonomy(taxonomy)
+    if using_default_taxonomy and version != DAILY_GRID_VERSION:
+        taxonomy = _legacy_taxonomy(taxonomy, version)
 
     seed = grid_seed(date_str, version)
     rng = random.Random(seed)
@@ -1208,7 +1415,13 @@ def _generate_core(
     # post-cutover date -- never for a caller-supplied taxonomy (its history
     # would not mean anything) and never for a legacy date (whose board must
     # keep resolving exactly as it always has). See _recent_usage.
-    novelty_enabled = using_default_taxonomy and version == DAILY_GRID_VERSION_V3
+    novelty_enabled = using_default_taxonomy and version in (
+        DAILY_GRID_VERSION_V3,
+        DAILY_GRID_VERSION_V4,
+    )
+    # The family rule (v4) rides on the same history the id/pair cooldowns
+    # already walk, but must not change what a v3 date resolves to.
+    family_enabled = using_default_taxonomy and version == DAILY_GRID_VERSION_V4
     pair_last_seen: dict[frozenset[str], int] = {}
     # The population `rng.sample` draws from during the strict-preference
     # phase: the full taxonomy with anything still id-cooling-down removed
@@ -1217,8 +1430,11 @@ def _generate_core(
     # given the taxonomy's size relative to CATEGORY_COOLDOWN_BOARDS, but
     # cheap to guard against.
     fresh_taxonomy = taxonomy
+    family_load: dict[str, int] = {}
     if novelty_enabled:
-        id_last_seen, pair_last_seen = _recent_usage(date_str, pool)
+        id_last_seen, pair_last_seen, recent_families = _recent_usage(date_str, pool)
+        if family_enabled:
+            family_load = recent_families
         cooling_down = _cooling_down_ids(id_last_seen)
         candidate_fresh = [c for c in taxonomy if c.id not in cooling_down]
         if len(candidate_fresh) >= 2 * GRID_SIZE:
@@ -1244,6 +1460,9 @@ def _generate_core(
             continue
 
         if prefer_novelty and not _pair_novelty_ok(rows, cols, pair_last_seen):
+            continue
+
+        if prefer_novelty and not _family_novelty_ok(rows, cols, family_load):
             continue
 
         cells = _build_cells(rows, cols, grid_pool, masks)
@@ -1343,14 +1562,25 @@ def resolve_theme_id(
     never fed back. Which board a date gets is unchanged by this function's
     existence.
     """
-    today = theme_candidates(*_axes_for(date_str, pool, constraints, version))
+    # THE ORDER A DATE PUBLISHES IN IS ITS OWN VERSION'S. Yesterday's
+    # candidate list is read only to find something today can say that
+    # yesterday could not, so it is resolved in yesterday's order too --
+    # otherwise a v4 board reading a v3 predecessor would rank the
+    # predecessor's descriptions by a table that board never used.
+    today_version = version if version is not None else _version_for_date(date_str)
+    today = theme_candidates(
+        *_axes_for(date_str, pool, constraints, version), version=today_version
+    )
 
     previous = _previous_date(date_str)
     if previous is None or _depth >= _THEME_LOOKBACK_LIMIT:
         return today[0]
 
     try:
-        yesterday = theme_candidates(*_axes_for(previous, pool, constraints, version))
+        previous_version = version if version is not None else _version_for_date(previous)
+        yesterday = theme_candidates(
+            *_axes_for(previous, pool, constraints, version), version=previous_version
+        )
     except (BoardGenerationFailed, InvalidGridDate):
         # A label must never cost a date its board. If yesterday cannot be
         # generated at all, publish today's primary description and move on.

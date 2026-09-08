@@ -20,13 +20,17 @@ from nba_peak.daily_grid.constraints import (
     MIP_SEASON_START,
     SMOY_SEASON_START,
     V3_ADDED_CONSTRAINT_IDS,
+    V4_ADDED_CONSTRAINT_IDS,
     build_constraints,
     constraint_by_id,
 )
 from nba_peak.daily_grid.generator import (
     CATEGORY_COOLDOWN_BOARDS,
+    DAILY_GRID_VERSION,
     DAILY_GRID_VERSION_V2,
     DAILY_GRID_VERSION_V3,
+    DAILY_GRID_VERSION_V4,
+    FAMILY_CUTOVER_DATE,
     GRID_SIZE,
     GridBoard,
     GridCell as ModelGridCell,
@@ -37,15 +41,16 @@ from nba_peak.daily_grid.generator import (
     MAX_TEAM_CONSTRAINTS,
     MIN_ANCHOR_CONSTRAINTS,
     MIN_ANSWERS_PER_CELL,
+    MIN_CATEGORIES,
     MIN_PLAYERS_PER_CELL,
     MIN_STRONG_OPTIONS,
     MIN_TEAM_CONSTRAINTS,
     NOVELTY_CUTOVER_DATE,
     PAIR_COOLDOWN_BOARDS,
+    _RECOGNIZABLE,
     THEME_LABELS,
     _BOARD_CACHE,
     _BOARD_CACHE_MAX,
-    _legacy_v2_taxonomy,
     _native_allowance,
     _version_for_date,
     BoardGenerationFailed,
@@ -177,6 +182,14 @@ class TestConstraints:
             "peak",
             "component",
             "outcome",
+            # v4 families. The set grew because the taxonomy did; what this
+            # test still pins is that it is EXACTLY this set -- a family
+            # arriving without a deliberate edit here, or one silently
+            # disappearing, still fails.
+            "career",
+            "production",
+            "shooting",
+            "usage",
         }
 
     def test_all_thirty_franchises_ship(self, taxonomy):
@@ -461,11 +474,13 @@ class TestSolvability:
             categories = [c.category for c in board.rows] + [
                 c.category for c in board.cols
             ]
-            recognizable = sum(
-                1
-                for cat in categories
-                if cat in {"team", "award", "era", "position", "outcome", "context"}
-            )
+            # READ FROM THE RULE, NOT A SECOND COPY OF IT. This restated the
+            # generator's own `_RECOGNIZABLE` set inline, so the two drifted
+            # apart the moment the taxonomy grew: a board of era x shooting x
+            # production x team x award x team failed a test whose subject
+            # ("every axis is a fact a fan can reason about") it satisfies
+            # completely. The threshold is unchanged.
+            recognizable = sum(1 for cat in categories if cat in _RECOGNIZABLE)
             assert recognizable >= 5, (date, categories)
             assert len(set(categories)) >= 4, (date, categories)
 
@@ -1770,12 +1785,53 @@ class TestVersionCutover:
         for date in ("1990-01-01", "2020-06-15", "2026-01-01", "2026-08-24", NOVELTY_CUTOVER_DATE):
             assert _version_for_date(date) == DAILY_GRID_VERSION_V2, date
 
-    def test_every_date_after_the_cutover_resolves_to_v3(self):
+    def test_dates_between_the_two_cutovers_resolve_to_v3(self):
         day_after = (
             datetime.date.fromisoformat(NOVELTY_CUTOVER_DATE) + datetime.timedelta(days=1)
         ).isoformat()
-        for date in (day_after, "2030-01-01", "2036-08-25"):
+        for date in (day_after, "2026-09-01", FAMILY_CUTOVER_DATE):
             assert _version_for_date(date) == DAILY_GRID_VERSION_V3, date
+
+    def test_every_date_after_the_family_cutover_resolves_to_v4(self):
+        day_after = (
+            datetime.date.fromisoformat(FAMILY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        ).isoformat()
+        for date in (day_after, "2030-01-01", "2036-08-25"):
+            assert _version_for_date(date) == DAILY_GRID_VERSION_V4, date
+
+    def test_the_version_ladder_ascends(self):
+        """Each cutover must be strictly later than the one before it, or a
+        date would fall on two rungs and `_version_for_date` would silently
+        answer with whichever came first in the table."""
+        from nba_peak.daily_grid.generator import _VERSION_LADDER
+
+        cutovers = [cutover for cutover, _ in _VERSION_LADDER]
+        assert cutovers == sorted(cutovers)
+        assert len(set(cutovers)) == len(cutovers)
+
+    @pytest.mark.parametrize(
+        "date", ["1990-01-01", "2020-06-15", "2026-08-25", "2026-09-01", FAMILY_CUTOVER_DATE]
+    )
+    def test_pre_v4_boards_never_use_a_v4_family(self, date):
+        """The same structural guarantee `test_legacy_boards_never_use_a_v3_
+        added_constraint` makes, one version on: a date that shipped before
+        the four new families existed can never draw one, however the live
+        registry has grown since."""
+        board = get_board(date)
+        ids = {c.id for c in board.rows} | {c.id for c in board.cols}
+        assert not (ids & V4_ADDED_CONSTRAINT_IDS), (date, ids)
+
+    def test_the_v4_families_do_reach_a_real_board_after_the_cutover(self):
+        """The other half of the guarantee above -- the new families are not
+        merely legal after the cutover, they actually appear."""
+        start = datetime.date.fromisoformat(FAMILY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        for offset in range(60):
+            date = (start + datetime.timedelta(days=offset)).isoformat()
+            board = get_board(date)
+            ids = {c.id for c in board.rows} | {c.id for c in board.cols}
+            if ids & V4_ADDED_CONSTRAINT_IDS:
+                return
+        pytest.fail("no career/production/shooting/usage axis appeared in 60 v4 days")
 
     @pytest.mark.parametrize("date", ["1990-01-01", "2020-06-15", "2025-12-25", "2026-08-25"])
     def test_legacy_boards_never_use_a_v3_added_constraint(self, date):
@@ -1787,16 +1843,38 @@ class TestVersionCutover:
         ids = {c.id for c in board.rows} | {c.id for c in board.cols}
         assert not (ids & V3_ADDED_CONSTRAINT_IDS), (date, ids)
 
-    def test_legacy_taxonomy_is_the_full_taxonomy_minus_the_v3_additions(self, taxonomy):
-        legacy = _legacy_v2_taxonomy(taxonomy)
-        assert len(legacy) == len(taxonomy) - len(V3_ADDED_CONSTRAINT_IDS)
-        assert {c.id for c in legacy}.isdisjoint(V3_ADDED_CONSTRAINT_IDS)
-        # Order preserved -- generation samples from this list by index
-        # against a date-seeded RNG, so a legacy date's determinism depends
-        # on the relative order of its members never shifting.
-        legacy_ids = [c.id for c in legacy]
-        full_ids_minus_new = [c.id for c in taxonomy if c.id not in V3_ADDED_CONSTRAINT_IDS]
-        assert legacy_ids == full_ids_minus_new
+    def test_the_ladder_filter_removes_each_version_cumulatively(self, taxonomy):
+        """A v2 date must see neither the v3 award ids nor the v4 families, a
+        v3 date must see the v3 ids but not the v4 families, and the current
+        version sees everything.
+
+        Replaces the single-step `_legacy_v2_taxonomy` assertion this test used
+        to make: with two cutovers, "the full taxonomy minus the v3 additions"
+        is no longer what a v2 date actually samples from -- it must lose the
+        v4 families too, or every legacy board silently changes.
+        """
+        from nba_peak.daily_grid.generator import _legacy_taxonomy
+
+        as_v2 = {c.id for c in _legacy_taxonomy(taxonomy, DAILY_GRID_VERSION_V2)}
+        as_v3 = {c.id for c in _legacy_taxonomy(taxonomy, DAILY_GRID_VERSION_V3)}
+        as_v4 = {c.id for c in _legacy_taxonomy(taxonomy, DAILY_GRID_VERSION_V4)}
+        every_id = {c.id for c in taxonomy}
+
+        assert as_v2 == every_id - V3_ADDED_CONSTRAINT_IDS - V4_ADDED_CONSTRAINT_IDS
+        assert as_v3 == every_id - V4_ADDED_CONSTRAINT_IDS
+        assert as_v4 == every_id
+
+        # ORDER IS PRESERVED at every rung -- generation samples from this list
+        # by index against a date-seeded RNG, so a legacy date's determinism
+        # depends on the relative order of its members never shifting.
+        for version, kept in (
+            (DAILY_GRID_VERSION_V2, as_v2),
+            (DAILY_GRID_VERSION_V3, as_v3),
+            (DAILY_GRID_VERSION_V4, as_v4),
+        ):
+            assert [c.id for c in _legacy_taxonomy(taxonomy, version)] == [
+                c.id for c in taxonomy if c.id in kept
+            ], version
 
     def test_a_v3_window_can_actually_reach_the_new_award_categories(self):
         """The flip side of test_legacy_boards_never_use_a_v3_added_constraint:
@@ -1824,7 +1902,7 @@ class TestFutureDeterminism:
     def test_same_future_date_produces_identical_board_and_hash(self):
         first = get_board(self.FUTURE_DATE)
         second = get_board(self.FUTURE_DATE)
-        assert first.version == DAILY_GRID_VERSION_V3
+        assert first.version == DAILY_GRID_VERSION
         assert [c.id for c in first.rows] == [c.id for c in second.rows]
         assert [c.id for c in first.cols] == [c.id for c in second.cols]
         assert first.board_hash == second.board_hash
@@ -1938,14 +2016,21 @@ class TestNoveltyCooldown:
         legacy_dates = [
             (legacy_start + datetime.timedelta(days=i)).isoformat() for i in range(200)
         ]
-        v3_start = datetime.date.fromisoformat(NOVELTY_CUTOVER_DATE) + datetime.timedelta(days=1)
-        v3_dates = [(v3_start + datetime.timedelta(days=i)).isoformat() for i in range(200)]
+        # Measured on the CURRENT taxonomy's own window, so the comparison
+        # keeps meaning what it says as versions ship. It used to start the
+        # day after NOVELTY_CUTOVER_DATE and assert v3 for 200 consecutive
+        # days, which stopped being true the moment a second cutover landed
+        # inside that span.
+        current_start = datetime.date.fromisoformat(FAMILY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        current_dates = [
+            (current_start + datetime.timedelta(days=i)).isoformat() for i in range(200)
+        ]
 
         legacy_rate = self._gap1_rate(legacy_dates, DAILY_GRID_VERSION_V2)
-        v3_rate = self._gap1_rate(v3_dates, DAILY_GRID_VERSION_V3)
+        current_rate = self._gap1_rate(current_dates, DAILY_GRID_VERSION)
 
         assert legacy_rate > 0.08, legacy_rate  # sanity: the comparison means something
-        assert v3_rate < legacy_rate / 2, (v3_rate, legacy_rate)
+        assert current_rate < legacy_rate / 2, (current_rate, legacy_rate)
 
     def test_every_registered_category_is_reachable(self, taxonomy):
         """No constraint the taxonomy ships is dead weight -- every id shows
@@ -1964,7 +2049,7 @@ class TestNoveltyCooldown:
             board = get_board(date)
             seen |= {c.id for c in board.rows} | {c.id for c in board.cols}
 
-        v3_start = datetime.date.fromisoformat(NOVELTY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        v3_start = datetime.date.fromisoformat(FAMILY_CUTOVER_DATE) + datetime.timedelta(days=1)
         for offset in range(1000):
             date = (v3_start + datetime.timedelta(days=offset)).isoformat()
             board = get_board(date)
@@ -1992,3 +2077,195 @@ class TestNoImpossibleCells:
 
     def test_the_floor_itself_is_well_above_the_brief(self):
         assert MIN_ANSWERS_PER_CELL >= 3
+
+
+# ---------------------------------------------------------------------------
+# The v4 families: career stage, production, shooting, usage
+# ---------------------------------------------------------------------------
+
+class TestV4Families:
+    """The four families the category-breadth pass added.
+
+    THE GATE EACH ONE HAD TO PASS is the one constraints.py states in its own
+    docstring: if the fact cannot be read out of committed data at player-
+    SEASON grain, the constraint does not exist. These tests pin that -- every
+    predicate here reads a real column with no nulls in the pool, and the
+    thresholds leave enough answers for the cell floors to be satisfiable
+    rather than merely legal.
+    """
+
+    V4_COLUMNS = (
+        "age",
+        "pts_per75",
+        "ast_per75",
+        "trb_per75",
+        "stl_per75",
+        "blk_per75",
+        "usg_pct",
+        "ts_plus",
+        "threepar",
+    )
+
+    def test_every_column_the_new_families_read_is_present_and_complete(self, pool):
+        """No family is built on a column the pool has to guess at. A predicate
+        over a partly-null column silently rejects seasons for a reason that
+        is not about basketball."""
+        for column in self.V4_COLUMNS:
+            assert column in pool.frame.columns, column
+            nulls = int(pool.frame[column].isna().sum())
+            assert nulls == 0, (column, nulls)
+
+    def test_the_per_75_rates_are_an_exact_conversion_of_the_committed_per_100s(
+        self, pool
+    ):
+        """x0.75 on the same rate, not a re-estimate. If this ever stopped
+        being an exact unit change it would be a derived statistic wearing a
+        committed statistic's name."""
+        import pandas as pd
+
+        from nba_peak.daily_grid.pool import _PER_100_TO_PER_75, SCORED_PATH, slug
+        from nba_peak.daily_grid.pool import _MULTI_TEAM_CODES
+
+        scored = pd.read_parquet(SCORED_PATH)
+        scored = scored[~scored["team"].isin(_MULTI_TEAM_CODES)].copy()
+        scored["player_slug"] = scored["player"].map(slug)
+        source = scored.set_index(["player_slug", "season", "team"])
+        keyed = pool.frame.set_index(["player_slug", "season", "team"])
+        for per_100, per_75 in _PER_100_TO_PER_75:
+            expected = source.loc[keyed.index, per_100].to_numpy() * 0.75
+            assert keyed[per_75].to_numpy() == pytest.approx(expected, rel=1e-9)
+
+    @pytest.mark.parametrize(
+        "constraint_id,minimum_seasons,minimum_players",
+        [
+            ("career_age_23_under", 1500, 500),
+            ("career_age_30_over", 1500, 400),
+            ("career_age_34_over", 400, 150),
+            ("prod_scoring", 800, 200),
+            ("prod_rebounding", 1000, 250),
+            ("prod_playmaking", 700, 200),
+            ("prod_rim_protection", 500, 150),
+            ("prod_perimeter_defense", 800, 250),
+            ("shoot_efficiency", 800, 300),
+            ("shoot_three_volume", 1500, 400),
+            ("usage_high", 1000, 300),
+            ("usage_primary", 400, 150),
+        ],
+    )
+    def test_each_new_constraint_has_a_real_population(
+        self, pool, taxonomy, constraint_id, minimum_seasons, minimum_players
+    ):
+        """Never a two-answer trivia axis. The floors here are well below the
+        measured counts -- they exist to catch a threshold edit that quietly
+        turns a family into a quiz, not to pin today's exact numbers."""
+        constraint = next(c for c in taxonomy if c.id == constraint_id)
+        mask = constraint.matches(pool.frame)
+        assert int(mask.sum()) >= minimum_seasons, (constraint_id, int(mask.sum()))
+        players = pool.frame.loc[mask, "player_slug"].nunique()
+        assert players >= minimum_players, (constraint_id, players)
+
+    def test_the_age_bands_can_never_cross(self, taxonomy):
+        """'Age 23 or younger x Age 30 or older' has zero answers for ever, and
+        34+ is a strict subset of 30+. Both are exactly what exclusive_group
+        exists to stop."""
+        ages = [c for c in taxonomy if c.category == "career"]
+        assert len(ages) == 3
+        assert len({c.exclusive_group for c in ages}) == 1
+        assert ages[0].exclusive_group is not None
+
+    def test_the_nested_usage_bands_share_a_group(self, taxonomy):
+        usage = [c for c in taxonomy if c.category == "usage"]
+        assert len({c.exclusive_group for c in usage}) == 1
+
+    def test_the_production_rates_are_independent_and_may_cross(self, taxonomy):
+        """Rebounding and playmaking measure different acts, so crossing them
+        is a real two-condition square rather than one condition twice."""
+        production = [c for c in taxonomy if c.category == "production"]
+        assert len(production) == 5
+        assert all(c.exclusive_group is None for c in production)
+
+    def test_no_board_is_more_than_half_rate_statistics(self):
+        """MAX_STYLE_CONSTRAINTS, on real boards. Three rate/efficiency/usage/
+        workload axes is a statistical filter with a basketball label."""
+        from nba_peak.daily_grid.generator import MAX_STYLE_CONSTRAINTS, _STYLE
+
+        start = datetime.date.fromisoformat(FAMILY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        for offset in range(120):
+            date = (start + datetime.timedelta(days=offset)).isoformat()
+            board = get_board(date)
+            categories = [c.category for c in board.rows] + [
+                c.category for c in board.cols
+            ]
+            style = sum(1 for cat in categories if cat in _STYLE)
+            assert style <= MAX_STYLE_CONSTRAINTS, (date, categories)
+
+
+class TestFamilyDiversity:
+    """The cross-day rule the category-breadth pass added.
+
+    The id and pair cooldowns stop the same AXIS and the same MATCHUP
+    recurring. They do not stop the same KIND of board recurring -- three
+    franchises and three decades on Monday, three franchises and three decades
+    on Tuesday, with six different ids each time, satisfies both. That is the
+    "categories are repetitive" complaint, and this is the rule for it.
+    """
+
+    WINDOW = 200
+
+    @staticmethod
+    def _family_counts(board):
+        from collections import Counter
+
+        return Counter(c.category for c in list(board.rows) + list(board.cols))
+
+    def _walk(self, days: int):
+        start = datetime.date.fromisoformat(FAMILY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        previous = None
+        adjacent_doubles = 0
+        for offset in range(days):
+            date = (start + datetime.timedelta(days=offset)).isoformat()
+            counts = self._family_counts(get_board(date))
+            if previous is not None:
+                doubled = {f for f, n in counts.items() if n >= MAX_PER_CATEGORY}
+                before = {f for f, n in previous.items() if n >= MAX_PER_CATEGORY}
+                adjacent_doubles += len(doubled & before)
+            previous = counts
+        return adjacent_doubles
+
+    def test_a_family_almost_never_dominates_two_boards_running(self):
+        """A SOFT rule, like every other novelty rule here: the strict phase
+        gets a real budget of attempts and then generation falls back rather
+        than ever costing a date its board. Measured over 365 days the fallback
+        fires once; 200 days is asserted at a rate that leaves room for the
+        fallback without leaving room for the defect."""
+        adjacent = self._walk(self.WINDOW)
+        assert adjacent <= 2, adjacent
+
+    def test_the_same_rule_measured_against_the_no_memory_baseline(self):
+        """The legacy (v2) system had no cross-day memory at all, so its
+        adjacent-domination rate is the honest 'no rule' baseline. Anything
+        short of a large reduction would mean the rule is decoration."""
+        legacy_start = datetime.date(2024, 1, 1)
+        previous = None
+        legacy_adjacent = 0
+        for offset in range(self.WINDOW):
+            date = (legacy_start + datetime.timedelta(days=offset)).isoformat()
+            counts = self._family_counts(get_board(date))
+            if previous is not None:
+                doubled = {f for f, n in counts.items() if n >= MAX_PER_CATEGORY}
+                before = {f for f, n in previous.items() if n >= MAX_PER_CATEGORY}
+                legacy_adjacent += len(doubled & before)
+            previous = counts
+        assert legacy_adjacent > 40, legacy_adjacent  # the baseline is real
+        assert self._walk(self.WINDOW) < legacy_adjacent / 10
+
+    def test_boards_draw_from_more_distinct_families_than_the_old_taxonomy_could(self):
+        """Twelve families rather than eight is only worth having if boards
+        actually spread across them."""
+        start = datetime.date.fromisoformat(FAMILY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        distinct = []
+        for offset in range(self.WINDOW):
+            date = (start + datetime.timedelta(days=offset)).isoformat()
+            distinct.append(len(self._family_counts(get_board(date))))
+        assert min(distinct) >= MIN_CATEGORIES
+        assert sum(distinct) / len(distinct) > 4.6, sum(distinct) / len(distinct)

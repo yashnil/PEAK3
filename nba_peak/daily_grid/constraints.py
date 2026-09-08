@@ -21,6 +21,11 @@ CATEGORIES
   outcome    how far that season's team actually went in the playoffs.
   peak       PEAK3 prime_score thresholds.
   component  top-decile seasons in one of the five PEAK3 components.
+  career     the player's AGE that season -- early, veteran, late career.
+  production per-75-possession scoring, rebounding, playmaking and defensive
+             rate bands: what kind of season this was, not how good it was.
+  shooting   era-relative shooting efficiency (TS+) and three-point volume.
+  usage      share of the team's possessions the player used.
 
 SEASON VALIDITY (`Constraint.valid_from`)
 Some awards did not exist for the whole 1979-80..2025-26 data window: DPOY
@@ -82,7 +87,7 @@ from nba_peak.franchises import FRANCHISES
 # `Constraint.valid_from` season-gating field. See generator.py's
 # NOVELTY_CUTOVER_DATE for why a date before that cutover still generates
 # from the frozen v2 subset of this taxonomy rather than the whole thing.
-CONSTRAINTS_VERSION = "daily_grid_constraints.v3"
+CONSTRAINTS_VERSION = "daily_grid_constraints.v4"
 
 # Constraint ids that did not exist in v2. generator.py filters these back out
 # to reconstruct the EXACT v2 taxonomy (same members, same order) for any
@@ -91,6 +96,28 @@ CONSTRAINTS_VERSION = "daily_grid_constraints.v3"
 # rather than re-derived, so it can never silently drift if this module is
 # edited again.
 V3_ADDED_CONSTRAINT_IDS = frozenset({"award_smoy", "award_smoy_votes", "award_mip"})
+
+# Constraint ids that did not exist in v3 -- the four style/career families
+# below. Filtered back out the same way V3_ADDED_CONSTRAINT_IDS is, and for
+# the same reason: generation samples this list BY INDEX against a date-seeded
+# RNG, so a date that resolves under an older version must see that version's
+# population, in that version's order, or every past board silently changes.
+V4_ADDED_CONSTRAINT_IDS = frozenset(
+    {
+        "career_age_23_under",
+        "career_age_30_over",
+        "career_age_34_over",
+        "prod_scoring",
+        "prod_rebounding",
+        "prod_playmaking",
+        "prod_rim_protection",
+        "prod_perimeter_defense",
+        "shoot_efficiency",
+        "shoot_three_volume",
+        "usage_high",
+        "usage_primary",
+    }
+)
 
 # Top-decile cut for the component constraints. One shared value so "top 10%"
 # means the same thing in every component label.
@@ -634,6 +661,244 @@ def _outcome_constraints() -> list[Constraint]:
 
 
 # ---------------------------------------------------------------------------
+# Career-stage constraints (v4)
+# ---------------------------------------------------------------------------
+
+# `age` is Basketball-Reference's own per-roster-row age, joined onto the pool
+# on the exact (player, season, team) key -- a season fact like the position
+# beside it, never derived from a birth date this repository does not hold.
+#
+# THREE RUNGS, ONE EXCLUSIVE GROUP. "Age 23 or younger" and "Age 30 or older"
+# are disjoint rather than nested, so crossing them has ZERO answers for ever;
+# 34+ is a strict subset of 30+, so crossing those makes the outer one
+# decoration. Both failures are what `exclusive_group` exists to stop, so all
+# three share one group and no board can put two of them on opposite axes.
+AGE_YOUNG_MAX = 23
+AGE_VETERAN_MIN = 30
+AGE_LATE_MIN = 34
+
+
+def _career_constraints() -> list[Constraint]:
+    return [
+        Constraint(
+            id="career_age_23_under",
+            label=f"Age {AGE_YOUNG_MAX} or Younger",
+            short_label=f"{AGE_YOUNG_MAX} & Under",
+            category="career",
+            exclusive_group="age",
+            description=(
+                f"The player was {AGE_YOUNG_MAX} or younger that season, as "
+                "listed on the season's own roster row."
+            ),
+            mask=lambda f: (f["age"] <= AGE_YOUNG_MAX).to_numpy(),
+        ),
+        Constraint(
+            id="career_age_30_over",
+            label=f"Age {AGE_VETERAN_MIN} or Older",
+            short_label=f"{AGE_VETERAN_MIN}+",
+            category="career",
+            exclusive_group="age",
+            description=(
+                f"The player was {AGE_VETERAN_MIN} or older that season, as "
+                "listed on the season's own roster row."
+            ),
+            mask=lambda f: (f["age"] >= AGE_VETERAN_MIN).to_numpy(),
+        ),
+        Constraint(
+            id="career_age_34_over",
+            label=f"Age {AGE_LATE_MIN} or Older",
+            short_label=f"{AGE_LATE_MIN}+",
+            category="career",
+            exclusive_group="age",
+            description=(
+                f"The player was {AGE_LATE_MIN} or older that season -- a late-"
+                "career season, as listed on the season's own roster row."
+            ),
+            mask=lambda f: (f["age"] >= AGE_LATE_MIN).to_numpy(),
+        ),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Production constraints (v4) -- WHAT KIND of season, not how good
+# ---------------------------------------------------------------------------
+
+# EVERY RATE IS PER 75 POSSESSIONS, and they all say so. The scored table
+# publishes points and assists per 75 and rebounds, steals and blocks per 100;
+# pool.py converts the latter with an exact x0.75, so a board can cross two of
+# these and the player is comparing like with like.
+#
+# WHY A RATE AND NOT A PER-GAME AVERAGE. This repository's committed tables
+# carry rate columns, not season totals, and pace has moved enough across the
+# 1979-80..2025-26 window (roughly 100 to 104 possessions per 48, with a
+# mid-1990s trough near 90) that a per-game line is a different question in
+# 1985 than in 2025. Inventing per-game numbers from a rate would need a pace
+# estimate this module does not have and must not guess -- so the axis asks
+# the question the data can actually answer, and the description states the
+# denominator plainly rather than hiding it behind a familiar-looking number.
+#
+# THESE ARE NOT PEAK3-NATIVE AXES. A rate band says what a player DID; the
+# `peak` and `component` families say how highly PEAK3 rates it, which is the
+# objective the game already scores (see the module docstring's Phase 11C
+# note). "10+ rebounds per 75" has hundreds of plausible answers across every
+# decade; "80+ PEAK" has one obvious one.
+PRODUCTION_SPECS: tuple[tuple[str, str, str, str, float, str], ...] = (
+    (
+        "prod_scoring",
+        "pts_per75",
+        "High-Volume Scorer",
+        "22+ PTS/75",
+        22.0,
+        "Scored 22 or more points per 75 possessions that season.",
+    ),
+    (
+        "prod_rebounding",
+        "trb_per75",
+        "Dominant Rebounder",
+        "10+ REB/75",
+        10.0,
+        "Grabbed 10 or more rebounds per 75 possessions that season.",
+    ),
+    (
+        "prod_playmaking",
+        "ast_per75",
+        "Primary Playmaker",
+        "7+ AST/75",
+        7.0,
+        "Recorded 7 or more assists per 75 possessions that season.",
+    ),
+    (
+        "prod_rim_protection",
+        "blk_per75",
+        "Rim Protector",
+        "2+ BLK/75",
+        2.0,
+        "Blocked 2 or more shots per 75 possessions that season.",
+    ),
+    (
+        "prod_perimeter_defense",
+        "stl_per75",
+        "Ball Hawk",
+        "1.8+ STL/75",
+        1.8,
+        "Recorded 1.8 or more steals per 75 possessions that season.",
+    ),
+)
+
+
+def _production_constraints() -> list[Constraint]:
+    return [
+        Constraint(
+            id=cid,
+            label=label,
+            short_label=short_label,
+            category="production",
+            # Each measures a different act, so two of them crossing is a real
+            # two-condition square ("Dominant Rebounder x Primary Playmaker"
+            # is a genuine and interesting ask). No nesting, no exclusivity.
+            exclusive_group=None,
+            description=description,
+            mask=lambda f, col=column, t=threshold: (f[col] >= t).to_numpy(),
+        )
+        for cid, column, label, short_label, threshold, description in PRODUCTION_SPECS
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Shooting constraints (v4)
+# ---------------------------------------------------------------------------
+
+# TS+ RATHER THAN RAW TRUE SHOOTING, deliberately. League-average true
+# shooting rose by roughly ten points between 1979-80 and today, so a fixed
+# `ts_pct` cut is a decade filter wearing an efficiency label -- it would
+# accept ordinary 2020s seasons and reject excellent 1980s ones. `ts_plus` is
+# already relative to the season's own league on the scored table, which is
+# the only honest way to ask this question across a 46-season window.
+TS_PLUS_ELITE = 110.0
+
+# Three-point RATE, not makes: "how much of this player's shot diet was from
+# three". A real per-season column, and deliberately NOT era-adjusted, because
+# the era skew IS the fact -- the three-pointer arrived in 1979-80 and stayed
+# rare for a decade, so this axis genuinely has almost no 1980s answers and
+# the description says so rather than pretending otherwise. A board that
+# crossed it with "1980s" would simply fail the answer floors and never
+# publish.
+THREE_POINT_RATE = 0.35
+
+
+def _shooting_constraints() -> list[Constraint]:
+    return [
+        Constraint(
+            id="shoot_efficiency",
+            label="Elite Shooting Efficiency",
+            short_label="Elite TS+",
+            category="shooting",
+            exclusive_group="shooting_efficiency",
+            description=(
+                f"True shooting at least {TS_PLUS_ELITE:.0f}% of the league "
+                "average that season (TS+), so an efficient 1980s season "
+                "counts the same as an efficient 2020s one."
+            ),
+            mask=lambda f: (f["ts_plus"] >= TS_PLUS_ELITE).to_numpy(),
+        ),
+        Constraint(
+            id="shoot_three_volume",
+            label="High Three-Point Volume",
+            short_label="3PT Volume",
+            category="shooting",
+            exclusive_group="three_point_rate",
+            description=(
+                f"At least {THREE_POINT_RATE:.0%} of the player's field-goal "
+                "attempts came from three that season. The three-pointer was "
+                "rare before the 1990s, so early seasons rarely qualify."
+            ),
+            mask=lambda f: (f["threepar"] >= THREE_POINT_RATE).to_numpy(),
+        ),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Usage constraints (v4)
+# ---------------------------------------------------------------------------
+
+# Share of the team's possessions the player finished while on the floor. A
+# real column on the scored table, and the cleanest single statement of "was
+# this player the offence" that does not restate the PEAK3 objective. Nested,
+# so the two share an exclusive group.
+USAGE_HIGH = 25.0
+USAGE_PRIMARY = 28.0
+
+
+def _usage_constraints() -> list[Constraint]:
+    return [
+        Constraint(
+            id="usage_high",
+            label=f"{USAGE_HIGH:.0f}%+ Usage Rate",
+            short_label=f"{USAGE_HIGH:.0f}%+ USG",
+            category="usage",
+            exclusive_group="usage",
+            description=(
+                f"Used at least {USAGE_HIGH:.0f}% of the team's possessions "
+                "while on the floor that season."
+            ),
+            mask=lambda f: (f["usg_pct"] >= USAGE_HIGH).to_numpy(),
+        ),
+        Constraint(
+            id="usage_primary",
+            label="First Option",
+            short_label=f"{USAGE_PRIMARY:.0f}%+ USG",
+            category="usage",
+            exclusive_group="usage",
+            description=(
+                f"Used at least {USAGE_PRIMARY:.0f}% of the team's possessions "
+                "while on the floor -- a genuine first option."
+            ),
+            mask=lambda f: (f["usg_pct"] >= USAGE_PRIMARY).to_numpy(),
+        ),
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -656,6 +921,13 @@ def build_constraints(pool: GridPool) -> list[Constraint]:
         + _peak_constraints()
         + _component_constraints(pool)
         + _outcome_constraints()
+        # v4 families, APPENDED. Every earlier constraint keeps its index in
+        # this list, which is what lets `_legacy_v3_taxonomy` reconstruct v3's
+        # population exactly by filtering these ids back out.
+        + _career_constraints()
+        + _production_constraints()
+        + _shooting_constraints()
+        + _usage_constraints()
     )
     seen: set[str] = set()
     for constraint in constraints:

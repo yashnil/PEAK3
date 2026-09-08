@@ -16,6 +16,7 @@ from __future__ import annotations
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import get_args
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,6 +25,7 @@ _repo_root = Path(__file__).resolve().parent.parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
+from app.models.daily_grid import ConstraintCategory
 from nba_peak.daily_grid.generator import GRID_SIZE, get_board, today_utc_date
 from nba_peak.daily_grid.pool import load_pool
 from nba_peak.daily_grid.search import (
@@ -738,16 +740,12 @@ def test_constraints_returns_the_shipped_taxonomy(client: TestClient):
     for constraint in body:
         assert set(constraint) == CONSTRAINT_KEYS
         categories.add(constraint["category"])
-    assert categories <= {
-        "team",
-        "award",
-        "era",
-        "position",
-        "context",
-        "peak",
-        "component",
-        "outcome",
-    }
+    # THE ROUTE'S OWN LITERAL IS THE SOURCE OF TRUTH, not a third copy of the
+    # family list. `ConstraintCategory` is a closed literal so that a family
+    # the client cannot style fails loudly at the API boundary; reading it here
+    # means this test asserts exactly that contract instead of drifting away
+    # from it the next time the taxonomy grows.
+    assert categories <= set(get_args(ConstraintCategory))
     # Reference data only -- no answer information anywhere in it.
     assert not (_all_keys(body) & FORBIDDEN_KEYS)
 
