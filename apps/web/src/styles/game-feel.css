@@ -282,6 +282,30 @@ button[data-state="error"] {
 }
 
 /* ---------------------------------------------------------------
+   Pending arrival — a card the player has placed and the server has not
+   answered yet (see `StagedArrangement` in ThreeManWeaveGame).
+
+   QUIET ON PURPOSE. This is the state that used to be a blocking "Drafting…"
+   over a board that had not moved; it now says the opposite thing -- the card
+   IS where you put it, and it is still being confirmed. So it is a dashed
+   accent edge and a small settle, not a spinner, not a scrim, and never a
+   size change: the card must not move again when the server agrees, because
+   agreeing is the common case and a jump on the common case reads as a bug.
+   --------------------------------------------------------------- */
+[data-gf-pending="true"] [data-testid="peak-v2-court-slot"],
+[data-gf-pending="true"] [data-testid="court-slot"] {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--gf-accent) 55%, transparent);
+}
+[data-gf-pending="true"] > * {
+  animation: gf-pending-settle 900ms var(--gf-ease-out) infinite;
+}
+@keyframes gf-pending-settle {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.72; }
+}
+
+/* ---------------------------------------------------------------
    ActiveSeat — active / receded / idle, and the completion trace
    --------------------------------------------------------------- */
 .gf-seat {
@@ -642,6 +666,7 @@ button[data-state="error"] {
   button[data-state="error"],
   .gf-round *,
   .gf-moment,
+  [data-gf-pending="true"] > *,
   [data-gf-lock="arrived"] > *,
   [data-gf-lock="arrived"] [data-testid="peak-v2-court-slot"],
   [data-gf-lock="arrived"] [data-testid="court-slot"],

@@ -863,6 +863,75 @@ export function placementsAfterMove(
   return out;
 }
 
+/**
+ * THE ROSTER A PRESS HAS ALREADY EARNED, before the server has answered.
+ *
+ * `placements` is the same COMPLETE final assignment the command carries, so
+ * this is not a second copy of any rule: it re-seats picks the server already
+ * validated into the slots the command already names. Anything the assignment
+ * does not mention is empty, exactly as `draft.rearrange` builds it.
+ *
+ * PURE, AND NOT AUTHORITY. The result is rendered as PENDING and is replaced
+ * wholesale by the next authoritative snapshot -- including when the server
+ * refuses, which is how a rejection rolls back without any undo logic.
+ */
+export function rosterWithPlacements(
+  roster: TmwRoster,
+  placements: Record<string, string>,
+  incoming?: TmwPick,
+): TmwRoster {
+  const bySlug = new Map<string, TmwPick>();
+  for (const slotType of TMW_SLOT_TYPES) {
+    const occupant = roster.slots[slotType];
+    if (occupant) bySlug.set(occupant.player_slug, occupant);
+  }
+  if (incoming) bySlug.set(incoming.player_slug, incoming);
+  const slots: Record<string, TmwPick | null> = {};
+  for (const slotType of TMW_SLOT_TYPES) {
+    const slug = placements[slotType];
+    const pick = slug ? bySlug.get(slug) : undefined;
+    slots[slotType] = pick ? { ...pick, slot_type: slotType } : null;
+  }
+  return { ...roster, slots: slots as TmwRoster["slots"] };
+}
+
+/** Which slots differ between two rosters — the ones a press is waiting on. */
+export function changedSlots(before: TmwRoster, after: TmwRoster): TmwSlotType[] {
+  return TMW_SLOT_TYPES.filter(
+    (slot) => (before.slots[slot]?.player_slug ?? null) !== (after.slots[slot]?.player_slug ?? null),
+  );
+}
+
+/**
+ * A PROVISIONAL CARD for a candidate whose draft is in flight.
+ *
+ * Carries only what the player already chose — the identity, the positions
+ * and the eligibility the projection published — and NO SCORING CARD, because
+ * the season and the PEAK3 number are the server's to state and this client
+ * has not been told them yet. A surface renders the absent score as "—", the
+ * same as any pick whose card is missing; nothing here invents one.
+ */
+export function provisionalPick(
+  candidate: TmwCandidate,
+  slotType: TmwSlotType,
+  seatIndex: number,
+  roundNumber: number,
+): TmwPick {
+  return {
+    player_slug: candidate.player_slug,
+    player_name: candidate.player_name,
+    positions: candidate.positions,
+    eligibility: candidate.eligibility,
+    headshot_url: candidate.headshot_url ?? null,
+    scoring_card: null,
+    seat_index: seatIndex,
+    round_number: roundNumber,
+    slot_type: slotType,
+    franchise_id: candidate.eligibility.franchise_id,
+    decade: candidate.eligibility.decade,
+  } as TmwPick;
+}
+
 /** "SF / PF", or "no listed position" — used in rejection copy and on cards. */
 export function positionsLine(player: TmwCandidatePublic): string {
   const positions = player.positions ?? [];

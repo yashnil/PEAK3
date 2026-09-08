@@ -284,12 +284,33 @@ export interface TmwPlayer extends TmwCandidatePublic {
   scoring_card: TmwScoringCard | null;
 }
 
+/** How a committed pick came to be — the server's own record, never inferred.
+ *  See `DraftPick.resolution` in `nba_peak/three_man_weave/schemas.py`. */
+export const TMW_RESOLUTION_ACTION = "action";
+export const TMW_RESOLUTION_TIMEOUT = "timeout";
+export type TmwPickResolution =
+  | typeof TMW_RESOLUTION_ACTION
+  | typeof TMW_RESOLUTION_TIMEOUT;
+
 export interface TmwPick extends TmwPlayer {
   seat_index: number;
   round_number: number;
   slot_type: TmwSlotType;
   franchise_id: string;
   decade: string;
+  /**
+   * WHO DECIDED THIS PICK, from the server.
+   *
+   * The room may only say "time ran out — drafted for you" when this reads
+   * `"timeout"`. It used to be inferred from the transport — a pick that
+   * appeared for your own seat on a POLL rather than on your command's own
+   * response — which is a fact about the network, not about the game: a
+   * command whose response was slow, retried, superseded by a newer snapshot
+   * or simply lost had its perfectly good, accepted pick announced as an
+   * autopick. Optional so an API build that predates the field is read as
+   * the action it almost certainly was, never as a false timeout.
+   */
+  resolution?: TmwPickResolution | string | null;
 }
 
 /** How a candidate relates to one seat's roster right now. */

@@ -66,6 +66,13 @@ export interface PeakV2TMWCourtsProps {
    */
   onMove?: (placements: Record<string, string>) => Promise<boolean> | void;
   busy?: boolean;
+  /**
+   * Slots on the VIEWER'S OWN court whose contents are a press this client
+   * has made and the server has not answered yet (see `StagedArrangement` in
+   * `ThreeManWeaveGame`). Drawn as a quiet pending treatment -- the card is
+   * where the player put it, and it says so rather than blocking the board.
+   */
+  pendingSlots?: readonly TmwSlotType[];
 }
 
 export default function PeakV2TMWCourts({
@@ -82,6 +89,7 @@ export default function PeakV2TMWCourts({
   children,
   onMove,
   busy = false,
+  pendingSlots = [],
 }: PeakV2TMWCourtsProps) {
   // The match clock when the server publishes one, falling back to the
   // viewer's own only if an older API build does not send it.
@@ -437,6 +445,7 @@ export default function PeakV2TMWCourts({
                   clock={isOnTurn ? { deadlineAt: clockDeadline, totalSeconds: clockTotal } : null}
                   interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
                   rearrangeEligible={canRearrange && roster.seat_index === yourSeatIndex}
+                  pendingSlots={roster.seat_index === yourSeatIndex ? pendingSlots : []}
                   pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
                   legalTargets={roster.seat_index === yourSeatIndex ? legalTargets : []}
                   onPickUp={roster.seat_index === yourSeatIndex ? pickUp : undefined}
@@ -469,7 +478,8 @@ export default function PeakV2TMWCourts({
                     clock={isOnTurn ? { deadlineAt: clockDeadline, totalSeconds: clockTotal } : null}
                     interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
                     rearrangeEligible={canRearrange && roster.seat_index === yourSeatIndex}
-                    pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
+                    pendingSlots={roster.seat_index === yourSeatIndex ? pendingSlots : []}
+                  pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
                     legalTargets={roster.seat_index === yourSeatIndex ? legalTargets : []}
                     onPickUp={roster.seat_index === yourSeatIndex ? pickUp : undefined}
                     onDropOn={roster.seat_index === yourSeatIndex ? dropOn : undefined}

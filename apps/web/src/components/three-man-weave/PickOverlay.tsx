@@ -115,6 +115,7 @@ export default function PickOverlay({
   turnSeconds,
   busy,
   pendingKind = null,
+  pendingSlots = [],
   onPick,
   onStage,
   onMove,
@@ -142,6 +143,8 @@ export default function PickOverlay({
   /** Which exclusive command the room's lane currently holds, for the
    *  button that owns it to show its pending state. */
   pendingKind?: string | null;
+  /** Slots whose card is an optimistic, not-yet-acknowledged placement. */
+  pendingSlots?: readonly TmwSlotType[];
   /** COMMITS. Only ever called from an explicit "Draft {name} at {slot}"
    *  press. Resolves `true` when the server accepted the pick. */
   onPick: (candidate: TmwCandidate, slot: TmwSlotType) => Promise<boolean> | void;
@@ -194,6 +197,20 @@ export default function PickOverlay({
     const timer = window.setTimeout(() => setLockedDeadline(at), TMW_LAST_CALL_MS);
     return () => window.clearTimeout(timer);
   }, [expiredDeadline]);
+
+  // A CLOSED OVERLAY HOLDS NO DECISION. `open` gates a `return null` below
+  // these hooks, so this component stays mounted -- and used to keep a
+  // half-made move alive across somebody else's whole turn, ready to be
+  // rendered against a roster that had moved on. Clearing on close means the
+  // surface can only ever re-open on a decision made in the turn it belongs
+  // to; the mount/turn-change effect below then hydrates the server's own
+  // staged choice, which is the only selection that legitimately survives.
+  useEffect(() => {
+    if (open) return;
+    setSelected(null);
+    setSlot(null);
+    setMovingFrom(null);
+  }, [open]);
 
   /** Clears local selection -- or, given a staged choice, HYDRATES it. */
   const reset = useCallback(
@@ -297,16 +314,36 @@ export default function PickOverlay({
 
   // -- what is legal right now ----------------------------------------------
 
+  /**
+   * THE CARD BEING MOVED, RESOLVED AGAINST THE AUTHORITATIVE ROSTER.
+   *
+   * THIS IS THE ROSTER-MOVE CRASH (P0), and the fix is the line below it.
+   * `movingFrom` is a SLOT NAME held in local state; `movingPick` is whoever
+   * the server currently says is standing in it, which can be nobody. `mode`
+   * was derived from `movingFrom` alone -- so "moving" could be true while
+   * `movingPick` was null -- and three places then dereferenced
+   * `movingPick!.player_name`, throwing
+   * `TypeError: Cannot read properties of null (reading 'player_name')`
+   * out of render. React has no way to recover from that, so Next.js paints
+   * "Application error: a client-side exception has occurred".
+   *
+   * The stale slot is easy to produce, because `open` gates a `return null`
+   * BELOW these hooks: the overlay closing does not unmount the component, so
+   * `movingFrom` survives every closed window and every authoritative roster
+   * replacement. Start a move (Manu at SG), lose the turn to the clock, come
+   * back next round after the source slot has been emptied -- by the move
+   * itself, by a rearrangement made from the court between turns, or by the
+   * timeout's own pick -- and the FIRST render of the reopened overlay throws,
+   * before the "fresh turn, fresh decision" effect below has had a chance to
+   * clear anything. (Effects run after render. They always did.)
+   *
+   * Deriving `mode` from the RESOLVED pick makes the invariant structural
+   * rather than remembered: `mode === "moving"` now IMPLIES a non-null
+   * `movingPick`, so there is nothing left to assert and no ordering to get
+   * right. `movingFrom` is additionally self-healed below, so the board never
+   * marks a source slot that no longer holds anyone.
+   */
   const movingPick = movingFrom ? (roster?.slots[movingFrom] ?? null) : null;
-
-  // BOTH HALVES OF A SWAP ARE CHECKED. This used to filter on the moving
-  // player's own positions only, so a destination whose occupant could not play
-  // the source slot was offered as legal and refused by the server on commit.
-  // `legalMoveTargets` validates the whole resulting assignment.
-  const moveDestinations = useMemo<TmwSlotType[]>(
-    () => (movingFrom ? legalMoveTargets(roster, movingFrom) : []),
-    [roster, movingFrom],
-  );
 
   const placementSlots = useMemo<TmwSlotType[]>(
     () => (chosen ? placementOptionsFor(chosen) : []),
@@ -314,7 +351,29 @@ export default function PickOverlay({
   );
 
   const mode: PlacementMode =
-    movingFrom !== null ? "moving" : chosen !== null ? "placing" : "idle";
+    movingPick !== null ? "moving" : chosen !== null ? "placing" : "idle";
+  /** `movingFrom` only while it still names an occupied slot -- see `movingPick`. */
+  const activeMoveFrom = movingPick !== null ? movingFrom : null;
+
+  // BOTH HALVES OF A SWAP ARE CHECKED. This used to filter on the moving
+  // player's own positions only, so a destination whose occupant could not play
+  // the source slot was offered as legal and refused by the server on commit.
+  // `legalMoveTargets` validates the whole resulting assignment.
+  const moveDestinations = useMemo<TmwSlotType[]>(
+    () => (activeMoveFrom ? legalMoveTargets(roster, activeMoveFrom) : []),
+    [roster, activeMoveFrom],
+  );
+
+  // A SLOT WHOSE OCCUPANT IS GONE IS NOT A MOVE IN PROGRESS. The render is
+  // already safe (see `movingPick`); this drops the dead slot name so the
+  // board stops marking it and the next click starts a real move.
+  useEffect(() => {
+    if (movingFrom !== null && movingPick === null) {
+      setMovingFrom(null);
+      setSlot(null);
+    }
+  }, [movingFrom, movingPick]);
+
   const legalSlots = mode === "moving" ? moveDestinations : placementSlots;
   const stagedSlot = mode === "idle" ? null : slot;
 
@@ -327,9 +386,11 @@ export default function PickOverlay({
    * label into an arrangement.
    */
   const vacating = useMemo<Record<string, TmwSlotType>>(() => {
-    if (mode === "moving" && movingFrom && slot) {
+    if (mode === "moving" && activeMoveFrom && slot) {
       const displaced = roster?.slots[slot] ?? null;
-      return displaced ? { [slot]: movingFrom, [movingFrom]: slot } : { [movingFrom]: slot };
+      return displaced
+        ? { [slot]: activeMoveFrom, [activeMoveFrom]: slot }
+        : { [activeMoveFrom]: slot };
     }
     if (mode === "placing" && chosen && slot) {
       const out: Record<string, TmwSlotType> = {};
@@ -339,7 +400,7 @@ export default function PickOverlay({
       return out;
     }
     return {};
-  }, [mode, movingFrom, slot, roster, chosen]);
+  }, [mode, activeMoveFrom, slot, roster, chosen]);
 
   const moveSummary = useMemo(() => {
     if (mode !== "placing" || !chosen) return [] as string[];
@@ -399,16 +460,35 @@ export default function PickOverlay({
     [chosen, expired, onStage],
   );
 
+  /**
+   * COMMIT A REARRANGEMENT — acknowledged locally in the same frame as the
+   * press, reconciled against the server's answer.
+   *
+   * THE TRANSIENT STATE IS DROPPED BEFORE THE AWAIT, not after it. Holding a
+   * slot name across a round trip is what kept a dead `movingFrom` alive long
+   * enough to be rendered against a roster that had moved (see `movingPick`),
+   * and it also meant the board sat in "moving" for the whole request while
+   * the arrangement it described was already decided. `onMove` stages the new
+   * arrangement in the room the instant it is called, so the roster the
+   * player sees is the one they just asked for -- marked pending until the
+   * authoritative snapshot replaces it, and rolled back by that same snapshot
+   * if the server refuses.
+   */
   const commitMove = useCallback(async () => {
-    if (!movingFrom || !slot || !roster || !movingPick) return false;
-    const outcome = await onMove(placementsAfterMove(roster, movingFrom, slot));
+    if (!activeMoveFrom || !slot || !roster) return false;
+    const placements = placementsAfterMove(roster, activeMoveFrom, slot);
     setMovingFrom(null);
     setSlot(null);
+    const outcome = await onMove(placements);
     return outcome !== false;
-  }, [movingFrom, slot, roster, movingPick, onMove]);
+  }, [activeMoveFrom, slot, roster, onMove]);
 
   if (!open) return null;
 
+  // `mode` already implies the operand each of these needs (`movingPick` for
+  // "moving", `chosen` for "placing"); the redundant null checks are kept
+  // because TypeScript narrows on them and the JSX below then needs no
+  // assertion anywhere -- which is the whole point of the P0 fix.
   const canCommitPlacement = mode === "placing" && !!chosen && !!slot && !expired;
   const canCommitMove = mode === "moving" && !!movingPick && !!slot && !expired;
 
@@ -681,9 +761,9 @@ export default function PickOverlay({
               <h3 className="tmw-overlay-subhead">Your roster</h3>
               <p className="tmw-place-instruction" data-testid="tmw-place-instruction">
                 {mode === "placing"
-                  ? `Click a highlighted slot to place ${chosen!.player_name}.`
+                  ? `Click a highlighted slot to place ${chosen?.player_name ?? "this player"}.`
                   : mode === "moving"
-                    ? `Click where ${movingPick!.player_name} should go.`
+                    ? `Click where ${movingPick?.player_name ?? "this card"} should go.`
                     : "Choose a player on the left, or click one of your own cards to move it."}
               </p>
             </div>
@@ -694,8 +774,9 @@ export default function PickOverlay({
               legalSlots={legalSlots}
               stagedSlot={stagedSlot}
               incomingName={mode === "placing" ? (chosen?.player_name ?? null) : null}
-              movingFrom={movingFrom}
+              movingFrom={activeMoveFrom}
               vacating={vacating}
+              pendingSlots={pendingSlots}
               onSelectSlot={mode === "placing" ? selectPlacementSlot : setSlot}
               onStartMove={(from) => {
                 setSelected(null);
@@ -773,9 +854,9 @@ export default function PickOverlay({
                     onAction={commitMove}
                   >
                     {/* THE LABEL NAMES WHAT IS MISSING, not just the verb. */}
-                    {canCommitMove
-                      ? `Move ${movingPick!.player_name} to ${TMW_SLOT_LABELS[slot!]}`
-                      : `Choose where ${movingPick!.player_name} goes`}
+                    {canCommitMove && slot
+                      ? `Move ${movingPick?.player_name ?? "this card"} to ${TMW_SLOT_LABELS[slot]}`
+                      : `Choose where ${movingPick?.player_name ?? "this card"} goes`}
                   </GameActionButton>
                   <PeakV2SecondaryAction
                     type="button"
@@ -802,12 +883,14 @@ export default function PickOverlay({
                     disabled={!canCommitPlacement || busy}
                     pending={pendingKind === "pick"}
                     pendingLabel="Drafting…"
-                    onAction={() => (canCommitPlacement ? onPick(chosen!, slot!) : false)}
+                    onAction={() =>
+                      canCommitPlacement && chosen && slot ? onPick(chosen, slot) : false
+                    }
                   >
                     {/* THE BUTTON NAMES THE WHOLE DECISION — who, and where. */}
                     {slot
-                      ? `Draft ${chosen!.player_name} at ${TMW_SLOT_LABELS[slot]}`
-                      : `Choose a slot for ${chosen!.player_name}`}
+                      ? `Draft ${chosen?.player_name ?? "this player"} at ${TMW_SLOT_LABELS[slot]}`
+                      : `Choose a slot for ${chosen?.player_name ?? "this player"}`}
                   </GameActionButton>
                   <PeakV2SecondaryAction
                     type="button"

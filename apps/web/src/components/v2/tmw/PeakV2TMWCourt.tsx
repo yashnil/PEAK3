@@ -62,6 +62,9 @@ export interface PeakV2TMWCourtProps {
    * transient-busy distinction keeps its previous behaviour exactly.
    */
   rearrangeEligible?: boolean;
+  /** Slots holding an optimistic, not-yet-acknowledged card. See
+   *  `PeakV2TMWCourts`' own prop of the same name. */
+  pendingSlots?: readonly TmwSlotType[];
   pickedUpSlot?: TmwSlotType | null;
   legalTargets?: readonly TmwSlotType[];
   onPickUp?: (slot: TmwSlotType) => void;
@@ -81,6 +84,7 @@ export default function PeakV2TMWCourt({
   clock = null,
   interactive = false,
   rearrangeEligible = interactive,
+  pendingSlots = [],
   pickedUpSlot = null,
   legalTargets = [],
   onPickUp,
@@ -99,6 +103,7 @@ export default function PeakV2TMWCourt({
   const lockOf = (slotType: TmwSlotType): "arrived" | "swapped" | undefined =>
     beat.arrived.includes(slotType) ? "arrived" : beat.swapped.includes(slotType) ? "swapped" : undefined;
   const bench = benchSlots(roster);
+  const pending = new Set(pendingSlots);
   const moving = pickedUpSlot !== null;
   const legal = new Set(legalTargets);
 
@@ -199,7 +204,12 @@ export default function PeakV2TMWCourt({
         {TMW_STARTER_SLOTS.map((slot) => {
           const pick = roster.slots[slot] ?? null;
           return (
-            <div key={slot} style={{ gridArea: AREA[slot] }} data-gf-lock={lockOf(slot)}>
+            <div
+              key={slot}
+              style={{ gridArea: AREA[slot] }}
+              data-gf-lock={lockOf(slot)}
+              data-gf-pending={pending.has(slot) ? "true" : undefined}
+            >
               <PeakV2CourtSlot
                 position={slot}
                 player={pick ? { name: pick.player_name, meta: `${pick.scoring_card ? `${pick.scoring_card.season} ${pick.scoring_card.team_id}` : "—"} · ${positionsLine(pick)}` } : undefined}
@@ -234,7 +244,11 @@ export default function PeakV2TMWCourt({
               (design-review/14), which made the single most under-rated
               decision in the draft look like an afterthought. */}
           {bench.map(({ slotType, pick }) => (
-            <div key={slotType} data-gf-lock={lockOf(slotType)}>
+            <div
+              key={slotType}
+              data-gf-lock={lockOf(slotType)}
+              data-gf-pending={pending.has(slotType) ? "true" : undefined}
+            >
             <PeakV2CourtSlot
               position={TMW_SLOT_LABELS[slotType]}
               bench
