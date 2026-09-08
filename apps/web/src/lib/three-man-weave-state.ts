@@ -997,6 +997,63 @@ export type TmwResultBand =
 const CLOSE_MARGIN = 2.0;
 
 /**
+ * THE MARGIN, as a real number the player can read.
+ *
+ * `resultBand` already decides whether a result was close, and `resultLine`
+ * already says so in words -- but the result screen never printed the gap
+ * itself, so "won close" and "won by a mile" looked identical above the
+ * standings. This is the arithmetic behind the word, and nothing more: the
+ * difference between the two best SCORED rosters, and (when the viewer is not
+ * one of them) the viewer's own distance from first.
+ *
+ * Null whenever the comparison would be a claim rather than a subtraction --
+ * fewer than two scored rosters, or a drawn first place, where the margin is
+ * genuinely zero and the draw is the fact worth stating.
+ */
+export interface TmwMargin {
+  /** First place minus second place, in lineup-score points. */
+  points: number;
+  /** The seat that won it, for the sentence that names them. */
+  winnerName: string;
+  /** The seat that came closest, for the same reason. */
+  runnerUpName: string;
+  /** How far the VIEWER finished behind first, when that is a different
+   *  number from `points` (i.e. they were not the runner-up). */
+  yourGap: number | null;
+}
+
+export function winningMargin(
+  rows: TmwPodiumRow[],
+  yourSeatIndex: number | null,
+): TmwMargin | null {
+  const scored = rows.filter(
+    (row): row is TmwPodiumRow & { score: { kind: "scored"; value: number } } =>
+      row.score.kind === "scored",
+  );
+  if (scored.length < 2) return null;
+  const [first, second] = scored;
+  if (first.result.placement === second.result.placement) return null;
+  const points = first.score.value - second.score.value;
+  const yours = scored.find((row) => row.result.seat_index === yourSeatIndex) ?? null;
+  const yourGap =
+    yours && yours !== first && yours !== second
+      ? first.score.value - yours.score.value
+      : null;
+  return {
+    points,
+    winnerName: first.result.display_name,
+    runnerUpName: second.result.display_name,
+    yourGap,
+  };
+}
+
+/** "0.4 points" / "1 point" — the margin, said once, with its unit. */
+export function marginText(points: number): string {
+  const rounded = Math.round(points * 10) / 10;
+  return `${rounded.toFixed(1)} ${rounded === 1 ? "point" : "points"}`;
+}
+
+/**
  * How this match ENDED, for the human — placement plus how near it was.
  *
  * Derived from the server's own placements and scores; nothing is re-ranked and

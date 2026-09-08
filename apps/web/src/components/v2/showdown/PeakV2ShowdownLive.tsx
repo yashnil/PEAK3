@@ -527,8 +527,21 @@ export default function PeakV2ShowdownLive({
                   {/* THE OPPONENT'S ACTION lands right under the figure it
                       changed, never over the player's identity. Hidden from
                       assistive tech: the turn line above already says it. */}
+                  {/* AND NOT OVER YOUR OWN DECISION. The moment is the
+                      OPPONENT's last action; while this client's command is
+                      in flight the same zone is carrying the player's own
+                      committed figure ("Your bid · $2 · Confirming"), and a
+                      capture caught the moment card sitting on top of it.
+                      The turn line above already restates the opponent's
+                      action, so nothing is lost by holding it for the length
+                      of one request. */}
                   <div className="sd-bid-moment" aria-hidden="true">
-                    <EventMoment moment={reveal ? null : moment} onDone={onDismissMoment} testId="td-moment" className="sd-moment" />
+                    <EventMoment
+                      moment={reveal || phase === "pending" ? null : moment}
+                      onDone={onDismissMoment}
+                      testId="td-moment"
+                      className="sd-moment"
+                    />
                   </div>
                   <span className="sd-bid-label">Current bid</span>
                   <BidTransition

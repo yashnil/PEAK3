@@ -303,7 +303,12 @@ describe("DailyGridGame", () => {
       await renderCompleted();
       // completedProgress() runs 11:52:56 -> 12:00:00.
       expect(screen.getByTestId("complete-time")).toHaveTextContent("7:04");
-      expect(screen.getByTestId("complete-attempts")).toHaveTextContent("3 misses");
+      // The same two facts, now a value and a label rather than a sentence:
+      // the summary row became three stat blocks so a reader can find "how
+      // many did I miss" without parsing a run-on of 11px muted text.
+      const misses = screen.getByTestId("complete-attempts");
+      expect(misses).toHaveTextContent("3");
+      expect(misses).toHaveTextContent(/misses/i);
     });
 
     it("renders a nine-square mini recap, marking best-available and the biggest miss", async () => {

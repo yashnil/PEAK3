@@ -1,0 +1,333 @@
+/* ================================================================
+   DAILY GRID — the result screen
+   ================================================================
+   One owner per file, same rule as every other partial here.
+   `.dg-*`, class-scoped, so nothing in this file can reach another
+   surface.
+
+   WHAT THIS PASS CHANGED, AND WHY. The information on the completion
+   screen was already right -- the verdict, the score, today's max, a
+   3x3 receipt, the biggest miss, the optimal board -- but almost all
+   of it below the headline was rendered as 11-12px muted prose. The
+   most useful thing the screen says ("six points were sitting on this
+   square, and here is the player who was worth them") read as a
+   footnote, and the receipt could not be understood without first
+   reading three sentences of legend underneath it.
+
+   So: the receipt states its own verdicts, the legend is swatches
+   instead of sentences, the swing is a card whose largest element is
+   the number of points it cost, and the three run-on summary facts
+   are stat blocks. Colour is deliberate and never alone -- every
+   grade prints its word.
+   ================================================================ */
+
+/* ---- performance summary ---------------------------------------- */
+
+.dg-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.dg-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-sm, 6px);
+  background: var(--v2-bg-plane);
+}
+
+.dg-stat-icon {
+  align-self: center;
+  color: var(--v2-text-muted);
+}
+
+.dg-stat-value {
+  font-family: var(--v2-font-mono);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--v2-text-primary);
+}
+
+.dg-stat-label {
+  font-family: var(--v2-font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+
+.dg-stat[data-tone="clean"] .dg-stat-value {
+  color: var(--v2-color-positive, #34d399);
+}
+
+/* ---- the 3x3 receipt -------------------------------------------- */
+
+.dg-receipt-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  min-height: 4.5rem;
+  padding: 0.5rem 0.35rem;
+  border-radius: var(--v2-radius-sm, 8px);
+  /* The grade tints the square rather than only the numeral, so the
+     shape of the result is readable before any word is. `--dg-grade`
+     is set inline from the same GRADE_COLOR map the numeral uses, so
+     there is exactly one place a grade's colour is decided. */
+  border: 1px solid color-mix(in srgb, var(--dg-grade) 38%, transparent);
+  background: color-mix(in srgb, var(--dg-grade) 9%, var(--v2-bg-plane));
+}
+
+.dg-receipt-cell[data-biggest-miss="true"] {
+  border-color: var(--v2-color-negative, #f87171);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--v2-color-negative, #f87171) 45%, transparent);
+}
+
+.dg-receipt-points {
+  font-family: var(--v2-font-mono);
+  /* Was 1.125rem. This is the number the square is about. */
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--dg-grade);
+}
+
+.dg-receipt-verdict {
+  font-family: var(--v2-font-ui);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--dg-grade);
+}
+
+.dg-receipt-left {
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--v2-text-muted);
+}
+
+/* ---- legend ------------------------------------------------------ */
+
+.dg-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.9rem;
+  margin-top: 0.6rem;
+}
+
+.dg-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.dg-legend-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--v2-text-muted);
+}
+
+.dg-legend-item[data-grade="beat"] .dg-legend-swatch { background: var(--peak-accent); }
+.dg-legend-item[data-grade="best"] .dg-legend-swatch { background: var(--comp-team); }
+.dg-legend-item[data-grade="close"] .dg-legend-swatch { background: var(--comp-si); }
+.dg-legend-item[data-grade="fair"] .dg-legend-swatch { background: var(--comp-po); }
+
+.dg-legend-word {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--v2-text-primary);
+}
+
+.dg-legend-gloss {
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary);
+}
+
+/* ---- the biggest swing ------------------------------------------- */
+
+.dg-swing {
+  padding: 0.85rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--v2-color-negative, #f87171) 40%, transparent);
+  border-radius: var(--v2-radius-md, 12px);
+  background: color-mix(in srgb, var(--v2-color-negative, #f87171) 6%, var(--v2-bg-plane));
+}
+
+.dg-swing-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.dg-swing-eyebrow {
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-color-negative, #f87171);
+}
+
+.dg-swing-square {
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--v2-text-primary);
+}
+
+.dg-swing-figure {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin-top: 0.15rem;
+}
+
+.dg-swing-number {
+  font-family: var(--v2-font-display);
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--v2-text-primary);
+}
+
+.dg-swing-unit {
+  font-family: var(--v2-font-ui);
+  font-size: 0.875rem;
+  color: var(--v2-text-secondary);
+}
+
+.dg-swing-compare {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.dg-swing-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.dg-swing-side-label {
+  font-family: var(--v2-font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+
+.dg-swing-name {
+  font-family: var(--v2-font-ui);
+  /* A name, at the size of a name. */
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--v2-text-primary);
+}
+
+.dg-swing-side[data-side="optimal"] .dg-swing-name {
+  color: var(--v2-color-positive, #34d399);
+}
+
+.dg-swing-points {
+  font-family: var(--v2-font-mono);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--v2-text-secondary);
+}
+
+.dg-swing-side[data-side="optimal"] .dg-swing-points {
+  color: var(--v2-color-positive, #34d399);
+}
+
+/* The arrow is drawn rather than typed: a "→" in prose is one of the
+   forms this codebase's writing rules keep out of sentences, and a
+   glyph here would also be read aloud by a screen reader between two
+   labelled blocks that already say which is which. */
+.dg-swing-arrow {
+  position: relative;
+  width: 22px;
+  height: 1px;
+  background: color-mix(in srgb, var(--v2-text-muted) 60%, transparent);
+}
+
+.dg-swing-arrow::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: -3px;
+  width: 7px;
+  height: 7px;
+  border-top: 1px solid color-mix(in srgb, var(--v2-text-muted) 60%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--v2-text-muted) 60%, transparent);
+  transform: rotate(45deg);
+}
+
+@media (max-width: 520px) {
+  .dg-swing-compare {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dg-swing-arrow {
+    width: 1px;
+    height: 18px;
+    justify-self: center;
+  }
+  .dg-swing-arrow::after {
+    right: -3px;
+    top: auto;
+    bottom: 0;
+    transform: rotate(135deg);
+  }
+}
+
+/* ---- the search row (cross-mode polish, §14) ---------------------
+   THE MOST REPEATED CONTROL IN THIS MODE had no press state and no
+   per-row pending state: clicking a search result disabled every row
+   at once with nothing to say which one had been chosen, so locking a
+   square gave no feedback at all until the server answered. `.pk-press`
+   supplies the depress every other game control in the app already
+   has; `data-pending` marks the row that is actually in flight. */
+
+.dg-hit[data-pending="true"] {
+  border-color: var(--v2-color-accent, #f5c842) !important;
+  opacity: 1 !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--v2-color-accent, #f5c842) 45%, transparent);
+}
+
+.dg-hit[data-pending="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: dg-hit-pending 900ms ease-in-out infinite;
+  background: color-mix(in srgb, var(--v2-color-accent, #f5c842) 10%, transparent);
+}
+
+.dg-hit {
+  position: relative;
+}
+
+@keyframes dg-hit-pending {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 0.6; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dg-hit[data-pending="true"]::after { animation: none; opacity: 0.35; }
+}

@@ -1820,3 +1820,92 @@ describe("PeakV2TMWResult — your seat is marked whatever the placement", () =>
     expect(screen.getByTestId("tmw-result-0-yours")).toHaveTextContent(/Your seat · Winner/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The result screen (responsiveness + visual-juice pass, §6)
+// ---------------------------------------------------------------------------
+
+describe("PeakV2TMWResult — the podium", () => {
+  function result(seat: number, placement: number, score: number, name: string) {
+    return {
+      seat_index: seat,
+      placement,
+      display_name: name,
+      score,
+      detail: { mean_season_score: score / 6 },
+    } as unknown as ArenaResultView;
+  }
+
+  const RESULTS = [
+    result(1, 1, 72.4, "Rim Runner"),
+    result(0, 2, 71.6, "You"),
+    result(2, 3, 58.2, "The Enforcer"),
+  ];
+
+  function renderResult(yourSeat: number | null = 0) {
+    return render(
+      <PeakV2TMWResult
+        results={RESULTS}
+        rosters={[]}
+        yourSeatIndex={yourSeat}
+        seed="m-1"
+        onPlayAgain={async () => true}
+      />,
+    );
+  }
+
+  it("states the winning margin as a number, not only as a word", () => {
+    // "close" and "clear" were the only signals a player got; a one-point win
+    // and a fifteen-point win drew the same screen.
+    renderResult(0);
+    const margin = screen.getByTestId("tmw-margin");
+    expect(margin).toHaveTextContent("Rim Runner");
+    expect(margin).toHaveTextContent("0.8 points");
+    expect(margin).toHaveTextContent("You");
+  });
+
+  it("says how far a third-placed viewer finished behind first", () => {
+    renderResult(2);
+    expect(screen.getByTestId("tmw-margin")).toHaveTextContent("14.2 points back");
+  });
+
+  it("gives every podium row a word for its state, never colour alone", () => {
+    renderResult(0);
+    const winner = screen.getByTestId("tmw-standing-1");
+    expect(winner).toHaveAttribute("data-winner", "true");
+    expect(winner).toHaveTextContent(/winner/i);
+    expect(winner).toHaveTextContent("1st");
+    const yours = screen.getByTestId("tmw-standing-0");
+    expect(yours).toHaveAttribute("data-yours", "true");
+    expect(yours).toHaveTextContent(/you/i);
+    expect(yours).toHaveTextContent("2nd");
+  });
+
+  it("sizes each podium bar by the seat's real share of the winning score", () => {
+    renderResult(0);
+    const share = (testId: string) =>
+      Number(
+        (screen.getByTestId(testId) as HTMLElement).style.getPropertyValue("--tmw-share"),
+      );
+    expect(share("tmw-standing-1")).toBeCloseTo(1, 5);
+    expect(share("tmw-standing-0")).toBeCloseTo(71.6 / 72.4, 5);
+    expect(share("tmw-standing-2")).toBeCloseTo(58.2 / 72.4, 5);
+  });
+
+  it("prints no margin when first place is drawn", () => {
+    render(
+      <PeakV2TMWResult
+        results={[
+          result(0, 1, 70, "You"),
+          result(1, 1, 70, "Rim Runner"),
+          result(2, 3, 60, "The Enforcer"),
+        ]}
+        rosters={[]}
+        yourSeatIndex={0}
+        seed="m-2"
+        onPlayAgain={async () => true}
+      />,
+    );
+    expect(screen.queryByTestId("tmw-margin")).toBeNull();
+  });
+});

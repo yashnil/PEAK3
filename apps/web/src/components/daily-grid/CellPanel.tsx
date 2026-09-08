@@ -149,6 +149,10 @@ export default function CellPanel({
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
+  /** The answer id the player just pressed, so the row that is being
+   *  submitted is the one that shows it. Cleared when the panel's own query
+   *  or square changes -- a new search is a new decision. */
+  const [pressed, setPressed] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const rowC = rowConstraint(board, row);
@@ -166,6 +170,10 @@ export default function CellPanel({
   useEffect(() => {
     if (!filled) inputRef.current?.focus();
   }, [filled]);
+
+  useEffect(() => {
+    setPressed(null);
+  }, [row, col, query]);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -372,6 +380,11 @@ export default function CellPanel({
               // its own used-slug bookkeeping -- one source of truth means the
               // badge and the button state can never disagree.
               const playable = hit.selectable && !submitting;
+              // WHICH ROW THE PLAYER PRESSED. `submitting` disabled all of
+              // them at once with nothing to say which one was chosen, so
+              // locking a square -- the single most repeated action in this
+              // mode -- gave no feedback at all until the server answered.
+              const isPending = submitting && pressed === hit.id;
               const available = hit.status === "available";
               return (
                 <button
@@ -381,10 +394,17 @@ export default function CellPanel({
                   data-answer-id={hit.id}
                   data-status={hit.status}
                   data-eligible={hit.eligible === null ? "unknown" : String(hit.eligible)}
+                  data-pending={isPending ? "true" : undefined}
                   disabled={!playable}
-                  onClick={() => onSubmit(hit)}
+                  onClick={() => {
+                    setPressed(hit.id);
+                    onSubmit(hit);
+                  }}
                   aria-label={`${hit.label}, ${hit.team_name}. ${style.announce}`}
-                  className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left transition-colors disabled:cursor-not-allowed"
+                  /* `.pk-press` is the app's shared press primitive -- the
+                     same 60-160ms depress every other game control uses. This
+                     row had none. */
+                  className="dg-hit pk-press flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left transition-colors disabled:cursor-not-allowed"
                   style={{
                     background: "var(--bg-surface)",
                     border: `1px solid ${

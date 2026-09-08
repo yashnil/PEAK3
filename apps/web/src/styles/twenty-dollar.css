@@ -2637,6 +2637,48 @@
   100% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
 
+/* ---------------------------------------------------------------
+   THE PLAYER GOES SOMEWHERE (auction game-feel pass).
+
+   A lot resolving already stamped SOLD over the stage and locked a
+   slot on the winning lineup, but the two were separate events with
+   nothing joining them: the stamp appeared in the middle and a card
+   quietly appeared on one side. The stamp now settles TOWARD the
+   column that won the lot, which is the whole point of an auction --
+   somebody took the player home, and the room should say which way
+   they went.
+
+   Transform and opacity only, off the outcome the SERVER decided
+   (`data-outcome` is read from `lot.winner_seat`, never guessed), and
+   the existing reduced-motion block above already sets
+   `.sd-sold { animation: none !important }`.
+   --------------------------------------------------------------- */
+.sd-sold[data-outcome="yours"] {
+  animation: sd-sold-to-you 720ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.sd-sold[data-outcome="theirs"] {
+  animation: sd-sold-to-them 720ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes sd-sold-to-you {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(0.96); }
+  45%  { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.02); }
+  100% { opacity: 1; transform: translateX(calc(-50% - 26px)) translateY(2px) scale(1); }
+}
+
+@keyframes sd-sold-to-them {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(0.96); }
+  45%  { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.02); }
+  100% { opacity: 1; transform: translateX(calc(-50% + 26px)) translateY(2px) scale(1); }
+}
+
+/* THE BUDGET DRAINS VISIBLY when a lot is won. The meter already
+   projects a pending bid; this marks the moment the money actually
+   left, on the column that spent it. */
+.sd-lineup-money[data-active="true"] {
+  transition: background-color 200ms ease;
+}
+
 /* --- lineups ------------------------------------------------------ */
 .sd-lineup {
   display: flex;
@@ -2711,7 +2753,8 @@
 .sd-result-history-verdict { font-family: var(--v2-font-ui); font-size: 0.75rem; color: var(--v2-text-secondary); }
 
 @media (prefers-reduced-motion: reduce) {
-  .sd-sold, .sd-sold-score, .sd-result-row, .sd-turn-dot-live, .sd-clock-pending-dot { animation: none !important; }
+  .sd-sold, .sd-sold-score, .sd-result-row, .sd-turn-dot-live, .sd-clock-pending-dot,
+  .sd-sold[data-outcome="yours"], .sd-sold[data-outcome="theirs"] { animation: none !important; }
   .sd-intro-fill { transition: none; }
 }
 

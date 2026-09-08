@@ -54,6 +54,8 @@ import {
   resultBand,
   resultLine,
   scoreSourceNote,
+  marginText,
+  winningMargin,
 } from "@/lib/three-man-weave-state";
 import PeakV2Shell from "../PeakV2Shell";
 import PeakV2CinematicStage from "../PeakV2CinematicStage";
@@ -210,6 +212,12 @@ export default function PeakV2TMWResult({
   multiplayer?: boolean;
 }) {
   const rows = podium(results);
+  const margin = winningMargin(rows, yourSeatIndex);
+  /** The winner's score, the denominator for every podium bar. */
+  const topScore = rows.reduce(
+    (best, row) => (row.score.kind === "scored" ? Math.max(best, row.score.value) : best),
+    0,
+  );
   const unrankableReason =
     rows.map((row) => row.score).find((score) => score.kind === "unrankable")?.reason ?? null;
 
@@ -290,6 +298,23 @@ export default function PeakV2TMWResult({
             {outcomeHeadline(rows)}
           </p>
 
+          {/* HOW CLOSE IT WAS, as the number rather than only as a word.
+              `resultLine` above already says "close" or "clear"; the gap
+              itself was nowhere on the screen, so a one-point win and a
+              fifteen-point win read identically above the standings. This is
+              subtraction over two scores already on this page -- no new
+              analytics, and it disappears entirely when the comparison would
+              be a claim (a drawn first place, fewer than two scored
+              rosters). */}
+          {margin ? (
+            <p className="mt-1 max-w-md" data-testid="tmw-margin" style={mutedTextStyle}>
+              {margin.winnerName} by {marginText(margin.points)} over {margin.runnerUpName}
+              {margin.yourGap !== null
+                ? ` · you finished ${marginText(margin.yourGap)} back`
+                : ""}
+            </p>
+          ) : null}
+
           {/* THE VIEWER'S OWN SCORE, not the winner's.
               The hero used to print the WINNER's number under the viewer's
               own placement badge — so a player who came third read "3rd"
@@ -334,47 +359,51 @@ export default function PeakV2TMWResult({
             much, and what each team looked like" should read in one glance,
             not only after scrolling into six-row-deep receipts. Same `rows`
             data the detailed blocks below already use; nothing invented. */}
-        <div className="flex flex-col gap-2" data-testid="tmw-standings">
-          {rows.map((row) => {
+        {/* THE PODIUM, not a list of three lines.
+            Each row carries a bar whose length is the seat's score as a
+            fraction of the winner's -- arithmetic over two numbers already
+            printed on the row, so it states nothing the text does not. The
+            bars are what make "won by a mile" and "won by a point" look
+            different at a glance, which three right-aligned decimals never
+            did. The winner is marked with a word ("winner"), never with gold
+            alone, and the viewer's own row is outlined whether they came
+            first or last. Rows reveal in placement order, transform and
+            opacity only, capped and neutralised under reduced motion by the
+            shared `.pk-reveal` primitive. */}
+        <ol className="tmw-podium" data-testid="tmw-standings">
+          {rows.map((row, index) => {
             const isFirst = row.result.placement === 1;
             const isYou = row.result.seat_index === yourSeatIndex;
+            const share =
+              row.score.kind === "scored" && topScore > 0
+                ? Math.max(0.06, Math.min(1, row.score.value / topScore))
+                : 0;
             return (
-              <div
+              <li
                 key={row.result.seat_index}
-                className="tmw-result-standing flex items-baseline justify-between gap-3"
+                className="tmw-podium-row pk-reveal"
                 data-testid={`tmw-standing-${row.result.seat_index}`}
                 data-winner={isFirst ? "true" : undefined}
                 data-yours={isYou ? "true" : undefined}
+                style={{ ["--pk-reveal-index" as string]: index, ["--tmw-share" as string]: share }}
               >
-                <span
-                  style={{
-                    fontFamily: "var(--v2-font-ui)",
-                    fontWeight: isFirst || isYou ? 700 : 500,
-                    fontSize: "0.875rem",
-                    color: isFirst ? "var(--v2-color-accent)" : isYou ? "var(--v2-text-primary)" : "var(--v2-text-secondary)",
-                  }}
-                >
-                  <span style={{ fontFamily: "var(--v2-font-mono)", fontVariantNumeric: "tabular-nums" }}>
-                    {ordinal(row.result.placement)}
-                  </span>{" "}
+                <span className="tmw-podium-rank pk-numeral">{ordinal(row.result.placement)}</span>
+                <span className="tmw-podium-name">
                   {row.result.display_name}
-                  {isYou ? <span className="tmw-result-standing-you"> · you</span> : null}
+                  {isYou ? <span className="tmw-podium-you">you</span> : null}
+                  {isFirst ? <span className="tmw-podium-crown">winner</span> : null}
+                  {row.tied ? <span className="tmw-podium-you">drawn</span> : null}
                 </span>
-                <span
-                  style={{
-                    fontFamily: "var(--v2-font-mono)",
-                    fontVariantNumeric: "tabular-nums",
-                    fontSize: "0.875rem",
-                    fontWeight: 700,
-                    color: isFirst ? "var(--v2-color-accent)" : "var(--v2-text-primary)",
-                  }}
-                >
+                <span className="tmw-podium-bar" aria-hidden="true">
+                  <span className="tmw-podium-fill" />
+                </span>
+                <span className="tmw-podium-score pk-numeral">
                   {row.score.kind === "scored" ? row.score.value.toFixed(1) : row.score.text}
                 </span>
-              </div>
+              </li>
             );
           })}
-        </div>
+        </ol>
 
         <PeakV2Rule spacing="lg" />
 
