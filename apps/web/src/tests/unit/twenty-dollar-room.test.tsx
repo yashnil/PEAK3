@@ -253,7 +253,14 @@ describe("submitting a bid", () => {
     // Same tick: pending state on the button, the clock frozen, the figure locked.
     expect(screen.getByTestId("td-submit-bid")).toHaveAttribute("data-state", "pending");
     await waitFor(() => expect(screen.getByTestId("td-clock")).toHaveAttribute("data-mode", "pending"));
-    expect(screen.getByTestId("td-pending")).toHaveTextContent("Sending $2");
+    // THE CLOCK ZONE NAMES THE COMMITTED FIGURE, not the request. It read
+    // "Sending $2" until the responsiveness pass, which is the client's
+    // transport state given the room's most valuable space; the assertion
+    // moved with the copy because that copy WAS the reported defect. What the
+    // test still pins is the part that matters and did not change: the exact
+    // amount this press committed is on screen before the server answers.
+    expect(screen.getByTestId("td-pending")).toHaveTextContent("$2");
+    expect(screen.getByTestId("td-pending")).toHaveTextContent("Confirming");
     expect(screen.getByTestId("td-bid-plus")).toBeDisabled();
     expect(screen.getByTestId("td-standing-amount-pending")).toHaveTextContent("$2");
 
@@ -541,5 +548,133 @@ describe("the first read", () => {
     render(<TwentyDollarGame matchId={MATCH_ID} />);
     await waitFor(() => expect(screen.getByTestId("td-match-error")).toBeInTheDocument());
     expect(getMatch).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// "SENDING YOUR MOVE" — the dead time, and what replaced it
+// ---------------------------------------------------------------------------
+
+describe("a press while the command is in flight", () => {
+  it("names the decision instead of the request, and never blanks the room", async () => {
+    // THE REPORT. A bid or a pass replaced the clock zone with "Sending your
+    // decision…" and the room's one turn line with "SENDING YOUR MOVE" for
+    // the whole round trip. Measured in process against the real route, the
+    // server's own work behind that screen is a median of 6.1ms: what the
+    // player was watching was network latency being narrated at them.
+    await openRoom();
+    const flight = deferred<{ accepted: boolean; match: TwentyDollarMatchView }>();
+    submitCommand.mockReturnValue(flight.promise);
+
+    fireEvent.click(screen.getByTestId("td-bid-plus-2"));
+    expect(screen.getByTestId("td-bid-amount")).toHaveTextContent("$3");
+    fireEvent.click(screen.getByTestId("td-submit-bid"));
+
+    // NO SERVER ANSWER YET.
+    await waitFor(() => expect(screen.getByTestId("td-game")).toHaveAttribute("data-phase", "pending"));
+    const turn = screen.getByTestId("td-turn-indicator");
+    expect(turn).toHaveTextContent("You bid $3");
+    expect(turn).not.toHaveTextContent(/sending/i);
+    // The clock zone confirms the committed figure rather than the request.
+    const clockPending = screen.getByTestId("td-pending");
+    expect(clockPending).toHaveTextContent("$3");
+    expect(clockPending).toHaveTextContent("Confirming");
+    expect(clockPending).not.toHaveTextContent(/sending/i);
+    // The lot, the standing figure and both lineups are all still on screen.
+    expect(screen.getByTestId("td-candidate")).toBeInTheDocument();
+    expect(screen.getByTestId("td-roster-0")).toBeInTheDocument();
+    expect(screen.getByTestId("td-roster-1")).toBeInTheDocument();
+
+    await act(async () => {
+      flight.resolve({ accepted: true, match: afterOpen(3) });
+      await flight.promise;
+    });
+    await waitFor(() => expect(screen.getByTestId("td-standing-amount")).toHaveTextContent("$3"));
+  });
+
+  it("acknowledges a pass the same way", async () => {
+    await openRoom();
+    const flight = deferred<{ accepted: boolean; match: TwentyDollarMatchView }>();
+    submitCommand.mockReturnValue(flight.promise);
+    fireEvent.click(screen.getByTestId("td-pass"));
+    await waitFor(() => expect(screen.getByTestId("td-turn-indicator")).toHaveTextContent("You passed"));
+    expect(screen.getByTestId("td-pending")).toHaveTextContent("Pass");
+    await act(async () => {
+      flight.resolve({ accepted: true, match: view({ state_version: 3 }) });
+      await flight.promise;
+    });
+  });
+
+  it("emits exactly one command however many times the control is pressed", async () => {
+    await openRoom();
+    const flight = deferred<{ accepted: boolean; match: TwentyDollarMatchView }>();
+    submitCommand.mockReturnValue(flight.promise);
+    const bid = screen.getByTestId("td-submit-bid");
+    fireEvent.click(bid);
+    fireEvent.click(bid);
+    fireEvent.click(bid);
+    expect(submitCommand).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      flight.resolve({ accepted: true, match: afterOpen(1) });
+      await flight.promise;
+    });
+    expect(submitCommand).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The side-column turn rails, and whose clock is actually running
+// ---------------------------------------------------------------------------
+
+describe("the side-column turn rails", () => {
+  it("run only for the seat the SERVER says is on the clock", async () => {
+    await openRoom();
+    expect(screen.getByTestId("td-turn-rail-0")).toHaveAttribute("data-state", "active");
+    expect(screen.getByTestId("td-turn-rail-0")).toHaveTextContent("Your move");
+    expect(screen.getByTestId("td-turn-rail-1")).toHaveAttribute("data-state", "inactive");
+    expect(screen.getByTestId("td-turn-rail-1")).toHaveTextContent("Waiting");
+    // The inactive rail shows no number at all -- there is no second timer.
+    expect(screen.getByTestId("td-turn-rail-clock-1-value")).toHaveTextContent("—");
+  });
+
+  it("hold NEUTRAL while this client's command is in flight — the opponent's clock has not opened", async () => {
+    // THE TIMER RULE. The next seat's countdown may not start from this
+    // client's press; it starts when the server publishes the next active
+    // seat and its deadline. Until then neither rail counts.
+    await openRoom();
+    const flight = deferred<{ accepted: boolean; match: TwentyDollarMatchView }>();
+    submitCommand.mockReturnValue(flight.promise);
+    fireEvent.click(screen.getByTestId("td-submit-bid"));
+
+    await waitFor(() => expect(screen.getByTestId("td-turn-rail-0")).toHaveAttribute("data-state", "pending"));
+    expect(screen.getByTestId("td-turn-rail-1")).toHaveAttribute("data-state", "inactive");
+    expect(screen.getByTestId("td-turn-rail-clock-0-value")).toHaveTextContent("—");
+    expect(screen.getByTestId("td-turn-rail-clock-1-value")).toHaveTextContent("—");
+
+    await act(async () => {
+      flight.resolve({ accepted: true, match: afterOpen(1) });
+      await flight.promise;
+    });
+
+    // NOW the opponent's rail is the one running, on the server's own deadline.
+    await waitFor(() => expect(screen.getByTestId("td-turn-rail-1")).toHaveAttribute("data-state", "active"));
+    expect(screen.getByTestId("td-turn-rail-0")).toHaveAttribute("data-state", "inactive");
+  });
+
+  it("count the SAME deadline the stage clock counts", async () => {
+    // One authority, one number: a rail and the central clock reading
+    // different seconds is the "two independent timers" defect.
+    await openRoom();
+    const flight = deferred<{ accepted: boolean; match: TwentyDollarMatchView }>();
+    submitCommand.mockReturnValue(flight.promise);
+    fireEvent.click(screen.getByTestId("td-submit-bid"));
+    await act(async () => {
+      flight.resolve({ accepted: true, match: afterOpen(1) });
+      await flight.promise;
+    });
+    await waitFor(() => expect(screen.getByTestId("td-turn-rail-1")).toHaveAttribute("data-state", "active"));
+    const rail = screen.getByTestId("td-turn-rail-clock-1-value").textContent;
+    const stage = screen.getByTestId("td-turn-clock-value").textContent;
+    expect(rail).toBe(stage);
   });
 });

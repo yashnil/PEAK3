@@ -83,10 +83,24 @@ export default function PeakV2ShowdownClock({
       </div>
 
       {mode === "pending" ? (
-        <div data-testid="td-pending" className="sd-clock-pending">
-          <span className="sd-clock-pending-dot" aria-hidden="true" />
-          <span className="sd-clock-pending-text">
-            {pendingCommand === "bid" ? `Sending ${formatDollars(pendingAmount)}…` : "Sending your decision…"}
+        /* THE DECISION IS ALREADY MADE, and this says so.
+           It used to read "Sending your decision…" across the whole clock
+           zone for the entire round trip -- the client's transport state,
+           given the most valuable real estate in the room, while the server's
+           own work behind it measures single-digit milliseconds. What a
+           bidder needs here is confirmation of WHAT they committed, and a
+           quiet signal that it is not final yet. Same footprint as the
+           countdown it replaces, so nothing under it moves. */
+        <div data-testid="td-pending" className="sd-clock-pending" data-command={pendingCommand ?? "none"}>
+          <span className="sd-clock-pending-label">
+            {pendingCommand === "bid" ? "Your bid" : "Your decision"}
+          </span>
+          <span className="sd-clock-pending-figure pk-numeral">
+            {pendingCommand === "bid" ? formatDollars(pendingAmount) : "Pass"}
+          </span>
+          <span className="sd-clock-pending-note">
+            <span className="sd-clock-pending-dot" aria-hidden="true" />
+            Confirming
           </span>
         </div>
       ) : mode === "countdown" ? (

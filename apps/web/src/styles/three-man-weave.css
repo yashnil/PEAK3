@@ -1979,6 +1979,35 @@
   padding-top: 0.25rem;
 }
 
+/* THE CONFIRMATION STAYS REACHABLE WHEN THE PANE DOES SCROLL.
+   `margin-top: auto` pins the actions to the bottom only while there is
+   spare space; the moment the roster pane overflows (a narrow or short
+   display, a rearrangement preview, the accessible slot `<select>`) the
+   primary scrolled away with everything else. Sticky keeps "Draft X at Y" on
+   screen without making the pane a second scroll region -- the pane above it
+   is still the only thing that moves. */
+.tmw-place-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  padding-bottom: 0.15rem;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--bg-elevated) 40%,
+    var(--bg-elevated)
+  );
+}
+
+[data-ui-version="v2"] .tmw-place-actions {
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--v2-bg-plane) 40%,
+    var(--v2-bg-plane)
+  );
+}
+
 @media (max-width: 760px) {
   .tmw-overlay-body {
     grid-template-columns: minmax(0, 1fr);
@@ -2015,8 +2044,20 @@
    height — exactly the same class of bug `PeakV2DockedPanel` had (see its
    docstring), just in a different file. `height` (not `max-height`) below
    is the same fix applied here. */
+/* THE DRAFT ROOM USES THE ROOM IT HAS (responsiveness pass).
+   `min(46rem, ...)` capped the surface at 736px on every desktop, so a
+   1440x900 viewport with 868px of usable height spent 132px of it on the
+   backdrop while the roster pane scrolled INSIDE the dialog -- the internal
+   scrollbar in the report. The rem term is now large enough that the
+   VIEWPORT is what decides on any normal desktop, and small enough that a
+   very tall display does not get a 1200px-tall dialog. The width goes from
+   62rem to 74rem for the same reason: two panes, a six-slot board and a
+   candidate list with headshots do not fit a 992px column comfortably, and
+   there is 1408px available at the narrowest desktop breakpoint this app
+   ships a three-column court for. */
 [data-ui-version="v2"] .tmw-overlay {
-  height: min(46rem, calc(100dvh - 32px));
+  width: min(74rem, 100%);
+  height: min(60rem, calc(100dvh - 32px));
   max-height: none;
   border-color: var(--v2-border-emphasis);
   border-radius: var(--v2-radius-modal);

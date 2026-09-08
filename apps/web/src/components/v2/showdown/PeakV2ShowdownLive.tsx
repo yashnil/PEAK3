@@ -41,12 +41,14 @@ import {
   EventMoment,
   ResourceMeter,
   RosterSlotLock,
+  TurnClock,
   type EventMomentData,
 } from "@/components/game-feel";
 import { useArrivals } from "@/lib/game-feel/arrivals";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
 import {
   STARTING_BUDGET,
+  TURN_SECONDS,
   formatDollars,
   lastActionLabel,
   type ResolvedLot,
@@ -73,6 +75,10 @@ function Lineup({
   reserve,
   targets,
   align,
+  turnDeadlineAt,
+  turnTotalSeconds,
+  railState,
+  railLabel,
 }: {
   label: string;
   seat: SeatPublic;
@@ -86,6 +92,23 @@ function Lineup({
   /** Slots the live candidate could land in, for the targeted state. */
   targets: ReadonlySet<string>;
   align: "start" | "end";
+  /**
+   * THE ONE AUTHORITATIVE DEADLINE, shared with the central clock.
+   *
+   * Passed in rather than derived, and passed as the SAME value the stage's
+   * clock counts, so this column and the middle of the room can never
+   * disagree about how long is left. It is only handed to the seat the server
+   * says is on the clock; every other seat gets `null` and the rail sits
+   * quiet. There is no second timer anywhere in this component.
+   */
+  turnDeadlineAt: number | null;
+  turnTotalSeconds: number;
+  /** Four states, and none of them is carried by colour alone -- the rail
+   *  always prints a word. `pending` is this client's own command in flight:
+   *  a neutral hold, not a countdown, because the turn has not transitioned
+   *  yet and inventing a clock for it would be inventing authority. */
+  railState: "active" | "inactive" | "pending" | "expired";
+  railLabel: string;
 }) {
   const bySlot = useMemo(() => {
     const map = new Map<string, RosterEntry>();
@@ -118,6 +141,29 @@ function Lineup({
         ) : (
           <PeakV2GameStatus label={label} state="idle" />
         )}
+      </div>
+
+      {/* THE SEAT'S OWN TURN RAIL, immediately above its money.
+          A player watching an auction needs to know whose move it is and how
+          long they have without looking away from the column they are
+          reading. The bar is the SAME deadline the stage's clock counts (see
+          `turnDeadlineAt`), so there is one authority and one number. */}
+      <div
+        className="sd-lineup-rail"
+        data-testid={`td-turn-rail-${seat.seat_index}`}
+        data-state={railState}
+        data-owner={owner}
+      >
+        <TurnClock
+          deadlineAt={railState === "active" ? turnDeadlineAt : null}
+          totalSeconds={turnTotalSeconds}
+          owner={owner}
+          label={railLabel}
+          size="sm"
+          warnAtSeconds={6}
+          testId={`td-turn-rail-clock-${seat.seat_index}`}
+          className="sd-rail-clock"
+        />
       </div>
 
       <div className="sd-lineup-money" data-testid={`td-budget-${seat.seat_index}`} data-active={isActive ? "true" : "false"}>
@@ -314,6 +360,40 @@ export default function PeakV2ShowdownLive({
 
   const lotLabel = `Lot ${Math.min(publicState.lot_index + 1, publicState.max_lots)} of ${publicState.market_phase === "closeout" ? publicState.max_lots : publicState.standard_market_lots}`;
 
+  /**
+   * EACH COLUMN'S TURN RAIL, from the SERVER'S OWN active seat and deadline.
+   *
+   * Four states, one authority, no second timer: `active` counts the shared
+   * `turnDeadlineAt`; `pending` is this client's command in flight, a neutral
+   * hold rather than a countdown, because the turn has NOT transitioned yet
+   * and starting the next seat's clock from the press would charge the player
+   * for their own latency; `expired` is the local clock at zero while the
+   * server settles; `inactive` is everything else. Every state prints a word,
+   * so nothing here is carried by colour alone.
+   */
+  const railFor = (seatIndex: number): { state: "active" | "inactive" | "pending" | "expired"; label: string } => {
+    const isMine = seatIndex === yourSeat;
+    if (pending) {
+      // The seat that pressed holds; nobody else's clock has opened yet.
+      if (isMine) {
+        return {
+          state: "pending",
+          label:
+            inFlightAction?.command === "bid"
+              ? `${formatDollars(inFlightAction.amount)} in`
+              : "Decision in",
+        };
+      }
+      return { state: "inactive", label: "Waiting" };
+    }
+    if (phase === "intro") return { state: "inactive", label: "Not started" };
+    if (active === null) return { state: "inactive", label: "Between lots" };
+    if (active !== seatIndex) return { state: "inactive", label: "Waiting" };
+    if (isMine && locallyExpired) return { state: "expired", label: "Time up" };
+    return { state: "active", label: isMine ? "Your move" : opponentIsBot ? "Thinking" : "On the clock" };
+  };
+  const railTotal = TURN_SECONDS;
+
   return (
     <PeakV2Shell width="live-wide">
       <div className="sd-room py-5" data-testid="td-game" data-phase={phase} data-contested={contested ? "true" : "false"}>
@@ -361,6 +441,10 @@ export default function PeakV2ShowdownLive({
               reserve={privateState.reserve_floor}
               targets={yourTargets}
               align="start"
+              turnDeadlineAt={turnDeadlineAt}
+              turnTotalSeconds={railTotal}
+              railState={railFor(yourSeat ?? 0).state}
+              railLabel={railFor(yourSeat ?? 0).label}
             />
           </div>
 
@@ -381,7 +465,18 @@ export default function PeakV2ShowdownLive({
                 {phase === "intro"
                   ? "Auction starting"
                   : phase === "pending"
-                    ? "Sending your move"
+                    ? // THE PRESS IS THE NEWS, NOT THE REQUEST. This read
+                      // "Sending your move", which describes the client's
+                      // network state and blanks the room for the whole round
+                      // trip; the measured server work behind it is single-
+                      // digit milliseconds (`scripts` probe: median 6.1ms for
+                      // a bid), so what the player was watching was latency
+                      // being narrated at them. It now says what they just
+                      // did, and the pending dot beside it carries the "still
+                      // confirming" part without taking the floor.
+                      inFlightAction?.command === "bid"
+                      ? `You bid ${formatDollars(inFlightAction.amount)}`
+                      : "You passed"
                     : seatless
                       ? seatlessBeat === "forced_fill"
                         ? "Assigning a stranded position"
@@ -512,6 +607,10 @@ export default function PeakV2ShowdownLive({
                 reserve={0}
                 targets={theirTargets}
                 align="end"
+                turnDeadlineAt={turnDeadlineAt}
+                turnTotalSeconds={railTotal}
+                railState={railFor(opponent.seat_index).state}
+                railLabel={railFor(opponent.seat_index).label}
               />
             </div>
           ) : null}

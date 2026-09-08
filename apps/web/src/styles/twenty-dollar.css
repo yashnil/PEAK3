@@ -2484,9 +2484,65 @@
 .sd-clock { margin-top: 1rem; display: flex; flex-direction: column; align-items: center; min-height: 4.75rem; }
 .sd-clock .gf-clock { justify-items: center; width: min(100%, 16rem); }
 .sd-clock .gf-clock-track { justify-self: stretch; width: 100%; }
-.sd-clock-pending { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; padding-top: 0.5rem; }
-.sd-clock-pending-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--v2-color-accent); animation: v2-arena-light-pulse 0.9s ease-in-out infinite; }
-.sd-clock-pending-text { font-family: var(--v2-font-ui); font-size: 0.8125rem; color: var(--v2-text-secondary); }
+/* THE COMMITTED DECISION, not a progress report on the request.
+   Sized to sit in the same footprint as the countdown it replaces, so the
+   controls under it do not move when the server answers. */
+.sd-clock-pending {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  padding-top: 0.35rem;
+}
+.sd-clock-pending-label {
+  font-family: var(--v2-font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+.sd-clock-pending-figure {
+  font-family: var(--v2-font-display);
+  font-size: 1.75rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--v2-color-accent);
+}
+.sd-clock-pending-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary);
+}
+.sd-clock-pending-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--v2-color-accent); animation: v2-arena-light-pulse 0.9s ease-in-out infinite; }
+
+/* ---------------------------------------------------------------
+   THE SIDE-COLUMN TURN RAIL — one per seat, above the money.
+   The bar itself is `TurnClock`, counting the SAME authoritative deadline
+   the stage's clock counts; this only gives it the column's identity and
+   its four states. Colour never carries a state on its own: the rail always
+   prints a word ("Your move", "Waiting", "Confirming", "Time up").
+   --------------------------------------------------------------- */
+.sd-lineup-rail {
+  margin-bottom: 0.45rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-sm, 6px);
+  background: color-mix(in srgb, var(--v2-bg-surface) 70%, transparent);
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+.sd-lineup-rail[data-state="active"] { border-color: color-mix(in srgb, var(--v2-color-accent) 45%, transparent); }
+.sd-lineup-rail[data-state="active"][data-owner="rival"],
+.sd-lineup-rail[data-state="active"][data-owner="bot"] {
+  border-color: color-mix(in srgb, var(--comp-si, #60a5fa) 50%, transparent);
+}
+.sd-lineup-rail[data-state="pending"] { border-style: dashed; }
+.sd-lineup-rail[data-state="expired"] { border-color: color-mix(in srgb, var(--v2-color-negative, #f87171) 55%, transparent); }
+.sd-lineup-rail[data-state="inactive"] { opacity: 0.72; }
+.sd-lineup-rail .gf-clock-value { font-size: 0.9rem; }
 .sd-clock-held { display: flex; flex-direction: column; align-items: center; gap: 0.15rem; }
 .sd-clock-held-label { font-family: var(--v2-font-mono); font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--v2-text-muted); }
 .sd-clock-held-value { font-family: var(--v2-font-mono); font-size: 1.75rem; font-weight: 700; color: var(--v2-text-muted); }
