@@ -2541,7 +2541,22 @@
 }
 .sd-lineup-rail[data-state="pending"] { border-style: dashed; }
 .sd-lineup-rail[data-state="expired"] { border-color: color-mix(in srgb, var(--v2-color-negative, #f87171) 55%, transparent); }
-.sd-lineup-rail[data-state="inactive"] { opacity: 0.72; }
+
+/* THE INACTIVE RAIL RECEDES WITHOUT DIMMING ITS TEXT.
+   A first version used `opacity: 0.72`, which is the exact mistake
+   `--v2-court-dim-opacity`'s own note in tokens.css records: `opacity` dims
+   the WHOLE subtree, so an 11px bold `--v2-text-muted` label fell to 3.47:1
+   and axe caught it as a serious violation on a live auction. Recession is
+   carried by the surface instead -- a flatter background and a quieter
+   border -- and the label is set one step UP to `--v2-text-secondary`
+   (measured 5.85:1 on `--v2-bg-plane`, against muted's 5.21:1) so the quiet
+   rail stays comfortably readable at full opacity. */
+.sd-lineup-rail[data-state="inactive"] {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--v2-border-subtle) 70%, transparent);
+}
+.sd-lineup-rail .gf-clock-label { color: var(--v2-text-secondary); }
+.sd-lineup-rail[data-state="active"] .gf-clock-label { color: var(--v2-text-primary); }
 .sd-lineup-rail .gf-clock-value { font-size: 0.9rem; }
 .sd-clock-held { display: flex; flex-direction: column; align-items: center; gap: 0.15rem; }
 .sd-clock-held-label { font-family: var(--v2-font-mono); font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--v2-text-muted); }

@@ -34,7 +34,7 @@ const RTT_MS = 200;
 
 /** Names broad enough that some season of theirs answers most squares. The
  *  capture is about the RESULT SCREEN, not about playing well. */
-const QUERIES = ["james", "duncan", "bryant", "malone", "garnett", "nowitzki", "paul", "curry", "davis"];
+const QUERIES = ["a", "e", "o", "i", "r", "s", "n", "t", "l", "m", "c", "d"];
 
 function uniqueSub(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
@@ -324,23 +324,33 @@ test.describe("Daily Grid", () => {
       await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 120_000 });
       await shot(page, "grid-01-board", "daily-grid-board");
 
-      // Fill every square with the first legal answer the search offers.
-      for (let index = 0; index < 9; index += 1) {
+      // FILL EVERY SQUARE, trying names until one is actually SELECTABLE for
+      // it. A hit the server has marked unusable is still a row in the list --
+      // clicking it does nothing, which is correct product behaviour and would
+      // leave the board short of the nine picks the result screen needs.
+      for (let square = 0; square < 9; square += 1) {
         const cell = page.locator('[data-testid="grid-cell"]:not([data-state="filled"])').first();
         if ((await cell.count()) === 0) break;
         await cell.click();
         await page.getByTestId("cell-panel").waitFor({ state: "visible", timeout: 20_000 });
         const search = page.getByTestId("cell-search-input");
         await search.waitFor({ state: "visible", timeout: 20_000 });
-        await search.fill(QUERIES[index % QUERIES.length]);
-        const hit = page.getByTestId("cell-search-result").first();
-        await hit.waitFor({ state: "visible", timeout: 20_000 }).catch(() => {});
-        if ((await hit.count()) === 0) {
-          await page.keyboard.press("Escape");
-          continue;
+
+        let filled = false;
+        for (const query of QUERIES) {
+          await search.fill(query);
+          const usable = page.locator('[data-testid="cell-search-result"]:not([disabled])');
+          await usable.first().waitFor({ state: "visible", timeout: 6_000 }).catch(() => {});
+          if ((await usable.count()) === 0) continue;
+          await usable.first().click();
+          filled = await page
+            .locator('[data-testid="grid-cell"][data-state="filled"]')
+            .nth(square)
+            .isVisible()
+            .catch(() => false);
+          if (filled) break;
         }
-        await hit.click();
-        await page.waitForTimeout(250);
+        if (!filled) break;
       }
 
       const complete = page.getByTestId("daily-grid-complete");

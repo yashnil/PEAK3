@@ -311,3 +311,95 @@ test.describe("The $20 Showdown — two tabs on one match", () => {
     await second.context().close();
   });
 });
+
+// ---------------------------------------------------------------------------
+// The timer belongs to the server's turn, not to this client's press
+// ---------------------------------------------------------------------------
+
+test.describe("The $20 Showdown — the clock under latency", () => {
+  /**
+   * THE RULE THIS PINS. "The next player's timer should only start once the
+   * previous decision has actually been accepted and the authoritative turn
+   * has transitioned." Under a slow connection that is the difference between
+   * a fair clock and one that charges the player for their own network: a room
+   * that started the opponent's countdown from the bid press would give them
+   * the whole window plus this client's round trip.
+   *
+   * Driven with a real 400ms round trip on every API call, because the defect
+   * this is about only exists when the request takes long enough to notice.
+   */
+  test("neither seat's clock runs while this client's command is in flight", async ({
+    browser,
+  }) => {
+    test.setTimeout(180_000);
+    const page = await signedInPage(browser, `sd-latency-${Date.now()}`);
+    // 200ms each way. Applied AFTER sign-in so the setup is not also slowed.
+    await page.route("**/api/v1/**", async (route) => {
+      await new Promise((r) => setTimeout(r, 200));
+      await route.continue();
+    });
+    try {
+      await startShowdown(page);
+      await pastIntro(page);
+
+      const controls = page.getByTestId("td-bid-controls");
+      await expect(controls).toHaveAttribute("data-live", "true", { timeout: 60_000 });
+
+      const yourRail = page.getByTestId("td-turn-rail-0");
+      const theirRail = page.getByTestId("td-turn-rail-1");
+      await expect(yourRail).toHaveAttribute("data-state", "active");
+      await expect(theirRail).toHaveAttribute("data-state", "inactive");
+
+      await page.getByTestId("td-submit-bid").click();
+
+      // WHILE THE COMMAND IS OUT: this seat holds, and the opponent's clock
+      // has NOT opened -- the server has not published their turn yet.
+      await expect(yourRail).toHaveAttribute("data-state", "pending", { timeout: 5_000 });
+      await expect(theirRail).toHaveAttribute("data-state", "inactive");
+      await expect(page.getByTestId("td-turn-rail-clock-1-value")).toHaveText("—");
+
+      // AFTER THE SERVER ANSWERS: the opponent's rail is the one running, and
+      // it counts the SAME deadline the stage clock counts. One authority,
+      // one number, no second timer.
+      await expect(theirRail).toHaveAttribute("data-state", "active", { timeout: 30_000 });
+      await expect(yourRail).toHaveAttribute("data-state", "inactive");
+      const rail = await page.getByTestId("td-turn-rail-clock-1-value").textContent();
+      const stage = await page.getByTestId("td-turn-clock-value").textContent();
+      expect(Math.abs(Number(rail) - Number(stage)), "the rail and the stage clock disagree").toBeLessThanOrEqual(1);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  test("a press is acknowledged by name before the server answers", async ({ browser }) => {
+    test.setTimeout(180_000);
+    const page = await signedInPage(browser, `sd-ack-${Date.now()}`);
+    await page.route("**/api/v1/**", async (route) => {
+      await new Promise((r) => setTimeout(r, 200));
+      await route.continue();
+    });
+    try {
+      await startShowdown(page);
+      await pastIntro(page);
+      const controls = page.getByTestId("td-bid-controls");
+      await expect(controls).toHaveAttribute("data-live", "true", { timeout: 60_000 });
+
+      const amount = await page.getByTestId("td-bid-amount").textContent();
+      await page.getByTestId("td-submit-bid").click();
+
+      // THE ROOM SAYS WHAT YOU DID, not that it is talking to a server. It
+      // read "Sending your move" across this line and "Sending your decision…"
+      // across the whole clock zone for the length of the request.
+      const turn = page.getByTestId("td-turn-indicator");
+      await expect(turn).toContainText(`You bid ${amount}`, { timeout: 5_000 });
+      await expect(turn).not.toContainText(/sending/i);
+      await expect(page.getByTestId("td-pending")).toContainText("Confirming");
+      // And the room is still a room: the lot and both lineups are on screen.
+      await expect(page.getByTestId("td-candidate")).toBeVisible();
+      await expect(page.getByTestId("td-roster-0")).toBeVisible();
+      await expect(page.getByTestId("td-roster-1")).toBeVisible();
+    } finally {
+      await page.context().close();
+    }
+  });
+});
