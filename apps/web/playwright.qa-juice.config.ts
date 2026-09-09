@@ -36,7 +36,17 @@ export default defineConfig({
   webServer: [
     {
       command:
-        `cd ../api && PEAK3_ARENA_ENABLED=true PEAK3_ARENA_BOTS_ENABLED=true ` +
+        `cd ../api && ` +
+        // THE DAILY GRID'S RATE LIMITS ARE PRODUCTION VALUES and a capture
+        // that solves a board through the real search route trips them, which
+        // reads as "no answer exists for this square". Same relaxation
+        // `scripts/ci/e2e-tests.sh` makes, for the same reason.
+        `PEAK3_DAILY_GRID_SEARCH_RATE_LIMIT=100000 ` +
+        `PEAK3_DAILY_GRID_ANSWER_RATE_LIMIT=100000 ` +
+        `PEAK3_DAILY_GRID_BOARD_RATE_LIMIT=100000 ` +
+        `PEAK3_DAILY_GRID_RESULT_RATE_LIMIT=100000 ` +
+        `PEAK3_DAILY_GRID_DATE_ENUMERATION_LIMIT=100000 ` +
+        `PEAK3_ARENA_ENABLED=true PEAK3_ARENA_BOTS_ENABLED=true ` +
         `PEAK3_ARENA_PUBLIC_QUEUE_ENABLED=true ` +
         `PEAK3_ARENA_READINESS_LEVEL=closed_alpha ` +
         `PEAK3_ARENA_RATINGS_ENABLED=false ` +

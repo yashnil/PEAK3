@@ -23,6 +23,9 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { mintTestAccessToken } from "../e2e/helpers/test-jwt";
+import { API_PORT } from "../../../playwright.qa-juice.config";
+
+const API_BASE = `http://localhost:${API_PORT}`;
 
 const OUT = path.resolve(__dirname, "../../../../../design-review/qa-juice");
 fs.mkdirSync(OUT, { recursive: true });
@@ -32,9 +35,10 @@ const DESKTOP = { width: 1440, height: 900 };
 /** One-way latency added to every API call in the latency runs. */
 const RTT_MS = 200;
 
-/** Names broad enough that some season of theirs answers most squares. The
- *  capture is about the RESULT SCREEN, not about playing well. */
-const QUERIES = ["a", "e", "o", "i", "r", "s", "n", "t", "l", "m", "c", "d"];
+/** The archive date the Daily Grid frames are captured on -- the same one the
+ *  e2e suite pins, for the same reason: a board whose nine squares are known
+ *  to be solvable by the shared probe list. */
+const GRID_CAPTURE_DATE = "2026-03-14";
 
 function uniqueSub(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
@@ -121,6 +125,119 @@ async function measureAck(page: Page, rootTestId: string, clickTestId: string) {
     const w = window as unknown as { __ack?: { t0: number; dt: number | null } };
     return w.__ack?.dt ?? null;
   });
+}
+
+
+// ---------------------------------------------------------------------------
+// Solving a real Daily Grid board through the real routes
+// ---------------------------------------------------------------------------
+
+/** Names broad enough to answer most squares. Mirrors the e2e suite's own
+ *  probe list; a capture is not a test of who a player would pick. */
+const PROBE_NAMES = [
+  "Michael Jordan", "LeBron James", "Shaquille O'Neal", "Tim Duncan",
+  "Stephen Curry", "Nikola Jokic", "Giannis Antetokounmpo", "Kevin Durant",
+  "David Robinson", "Victor Wembanyama", "Shai Gilgeous-Alexander", "Magic Johnson",
+  "Kevin Garnett", "Hakeem Olajuwon", "Larry Bird", "Charles Barkley",
+  "Chauncey Billups", "Chris Webber", "Patrick Ewing", "Paul George",
+  "Luka Doncic", "Karl Malone", "Domantas Sabonis", "Chris Paul",
+  "Grant Hill", "Dominique Wilkins", "Kawhi Leonard", "Dwight Howard",
+  "Reggie Miller", "Bernard King", "Jason Kidd", "Moses Malone",
+  "Clyde Drexler", "Damian Lillard", "Tyrese Haliburton", "Karl-Anthony Towns",
+  "Trae Young", "John Stockton", "Eddie Jones", "Kevin McHale",
+  "Gilbert Arenas", "Dikembe Mutombo", "Tracy McGrady", "Russell Westbrook",
+  "John Wall", "Isaiah Thomas", "Glen Rice", "Isiah Thomas",
+  "Steve Nash", "Kevin Love", "Kareem Abdul-Jabbar", "Rudy Gobert",
+  "Derrick Rose", "Dwyane Wade", "Manu Ginobili", "Marc Gasol",
+  "Peja Stojakovic", "Sidney Moncrief", "Jeff Ruland", "Ben Wallace",
+  "Scottie Pippen", "Anthony Davis", "Adrian Dantley", "Pau Gasol",
+  "Ray Allen", "Brook Lopez", "Joel Embiid", "Alonzo Mourning",
+  "Carmelo Anthony", "Terry Porter", "Kemba Walker", "James Harden",
+  "Vince Carter", "Kyrie Irving", "Blake Griffin", "Shareef Abdur-Rahim",
+  "Mitch Richmond", "Draymond Green", "Jayson Tatum", "Franz Wagner",
+  "DeMarcus Cousins", "Chris Mullin", "Luol Deng", "Gus Williams",
+  "Gary Payton", "Jalen Brunson", "Zach LaVine", "Goran Dragic",
+  "Allen Iverson", "Dana Barros", "Hassan Whiteside", "Kevin Johnson",
+  "Ja Morant", "Mark Williams", "Marcus Camby", "Larry Hughes",
+  "Chris Bosh", "Shawn Marion", "Anfernee Hardaway", "Derrick Coleman",
+  "Muggsy Bogues", "Stephon Marbury", "Dirk Nowitzki", "Metta World Peace",
+  "Brandon Roy", "Dennis Rodman", "Victor Oladipo", "Amar'e Stoudemire",
+  "DeAndre Jordan", "Terrell Brandon", "Mike Conley", "Zach Randolph",
+  "Marques Johnson", "Kristaps Porzingis", "Elton Brand", "Nic Claxton",
+  "Sherman Douglas", "Tyson Chandler", "Artis Gilmore", "Baron Davis",
+  "Gerald Wallace", "Billy Knight", "Danny Manning", "Josh Smith",
+  "Jimmy Butler", "Joakim Noah", "Jack Sikma", "Jalen Duren",
+  "Robert Williams", "Kobe Bryant", "Kyle Lowry", "Donovan Mitchell",
+  "De'Aaron Fox", "Bob Lanier", "Andrei Kirilenko", "Otis Birdsong",
+  "Horace Grant", "Paul Millsap", "Terry Cummings", "Chet Holmgren",
+  "Mark Aguirre", "Derek Harper", "Detlef Schrempf", "Nikola Vucevic",
+  "Julius Erving", "Darrell Armstrong", "Mookie Blaylock", "Arvydas Sabonis",
+  "Sam Cassell", "Doc Rivers", "Dan Roundfield", "Ryan Anderson",
+  "Daniel Gafford", "Jusuf Nurkic", "Otis Smith", "Paul Pierce",
+  "Al Horford", "Larry Nance", "George Gervin", "OG Anunoby",
+  "Klay Thompson", "Rasheed Wallace", "Alex English", "Fat Lever",
+];
+
+interface SolvedCell {
+  row: number;
+  col: number;
+  player_season: { player_slug: string };
+  cell_score: { arena_points: number };
+}
+
+/**
+ * Fill all nine squares by asking the SERVER which answers are available,
+ * respecting the distinct-player rule the same way the UI does. Copied in
+ * shape from `daily-grid.spec.ts`'s helper of the same name: a capture and a
+ * test want exactly the same thing here, and typing into the search box nine
+ * times cannot reliably produce nine different legal players.
+ */
+async function solveBoardViaApi(
+  request: import("@playwright/test").APIRequestContext,
+  date: string,
+): Promise<SolvedCell[]> {
+  const filled: SolvedCell[] = [];
+  const used: string[] = [];
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 3; col++) {
+      let locked = false;
+      for (const playerName of PROBE_NAMES) {
+        const query = new URLSearchParams({
+          q: playerName,
+          date,
+          row: String(row),
+          col: String(col),
+          limit: "50",
+        });
+        for (const slug of used) query.append("used", slug);
+        const search = await request.get(`${API_BASE}/api/v1/daily-grid/search?${query.toString()}`);
+        if (!search.ok()) continue;
+        const { results } = await search.json();
+        const fits = (results as { status: string; id: string }[]).find(
+          (r) => r.status === "available",
+        );
+        if (!fits) continue;
+        const answer = await request.post(`${API_BASE}/api/v1/daily-grid/answer`, {
+          data: {
+            date,
+            row,
+            col,
+            answer_id: fits.id,
+            used_player_slugs: used,
+            filled_cells: filled.map((c) => [c.row, c.col]),
+          },
+        });
+        const body = await answer.json();
+        if (!body.valid) continue;
+        used.push(body.player_season.player_slug);
+        filled.push({ row, col, player_season: body.player_season, cell_score: body.cell_score });
+        locked = true;
+        break;
+      }
+      if (!locked) throw new Error(`no distinct-player answer for square (${row}, ${col})`);
+    }
+  }
+  return filled;
 }
 
 // ---------------------------------------------------------------------------
@@ -294,7 +411,7 @@ test.describe("$20 Showdown", () => {
 // ---------------------------------------------------------------------------
 
 test.describe("Daily Grid", () => {
-  test("the board and the reworked result screen", async ({ browser }) => {
+  test("the board and the reworked result screen", async ({ browser, request }) => {
     test.setTimeout(600_000);
     const context = await browser.newContext({ viewport: DESKTOP });
     const page = await context.newPage();
@@ -314,54 +431,63 @@ test.describe("Daily Grid", () => {
           }),
         );
       });
-      await page.goto("/daily/grid", { waitUntil: "domcontentloaded" });
-      // The gate offers a guided tour; a capture run takes the direct route.
-      const skipTour = page.getByTestId("daily-grid-gate-skip-tour");
-      if (await skipTour.count()) await skipTour.first().click().catch(() => {});
+      // A FIXED ARCHIVE DATE, the same one the e2e suite pins. The greedy
+      // probe solve below can genuinely fail on an arbitrary board -- nine
+      // DIFFERENT players is a real constraint and a finite probe list can
+      // paint itself into a corner -- and the frame is about the result
+      // screen's composition, not about which day it is.
+      await page.goto(`/daily/grid?date=${GRID_CAPTURE_DATE}`, { waitUntil: "domcontentloaded" });
       const start = page.getByTestId("start-daily-grid");
       await start.waitFor({ state: "visible", timeout: 120_000 }).catch(() => {});
       if (await start.count()) await start.first().click();
       await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 120_000 });
       await shot(page, "grid-01-board", "daily-grid-board");
 
-      // FILL EVERY SQUARE, trying names until one is actually SELECTABLE for
-      // it. A hit the server has marked unusable is still a row in the list --
-      // clicking it does nothing, which is correct product behaviour and would
-      // leave the board short of the nine picks the result screen needs.
-      for (let square = 0; square < 9; square += 1) {
-        const cell = page.locator('[data-testid="grid-cell"]:not([data-state="filled"])').first();
-        if ((await cell.count()) === 0) break;
-        await cell.click();
-        await page.getByTestId("cell-panel").waitFor({ state: "visible", timeout: 20_000 });
-        const search = page.getByTestId("cell-search-input");
-        await search.waitFor({ state: "visible", timeout: 20_000 });
+      // THE RESULT SCREEN IS REACHED THE WAY THE e2e SUITE REACHES IT:
+      // solve the real board through the real answer route, then seed the
+      // completed progress record. Nine squares of a nine-different-players
+      // board cannot be found by typing letters into the search box, which is
+      // what an earlier version of this capture tried and ran out of clock on.
+      const date = GRID_CAPTURE_DATE;
+      const boardResponse = await request.get(`${API_BASE}/api/v1/daily-grid/board`, {
+        params: { date },
+      });
+      const board = await boardResponse.json();
+      const filled = await solveBoardViaApi(request, date);
 
-        let filled = false;
-        for (const query of QUERIES) {
-          await search.fill(query);
-          const usable = page.locator('[data-testid="cell-search-result"]:not([disabled])');
-          await usable.first().waitFor({ state: "visible", timeout: 6_000 }).catch(() => {});
-          if ((await usable.count()) === 0) continue;
-          await usable.first().click();
-          filled = await page
-            .locator('[data-testid="grid-cell"][data-state="filled"]')
-            .nth(square)
-            .isVisible()
-            .catch(() => false);
-          if (filled) break;
-        }
-        if (!filled) break;
-      }
+      await page.addInitScript(
+        ([boardId, boardDate, cells]) => {
+          window.localStorage.setItem(
+            `peak3.daily-grid.${boardId}`,
+            JSON.stringify({
+              board_id: boardId,
+              date: boardDate,
+              schema_version: 3,
+              filled: cells,
+              incorrect_attempts: 2,
+              started_at: "2026-03-14T12:00:00.000Z",
+              completed_at: "2026-03-14T12:06:30.000Z",
+            }),
+          );
+        },
+        [board.board_id, date, filled] as const,
+      );
+      await page.goto(`/daily/grid?date=${GRID_CAPTURE_DATE}`, { waitUntil: "domcontentloaded" });
 
       const complete = page.getByTestId("daily-grid-complete");
-      await complete.waitFor({ state: "visible", timeout: 60_000 }).catch(() => {});
-      if (await complete.isVisible().catch(() => false)) {
-        await page.waitForTimeout(1200);
-        await shot(page, "grid-02-result", "daily-grid-complete");
-      }
+      await complete.waitFor({ state: "visible", timeout: 60_000 });
+      await expect(page.getByTestId("complete-mini-cell")).toHaveCount(9);
+      await page.waitForTimeout(1200);
+      await shot(page, "grid-02-result", "daily-grid-complete");
+      // The coaching card is the centrepiece of the rework and sits below the
+      // fold on a 900px viewport; scroll it into frame for its own shot.
+      await page.getByTestId("complete-biggest-miss").scrollIntoViewIfNeeded();
+      await page.waitForTimeout(400);
+      await shot(page, "grid-03-biggest-swing", "complete-biggest-miss");
 
       writeReport("grid-report", {
-        reachedResult: await complete.isVisible().catch(() => false),
+        reachedResult: true,
+        squaresSolved: filled.length,
         consoleErrors: rec.errors,
         pageExceptions: rec.exceptions,
       });
