@@ -1,25 +1,43 @@
 /* ================================================================
-   PEAK3 · PEAK DUEL — the Endless face-off composition
+   PEAK3 · PEAK DUEL — the face-off composition
    ================================================================
-   Loaded next to the other V2 stylesheets (app/layout.tsx). Every rule is
-   scoped to `[data-duel-mode="endless"]`, the attribute `PeakDuelV2Question`
-   sets on its root, so Peak Duel DAILY — whose reveal choreography lives in
-   the "Peak Duel" section of styles/game-feel.css — is untouched: the base
-   `.duel-side` hover/press/lock rules there still apply to both modes, and
-   these rules only OUTRANK them (one extra attribute of specificity) inside
-   Endless.
+   Loaded next to the other V2 stylesheets (app/layout.tsx).
 
-   WHY ENDLESS NEEDS ITS OWN COMPOSITION. Daily's centre column carries a
-   10-second clock and the header carries the session dashes, so the screen
-   has an instrument to read. Endless is untimed and open-ended: with the
-   clock gone the two names sat in ~150px of a 900px viewport, and the
-   PLAYER A vs PLAYER B face-off was not immediately perceived at 1440px.
-   Here the two sides become framed, equal-height scouting panels, the
-   centre column becomes a full-height VERSUS axis (two court-line
-   hairlines meeting at the VS mark), and the paired arena wash Daily
-   already uses (cool left, warm right — Pass 2.5's one exception to the
-   single-light rule) lights the pair from behind. No new information
-   before the answer: the same name, window, key hint and "Choose X" echo.
+   WHAT CHANGED IN THE BROADCAST-IMMERSION PASS, AND WHY.
+
+   This file used to scope every rule to `[data-duel-mode="endless"]`, on
+   the reasoning that "Daily's centre column carries a 10-second clock and
+   the header carries the session dashes, so the screen has an instrument
+   to read", and that only Endless needed a real composition.
+
+   Screenshotting the live game at 1440x900 did not support that. Daily's
+   decision beat rendered two ~24px names, a season line, and an outlined
+   "Choose X" echo on each side — occupying the top 340px of the viewport
+   with roughly 400px of unbroken black beneath. The clock is one number;
+   it is not a composition, and it does not make two names read as a
+   confrontation. Daily is also the mode most people actually play.
+
+   So the panel system, the versus axis and the paired wash — all of which
+   were already built, already tested, and already correct — now apply to
+   BOTH modes through `[data-duel-mode]`, and the two modes differ only in
+   scale and in what sits on the axis:
+
+     DAILY    tighter panels, small names, the countdown on the axis. A
+              ten-second decision has to be readable at a glance, so it
+              gets the composition without the bulk.
+     ENDLESS  larger scouting panels, display-serif VS mark on the axis.
+              Untimed, so it can afford the room.
+
+   Every size is a custom property with Daily's value as the base and
+   Endless's as an override, which is the same discipline the file already
+   used in the other direction.
+
+   THE ENTRANCE (new). The two cards arrive from opposite edges and meet
+   the axis, keyed on the duel's own id so it replays per question:
+   anticipation, then confrontation, then (in `PeakDuelV2Reveal`) verdict.
+   It is `transform`/`opacity` only and adds no height, so it cannot move
+   the page or delay a press — the buttons are live in the first frame,
+   mid-flight.
 
    THE GEOMETRY CONTRACT (duel-viewport.spec.ts, which runs on Endless):
    the left card's TOP EDGE must sit at the same y in the question and in
@@ -38,27 +56,73 @@
    with transitions and the entrance animation removed.
    ================================================================ */
 
+/* BASE = DAILY. A ten-second decision, composed but compact. */
+[data-duel-mode] {
+  --duel-name-size: 1.25rem;
+  --duel-window-size: 0.75rem;
+  --duel-vs-size: 1.5rem;
+  --duel-vs-color: var(--v2-text-secondary);
+  --duel-side-idle-opacity: 1;
+  --duel-side-surface: color-mix(in srgb, var(--v2-bg-surface) 72%, transparent);
+  --duel-side-border: var(--v2-border);
+  /* The panels carry the vertical weight of this screen. `PeakDuelV2Stage`
+     keeps `justify-start` (the reveal is taller than the question, so
+     centring the pair would move the cards between the two states and break
+     the never-moves contract), which means the only way the face-off fills
+     a 900px viewport instead of floating in its top third is for the cards
+     themselves to have height. */
+  --duel-side-min-h: 12rem;
+  --duel-side-pad: 1rem 1.125rem 1.125rem;
+  --duel-side-gap: 0.875rem;
+}
+@media (min-width: 640px) {
+  [data-duel-mode] {
+    --duel-name-size: clamp(1.5rem, 2vw, 2rem);
+    --duel-window-size: 0.8125rem;
+    --duel-side-min-h: 16rem;
+    --duel-side-pad: 1.25rem 1.375rem 1.375rem;
+    --duel-side-gap: 1rem;
+  }
+}
+@media (min-width: 1024px) {
+  [data-duel-mode] {
+    --duel-side-min-h: 19rem;
+    --duel-side-pad: 1.5rem 1.75rem 1.75rem;
+  }
+}
+
+/* ENDLESS = the same composition with room to breathe. */
 [data-duel-mode="endless"] {
   --duel-name-size: 1.5rem;
   --duel-window-size: 0.8125rem;
   --duel-vs-size: 2.25rem;
   --duel-vs-color: var(--v2-color-accent);
-  --duel-side-idle-opacity: 1;
   --duel-side-surface: color-mix(in srgb, var(--v2-bg-surface) 78%, transparent);
-  --duel-side-border: var(--v2-border);
+  --duel-side-min-h: 15rem;
+  --duel-side-pad: 1.125rem 1.25rem 1.25rem;
+  --duel-side-gap: 1rem;
 }
 @media (min-width: 640px) {
   [data-duel-mode="endless"] {
     --duel-name-size: clamp(1.75rem, 2.4vw, 2.5rem);
     --duel-window-size: 0.875rem;
     --duel-vs-size: 3rem;
+    --duel-side-min-h: 18rem;
+    --duel-side-pad: 1.375rem 1.5rem 1.5rem;
+    --duel-side-gap: 1.25rem;
+  }
+}
+@media (min-width: 1024px) {
+  [data-duel-mode="endless"] {
+    --duel-side-min-h: 22rem;
+    --duel-side-pad: 1.625rem 1.875rem 1.875rem;
   }
 }
 
 /* ---------------------------------------------------------------
    The stage: one paired wash behind the pair, clipped to a soft frame
    --------------------------------------------------------------- */
-[data-duel-mode="endless"] .duel-faceoff-stage {
+[data-duel-mode] .duel-faceoff-stage {
   position: absolute;
   inset: -1.5rem -1.25rem -2rem;
   z-index: 0;
@@ -66,13 +130,13 @@
   border-radius: 18px;
   pointer-events: none;
 }
-[data-duel-mode="endless"] .duel-faceoff-stage .v2-arena-light {
+[data-duel-mode] .duel-faceoff-stage .v2-arena-light {
   /* The paired wash is authored for a header-height band; here it lights a
      full card, so it is scaled up once rather than re-tuned per light. */
   transform: scale(1.35);
 }
-[data-duel-mode="endless"] .duel-side,
-[data-duel-mode="endless"] .duel-versus {
+[data-duel-mode] .duel-side,
+[data-duel-mode] .duel-versus {
   position: relative;
   z-index: 1;
 }
@@ -80,13 +144,13 @@
 /* ---------------------------------------------------------------
    The two sides: framed, equal-height scouting panels
    --------------------------------------------------------------- */
-[data-duel-mode="endless"] .duel-faceoff {
+[data-duel-mode] .duel-faceoff {
   align-items: stretch;
 }
-[data-duel-mode="endless"] .duel-side {
-  min-height: 15rem;
-  padding: 1.125rem 1.25rem 1.25rem;
-  gap: 1rem;
+[data-duel-mode] .duel-side {
+  min-height: var(--duel-side-min-h);
+  padding: var(--duel-side-pad);
+  gap: var(--duel-side-gap);
   border: 1px solid var(--duel-side-border);
   border-radius: 12px;
   background: var(--duel-side-surface);
@@ -98,46 +162,33 @@
     box-shadow var(--gf-dur-micro) var(--gf-ease),
     opacity var(--gf-dur-micro) var(--gf-ease);
 }
-@media (min-width: 640px) {
-  [data-duel-mode="endless"] .duel-side {
-    min-height: 17rem;
-    padding: 1.375rem 1.5rem 1.5rem;
-    gap: 1.25rem;
-  }
-}
-@media (min-width: 1024px) {
-  [data-duel-mode="endless"] .duel-side {
-    min-height: 19rem;
-    padding: 1.625rem 1.875rem 1.875rem;
-  }
-}
-[data-duel-mode="endless"] .duel-side-key {
+[data-duel-mode] .duel-side-key {
   padding: 0.25rem 0.5rem;
   border: 1px solid var(--v2-border-subtle);
   border-radius: var(--v2-radius-instrument);
   background: color-mix(in srgb, var(--v2-bg-plane) 60%, transparent);
   transition: color var(--gf-dur-micro) var(--gf-ease), border-color var(--gf-dur-micro) var(--gf-ease);
 }
-[data-duel-mode="endless"] .duel-side-identity {
+[data-duel-mode] .duel-side-identity {
   gap: 0.25rem;
   animation: gf-arrive-up 240ms var(--gf-ease-out) both;
 }
-[data-duel-mode="endless"] .duel-side-name {
+[data-duel-mode] .duel-side-name {
   line-height: 1.05;
   letter-spacing: -0.015em;
   transition: color var(--gf-dur-micro) var(--gf-ease);
 }
 /* The "Choose X" echo pins to the bottom of a stretched panel so both sides
    present the same silhouette regardless of name length. */
-[data-duel-mode="endless"] .duel-side-cta {
+[data-duel-mode] .duel-side-cta {
   margin-top: auto;
 }
 
 /* Hover / keyboard focus: this side steps forward, the other side recedes
    — the comparison has an active subject. `:has()` is progressive: without
    it the hovered side still steps forward, the other simply stays put. */
-[data-duel-mode="endless"] .duel-side:not(:disabled):hover,
-[data-duel-mode="endless"] .duel-side:not(:disabled):focus-visible {
+[data-duel-mode] .duel-side:not(:disabled):hover,
+[data-duel-mode] .duel-side:not(:disabled):focus-visible {
   --duel-cta-border: var(--gf-accent);
   --duel-cta-color: var(--v2-color-accent-text, var(--gf-accent));
   --duel-cta-bg: color-mix(in srgb, var(--gf-accent) 10%, transparent);
@@ -145,30 +196,30 @@
   border-color: color-mix(in srgb, var(--gf-accent) 55%, var(--v2-border));
   background: color-mix(in srgb, var(--gf-accent) 6%, var(--v2-bg-surface));
 }
-[data-duel-mode="endless"] .duel-side:not(:disabled):hover {
+[data-duel-mode] .duel-side:not(:disabled):hover {
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--gf-accent) 22%, transparent),
     0 14px 32px -20px color-mix(in srgb, var(--gf-accent) 38%, transparent);
 }
-[data-duel-mode="endless"] .duel-side:not(:disabled):focus-visible {
+[data-duel-mode] .duel-side:not(:disabled):focus-visible {
   /* Composes the focus ring Tailwind's `focus-visible:ring-2` would have
      painted, since this rule outranks it on box-shadow. */
   box-shadow:
     0 0 0 2px var(--focus-ring),
     inset 0 1px 0 color-mix(in srgb, var(--gf-accent) 22%, transparent);
 }
-[data-duel-mode="endless"] .duel-side:not(:disabled):hover .duel-side-key,
-[data-duel-mode="endless"] .duel-side:not(:disabled):focus-visible .duel-side-key {
+[data-duel-mode] .duel-side:not(:disabled):hover .duel-side-key,
+[data-duel-mode] .duel-side:not(:disabled):focus-visible .duel-side-key {
   color: var(--v2-text-secondary);
   border-color: color-mix(in srgb, var(--gf-accent) 35%, var(--v2-border-subtle));
 }
-[data-duel-mode="endless"] .duel-faceoff:has(.duel-side:not(:disabled):hover) .duel-side:not(:hover),
-[data-duel-mode="endless"] .duel-faceoff:has(.duel-side:not(:disabled):focus-visible) .duel-side:not(:focus-visible) {
+[data-duel-mode] .duel-faceoff:has(.duel-side:not(:disabled):hover) .duel-side:not(:hover),
+[data-duel-mode] .duel-faceoff:has(.duel-side:not(:disabled):focus-visible) .duel-side:not(:focus-visible) {
   --duel-side-idle-opacity: 0.58;
 }
 
 /* Press: immediate, no lift, accent ring in the first frame. */
-[data-duel-mode="endless"] .duel-side:not(:disabled):active {
+[data-duel-mode] .duel-side:not(:disabled):active {
   transform: translateY(0) scale(0.985);
   border-color: var(--gf-accent);
   box-shadow: inset 0 0 0 1px var(--gf-accent);
@@ -176,11 +227,11 @@
 }
 /* Pending (chosen, awaiting the server): the frame itself goes accent under
    game-feel.css's inset ring + lock pulse, and the other side recedes. */
-[data-duel-mode="endless"] .duel-side[data-pending="true"] {
+[data-duel-mode] .duel-side[data-pending="true"] {
   border-color: var(--gf-accent);
   background: color-mix(in srgb, var(--gf-accent) 8%, var(--v2-bg-surface));
 }
-[data-duel-mode="endless"] .duel-faceoff:has(.duel-side[data-pending="true"]) .duel-side[data-pending="false"] {
+[data-duel-mode] .duel-faceoff:has(.duel-side[data-pending="true"]) .duel-side[data-pending="false"] {
   --duel-side-idle-opacity: 0.5;
 }
 
@@ -192,41 +243,58 @@
    so the frame the player just pressed is the frame the score lands in.
    Padding only: nothing above the card's top edge changes (the contract).
    --------------------------------------------------------------- */
-[data-duel-mode="endless"] .duel-reveal-card {
+[data-duel-mode] .duel-reveal-card {
   padding: 1.125rem 1.25rem 1.25rem;
   border: 1px solid var(--v2-border);
   border-radius: 12px;
   background: color-mix(in srgb, var(--v2-bg-surface) 78%, transparent);
 }
 @media (min-width: 640px) {
-  [data-duel-mode="endless"] .duel-reveal-card { padding: 1.375rem 1.5rem 1.5rem; }
+  [data-duel-mode] .duel-reveal-card { padding: 1.375rem 1.5rem 1.5rem; }
 }
 @media (min-width: 1024px) {
-  [data-duel-mode="endless"] .duel-reveal-card { padding: 1.625rem 1.875rem 1.875rem; }
+  [data-duel-mode] .duel-reveal-card { padding: 1.625rem 1.875rem 1.875rem; }
 }
-[data-duel-mode="endless"] .duel-reveal-card[data-winner="true"] {
+[data-duel-mode] .duel-reveal-card[data-winner="true"] {
   border-color: color-mix(in srgb, var(--gf-accent) 45%, var(--v2-border));
 }
 
 /* ---------------------------------------------------------------
    The VERSUS axis: two court-line hairlines meeting at the VS mark
    --------------------------------------------------------------- */
-[data-duel-mode="endless"] .duel-versus {
+[data-duel-mode] .duel-versus {
   justify-content: center;
   gap: 0.75rem;
   padding: 0 1.25rem;
 }
 @media (min-width: 1024px) {
-  [data-duel-mode="endless"] .duel-versus { padding: 0 2.25rem; }
+  [data-duel-mode] .duel-versus { padding: 0 2.25rem; }
 }
-[data-duel-mode="endless"] .duel-versus-rule {
+/* THE AXIS IS A SEAM OF LIGHT, NOT A BORDER.
+   A flat `--v2-border-emphasis` hairline disappeared against the court
+   behind it — the room put real geometry where there used to be flat
+   black, and a 1px neutral rule no longer registered. It is now a gradient
+   that is brightest where the two cards meet it and fades to nothing at
+   the top and bottom, which reads as light falling on a seam rather than
+   as a divider drawn between two boxes. */
+[data-duel-mode] .duel-versus-rule {
   flex: 1 1 0;
   width: 1px;
   min-height: 1.25rem;
-  background: var(--v2-border-emphasis);
-  opacity: 0.7;
+  background: linear-gradient(
+    to var(--duel-axis-direction, bottom),
+    transparent,
+    color-mix(in srgb, var(--v2-color-accent) 42%, transparent) 85%,
+    color-mix(in srgb, var(--v2-color-accent) 55%, transparent)
+  );
+  opacity: 0.9;
 }
-[data-duel-mode="endless"] .duel-versus-mark {
+/* The lower hairline runs the other way, so both fade AWAY from the mark
+   they meet at rather than both fading downward. */
+[data-duel-mode] .duel-versus-rule:last-child {
+  --duel-axis-direction: top;
+}
+[data-duel-mode] .duel-versus-mark {
   line-height: 1;
   font-weight: 400;
 }
@@ -234,31 +302,172 @@
 /* Mobile: the pair stacks, so the axis turns horizontal between them and
    the stack tightens (Tailwind's `gap-8` at this width is the DAILY gap). */
 @media (max-width: 639px) {
-  [data-duel-mode="endless"] .duel-faceoff { gap: 0.75rem; }
-  [data-duel-mode="endless"] .duel-versus {
+  [data-duel-mode] .duel-faceoff { gap: 0.75rem; }
+  [data-duel-mode] .duel-versus {
     flex-direction: row;
     gap: 0.875rem;
     padding: 0.25rem 0.5rem;
   }
-  [data-duel-mode="endless"] .duel-versus-rule {
+  [data-duel-mode] .duel-versus-rule {
     width: auto;
     height: 1px;
     min-height: 0;
+    --duel-axis-direction: right;
   }
-  [data-duel-mode="endless"] .duel-faceoff-stage { inset: -0.75rem -0.5rem -1rem; }
+  [data-duel-mode] .duel-versus-rule:last-child {
+    --duel-axis-direction: left;
+  }
+  [data-duel-mode] .duel-faceoff-stage { inset: -0.75rem -0.5rem -1rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  [data-duel-mode="endless"] .duel-side,
-  [data-duel-mode="endless"] .duel-side-key,
-  [data-duel-mode="endless"] .duel-side-name,
-  [data-duel-mode="endless"] .duel-side-cta {
+  [data-duel-mode] .duel-side,
+  [data-duel-mode] .duel-side-key,
+  [data-duel-mode] .duel-side-name,
+  [data-duel-mode] .duel-side-cta {
     transition: none;
   }
-  [data-duel-mode="endless"] .duel-side-identity { animation: none; }
-  [data-duel-mode="endless"] .duel-side:not(:disabled):hover,
-  [data-duel-mode="endless"] .duel-side:not(:disabled):focus-visible,
-  [data-duel-mode="endless"] .duel-side:not(:disabled):active {
+  [data-duel-mode] .duel-side-identity { animation: none; }
+  [data-duel-mode] .duel-side:not(:disabled):hover,
+  [data-duel-mode] .duel-side:not(:disabled):focus-visible,
+  [data-duel-mode] .duel-side:not(:disabled):active {
     transform: none;
+  }
+}
+
+/* ================================================================
+   THE ENTRANCE — anticipation, then confrontation
+   ================================================================
+   The brief for this mode asks for "cards entering opposite sides of a
+   strong central axis", and until now nothing entered at all: a new duel
+   simply replaced the previous one's text in place, so ten matchups felt
+   like one screen with the names swapped.
+
+   Each card now arrives from its own edge and settles against the axis,
+   and the axis itself draws in behind them. It is keyed on the duel's id
+   (`PeakDuelV2Question` puts it on the grid), so React remounts the
+   animation per question rather than it playing once per session.
+
+   THREE CONSTRAINTS THIS RESPECTS.
+
+   1. It cannot delay a decision. `transform` and `opacity` only, on the
+      compositor, and the panels are real `<button>`s from the first frame
+      — a player who presses mid-flight is registered mid-flight. Daily is
+      a ten-second clock; an entrance that had to finish before the game
+      accepted input would be a straightforward regression.
+   2. It cannot move the page. No height, no margin, no layout property, so
+      `duel-viewport.spec.ts`'s "the cards never move on screen" assertions
+      measure the same resting geometry they did before.
+   3. 220ms, the STATE band. Not a reveal: the cards are the question, not
+      the answer, and the player is waiting to act on them.
+   ================================================================ */
+
+@keyframes duel-enter-left {
+  from {
+    opacity: 0;
+    transform: translate3d(-28px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes duel-enter-right {
+  from {
+    opacity: 0;
+    transform: translate3d(28px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes duel-axis-draw {
+  from {
+    opacity: 0;
+    transform: scaleY(0.2);
+  }
+  to {
+    opacity: 0.7;
+    transform: scaleY(1);
+  }
+}
+
+[data-duel-mode] .duel-side[data-testid="duel-card-left"] {
+  animation: duel-enter-left 220ms var(--pk-ease-decel, ease-out) both;
+}
+
+[data-duel-mode] .duel-side[data-testid="duel-card-right"] {
+  animation: duel-enter-right 220ms var(--pk-ease-decel, ease-out) both;
+}
+
+/* The axis lands last and fastest — it is the thing the two cards are
+   meeting, so it reads better arriving under them than ahead of them. */
+[data-duel-mode] .duel-versus-rule {
+  transform-origin: center;
+  animation: duel-axis-draw 260ms 80ms var(--pk-ease-out, ease-out) both;
+}
+
+/* ================================================================
+   THE AXIS, IN BOTH MODES
+   ================================================================
+   Daily puts its countdown here and Endless puts the VS mark, but the
+   axis itself — two hairlines running the full height of the pair — is
+   the same object in both, and it is what makes the composition read as
+   one confrontation rather than two unrelated cards.
+   ================================================================ */
+
+/* Daily's clock is an instrument sitting ON the axis, so it gets the
+   instrument radius and a plate to sit on rather than floating as loose
+   type between two rules. */
+[data-duel-mode="daily"] .duel-versus {
+  gap: 0.625rem;
+}
+
+[data-duel-mode="daily"] [data-testid="peak-duel-v2-clock"] {
+  font-size: 2rem;
+}
+
+@media (max-width: 639px) {
+  /* Stacked, the axis is horizontal and the clock sits in the middle of
+     it — the same object rotated, not a different layout. */
+  [data-duel-mode="daily"] .duel-faceoff {
+    gap: 0.75rem;
+  }
+  [data-duel-mode="daily"] .duel-versus {
+    flex-direction: row;
+    gap: 0.875rem;
+    padding: 0.25rem 0.5rem;
+  }
+  [data-duel-mode="daily"] .duel-versus-rule {
+    width: auto;
+    height: 1px;
+    min-height: 0;
+    /* Stacked, the axis lies across the pair instead of between them, so
+       the gradient has to fade horizontally or the hairline is a flat
+       block of accent. */
+    --duel-axis-direction: right;
+  }
+  [data-duel-mode="daily"] .duel-versus-rule:last-child {
+    --duel-axis-direction: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* SUBSTITUTION, NOT DELETION. The cards still appear and the axis is
+     still there — they simply do not travel. Without this the global
+     blanket rule zeroes the duration but `both` fill would leave the
+     from-state's opacity 0 painted for a frame. */
+  [data-duel-mode] .duel-side[data-testid="duel-card-left"],
+  [data-duel-mode] .duel-side[data-testid="duel-card-right"],
+  [data-duel-mode] .duel-versus-rule {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  [data-duel-mode] .duel-versus-rule {
+    opacity: 0.7;
   }
 }

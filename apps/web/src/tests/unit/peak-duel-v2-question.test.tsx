@@ -1,14 +1,27 @@
 /**
- * Peak Duel V2 — the question screen's two compositions.
+ * Peak Duel V2 — the question screen's composition.
  *
- * ENDLESS draws the face-off as two framed panels around a full-height
- * VERSUS axis, lit by the paired arena wash; DAILY keeps the compact
- * clock-in-the-centre layout the reveal choreography was built against.
- * Both share ONE grid with the same `mt-10` header-to-grid gap — the
- * geometry contract `duel-viewport.spec.ts` measures (the left card's top
- * edge is the same y in the question and in the reveal) — and both expose
- * the same two semantic buttons, the same labels, and NO information the
- * answer would reveal (no scores, no ranks, no component values).
+ * BOTH MODES NOW DRAW THE FACE-OFF, and this file used to assert the
+ * opposite. Endless got framed panels around a full-height VERSUS axis lit
+ * by the paired arena wash; Daily was deliberately excluded, on the
+ * reasoning that its clock and session dashes already gave the screen an
+ * instrument to read.
+ *
+ * Screenshotting the live game at 1440x900 did not support that. Daily's
+ * decision beat rendered two ~24px names and an outlined echo on each side
+ * in the top 340px of the viewport, with ~400px of unbroken black beneath —
+ * and Daily is the mode most people play. The composition was already
+ * built, already tested and already correct; only its scoping was wrong. So
+ * the `Daily is untouched` block below is now `Daily gets the same
+ * composition`, and it asserts the reversal rather than the old exclusion.
+ *
+ * What did NOT change, and is still asserted here: both modes share ONE
+ * grid with the same `mt-10` header-to-grid gap — the geometry contract
+ * `duel-viewport.spec.ts` measures (the left card's top edge is the same y
+ * in the question and in the reveal) — both expose the same two semantic
+ * buttons with the same labels, and neither reveals any information the
+ * answer would (no scores, no ranks, no component values). Daily still
+ * carries the countdown on the axis where Endless carries the VS mark.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -152,14 +165,25 @@ describe("PeakDuelV2Question — Endless composition", () => {
   });
 });
 
-describe("PeakDuelV2Question — Daily is untouched", () => {
-  it("marks the root as daily and renders neither the axis rules nor the stage", () => {
+describe("PeakDuelV2Question — Daily gets the same composition", () => {
+  it("draws the axis and the stage, exactly as Endless does", () => {
     const { container } = renderQuestion({ mode: "daily", totalDuels: 10, deadlineAt: performance.now() + 10_000 });
     expect(container.firstElementChild).toHaveAttribute("data-duel-mode", "daily");
-    expect(container.querySelectorAll(".duel-versus-rule")).toHaveLength(0);
-    expect(screen.queryByTestId("duel-faceoff-stage")).toBeNull();
-    // Daily's paired wash is still the header-band light it always was.
+    // Two hairlines meeting at the instrument on the axis — see the file
+    // docstring for why Daily no longer opts out of this.
+    expect(container.querySelectorAll(".duel-versus-rule")).toHaveLength(2);
+    expect(screen.getByTestId("duel-faceoff-stage")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("lights the PAIR, not the header", () => {
+    // Daily's two paired washes used to be mounted at the page root with
+    // `y="-10%"`, which lit the header band and left the face-off itself
+    // unlit — the light was nowhere near the thing it was lighting. It is
+    // still exactly two instances (the documented exception to the one-light
+    // rule), now on the stage layer behind the cards.
+    const { container } = renderQuestion({ mode: "daily", totalDuels: 10, deadlineAt: performance.now() + 10_000 });
     expect(container.querySelectorAll(".v2-arena-light")).toHaveLength(2);
+    expect(screen.getByTestId("duel-faceoff-stage").querySelectorAll(".v2-arena-light")).toHaveLength(2);
   });
 
   it("keeps the clock in the centre column and the same grid geometry", () => {
@@ -169,7 +193,35 @@ describe("PeakDuelV2Question — Daily is untouched", () => {
     const grid = faceoffGrid(container);
     for (const cls of SHARED_GRID_CLASSES) expect(grid.classList.contains(cls), cls).toBe(true);
     const order = Array.from(grid.children).map((el) => el.getAttribute("data-testid"));
-    expect(order).toEqual(["duel-card-left", "duel-versus-axis", "duel-card-right"]);
+    expect(order).toEqual(["duel-faceoff-stage", "duel-card-left", "duel-versus-axis", "duel-card-right"]);
+  });
+
+  it("remounts the pair per matchup so the entrance replays", () => {
+    // Without a key on the grid React reuses the subtree and only the text
+    // changes, so ten matchups read as one screen with the names swapped.
+    // Asserted through behaviour rather than through the key itself: a new
+    // duel must produce a NEW left-card element, not the same one mutated.
+    const { rerender } = renderQuestion({ mode: "daily", totalDuels: 10, deadlineAt: performance.now() + 10_000 });
+    const first = screen.getByTestId("duel-card-left");
+    const next = duel();
+    next.left = { ...next.left, peak_id: "peak-left-2", player_name: "David Robinson" };
+    rerender(
+      <PeakDuelV2Question
+        mode="daily"
+        duel={next}
+        results={[]}
+        totalDuels={10}
+        currentIndex={1}
+        selectedPeakId={null}
+        submitting={false}
+        deadlineAt={performance.now() + 10_000}
+        totalArenaPoints={0}
+        currentStreak={0}
+        onSelect={vi.fn()}
+        onTimeout={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("duel-card-left")).not.toBe(first);
   });
 
   it("renders the same side markup as Endless (one component, one geometry)", () => {

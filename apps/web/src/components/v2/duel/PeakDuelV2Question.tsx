@@ -37,6 +37,7 @@ import ArenaTimer, { useRemainingSeconds } from "@/components/shared/ArenaTimer"
 import PeakV2ArenaLight from "../PeakV2ArenaLight";
 import PeakV2LiveHeader from "../PeakV2LiveHeader";
 import PeakV2GameStatus from "../PeakV2GameStatus";
+import DuelProgressDashes from "./DuelProgressDashes";
 import { v2ActionBaseStyle } from "../v2-action-base";
 import { DECISION_CLOCK_SECONDS } from "@/lib/peak-duel-constants";
 import type { Duel, DuelResult } from "@/types";
@@ -57,25 +58,6 @@ function useFractionalSecondsRemaining(deadlineAt: number | null): number | null
     return () => window.clearInterval(id);
   }, [deadlineAt]);
   return remaining;
-}
-
-function ProgressDashes({ results, total, currentIndex }: { results: DuelResult[]; total: number; currentIndex: number }) {
-  return (
-    <div className="flex items-center gap-1" aria-hidden="true">
-      {Array.from({ length: total }, (_, i) => {
-        const result = results[i];
-        const color =
-          result === undefined
-            ? i === currentIndex
-              ? "var(--v2-color-accent)"
-              : "var(--v2-border)"
-            : result.correct
-              ? "var(--v2-color-positive)"
-              : "var(--v2-color-negative)";
-        return <span key={i} style={{ width: 14, height: 3, borderRadius: 1, background: color }} />;
-      })}
-    </div>
-  );
 }
 
 function DuelSidePanel({
@@ -194,12 +176,6 @@ export default function PeakDuelV2Question({
 
   return (
     <div className="relative" data-duel-mode={mode}>
-      {mode === "daily" ? (
-        <>
-          <PeakV2ArenaLight pair="cool" y="-10%" />
-          <PeakV2ArenaLight pair="warm" y="-10%" />
-        </>
-      ) : null}
 
       {/* Real timing/expiry authority, visually hidden — the one place
           `onExpire` actually fires. See module docstring. */}
@@ -236,7 +212,7 @@ export default function PeakDuelV2Question({
         />
         {mode === "daily" ? (
           <div className="mt-3">
-            <ProgressDashes results={results} total={totalDuels} currentIndex={currentIndex} />
+            <DuelProgressDashes results={results} total={totalDuels} currentIndex={currentIndex} />
           </div>
         ) : null}
 
@@ -244,13 +220,32 @@ export default function PeakDuelV2Question({
             is NOT a grid item and adds no height) can sit behind the pair.
             The `mt-10` header-to-grid gap is the geometry contract shared
             with `PeakDuelV2Reveal` — see that file's comment above its grid. */}
-        <div className="duel-faceoff relative mt-10 grid grid-cols-1 items-center gap-8 sm:grid-cols-[1fr_auto_1fr] sm:gap-4">
-          {mode === "endless" ? (
-            <div className="duel-faceoff-stage" aria-hidden="true" data-testid="duel-faceoff-stage">
-              <PeakV2ArenaLight pair="cool" y="50%" intensity="focus" />
-              <PeakV2ArenaLight pair="warm" y="50%" intensity="focus" />
-            </div>
-          ) : null}
+        {/* KEYED ON THE DUEL. React reuses a subtree whose position and type
+            are unchanged, so without this the entrance animation played once
+            per session and every subsequent matchup simply swapped the names
+            in place — ten duels reading as one screen. The key forces a
+            remount per question, which restarts the CSS animation. It is
+            also the only thing this key does: no state lives in these
+            children, so remounting them discards nothing. */}
+        <div
+          key={`${duel.left.peak_id}:${duel.right.peak_id}`}
+          className="duel-faceoff relative mt-10 grid grid-cols-1 items-center gap-8 sm:grid-cols-[1fr_auto_1fr] sm:gap-4"
+        >
+          {/* THE PAIRED WASH LIGHTS THE PAIR, IN BOTH MODES.
+              Daily used to mount this at the page root with `y="-10%"`, so
+              its two washes lit the HEADER and left the actual face-off
+              unlit — the light was nowhere near the thing it was supposed
+              to be lighting. Moving it onto the stage layer puts it behind
+              the two cards in both modes, and costs Daily nothing: it is
+              the same two instances it already had, at the same paired
+              (lower) opacity that makes this the documented exception to
+              the one-light rule. The layer is absolutely positioned, so it
+              is not a grid item and adds no height — the geometry contract
+              in this file's header. */}
+          <div className="duel-faceoff-stage" aria-hidden="true" data-testid="duel-faceoff-stage">
+            <PeakV2ArenaLight pair="cool" y="50%" intensity="focus" />
+            <PeakV2ArenaLight pair="warm" y="50%" intensity="focus" />
+          </div>
           <DuelSidePanel
             side="left"
             card={duel.left}
@@ -260,7 +255,7 @@ export default function PeakDuelV2Question({
           />
 
           <div className="duel-versus flex flex-col items-center gap-2 py-2" data-testid="duel-versus-axis">
-            {mode === "endless" ? <span className="duel-versus-rule" aria-hidden="true" /> : null}
+            <span className="duel-versus-rule" aria-hidden="true" />
             <span
               style={{
                 fontFamily: "var(--v2-font-ui)",
@@ -319,7 +314,7 @@ export default function PeakDuelV2Question({
                 vs
               </span>
             )}
-            {mode === "endless" ? <span className="duel-versus-rule" aria-hidden="true" /> : null}
+            <span className="duel-versus-rule" aria-hidden="true" />
           </div>
 
           <DuelSidePanel

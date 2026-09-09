@@ -54,12 +54,13 @@ import { EventMoment, ScoreTransition } from "@/components/game-feel";
 import { usePrefersReducedMotion } from "@/lib/a11y";
 import PeakV2LiveHeader from "../PeakV2LiveHeader";
 import PeakV2GameStatus from "../PeakV2GameStatus";
+import DuelProgressDashes from "./DuelProgressDashes";
 import PeakV2PlayerIdentity from "../PeakV2PlayerIdentity";
 import PeakV2Score from "../PeakV2Score";
 import PeakV2DataLane from "../PeakV2DataLane";
 import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
 import { RANKING_COMPONENT_ORDER, RANKING_COMPONENT_TONE, RANKING_COMPONENT_LABEL } from "@/lib/v2-component-map";
-import type { AnswerResponse, Duel } from "@/types";
+import type { AnswerResponse, Duel, DuelResult } from "@/types";
 
 export interface PeakDuelV2RevealProps {
   mode: "daily" | "endless";
@@ -72,6 +73,9 @@ export interface PeakDuelV2RevealProps {
   selectedPeakId: string | null;
   currentIndex: number;
   totalDuels: number;
+  /** The session so far. Rendered as the same strip the question shows, in
+   *  the same slot — see `DuelProgressDashes` for why it is not optional. */
+  results: DuelResult[];
   totalArenaPoints: number;
   currentStreak: number;
   isLast: boolean;
@@ -85,6 +89,7 @@ export default function PeakDuelV2Reveal({
   selectedPeakId,
   currentIndex,
   totalDuels,
+  results,
   totalArenaPoints,
   currentStreak,
   isLast,
@@ -186,6 +191,16 @@ export default function PeakDuelV2Reveal({
           </div>
         }
       />
+
+      {/* THE SAME STRIP THE QUESTION SHOWED, IN THE SAME SLOT. Not a
+          decoration: it is what stops the cards jumping when the answer
+          lands (see `DuelProgressDashes`), and the reveal is where the dash
+          for this matchup actually changes colour. */}
+      {mode === "daily" ? (
+        <div className="mt-3">
+          <DuelProgressDashes results={results} total={totalDuels} currentIndex={currentIndex} />
+        </div>
+      ) : null}
 
       {/* The verdict lives INSIDE the grid's center column (below), not as a
           block above it. `PeakDuelV2Stage`'s wrapper vertically CENTERS its
