@@ -63,6 +63,9 @@ export interface PlacementBoardProps {
    * goes. Drives the "→ BN" annotation and the vacating treatment.
    */
   vacating: Record<string, TmwSlotType>;
+  /** Slots whose card is a press this client has made and the server has not
+   *  answered yet. Marked, never blocked -- see `game-feel.css`. */
+  pendingSlots?: readonly TmwSlotType[];
   onSelectSlot: (slot: TmwSlotType) => void;
   /** Start moving the card already in this slot. Absent when moves are not
    *  currently allowed (an opponent's board, a resolved match). */
@@ -77,10 +80,12 @@ export default function PlacementBoard({
   incomingName,
   movingFrom,
   vacating,
+  pendingSlots = [],
   onSelectSlot,
   onStartMove,
 }: PlacementBoardProps) {
   const legal = new Set(legalSlots);
+  const pending = new Set(pendingSlots);
 
   return (
     <ul className="tmw-place-slots" data-testid="tmw-place-slots" data-mode={mode}>
@@ -146,6 +151,7 @@ export default function PlacementBoard({
           "data-legal": isLegal ? "true" : "false",
           "data-source": isSource ? "true" : "false",
           "data-occupied": occupant ? "true" : "false",
+          "data-pending": pending.has(slotType) ? "true" : "false",
         };
 
         return (
@@ -159,6 +165,7 @@ export default function PlacementBoard({
           <li
             key={slotType}
             className="tmw-place-row pk-reveal"
+            data-gf-pending={pending.has(slotType) ? "true" : undefined}
             style={{ "--pk-reveal-index": index } as CSSProperties}
           >
             {interactive ? (

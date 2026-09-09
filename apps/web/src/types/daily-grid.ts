@@ -26,7 +26,15 @@ export type ConstraintCategory =
   | "context"
   | "peak"
   | "component"
-  | "outcome";
+  | "outcome"
+  /** The player's age that season: early, veteran, late career. */
+  | "career"
+  /** Per-75-possession scoring, rebounding, playmaking and defensive rates. */
+  | "production"
+  /** Era-relative shooting efficiency (TS+) and three-point volume. */
+  | "shooting"
+  /** Share of the team's possessions the player used. */
+  | "usage";
 
 export type RarityBucket =
   | "very_rare"

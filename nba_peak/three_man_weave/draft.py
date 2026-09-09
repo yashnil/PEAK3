@@ -39,6 +39,7 @@ from nba_peak.three_man_weave.arrangement import (
 )
 from nba_peak.three_man_weave.config import (
     PARTICIPANT_COUNT,
+    PICK_RESOLUTION_ACTION,
     ROUNDS,
     RULESET_VERSION,
     SLOT_TYPES,
@@ -332,6 +333,7 @@ def apply_pick(
     slot_type: Optional[str] = None,
     seat_index: Optional[int] = None,
     placements: Optional[Mapping[str, str]] = None,
+    resolution: str = PICK_RESOLUTION_ACTION,
 ) -> DraftState:
     """Commit one selection and advance the turn. Returns a NEW state.
 
@@ -360,6 +362,11 @@ def apply_pick(
     incoming player lands on is read from the arrangement. When both are
     given they must agree, so a client cannot describe two different moves in
     one payload.
+
+    `resolution` records WHO decided: the seat (`"action"`, the default) or
+    the expired-turn fallback (`"timeout"`). It is written onto the committed
+    `DraftPick` and never re-derived, because it is the fact a client needs to
+    say "time ran out" truthfully -- see `DraftPick.resolution`.
     """
     if state.is_complete:
         raise DraftError("match_complete", "The match is already complete")
@@ -389,7 +396,7 @@ def apply_pick(
 
     if placements is not None:
         return _apply_pick_with_arrangement(
-            state, roster, seat, player_slug, slot_type, placements, rights
+            state, roster, seat, player_slug, slot_type, placements, rights, resolution
         )
 
     if slot_type is None:
@@ -410,6 +417,7 @@ def apply_pick(
         player_slug=player_slug,
         franchise_id=state.current_roll.franchise_id,
         decade=state.current_roll.decade,
+        resolution=resolution,
     )
 
     new_slots = dict(roster.slots)
@@ -484,6 +492,7 @@ def _apply_pick_with_arrangement(
     slot_type: Optional[str],
     placements: Mapping[str, str],
     rights: SlotRights,
+    resolution: str = PICK_RESOLUTION_ACTION,
 ) -> DraftState:
     """The atomic draft-plus-rearrange path. Validated as one final roster."""
     assert state.current_roll is not None  # caller checks
@@ -517,6 +526,7 @@ def _apply_pick_with_arrangement(
                 player_slug=player_slug,
                 franchise_id=state.current_roll.franchise_id,
                 decade=state.current_roll.decade,
+                resolution=resolution,
             )
             new_slots[slot] = incoming
         else:

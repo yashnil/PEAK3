@@ -156,6 +156,17 @@ BENCH_SLOT_TYPES: Final[tuple[str, ...]] = ("bench_1",)
 SLOT_TYPES: Final[tuple[str, ...]] = STARTER_SLOT_TYPES + BENCH_SLOT_TYPES
 ROSTER_SIZE: Final[int] = len(SLOT_TYPES)  # 6
 
+#: HOW A COMMITTED PICK CAME TO BE. Recorded on every `DraftPick` and
+#: published on every projected pick, because it is the only authority a
+#: surface may use to tell a player their turn timed out. The two literals
+#: match the Arena foundation's own turn-resolution vocabulary
+#: (`apps/api/app/repositories/arena_protocols.py`) deliberately -- they name
+#: the same two things -- but they are declared HERE because the model layer
+#: must not import the service layer, and a pick's resolution is part of the
+#: draft's own state rather than the transport's.
+PICK_RESOLUTION_ACTION: Final[str] = "action"
+PICK_RESOLUTION_TIMEOUT: Final[str] = "timeout"
+
 # One pick per participant per round, every roster filled exactly once.
 PARTICIPANT_COUNT: Final[int] = 3
 ROUNDS: Final[int] = ROSTER_SIZE  # 6
@@ -275,6 +286,8 @@ __all__ = [
     "PARTICIPANT_COUNT",
     "PERFECT_SEASON_LINEUP_MODEL_VERSION",
     "PERFECT_SEASON_SIMULATOR_VERSION",
+    "PICK_RESOLUTION_ACTION",
+    "PICK_RESOLUTION_TIMEOUT",
     "POSITION_LEGALITY_VERSION",
     "ROSTER_SIZE",
     "ROUNDS",

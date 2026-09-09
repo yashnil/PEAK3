@@ -62,6 +62,9 @@ export interface PeakV2TMWCourtProps {
    * transient-busy distinction keeps its previous behaviour exactly.
    */
   rearrangeEligible?: boolean;
+  /** Slots holding an optimistic, not-yet-acknowledged card. See
+   *  `PeakV2TMWCourts`' own prop of the same name. */
+  pendingSlots?: readonly TmwSlotType[];
   pickedUpSlot?: TmwSlotType | null;
   legalTargets?: readonly TmwSlotType[];
   onPickUp?: (slot: TmwSlotType) => void;
@@ -81,6 +84,7 @@ export default function PeakV2TMWCourt({
   clock = null,
   interactive = false,
   rearrangeEligible = interactive,
+  pendingSlots = [],
   pickedUpSlot = null,
   legalTargets = [],
   onPickUp,
@@ -99,6 +103,7 @@ export default function PeakV2TMWCourt({
   const lockOf = (slotType: TmwSlotType): "arrived" | "swapped" | undefined =>
     beat.arrived.includes(slotType) ? "arrived" : beat.swapped.includes(slotType) ? "swapped" : undefined;
   const bench = benchSlots(roster);
+  const pending = new Set(pendingSlots);
   const moving = pickedUpSlot !== null;
   const legal = new Set(legalTargets);
 
@@ -189,8 +194,22 @@ export default function PeakV2TMWCourt({
         />
       ) : null}
 
+      {/* THE FLOOR THIS ROSTER STANDS ON.
+          Three bordered panels of roster cards is what the courts read as;
+          what makes a court a court is the geometry -- a baseline behind the
+          top of the key, the painted lane the two bigs occupy, the arc the
+          wings sit outside. All of it is drawn in CSS behind the slot grid,
+          `pointer-events: none`, and inherits the panel's own lit/dimmed
+          opacity, so it costs no interaction, no layout and no asset. See
+          `.tmw-floor` in three-man-weave.css for why each mark is where it
+          is relative to the PG/SG/SF/PF/C areas. */}
+      <div className="tmw-court-floor" data-lit={lit ? "true" : "false"}>
+        <span className="tmw-floor-lane" aria-hidden="true" />
+        <span className="tmw-floor-arc" aria-hidden="true" />
+        <span className="tmw-floor-baseline" aria-hidden="true" />
+        <span className="tmw-floor-circle" aria-hidden="true" />
       <div
-        className="grid gap-2"
+        className="tmw-court-grid grid gap-2"
         style={{
           gridTemplateAreas: `"pg pg" "sg sf" "pf c"`,
           gridTemplateColumns: "1fr 1fr",
@@ -199,7 +218,12 @@ export default function PeakV2TMWCourt({
         {TMW_STARTER_SLOTS.map((slot) => {
           const pick = roster.slots[slot] ?? null;
           return (
-            <div key={slot} style={{ gridArea: AREA[slot] }} data-gf-lock={lockOf(slot)}>
+            <div
+              key={slot}
+              style={{ gridArea: AREA[slot] }}
+              data-gf-lock={lockOf(slot)}
+              data-gf-pending={pending.has(slot) ? "true" : undefined}
+            >
               <PeakV2CourtSlot
                 position={slot}
                 player={pick ? { name: pick.player_name, meta: `${pick.scoring_card ? `${pick.scoring_card.season} ${pick.scoring_card.team_id}` : "—"} · ${positionsLine(pick)}` } : undefined}
@@ -217,8 +241,13 @@ export default function PeakV2TMWCourt({
           );
         })}
       </div>
+      </div>
 
-      <div className="mt-1">
+      {/* THE BENCH IS OFF THE FLOOR, and now looks it: it sits outside the
+          court's painted area, behind its own hairline, which is the
+          geography a basketball reader already has. The rule above it is the
+          sideline. */}
+      <div className="tmw-bench mt-1">
         <span style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.625rem", fontWeight: 700, color: "var(--v2-text-muted)" }}>
           BENCH
         </span>
@@ -234,7 +263,11 @@ export default function PeakV2TMWCourt({
               (design-review/14), which made the single most under-rated
               decision in the draft look like an afterthought. */}
           {bench.map(({ slotType, pick }) => (
-            <div key={slotType} data-gf-lock={lockOf(slotType)}>
+            <div
+              key={slotType}
+              data-gf-lock={lockOf(slotType)}
+              data-gf-pending={pending.has(slotType) ? "true" : undefined}
+            >
             <PeakV2CourtSlot
               position={TMW_SLOT_LABELS[slotType]}
               bench

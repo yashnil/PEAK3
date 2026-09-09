@@ -5,6 +5,7 @@ import type {
   ArenaResultView,
   TmwMatchView,
   TmwPublicState,
+  TmwRoster,
   TmwSlotType,
 } from "@/types/three-man-weave";
 import {
@@ -13,6 +14,7 @@ import {
   TMW_COMMAND_STAGE_PICK,
   TMW_INTRO_SECONDS,
   TMW_MODE,
+  TMW_RESOLUTION_TIMEOUT,
   TMW_REVEAL_SECONDS,
   TMW_SLOT_TYPES,
   TMW_TURN_PHASE_INTRO,
@@ -31,12 +33,15 @@ import type { TmwCandidate } from "@/lib/three-man-weave-state";
 import {
   candidatesForSeat,
   canPick,
+  changedSlots,
   connectionState,
   identityLock,
   isBriefing,
   isRevealing,
   isYourTurn,
   phaseOf,
+  provisionalPick,
+  rosterWithPlacements,
   seatLabel,
   slotAbbrev,
 } from "@/lib/three-man-weave-state";
@@ -117,6 +122,36 @@ interface Room {
 }
 
 type Source = "initial" | "command" | "poll";
+
+/**
+ * THE ARRANGEMENT A PRESS HAS ALREADY ACKNOWLEDGED — the optimistic layer.
+ *
+ * WHY IT EXISTS. Every decision in this room used to be invisible until the
+ * server answered it: press "Draft", press "Move", and the board held the OLD
+ * roster for a whole round trip while a blocking "Drafting…" label sat over
+ * it. On a laptop next to the API that is 40ms and nobody notices; on the
+ * deployed build it is most of a second, and the interface reads as frozen.
+ *
+ * WHAT IT IS NOT. It is not authority and it is not a rule. `slots` is built
+ * by re-seating picks the server has ALREADY validated into the assignment
+ * the command carries (`rosterWithPlacements`), and a drafted card carries no
+ * scoring card because this client has not been told the season or the score
+ * (`provisionalPick`). Nothing here decides legality, scores a roster, ranks
+ * a seat or advances a turn -- those remain exactly where they were.
+ *
+ * HOW IT ENDS. `baseVersion` is the authoritative version it was staged
+ * against, and the stage is only applied while the room is still showing that
+ * version. Every answer -- acceptance, rejection, transport failure -- lands a
+ * newer snapshot or clears the stage explicitly, so a refused move rolls back
+ * by being replaced rather than by any undo path of its own.
+ */
+interface StagedArrangement {
+  baseVersion: number;
+  seatIndex: number;
+  roster: TmwRoster;
+  /** The slots the press is waiting on, for the pending treatment. */
+  pending: TmwSlotType[];
+}
 
 function nominalPhaseSeconds(match: TmwMatchView): number | null {
   if (match.turn_phase === TMW_TURN_PHASE_INTRO) return TMW_INTRO_SECONDS;
@@ -219,7 +254,18 @@ function describeTransition(
           round: pick.round_number,
           // A pick that arrived for YOUR seat on a poll is the server's
           // timeout drafting for you -- you never sent it.
-          timedOut: source === "poll" && after.seat_index === you,
+          // THE SERVER'S OWN RECORD, NEVER THE TRANSPORT'S SHAPE. This read
+          // `source === "poll" && after.seat_index === you` -- "a pick that
+          // arrived for your seat on a poll is the server's timeout drafting
+          // for you". That is a claim about which HTTP response carried the
+          // news, and it was wrong every time a command's own response was
+          // slow, lost, retried, or landed behind a newer snapshot: the
+          // player picked, the server accepted, the intended player appeared
+          // on the roster, and the room announced "Time ran out · drafted for
+          // you" over the top of it. `resolution` is written by the one place
+          // that knows (`mode._commit`), so the message can only appear when
+          // the timeout fallback actually chose.
+          timedOut: pick.resolution === TMW_RESOLUTION_TIMEOUT,
         });
       }
     }
@@ -311,6 +357,8 @@ export default function ThreeManWeaveGame({
   const [results, setResults] = useState<ArenaResultView[] | null>(null);
   const [rejection, setRejection] = useState<string | null>(null);
   const [failures, setFailures] = useState(0);
+  /** See `StagedArrangement`. Null whenever the board is showing the server. */
+  const [staged, setStaged] = useState<StagedArrangement | null>(null);
   const lane = useCommandLane();
   const match = room.match;
   const state = match.public_state;
@@ -465,6 +513,22 @@ export default function ThreeManWeaveGame({
   };
 
   /**
+   * STAGE `slots` FOR THIS SEAT AT ONCE, so the press is visible in its own
+   * frame. Returns nothing: the caller sends its command as usual, and the
+   * authoritative snapshot that answers it retires the stage.
+   */
+  const stageArrangement = useCallback((roster: TmwRoster, pending: TmwSlotType[]) => {
+    const current = latest.current.match;
+    if (current.your_seat_index === null) return;
+    setStaged({
+      baseVersion: current.state_version,
+      seatIndex: current.your_seat_index,
+      roster,
+      pending,
+    });
+  }, []);
+
+  /**
    * COMMIT A PICK. Exclusive: a second press while one is pending is refused
    * by the lane before anything runs. Queued behind any in-flight stage, so
    * the press is never dropped -- it waits, then drafts exactly what is on
@@ -480,6 +544,32 @@ export default function ThreeManWeaveGame({
       // THE SERVER'S OWN PLAN, ECHOED BACK. When a pick needs a rearrangement
       // the arrangement committed is the one the projection said was legal.
       if (candidate.fit.plan) payload.placements = candidate.fit.plan;
+      // THE CARD LANDS ON THE COURT IN THE SAME FRAME AS THE PRESS, without a
+      // score -- the season and the PEAK3 number are the server's to state.
+      const snapshot = latest.current.match;
+      const before = snapshot.public_state.rosters.find(
+        (entry) => entry.seat_index === snapshot.your_seat_index,
+      );
+      if (before && snapshot.your_seat_index !== null) {
+        const provisional = provisionalPick(
+          candidate,
+          slotType,
+          snapshot.your_seat_index,
+          snapshot.public_state.current_round ?? 0,
+        );
+        const plan =
+          (candidate.fit.plan as Record<string, string> | null) ?? {
+            ...Object.fromEntries(
+              TMW_SLOT_TYPES.filter((s) => before.slots[s]).map((s) => [
+                s,
+                before.slots[s]!.player_slug,
+              ]),
+            ),
+            [slotType]: candidate.player_slug,
+          };
+        const after = rosterWithPlacements(before, plan, provisional);
+        stageArrangement(after, changedSlots(before, after));
+      }
       try {
         const response = await lane.run("pick", () => send(TMW_COMMAND_PICK, payload, "pick"));
         if (response === null) return false;
@@ -490,9 +580,11 @@ export default function ThreeManWeaveGame({
         setRejection(describe(error, "your pick was not sent"));
         setFailures((count) => count + 1);
         return false;
+      } finally {
+        setStaged(null);
       }
     },
-    [lane, send],
+    [lane, send, stageArrangement],
   );
 
   /**
@@ -539,6 +631,16 @@ export default function ThreeManWeaveGame({
   const rearrange = useCallback(
     async (placements: Record<string, string>): Promise<boolean> => {
       setRejection(null);
+      // THE BOARD MOVES ON THE PRESS. The arrangement is the one the command
+      // carries, re-seating cards the server already validated; it is marked
+      // pending and replaced by whatever the server answers.
+      const before = latest.current.match.public_state.rosters.find(
+        (entry) => entry.seat_index === latest.current.match.your_seat_index,
+      );
+      if (before) {
+        const after = rosterWithPlacements(before, placements);
+        stageArrangement(after, changedSlots(before, after));
+      }
       try {
         const response = await lane.run("rearrange", () => send(TMW_COMMAND_REARRANGE, { placements }, "rearrange"));
         if (response === null) return false;
@@ -548,9 +650,12 @@ export default function ThreeManWeaveGame({
       } catch (error) {
         setRejection(describe(error, "the move was not sent"));
         return false;
+      } finally {
+        // Whatever happened, the board goes back to the server's own answer.
+        setStaged(null);
       }
     },
-    [lane, send],
+    [lane, send, stageArrangement],
   );
 
   const hasBots = match.seats.some((seat) => seat.is_bot);
@@ -583,8 +688,29 @@ export default function ThreeManWeaveGame({
   const candidates = useMemo(() => candidatesForSeat(match), [match]);
   const lockedEntries = useMemo(() => identityLock(state), [state]);
   const stagedPick = match.private_state.staged_pick ?? null;
+
+  /**
+   * WHAT THE BOARD DRAWS: the server's own state, with this seat's in-flight
+   * arrangement laid over it while (and only while) the room is still showing
+   * the version that arrangement was staged against. One newer snapshot from
+   * any source -- the command's own answer, a poll, a rejection -- and the
+   * overlay stops applying, which is what makes a refused move roll back
+   * without any undo path. Every other seat is untouched.
+   */
+  const liveStage = staged && staged.baseVersion === match.state_version ? staged : null;
+  const viewState = useMemo<TmwPublicState>(() => {
+    if (!liveStage) return state;
+    return {
+      ...state,
+      rosters: state.rosters.map((entry) =>
+        entry.seat_index === liveStage.seatIndex ? liveStage.roster : entry,
+      ),
+    };
+  }, [state, liveStage]);
+  const pendingSlots = liveStage?.pending ?? [];
+
   const yourRoster =
-    state.rosters.find((roster) => roster.seat_index === match.your_seat_index) ?? null;
+    viewState.rosters.find((roster) => roster.seat_index === match.your_seat_index) ?? null;
   const picksMade = picksIn(state);
 
   // THE WHOLE RULE: the ceremony surface is open exactly while the server
@@ -709,7 +835,8 @@ export default function ThreeManWeaveGame({
         // THIS box: the courts stay mounted and are its only size contributor.
         <div ref={arenaShellRef} className="relative" data-testid="tmw-v2-arena-shell">
           <PeakV2TMWCourts
-            state={state}
+            state={viewState}
+            pendingSlots={pendingSlots}
             seats={match.seats}
             yourSeatIndex={match.your_seat_index}
             currentTurnSeatIndex={match.current_turn_seat_index}
@@ -741,6 +868,7 @@ export default function ThreeManWeaveGame({
               turnSeconds={room.turnTotalSeconds ?? TMW_TURN_SECONDS}
               busy={busy}
               pendingKind={pendingKind}
+              pendingSlots={pendingSlots}
               onPick={pick}
               onStage={stage}
               onMove={rearrange}

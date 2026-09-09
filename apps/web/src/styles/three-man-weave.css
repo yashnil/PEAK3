@@ -1979,6 +1979,35 @@
   padding-top: 0.25rem;
 }
 
+/* THE CONFIRMATION STAYS REACHABLE WHEN THE PANE DOES SCROLL.
+   `margin-top: auto` pins the actions to the bottom only while there is
+   spare space; the moment the roster pane overflows (a narrow or short
+   display, a rearrangement preview, the accessible slot `<select>`) the
+   primary scrolled away with everything else. Sticky keeps "Draft X at Y" on
+   screen without making the pane a second scroll region -- the pane above it
+   is still the only thing that moves. */
+.tmw-place-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  padding-bottom: 0.15rem;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--bg-elevated) 40%,
+    var(--bg-elevated)
+  );
+}
+
+[data-ui-version="v2"] .tmw-place-actions {
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--v2-bg-plane) 40%,
+    var(--v2-bg-plane)
+  );
+}
+
 @media (max-width: 760px) {
   .tmw-overlay-body {
     grid-template-columns: minmax(0, 1fr);
@@ -2015,8 +2044,20 @@
    height — exactly the same class of bug `PeakV2DockedPanel` had (see its
    docstring), just in a different file. `height` (not `max-height`) below
    is the same fix applied here. */
+/* THE DRAFT ROOM USES THE ROOM IT HAS (responsiveness pass).
+   `min(46rem, ...)` capped the surface at 736px on every desktop, so a
+   1440x900 viewport with 868px of usable height spent 132px of it on the
+   backdrop while the roster pane scrolled INSIDE the dialog -- the internal
+   scrollbar in the report. The rem term is now large enough that the
+   VIEWPORT is what decides on any normal desktop, and small enough that a
+   very tall display does not get a 1200px-tall dialog. The width goes from
+   62rem to 74rem for the same reason: two panes, a six-slot board and a
+   candidate list with headshots do not fit a 992px column comfortably, and
+   there is 1408px available at the narrowest desktop breakpoint this app
+   ships a three-column court for. */
 [data-ui-version="v2"] .tmw-overlay {
-  height: min(46rem, calc(100dvh - 32px));
+  width: min(74rem, 100%);
+  height: min(60rem, calc(100dvh - 32px));
   max-height: none;
   border-color: var(--v2-border-emphasis);
   border-radius: var(--v2-radius-modal);
@@ -2797,4 +2838,187 @@
   font-size: 20px;
   color: var(--comp-rec);
   margin-left: 0.25rem;
+}
+
+/* =============================================================================
+   THE COURT IS A COURT (responsiveness + visual-juice pass, §5)
+   =============================================================================
+   THE FINDING: "the current three-column court works mechanically but still
+   reads as three bordered web panels containing roster cards." It did, and
+   the reason is that nothing in it was a basketball shape -- the slot grid
+   already put PG at the top, the wings either side and the bigs in the paint,
+   but with no floor behind them that arrangement reads as a form layout that
+   happens to be five boxes.
+
+   WHAT IS DRAWN, AND WHY EACH MARK IS WHERE IT IS. The slot grid is
+   `"pg pg" / "sg sf" / "pf c"` -- the point guard up top at the arc, the
+   wings on the second row, the two bigs on the third. So:
+
+     - the LANE is a vertical rectangle behind the bottom row, the width of
+       the two big slots, running down to the baseline: the paint the PF and
+       the C actually occupy;
+     - the ARC sweeps above the wings and under the point guard, which is
+       where the three-point line sits relative to those three positions;
+     - the BASELINE closes the bottom of the lane;
+     - the CENTRE CIRCLE's bottom half sits above the point guard, at the top
+       of the frame, because the half-court is drawn looking IN from
+       half-court.
+
+   EVERY MARK IS STATIC. No animation, no glow, nothing that repaints -- the
+   motion in this mode belongs to the cards arriving and locking, and a floor
+   that moves would compete with them. The whole layer is
+   `pointer-events: none` and sits at `z-index: 0` under the slots, so it
+   cannot intercept a click on a roster card or change the grid's layout.
+
+   THE ACTIVE COURT'S FLOOR IS LIT, the other two are not. `data-lit` is the
+   server's own `current_turn_seat_index` (see `PeakV2TMWCourt`), so the
+   spotlight follows the seat that is actually deciding rather than the
+   viewer's own.
+   ============================================================================= */
+
+.tmw-court-floor {
+  position: relative;
+  isolation: isolate;
+  padding: 0.55rem 0.5rem 0.65rem;
+  border-radius: var(--v2-radius-sm, 8px);
+  /* Arena floor depth: a warm hardwood wash, kept far enough down that the
+     card surfaces above it still read as the lighter plane. */
+  background:
+    radial-gradient(
+      120% 90% at 50% 0%,
+      color-mix(in srgb, var(--peak-accent) 6%, transparent),
+      transparent 62%
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, #6b4a26 7%, transparent),
+      color-mix(in srgb, #6b4a26 12%, transparent)
+    );
+  overflow: hidden;
+}
+
+.tmw-court-floor > .tmw-court-grid {
+  position: relative;
+  z-index: 1;
+}
+
+.tmw-court-floor[data-lit="true"] {
+  background:
+    radial-gradient(
+      120% 90% at 50% 0%,
+      color-mix(in srgb, var(--peak-accent) 12%, transparent),
+      transparent 62%
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, #6b4a26 11%, transparent),
+      color-mix(in srgb, #6b4a26 17%, transparent)
+    );
+}
+
+/* One line weight for every painted mark, so the floor reads as one drawing.
+   `--tmw-line` is derived from the accent rather than a flat white: a court's
+   paint picks up the arena's own light. */
+.tmw-court-floor {
+  --tmw-line: color-mix(in srgb, var(--peak-accent) 22%, transparent);
+}
+.tmw-court-floor[data-lit="true"] {
+  --tmw-line: color-mix(in srgb, var(--peak-accent) 38%, transparent);
+}
+
+.tmw-floor-lane,
+.tmw-floor-arc,
+.tmw-floor-baseline,
+.tmw-floor-circle {
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* The paint: the width of the two big slots, from mid-court to the baseline. */
+.tmw-floor-lane {
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 0;
+  width: 42%;
+  height: 46%;
+  border: 1px solid var(--tmw-line);
+  border-bottom: 0;
+  background: color-mix(in srgb, var(--peak-accent) 5%, transparent);
+}
+
+/* The three-point line, sweeping above the wings and under the point guard. */
+.tmw-floor-arc {
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 8%;
+  width: 96%;
+  height: 74%;
+  border: 1px solid var(--tmw-line);
+  border-bottom: 0;
+  border-radius: 50% 50% 0 0 / 60% 60% 0 0;
+}
+
+.tmw-floor-baseline {
+  left: 4%;
+  right: 4%;
+  bottom: 0;
+  height: 1px;
+  background: var(--tmw-line);
+}
+
+/* The bottom half of the centre circle, at the top of the frame -- the
+   half-court is drawn looking in from half-court. */
+.tmw-floor-circle {
+  left: 50%;
+  transform: translateX(-50%);
+  top: -18%;
+  width: 34%;
+  aspect-ratio: 1;
+  border: 1px solid var(--tmw-line);
+  border-radius: 50%;
+}
+
+/* THE SIDELINE. The bench is off the floor, and the hairline says so. */
+.tmw-bench {
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--v2-border-subtle);
+}
+
+/* THE ACTIVE SEAT'S SPOTLIGHT, on the panel rather than the floor, so it
+   frames the whole court including its bench. Static: `ActiveSeat` already
+   owns this mode's only seat-level motion. */
+.tmw-court-seat.tmw-court-active {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--peak-accent) 26%, transparent),
+    0 18px 44px -28px color-mix(in srgb, var(--peak-accent) 55%, transparent);
+}
+
+/* A card that has just LANDED settles onto the floor rather than merely
+   fading: it arrives from the draft table above. Transform and opacity only,
+   and the existing `prefers-reduced-motion` block in game-feel.css already
+   neutralises `[data-gf-lock]` animations wholesale. */
+.tmw-court-floor [data-gf-lock="arrived"] > * {
+  animation: tmw-card-land 300ms cubic-bezier(0.22, 1, 0.36, 1) 1;
+}
+
+@keyframes tmw-card-land {
+  0% {
+    transform: translateY(-10px) scale(0.97);
+    opacity: 0.35;
+  }
+  70% {
+    transform: translateY(0) scale(1.012);
+    opacity: 1;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmw-court-floor [data-gf-lock="arrived"] > * {
+    animation: none !important;
+  }
 }

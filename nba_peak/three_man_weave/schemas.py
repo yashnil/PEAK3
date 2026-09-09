@@ -10,7 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from nba_peak.three_man_weave.config import ROSTER_SIZE, SLOT_TYPES
+from nba_peak.three_man_weave.config import (
+    PICK_RESOLUTION_ACTION,
+    ROSTER_SIZE,
+    SLOT_TYPES,
+)
 
 
 @dataclass(frozen=True)
@@ -75,6 +79,18 @@ class DraftPick:
     player_slug: str
     franchise_id: str
     decade: str
+    #: HOW THIS PICK CAME TO BE: `"action"` when the seat sent it, `"timeout"`
+    #: when the expired-turn fallback committed it (`mode._reduce_timeout`,
+    #: which drafts the staged choice when there is one and `autopick`
+    #: otherwise). Persisted on the pick rather than left in the event stream
+    #: because it is the ONLY authority a client may use to say "time ran out
+    #: -- drafted for you": the previous rule inferred it from the transport
+    #: (a pick that arrived on a poll rather than on the command's own
+    #: response), which called a perfectly good, accepted pick a timeout
+    #: whenever the response was slow, retried or superseded. Defaults to
+    #: `"action"` so a snapshot written before this field existed rehydrates
+    #: as what it almost always was, and never as a false timeout.
+    resolution: str = PICK_RESOLUTION_ACTION
 
     def as_dict(self) -> dict:
         return {
@@ -84,6 +100,7 @@ class DraftPick:
             "player_slug": self.player_slug,
             "franchise_id": self.franchise_id,
             "decade": self.decade,
+            "resolution": self.resolution,
         }
 
     @classmethod
@@ -95,6 +112,7 @@ class DraftPick:
             player_slug=data["player_slug"],
             franchise_id=data["franchise_id"],
             decade=data["decade"],
+            resolution=data.get("resolution", PICK_RESOLUTION_ACTION),
         )
 
 

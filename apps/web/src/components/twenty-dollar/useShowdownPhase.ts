@@ -30,6 +30,23 @@
  * Pending is the one client-side state, and it is not a beat: it is the
  * truth that a command is in flight, and it lasts exactly as long as the
  * request does.
+ *
+ * WHAT `pending` IS ALLOWED TO LOOK LIKE (responsiveness pass). It used to
+ * take the whole clock zone ("Sending your decision…") and the room's single
+ * turn line ("Sending your move") for the entire round trip. That is the
+ * CLIENT'S TRANSPORT STATE given the most valuable real estate on the page,
+ * and the server work behind it is single-digit milliseconds -- measured in
+ * process against the real route, a $20 Showdown bid command executes in a
+ * median of 6.1ms. Everything the player was watching was network latency
+ * being narrated at them.
+ *
+ * The phase itself is unchanged, and so is the ONE rule that matters here:
+ * `clockDeadlineAt` is null while a command is out, so a countdown cannot
+ * expire behind a request the server's grace window is about to accept, and
+ * the next seat's clock is never started from this client's press. What
+ * changed is only the presentation -- the clock zone now shows the committed
+ * figure and a quiet "Confirming", and the turn line names the decision
+ * ("You bid $7") instead of the request.
  */
 
 export type ShowdownPhase = "intro" | "decide" | "pending" | "settling" | "complete";

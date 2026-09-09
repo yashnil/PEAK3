@@ -115,9 +115,9 @@ const GRADE_WORD: Record<CellGrade, string> = {
 const GRADE_CHIP: Record<CellGrade, string> = {
   beat: "Beat",
   best: "Max",
-  close: "",
-  fair: "",
-  weak: "",
+  close: "Close",
+  fair: "Left value",
+  weak: "Well short",
 };
 
 /**
@@ -361,20 +361,38 @@ export default function CompletionPanel({
 
         <PeakV2Rule spacing="md" />
 
-        {/* LIVE: everything else, hairline-divided rather than stacked cards. */}
-        <div className="flex flex-wrap gap-x-4 gap-y-1" style={mutedTextStyle}>
-          <span data-testid="complete-time" className="inline-flex items-center gap-1">
-            <Clock size={11} aria-hidden="true" />
-            {formatElapsed(elapsed)}
+        {/* PERFORMANCE SUMMARY, as three stat blocks rather than a run-on of
+            11px muted text. Same three facts, same values -- the difference is
+            that a reader can now find "how many squares did I max out" without
+            parsing a sentence. */}
+        <div className="dg-summary" data-testid="complete-summary">
+          <span className="dg-stat" data-testid="complete-time">
+            <Clock size={12} aria-hidden="true" className="dg-stat-icon" />
+            <span className="dg-stat-value pk-numeral">{formatElapsed(elapsed)}</span>
+            <span className="dg-stat-label">Time</span>
           </span>
-          <span data-testid="complete-attempts" className="inline-flex items-center gap-1">
-            <Target size={11} aria-hidden="true" />
-            {progress.incorrect_attempts} {progress.incorrect_attempts === 1 ? "miss" : "misses"}
+          <span
+            className="dg-stat"
+            data-testid="complete-attempts"
+            data-tone={progress.incorrect_attempts === 0 ? "clean" : "spent"}
+          >
+            <Target size={12} aria-hidden="true" className="dg-stat-icon" />
+            <span className="dg-stat-value pk-numeral">{progress.incorrect_attempts}</span>
+            <span className="dg-stat-label">
+              {progress.incorrect_attempts === 1 ? "Miss" : "Misses"}
+            </span>
           </span>
           {result && (
-            <span data-testid="complete-matched" className="inline-flex items-center gap-1">
-              <Crown size={11} aria-hidden="true" />
-              {result.squares_matching_optimal}/{TOTAL_CELLS} squares at the max
+            <span
+              className="dg-stat"
+              data-testid="complete-matched"
+              data-tone={result.squares_matching_optimal === TOTAL_CELLS ? "clean" : undefined}
+            >
+              <Crown size={12} aria-hidden="true" className="dg-stat-icon" />
+              <span className="dg-stat-value pk-numeral">
+                {result.squares_matching_optimal}/{TOTAL_CELLS}
+              </span>
+              <span className="dg-stat-label">At the max</span>
             </span>
           )}
         </div>
@@ -399,60 +417,100 @@ export default function CompletionPanel({
                     data-testid="complete-mini-cell"
                     data-grade={g}
                     data-biggest-miss={cellIsBiggestMiss ? "true" : "false"}
-                    className="rounded-lg px-1.5 py-2 text-center"
+                    className="dg-receipt-cell"
                     aria-label={`${cellShortTitle(board, cell.row, cell.col)}: ${cell.user_points} points, ${
                       GRADE_WORD[g]
                     }${cellIsBiggestMiss ? ". Biggest miss." : ""}`}
-                    style={{
-                      background: "var(--v2-bg-plane)",
-                      border: `1px solid ${
-                        cellIsBiggestMiss ? "var(--v2-color-negative)" : "var(--v2-border-subtle)"
-                      }`,
-                    }}
+                    style={{ ["--dg-grade" as string]: GRADE_COLOR[g] }}
                   >
-                    <p style={{ fontFamily: "var(--v2-font-mono)", fontSize: "1.125rem", fontWeight: 700, lineHeight: 1, color: GRADE_COLOR[g] }}>
-                      {cell.user_points}
-                    </p>
+                    <p className="dg-receipt-points pk-numeral">{cell.user_points}</p>
+                    {/* EVERY SQUARE SAYS WHAT IT DID. "Max" and "Beat" were
+                        the only two words on the grid; every other square
+                        printed a bare "−6" and the sentence underneath had to
+                        explain what that meant. A verdict on each square is
+                        the receipt doing its own job. */}
                     <p
-                      className="mt-1 truncate"
-                      style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.625rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--v2-text-secondary)" }}
+                      className="dg-receipt-verdict"
                       title={cellShortTitle(board, cell.row, cell.col)}
                     >
-                      {GRADE_CHIP[g] || `−${cell.points_left}`}
+                      {GRADE_CHIP[g]}
                     </p>
+                    {cell.points_left > 0 ? (
+                      <p className="dg-receipt-left pk-numeral">−{cell.points_left}</p>
+                    ) : null}
                   </div>
                 );
               })}
             </div>
-            <p className="mt-1.5" style={mutedTextStyle}>
-              Points scored per square.{" "}
-              <span style={{ color: "var(--v2-color-positive)" }}>Max</span> means the best legal grid scored the
-              same here; <span style={{ color: "var(--v2-color-accent)" }}>Beat</span> means you scored more
-              than it did. A red outline marks your biggest miss.
-            </p>
+            {/* A LEGEND, NOT A PARAGRAPH. The three sentences this replaces
+                said exactly what the five swatches below say, in low-contrast
+                11px prose that a player had to read before the grid above it
+                meant anything. */}
+            <ul className="dg-legend" data-testid="complete-legend" aria-label="What each square's verdict means">
+              <li className="dg-legend-item" data-grade="beat">
+                <span className="dg-legend-swatch" aria-hidden="true" />
+                <span className="dg-legend-word">Beat</span>
+                <span className="dg-legend-gloss">more than the best legal grid</span>
+              </li>
+              <li className="dg-legend-item" data-grade="best">
+                <span className="dg-legend-swatch" aria-hidden="true" />
+                <span className="dg-legend-word">Max</span>
+                <span className="dg-legend-gloss">nothing left here</span>
+              </li>
+              <li className="dg-legend-item" data-grade="close">
+                <span className="dg-legend-swatch" aria-hidden="true" />
+                <span className="dg-legend-word">Close</span>
+                <span className="dg-legend-gloss">a point or two short</span>
+              </li>
+              <li className="dg-legend-item" data-grade="fair">
+                <span className="dg-legend-swatch" aria-hidden="true" />
+                <span className="dg-legend-word">Left value</span>
+                <span className="dg-legend-gloss">a better answer existed</span>
+              </li>
+            </ul>
 
             <PeakV2Rule spacing="md" />
 
             {result.biggest_miss ? (
-              <div data-testid="complete-biggest-miss">
-                <span style={{ ...sectionLabelStyle, color: "var(--v2-color-negative)" }}>
-                  Biggest miss · {result.biggest_miss.points_left} points left
-                </span>
-                <p className="mt-1" style={{ fontFamily: "var(--v2-font-ui)", fontWeight: 700, fontSize: "0.875rem", color: "var(--v2-text-primary)" }}>
-                  {result.biggest_miss.row_constraint_label} × {result.biggest_miss.col_constraint_label}
+              /* THE BIGGEST SWING, as the one coaching card on the screen.
+                 The same four facts as before -- the square, your pick, the
+                 optimal pick, the gap -- but the GAP is now the largest thing
+                 in the block instead of a clause in a 11px label, and the two
+                 player names are the size of names rather than of captions.
+                 This is the single most useful thing the result screen says,
+                 and it read as a footnote. */
+              <div className="dg-swing" data-testid="complete-biggest-miss">
+                <div className="dg-swing-head">
+                  <span className="dg-swing-eyebrow">Biggest swing</span>
+                  <span className="dg-swing-square">
+                    {result.biggest_miss.row_constraint_label} × {result.biggest_miss.col_constraint_label}
+                  </span>
+                </div>
+                <p className="dg-swing-figure">
+                  <span className="dg-swing-number pk-numeral">{result.biggest_miss.points_left}</span>
+                  <span className="dg-swing-unit">
+                    {result.biggest_miss.points_left === 1 ? "point left here" : "points left here"}
+                  </span>
                 </p>
-                <div className="mt-2 grid gap-1.5 sm:grid-cols-2" style={bodyTextStyle}>
-                  <div>
-                    <p style={sectionLabelStyle}>You used</p>
-                    <p style={{ color: "var(--v2-text-primary)" }}>
-                      {result.biggest_miss.user_player_season.label} · {result.biggest_miss.user_points} pts
-                    </p>
+                <div className="dg-swing-compare">
+                  <div className="dg-swing-side" data-side="yours">
+                    <span className="dg-swing-side-label">You played</span>
+                    <span className="dg-swing-name">
+                      {result.biggest_miss.user_player_season.label}
+                    </span>
+                    <span className="dg-swing-points pk-numeral">
+                      {result.biggest_miss.user_points}
+                    </span>
                   </div>
-                  <div>
-                    <p style={sectionLabelStyle}>PEAK3 would have used</p>
-                    <p style={{ color: "var(--v2-color-positive)" }}>
-                      {result.biggest_miss.optimal_player_season.label} · {result.biggest_miss.optimal_points} pts
-                    </p>
+                  <span className="dg-swing-arrow" aria-hidden="true" />
+                  <div className="dg-swing-side" data-side="optimal">
+                    <span className="dg-swing-side-label">PEAK3 would have played</span>
+                    <span className="dg-swing-name">
+                      {result.biggest_miss.optimal_player_season.label}
+                    </span>
+                    <span className="dg-swing-points pk-numeral">
+                      {result.biggest_miss.optimal_points}
+                    </span>
                   </div>
                 </div>
               </div>

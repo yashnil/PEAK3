@@ -863,6 +863,75 @@ export function placementsAfterMove(
   return out;
 }
 
+/**
+ * THE ROSTER A PRESS HAS ALREADY EARNED, before the server has answered.
+ *
+ * `placements` is the same COMPLETE final assignment the command carries, so
+ * this is not a second copy of any rule: it re-seats picks the server already
+ * validated into the slots the command already names. Anything the assignment
+ * does not mention is empty, exactly as `draft.rearrange` builds it.
+ *
+ * PURE, AND NOT AUTHORITY. The result is rendered as PENDING and is replaced
+ * wholesale by the next authoritative snapshot -- including when the server
+ * refuses, which is how a rejection rolls back without any undo logic.
+ */
+export function rosterWithPlacements(
+  roster: TmwRoster,
+  placements: Record<string, string>,
+  incoming?: TmwPick,
+): TmwRoster {
+  const bySlug = new Map<string, TmwPick>();
+  for (const slotType of TMW_SLOT_TYPES) {
+    const occupant = roster.slots[slotType];
+    if (occupant) bySlug.set(occupant.player_slug, occupant);
+  }
+  if (incoming) bySlug.set(incoming.player_slug, incoming);
+  const slots: Record<string, TmwPick | null> = {};
+  for (const slotType of TMW_SLOT_TYPES) {
+    const slug = placements[slotType];
+    const pick = slug ? bySlug.get(slug) : undefined;
+    slots[slotType] = pick ? { ...pick, slot_type: slotType } : null;
+  }
+  return { ...roster, slots: slots as TmwRoster["slots"] };
+}
+
+/** Which slots differ between two rosters — the ones a press is waiting on. */
+export function changedSlots(before: TmwRoster, after: TmwRoster): TmwSlotType[] {
+  return TMW_SLOT_TYPES.filter(
+    (slot) => (before.slots[slot]?.player_slug ?? null) !== (after.slots[slot]?.player_slug ?? null),
+  );
+}
+
+/**
+ * A PROVISIONAL CARD for a candidate whose draft is in flight.
+ *
+ * Carries only what the player already chose — the identity, the positions
+ * and the eligibility the projection published — and NO SCORING CARD, because
+ * the season and the PEAK3 number are the server's to state and this client
+ * has not been told them yet. A surface renders the absent score as "—", the
+ * same as any pick whose card is missing; nothing here invents one.
+ */
+export function provisionalPick(
+  candidate: TmwCandidate,
+  slotType: TmwSlotType,
+  seatIndex: number,
+  roundNumber: number,
+): TmwPick {
+  return {
+    player_slug: candidate.player_slug,
+    player_name: candidate.player_name,
+    positions: candidate.positions,
+    eligibility: candidate.eligibility,
+    headshot_url: candidate.headshot_url ?? null,
+    scoring_card: null,
+    seat_index: seatIndex,
+    round_number: roundNumber,
+    slot_type: slotType,
+    franchise_id: candidate.eligibility.franchise_id,
+    decade: candidate.eligibility.decade,
+  } as TmwPick;
+}
+
 /** "SF / PF", or "no listed position" — used in rejection copy and on cards. */
 export function positionsLine(player: TmwCandidatePublic): string {
   const positions = player.positions ?? [];
@@ -926,6 +995,63 @@ export type TmwResultBand =
 
 /** Lineup-score gap, in points, below which a result counts as close. */
 const CLOSE_MARGIN = 2.0;
+
+/**
+ * THE MARGIN, as a real number the player can read.
+ *
+ * `resultBand` already decides whether a result was close, and `resultLine`
+ * already says so in words -- but the result screen never printed the gap
+ * itself, so "won close" and "won by a mile" looked identical above the
+ * standings. This is the arithmetic behind the word, and nothing more: the
+ * difference between the two best SCORED rosters, and (when the viewer is not
+ * one of them) the viewer's own distance from first.
+ *
+ * Null whenever the comparison would be a claim rather than a subtraction --
+ * fewer than two scored rosters, or a drawn first place, where the margin is
+ * genuinely zero and the draw is the fact worth stating.
+ */
+export interface TmwMargin {
+  /** First place minus second place, in lineup-score points. */
+  points: number;
+  /** The seat that won it, for the sentence that names them. */
+  winnerName: string;
+  /** The seat that came closest, for the same reason. */
+  runnerUpName: string;
+  /** How far the VIEWER finished behind first, when that is a different
+   *  number from `points` (i.e. they were not the runner-up). */
+  yourGap: number | null;
+}
+
+export function winningMargin(
+  rows: TmwPodiumRow[],
+  yourSeatIndex: number | null,
+): TmwMargin | null {
+  const scored = rows.filter(
+    (row): row is TmwPodiumRow & { score: { kind: "scored"; value: number } } =>
+      row.score.kind === "scored",
+  );
+  if (scored.length < 2) return null;
+  const [first, second] = scored;
+  if (first.result.placement === second.result.placement) return null;
+  const points = first.score.value - second.score.value;
+  const yours = scored.find((row) => row.result.seat_index === yourSeatIndex) ?? null;
+  const yourGap =
+    yours && yours !== first && yours !== second
+      ? first.score.value - yours.score.value
+      : null;
+  return {
+    points,
+    winnerName: first.result.display_name,
+    runnerUpName: second.result.display_name,
+    yourGap,
+  };
+}
+
+/** "0.4 points" / "1 point" — the margin, said once, with its unit. */
+export function marginText(points: number): string {
+  const rounded = Math.round(points * 10) / 10;
+  return `${rounded.toFixed(1)} ${rounded === 1 ? "point" : "points"}`;
+}
 
 /**
  * How this match ENDED, for the human — placement plus how near it was.

@@ -33,12 +33,30 @@ docs/implementation/CI_DATA_CONTRACT.md):
       data, sourced the same way, not a new pipeline or a fabricated field.
 
   cache/processed/regular_1980_2026.parquet
-      Per-team-season roster rows; read ONLY for `pos`, the position the
-      player actually logged that season. Season-grain position is the right
-      source for a season-grain game -- deliberately NOT
+      Per-team-season roster rows; read for `pos`, the position the
+      player actually logged that season, and for `age`, the player's age in
+      that season. Season-grain position is the right source for a
+      season-grain game -- deliberately NOT
       nba_peak/perfect_season/positions.py, whose three-tier model answers a
       different question ("what position is this player, career-wide") for
-      CourtBuilder's lineup slots.
+      CourtBuilder's lineup slots. `age` is the same shape of fact, read the
+      same way, and is what the career-stage constraints test.
+
+WHAT THE v4 TAXONOMY ADDED, AND WHY IT IS THE SAME DATA
+The style/production constraints (nba_peak/daily_grid/constraints.py) read
+`pts_per75`, `ast_per75`, `trb_per100`, `stl_per100`, `blk_per100`, `usg_pct`
+and `ts_plus` -- all already columns on the scored table PEAK3 itself
+consumes, none of them derived or estimated here. The per-100 columns are
+converted to per-75 IN THE FRAME (a multiplication by 0.75 -- an exact unit
+change on the same rate, not a re-estimate) so every rate constraint states
+the same denominator and a player reading two of them is comparing like with
+like.
+
+`ts_plus` is used rather than raw `ts_pct` deliberately: true shooting
+percentage rose league-wide by roughly ten points between 1979-80 and today,
+so a fixed `ts_pct` threshold is a decade filter wearing an efficiency label.
+`ts_plus` is already relative to the season's own league, which is the only
+honest way to ask "was this an efficient season" across a 46-season window.
 
   data/game/experimental/player_pool_1500/candidate_identity_manifest.v1.json
       The 1,390 real, criteria-admitted player identities (All-Star / MVP or
@@ -81,7 +99,10 @@ MANIFEST_PATH = (
     / "candidate_identity_manifest.v1.json"
 )
 
-POOL_VERSION = "daily_grid_pool.v3"
+# v4: carries the season-grain age, rate (per-75) and efficiency/usage columns
+# the v4 constraint families read. Purely additive -- every column the v3 pool
+# published is still here, unchanged, so a v2/v3 board generates identically.
+POOL_VERSION = "daily_grid_pool.v4"
 
 # The league-leader flags on the scored table, in the order their labels are
 # read out in a rejection sentence. Each is a real 0/1 column: the player led
@@ -92,6 +113,16 @@ STAT_TITLE_COLUMNS: tuple[tuple[str, str], ...] = (
     ("assist_title", "assists"),
     ("blocks_title", "blocks"),
     ("steals_title", "steals"),
+)
+
+# The scored table's per-100 rate columns, and the per-75 name each becomes in
+# the pool frame. x0.75 is an exact unit conversion on the same rate; see the
+# module docstring. Points and assists are already published per 75 and are
+# therefore absent from this table.
+_PER_100_TO_PER_75: tuple[tuple[str, str], ...] = (
+    ("trb_per100", "trb_per75"),
+    ("stl_per100", "stl_per75"),
+    ("blk_per100", "blk_per75"),
 )
 
 # See module docstring -- season aggregates for a traded player, never a real
@@ -427,6 +458,11 @@ def build_pool(
     position_by_key = (
         regular.groupby(["player_slug", "season", "team"])["pos"].first()
     )
+    # AGE, on the same exact key. Basketball-Reference publishes it per
+    # roster row, so it is a season fact like the position beside it -- never
+    # derived from a birth date this repository does not hold.
+    age_by_key = regular.groupby(["player_slug", "season", "team"])["age"].first()
+    threepar_by_key = regular.groupby(["player_slug", "season", "team"])["threepar"].first()
     scored["position"] = scored.set_index(
         ["player_slug", "season", "team"]
     ).index.map(position_by_key)
@@ -434,6 +470,17 @@ def build_pool(
     # the pool (it can still answer non-position constraints) with an explicit
     # empty position, and every position predicate rejects it.
     scored["position"] = scored["position"].fillna("")
+
+    keyed = scored.set_index(["player_slug", "season", "team"]).index
+    scored["age"] = keyed.map(age_by_key)
+    scored["threepar"] = keyed.map(threepar_by_key)
+
+    # PER-75, ONE DENOMINATOR FOR EVERY RATE CONSTRAINT. The scored table
+    # already publishes points and assists per 75 possessions and rebounds,
+    # steals and blocks per 100; x0.75 is an exact unit conversion on the same
+    # rate, so this restates a committed number rather than estimating one.
+    for source, target in _PER_100_TO_PER_75:
+        scored[target] = pd.to_numeric(scored[source], errors="coerce") * 0.75
 
     scored["season_start_year"] = scored["season"].str[:4].astype(int)
     # Rebuild the round label from the flags PEAK3 actually scores from, so the
@@ -516,6 +563,17 @@ def build_pool(
             "playoff_round",
             "mpg",
             "g",
+            # v4 style/career columns. See the module docstring for where each
+            # comes from and why the rates share one denominator.
+            "age",
+            "pts_per75",
+            "ast_per75",
+            "trb_per75",
+            "stl_per75",
+            "blk_per75",
+            "usg_pct",
+            "ts_plus",
+            "threepar",
             *[column for column, _ in STAT_TITLE_COLUMNS],
         ]
     ].reset_index(drop=True)

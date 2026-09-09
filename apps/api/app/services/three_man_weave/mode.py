@@ -661,6 +661,13 @@ class ThreeManWeaveMode:
                 slot_type,
                 seat_index=seat_index,
                 placements=placements,
+                # WHO DECIDED, RECORDED ON THE PICK ITSELF. The client is not
+                # allowed to infer a timeout from transport shape any more
+                # (see `DraftPick.resolution`), so the one place that knows
+                # writes it down.
+                resolution=(
+                    TURN_RESOLUTION_TIMEOUT if timed_out else TURN_RESOLUTION_ACTION
+                ),
             )
         except D.DraftError as exc:
             return _reject(exc.code, exc.message)

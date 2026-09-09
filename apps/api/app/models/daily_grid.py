@@ -43,8 +43,26 @@ from pydantic import BaseModel, Field
 GRID_SIZE = 3
 MAX_BOARD_CELLS = GRID_SIZE * GRID_SIZE
 
+#: The taxonomy's own family names, mirroring
+#: `nba_peak/daily_grid/constraints.py`. A closed literal on purpose: a
+#: category the client's own union does not know would render as an unstyled
+#: chip, so this failing loudly at the API boundary is the point. Extend it in
+#: the same change that ships a new family (and its colour token in
+#: `apps/web/src/components/daily-grid/constraint-style.ts`), never after.
 ConstraintCategory = Literal[
-    "team", "award", "era", "position", "context", "peak", "component", "outcome"
+    "team",
+    "award",
+    "era",
+    "position",
+    "context",
+    "peak",
+    "component",
+    "outcome",
+    # v4 families: career stage, per-75 production rates, shooting, usage.
+    "career",
+    "production",
+    "shooting",
+    "usage",
 ]
 RarityBucket = Literal["very_rare", "rare", "uncommon", "common", "very_common"]
 GridDifficulty = Literal["easy", "medium", "hard"]

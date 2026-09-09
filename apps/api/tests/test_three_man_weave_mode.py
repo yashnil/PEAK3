@@ -35,6 +35,7 @@ from app.repositories.arena_protocols import (
 from app.services.arena.modes import ArenaMode, ModeRegistry
 from app.services.three_man_weave.mode import (
     COMMAND_PICK,
+    COMMAND_REARRANGE,
     COMMAND_SKIP_INTRO,
     COMMAND_STAGE_PICK,
     EVENT_MATCH_SCORED,
@@ -1655,3 +1656,114 @@ def test_the_human_seat_is_drawn_from_the_seed():
     seen = {human_seat_index(seed) for seed in range(60)}
     assert seen == {0, 1, 2}, f"the human only ever sat at {sorted(seen)}"
     assert human_seat_index(4242) == human_seat_index(4242)
+
+
+# ---------------------------------------------------------------------------
+# Pick resolution — the authority behind "time ran out"
+# ---------------------------------------------------------------------------
+def test_a_pick_the_seat_sent_records_resolution_action(opening):
+    """The room may only say "time ran out -- drafted for you" when THIS says so.
+
+    It used to be inferred client-side from the transport: a pick that appeared
+    for your own seat on a poll rather than on your command's own response was
+    called a timeout. That is a fact about which HTTP response carried the
+    news, and it was wrong every time a command's answer was slow, lost,
+    retried, or landed behind a newer snapshot -- the player picked, the server
+    accepted, the intended player appeared on the roster, and the room
+    announced an autopick over the top of it. Recorded here instead, by the one
+    place that knows.
+    """
+    snapshot = copy.deepcopy(opening)
+    seat = snapshot["current_seat"]
+    slug, slot = _first_legal_pick(snapshot, seat)
+    out = _reduce(
+        snapshot,
+        _command(COMMAND_PICK, {"player_slug": slug, "slot_type": slot}, seat_index=seat),
+    )
+    assert out.accepted
+    assert out.snapshot["picks"][-1]["resolution"] == "action"
+    # And it reaches the client on the projected roster, not only in the event.
+    public, _private, _legal = mode.project(_match(out.snapshot), _seats(), seat)
+    landed = public["rosters"][seat]["slots"][slot]
+    assert landed["resolution"] == "action"
+
+
+def test_the_timeout_fallback_records_resolution_timeout(opening):
+    snapshot = copy.deepcopy(opening)
+    seat = snapshot["current_seat"]
+    out = _reduce(
+        snapshot,
+        _timeout(),
+        open_turn=_turn(PHASE_PICK, seat, deadline=NOW - timedelta(seconds=1)),
+    )
+    assert out.accepted
+    assert out.snapshot["picks"][-1]["resolution"] == "timeout"
+    public, _private, _legal = mode.project(_match(out.snapshot), _seats(), seat)
+    landed = next(
+        pick
+        for pick in public["rosters"][seat]["slots"].values()
+        if pick is not None
+    )
+    assert landed["resolution"] == "timeout"
+
+
+def test_a_rearrangement_preserves_how_each_pick_was_decided(opening):
+    """Moving a card does not change who chose it.
+
+    `rearrange` rebuilds every pick row from the new assignment; a rebuild that
+    dropped `resolution` would turn a timeout into an action (or the reverse)
+    the first time a player tidied their lineup.
+    """
+    snapshot = copy.deepcopy(opening)
+    seat = snapshot["current_seat"]
+    out = _reduce(
+        snapshot,
+        _timeout(),
+        open_turn=_turn(PHASE_PICK, seat, deadline=NOW - timedelta(seconds=1)),
+    )
+    snapshot = out.snapshot
+    roster = snapshot["rosters"][seat]
+    filled = {
+        slot: pick["player_slug"]
+        for slot, pick in roster["slots"].items()
+        if pick is not None
+    }
+    assert len(filled) == 1
+    only_slot, only_slug = next(iter(filled.items()))
+    moved = _reduce(
+        snapshot,
+        _command(
+            COMMAND_REARRANGE,
+            {"placements": {"bench_1": only_slug}},
+            seat_index=seat,
+            key="move",
+        ),
+    )
+    assert moved.accepted, moved.rejection_message
+    assert moved.snapshot["rosters"][seat]["slots"]["bench_1"]["resolution"] == "timeout"
+
+
+def test_a_snapshot_written_before_resolution_existed_reads_as_an_action(opening):
+    """Backward compatibility, and the SAFE direction of it.
+
+    A live match's snapshot is opaque JSONB written by an earlier build. Its
+    pick rows have no `resolution` key at all, and the default has to be
+    `action`: defaulting the other way would announce "time ran out" over every
+    pick in every match that was in flight when this shipped.
+    """
+    snapshot = copy.deepcopy(opening)
+    seat = snapshot["current_seat"]
+    slug, slot = _first_legal_pick(snapshot, seat)
+    out = _reduce(
+        snapshot,
+        _command(COMMAND_PICK, {"player_slug": slug, "slot_type": slot}, seat_index=seat),
+    )
+    legacy = copy.deepcopy(out.snapshot)
+    for pick in legacy["picks"]:
+        pick.pop("resolution", None)
+    for roster in legacy["rosters"]:
+        for entry in roster["slots"].values():
+            if entry is not None:
+                entry.pop("resolution", None)
+    public, _private, _legal = mode.project(_match(legacy), _seats(), seat)
+    assert public["rosters"][seat]["slots"][slot]["resolution"] == "action"

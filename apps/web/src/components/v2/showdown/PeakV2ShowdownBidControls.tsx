@@ -10,7 +10,10 @@
  *
  *   * goes through `GameActionButton`, so it is acknowledged on pointer-down,
  *     shows pending for exactly as long as the request lasts, and reads the
- *     lane's answer for its confirmed or error beat;
+ *     lane's answer for its confirmed or error beat. Its pending label says
+ *     "Confirming $7…", not "Sending $7…": the decision is already made and
+ *     already on screen everywhere else in the room, and the request is the
+ *     part the player has no stake in;
  *   * emits exactly one command (the lane refuses a duplicate before any
  *     handler runs; the button's own guard refuses a same-tick double press);
  *   * locks the proposed figure for the request's duration.
@@ -130,7 +133,7 @@ export default function PeakV2ShowdownBidControls({
           data-testid="td-submit-bid"
           disabled={!canBid || inactive}
           pending={pending && pendingCommand === "bid"}
-          pendingLabel={`Sending ${formatDollars(clamped)}…`}
+          pendingLabel={`Confirming ${formatDollars(clamped)}…`}
           onAction={() => onAct("bid", clamped)}
           className="sd-primary"
           style={{ minWidth: "12ch" }}
@@ -142,7 +145,7 @@ export default function PeakV2ShowdownBidControls({
           variant="secondary"
           disabled={inactive || !privateState.is_your_turn || !privateState.can_pass}
           pending={pending && pendingCommand === "pass"}
-          pendingLabel="Sending…"
+          pendingLabel="Confirming…"
           onAction={() => onAct("pass", 0)}
         >
           {passLabel}

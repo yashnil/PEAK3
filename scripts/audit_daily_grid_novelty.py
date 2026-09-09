@@ -9,7 +9,14 @@ reports, over that run:
 
   * category (constraint id) frequency, and each id's SHARE of all axis slots
   * category FAMILY frequency (team/award/era/position/context/peak/
-    component/outcome)
+    component/outcome/career/production/shooting/usage)
+  * FAMILY ADJACENCY -- how often a family that took the per-board maximum
+    (MAX_PER_CATEGORY) does so again on the very next board, which is the
+    "same kind of board two days running" complaint the family cooldown
+    exists for
+  * per-board family COMPOSITION -- the distribution of how many distinct
+    families each board draws from, and how many boards are dominated by any
+    one family
   * exact-category repeat DISTANCE distribution -- how many boards apart two
     appearances of the same id are, and how many gaps are inside the id
     cooldown (CATEGORY_COOLDOWN_BOARDS)
@@ -44,6 +51,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from nba_peak.daily_grid.constraints import all_constraints  # noqa: E402
 from nba_peak.daily_grid.generator import (  # noqa: E402
+    FAMILY_CUTOVER_DATE,
     NOVELTY_CUTOVER_DATE,
     generate_board,
 )
@@ -84,6 +92,13 @@ def run(start: str, days: int) -> dict:
     pair_last_board: dict[frozenset, int] = {}
     pair_gaps: list[int] = []
     difficulty_counter: Counter[str] = Counter()
+    distinct_families_per_board: Counter[int] = Counter()
+    # A family that took MAX_PER_CATEGORY slots on board N and again on N+1.
+    family_double_adjacent = 0
+    family_double_boards = 0
+    previous_family_counts: Counter[str] = Counter()
+    consecutive_identical_boards = 0
+    previous_axis_signature: frozenset | None = None
     zero_answer_cells = 0
     one_answer_cells = 0
     seen_ids: set[str] = set()
@@ -101,6 +116,24 @@ def run(start: str, days: int) -> dict:
         difficulty_counter[board.difficulty] += 1
 
         axes = list(board.rows) + list(board.cols)
+
+        # FAMILY COMPOSITION AND ADJACENCY, measured on the real boards.
+        board_families: Counter[str] = Counter(c.category for c in axes)
+        distinct_families_per_board[len(board_families)] += 1
+        doubled = {f for f, n in board_families.items() if n >= _max_per_category()}
+        previously_doubled = {
+            f for f, n in previous_family_counts.items() if n >= _max_per_category()
+        }
+        if doubled:
+            family_double_boards += 1
+        family_double_adjacent += len(doubled & previously_doubled)
+        previous_family_counts = board_families
+
+        signature = frozenset(c.id for c in axes)
+        if previous_axis_signature is not None and signature == previous_axis_signature:
+            consecutive_identical_boards += 1
+        previous_axis_signature = signature
+
         for constraint in axes:
             id_counter[constraint.id] += 1
             family_counter[constraint.category] += 1
@@ -141,6 +174,21 @@ def run(start: str, days: int) -> dict:
         "category_frequency_top10": id_counter.most_common(10),
         "top_category_share": {"id": top_id, "share": top_share},
         "family_frequency": dict(family_counter),
+        "family_share": {
+            family: round(count / total_axis_slots, 4)
+            for family, count in sorted(
+                family_counter.items(), key=lambda kv: -kv[1]
+            )
+        }
+        if total_axis_slots
+        else {},
+        "distinct_families_per_board": dict(sorted(distinct_families_per_board.items())),
+        "boards_with_a_doubled_family": family_double_boards,
+        # MUST BE ZERO once the family cooldown is in force: a family may not
+        # take the per-board maximum on two consecutive boards.
+        "family_doubled_on_consecutive_boards": family_double_adjacent,
+        # MUST BE ZERO: the same six axes two days running.
+        "consecutive_identical_boards": consecutive_identical_boards,
         "id_repeat_distance": _distance_stats(id_gaps),
         "id_repeat_distance_under_cooldown": sum(
             1 for g in id_gaps if g < _cooldown_ids()
@@ -162,6 +210,12 @@ def run(start: str, days: int) -> dict:
             "reached": sorted(family_counter),
         },
     }
+
+
+def _max_per_category() -> int:
+    from nba_peak.daily_grid.generator import MAX_PER_CATEGORY
+
+    return MAX_PER_CATEGORY
 
 
 def _cooldown_ids() -> int:
@@ -192,8 +246,11 @@ def main() -> int:
     parser.add_argument("--days", type=int, default=DEFAULT_DAYS, help="consecutive keys")
     args = parser.parse_args()
 
+    # Defaults to the day after the MOST RECENT cutover, so a plain run
+    # measures the taxonomy that is actually in force rather than a legacy
+    # window. `--start` still reaches any older span deliberately.
     start = args.start or (
-        _date.fromisoformat(NOVELTY_CUTOVER_DATE) + timedelta(days=1)
+        _date.fromisoformat(FAMILY_CUTOVER_DATE) + timedelta(days=1)
     ).isoformat()
 
     report = run(start, args.days)
