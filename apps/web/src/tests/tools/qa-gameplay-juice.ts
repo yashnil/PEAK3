@@ -32,6 +32,10 @@ const DESKTOP = { width: 1440, height: 900 };
 /** One-way latency added to every API call in the latency runs. */
 const RTT_MS = 200;
 
+/** Names broad enough that some season of theirs answers most squares. The
+ *  capture is about the RESULT SCREEN, not about playing well. */
+const QUERIES = ["james", "duncan", "bryant", "malone", "garnett", "nowitzki", "paul", "curry", "davis"];
+
 function uniqueSub(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 }
@@ -297,6 +301,19 @@ test.describe("Daily Grid", () => {
     const rec = record(page);
     try {
       await signIn(context, page, uniqueSub("qa-grid"));
+      // THE TOUR IS A REAL PRODUCT SURFACE and it intercepts the first cell
+      // click. Marked complete before the page loads, the same way the e2e
+      // spec does it -- a capture run is not what the tour is for.
+      await page.addInitScript(() => {
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
+      });
       await page.goto("/daily/grid", { waitUntil: "domcontentloaded" });
       // The gate offers a guided tour; a capture run takes the direct route.
       const skipTour = page.getByTestId("daily-grid-gate-skip-tour");
@@ -312,9 +329,10 @@ test.describe("Daily Grid", () => {
         const cell = page.locator('[data-testid="grid-cell"]:not([data-state="filled"])').first();
         if ((await cell.count()) === 0) break;
         await cell.click();
+        await page.getByTestId("cell-panel").waitFor({ state: "visible", timeout: 20_000 });
         const search = page.getByTestId("cell-search-input");
         await search.waitFor({ state: "visible", timeout: 20_000 });
-        await search.fill("a");
+        await search.fill(QUERIES[index % QUERIES.length]);
         const hit = page.getByTestId("cell-search-result").first();
         await hit.waitFor({ state: "visible", timeout: 20_000 }).catch(() => {});
         if ((await hit.count()) === 0) {
