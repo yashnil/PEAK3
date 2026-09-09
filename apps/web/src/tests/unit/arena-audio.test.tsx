@@ -152,7 +152,6 @@ describe("a cue can never break a press", () => {
         throw new Error("no");
       }
     }
-    (window as unknown as { AudioContext: unknown }).Exploding = Exploding;
     (window as unknown as { AudioContext: unknown }).AudioContext = Exploding;
     setArenaAudioEnabled(true);
     expect(() => playArenaCue("victory")).not.toThrow();

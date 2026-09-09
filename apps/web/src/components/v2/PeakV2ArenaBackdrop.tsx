@@ -199,10 +199,57 @@ function CourtPlan() {
         strokeLinejoin: "round",
       }}
     >
+      <defs>
+        {/*
+         * THE LIGHT AND THE FLOOR HAVE TO BE THE SAME FACT.
+         *
+         * The first build stroked every path at one flat alpha, so a line at
+         * the bottom edge of the court was exactly as bright as a line
+         * directly under the floodlight. That is not how a lit floor looks,
+         * and an independent review named the consequence precisely: it read
+         * as "a flat vector diagram sitting on black", i.e. wallpaper, rather
+         * than as a room. It also meant the busiest, most collision-prone
+         * lines — the ones furthest from the light, low on the page where
+         * body copy and UI rules live — were drawn at full strength.
+         *
+         * This mask couples the two. It is centred where the floodlight
+         * actually hangs (top-centre of the viewport, which after `slice` is
+         * the top-centre of the apron) and falls to a quarter strength at the
+         * far edge, so the court is brightest under the light and fades into
+         * the room. One `<mask>`, no extra element, no JS, and still nothing
+         * that animates.
+         *
+         * `gradientUnits="userSpaceOnUse"` because the falloff has to be
+         * measured in court feet, not in a fraction of a bounding box that
+         * changes shape with the viewport.
+         */}
+        <radialGradient
+          id="pk-court-falloff"
+          gradientUnits="userSpaceOnUse"
+          cx={COURT_L / 2}
+          cy={-APRON_Y}
+          r={COURT_L * 1.05}
+        >
+          <stop offset="0" stopColor="#fff" stopOpacity="1" />
+          <stop offset="0.55" stopColor="#fff" stopOpacity="0.66" />
+          <stop offset="1" stopColor="#fff" stopOpacity="0.24" />
+        </radialGradient>
+        <mask id="pk-court-mask" maskUnits="userSpaceOnUse" x={-APRON_X} y={-APRON_Y} width={COURT_L + APRON_X * 2} height={COURT_W + APRON_Y * 2}>
+          <rect
+            x={-APRON_X}
+            y={-APRON_Y}
+            width={COURT_L + APRON_X * 2}
+            height={COURT_W + APRON_Y * 2}
+            fill="url(#pk-court-falloff)"
+          />
+        </mask>
+      </defs>
+
       {/* THE FLOOR ITSELF. Without this the court is lines suspended in a
-          void; with it the page is standing on something. One flat fill, so
-          it shifts every contrast ratio above it by the same constant rather
-          than varying underneath a paragraph. */}
+          void; with it the page is standing on something. One flat fill —
+          deliberately OUTSIDE the falloff mask, because the floor is what
+          makes the contrast budget in `arena-room.css` a single constant
+          everywhere rather than a value that varies underneath a paragraph. */}
       <rect
         x={-APRON_X}
         y={-APRON_Y}
@@ -212,19 +259,21 @@ function CourtPlan() {
         stroke="none"
       />
 
-      {/* Boundary, division line, centre circle. These three carry more
-          weight than the detail lines because they are what identifies the
-          shape from the corner of the eye; the key and the arcs reward a
-          direct look but do not have to win one. */}
-      <path
-        d={`M0 0 L${COURT_L} 0 L${COURT_L} ${COURT_W} L0 ${COURT_W} Z`}
-        style={{ strokeWidth: 0.13 }}
-      />
-      <path d={`M${COURT_L / 2} 0 L${COURT_L / 2} ${COURT_W}`} style={{ strokeWidth: 0.13 }} />
-      <circle cx={COURT_L / 2} cy={MID_Y} r={6} style={{ strokeWidth: 0.13 }} />
+      <g mask="url(#pk-court-mask)">
+        {/* Boundary, division line, centre circle. These three carry more
+            weight than the detail lines because they are what identifies the
+            shape from the corner of the eye; the key and the arcs reward a
+            direct look but do not have to win one. */}
+        <path
+          d={`M0 0 L${COURT_L} 0 L${COURT_L} ${COURT_W} L0 ${COURT_W} Z`}
+          style={{ strokeWidth: 0.13 }}
+        />
+        <path d={`M${COURT_L / 2} 0 L${COURT_L / 2} ${COURT_W}`} style={{ strokeWidth: 0.13 }} />
+        <circle cx={COURT_L / 2} cy={MID_Y} r={6} style={{ strokeWidth: 0.13 }} />
 
-      <CourtEnd side={1} />
-      <CourtEnd side={-1} />
+        <CourtEnd side={1} />
+        <CourtEnd side={-1} />
+      </g>
     </svg>
   );
 }

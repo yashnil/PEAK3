@@ -103,9 +103,9 @@ describe("PeakDuelV2Question — Endless composition", () => {
     expect(screen.getByTestId("peak-duel-v2-versus")).toHaveTextContent("vs");
     // Two court-line hairlines: one above the mark, one below.
     expect(axis.querySelectorAll(".duel-versus-rule")).toHaveLength(2);
-    // The paired wash sits behind the pair as a non-grid (absolute) layer.
+    // The stage sits behind the pair as a non-grid (absolute) layer, and it
+    // is a FRAME, not a light — see the `lights the pair` case below.
     expect(screen.getByTestId("duel-faceoff-stage")).toHaveAttribute("aria-hidden", "true");
-    expect(screen.getByTestId("duel-faceoff-stage").querySelectorAll(".v2-arena-light")).toHaveLength(2);
 
     // DOM order is left, axis, right: the reading order IS the face-off.
     const grid = faceoffGrid(container);
@@ -175,15 +175,19 @@ describe("PeakDuelV2Question — Daily gets the same composition", () => {
     expect(screen.getByTestId("duel-faceoff-stage")).toHaveAttribute("aria-hidden", "true");
   });
 
-  it("lights the PAIR, not the header", () => {
-    // Daily's two paired washes used to be mounted at the page root with
-    // `y="-10%"`, which lit the header band and left the face-off itself
-    // unlit — the light was nowhere near the thing it was lighting. It is
-    // still exactly two instances (the documented exception to the one-light
-    // rule), now on the stage layer behind the cards.
-    const { container } = renderQuestion({ mode: "daily", totalDuels: 10, deadlineAt: performance.now() + 10_000 });
-    expect(container.querySelectorAll(".v2-arena-light")).toHaveLength(2);
-    expect(screen.getByTestId("duel-faceoff-stage").querySelectorAll(".v2-arena-light")).toHaveLength(2);
+  it("adds NO light of its own — the room is the light", () => {
+    // This surface used to carry the paired cool/warm wash, the one
+    // documented exception to the single-light rule, from a time when the
+    // page behind it was flat black and the pair needed its own direction.
+    // `PeakV2ArenaBackdrop` supplies a floodlight, a fill and a vignette on
+    // every page now, so keeping the pair meant five gradient layers on the
+    // single surface that already had an exception. The exception is retired;
+    // this asserts it stays retired, in BOTH modes.
+    for (const mode of ["daily", "endless"] as const) {
+      cleanup();
+      const { container } = renderQuestion({ mode, totalDuels: 10, deadlineAt: performance.now() + 10_000 });
+      expect(container.querySelectorAll(".v2-arena-light"), mode).toHaveLength(0);
+    }
   });
 
   it("keeps the clock in the centre column and the same grid geometry", () => {

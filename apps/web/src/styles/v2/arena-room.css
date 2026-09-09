@@ -271,3 +271,31 @@
       color-mix(in srgb, black 20%, transparent)
     );
 }
+
+/* ================================================================
+   THE COURT IS A LANDSCAPE OBJECT. IT DOES NOT SURVIVE PORTRAIT.
+   ================================================================
+   At 390px the `slice` crop leaves exactly one full-height vertical
+   hairline and one circle. An independent review of the shipped build put
+   it plainly: no basketball content survives, it reads as a generic
+   "circle behind the headline" motif, and both marks run straight through
+   the body copy — the division line down every line of a paragraph, the
+   centre-circle arc across three display headings. That is a downgrade on
+   the narrowest viewport, which is also the most common one.
+
+   A crop that does not read as a court is not worth the noise, so below
+   the tablet threshold the geometry is dropped and the room is the light
+   and the vignette alone — the same treatment a dense ranking table gets,
+   for the same reason. Nothing about the page's identity depends on the
+   court being present; it depends on the court being LEGIBLE when it is.
+
+   768px, not 640px: at 640-767 the crop is still a sliver. The threshold
+   is where the full division line plus at least one key becomes visible,
+   which is the narrowest crop that still says "court".
+   ================================================================ */
+
+@media (max-width: 767px) {
+  .pk-arena-backdrop > svg {
+    display: none;
+  }
+}

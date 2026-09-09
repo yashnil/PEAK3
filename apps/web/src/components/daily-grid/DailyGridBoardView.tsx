@@ -80,7 +80,16 @@ function HeaderChip({
 export default function DailyGridBoardView({ board, progress, selected, invalidCell, onSelect }: Props) {
   return (
     <div
-      data-arena="live"
+      /* QUIET, NOT LIVE. The board carries its own 48px cell texture and its
+         own 3x3 borders; putting court geometry behind that is a third line
+         system on one surface, and a review of the shipped build measured
+         the collisions: the division line straight down the middle column, a
+         centre-circle arc through a column header, a key line within ~3px of
+         the first row's bottom edge. `arena-room.css` already argues a dense
+         ranking table should be quiet for exactly this reason — a nine-cell
+         puzzle board with its own grid is the same case. The light and the
+         vignette stay. */
+      data-arena="quiet"
       data-testid="daily-grid-board"
       role="group"
       aria-label={`Daily grid, ${GRID_SIZE} by ${GRID_SIZE}`}

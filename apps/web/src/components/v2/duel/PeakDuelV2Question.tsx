@@ -34,7 +34,6 @@
 
 import { useEffect, useState } from "react";
 import ArenaTimer, { useRemainingSeconds } from "@/components/shared/ArenaTimer";
-import PeakV2ArenaLight from "../PeakV2ArenaLight";
 import PeakV2LiveHeader from "../PeakV2LiveHeader";
 import PeakV2GameStatus from "../PeakV2GameStatus";
 import DuelProgressDashes from "./DuelProgressDashes";
@@ -229,23 +228,25 @@ export default function PeakDuelV2Question({
             children, so remounting them discards nothing. */}
         <div
           key={`${duel.left.peak_id}:${duel.right.peak_id}`}
-          className="duel-faceoff relative mt-10 grid grid-cols-1 items-center gap-8 sm:grid-cols-[1fr_auto_1fr] sm:gap-4"
+          className="duel-faceoff duel-grid relative mt-10 grid grid-cols-1 items-center gap-8 sm:grid-cols-[1fr_auto_1fr] sm:gap-4"
         >
-          {/* THE PAIRED WASH LIGHTS THE PAIR, IN BOTH MODES.
-              Daily used to mount this at the page root with `y="-10%"`, so
-              its two washes lit the HEADER and left the actual face-off
-              unlit — the light was nowhere near the thing it was supposed
-              to be lighting. Moving it onto the stage layer puts it behind
-              the two cards in both modes, and costs Daily nothing: it is
-              the same two instances it already had, at the same paired
-              (lower) opacity that makes this the documented exception to
-              the one-light rule. The layer is absolutely positioned, so it
-              is not a grid item and adds no height — the geometry contract
-              in this file's header. */}
-          <div className="duel-faceoff-stage" aria-hidden="true" data-testid="duel-faceoff-stage">
-            <PeakV2ArenaLight pair="cool" y="50%" intensity="focus" />
-            <PeakV2ArenaLight pair="warm" y="50%" intensity="focus" />
-          </div>
+          {/* THE STAGE IS A FRAME NOW, NOT A SECOND LIGHT SOURCE.
+              This layer used to carry two `PeakV2ArenaLight`s (cool left,
+              warm right) — the documented single-light exception, added
+              back when the page behind it was flat black and the pair
+              needed its own direction.
+              The room supplies that direction now: a floodlight, a fill and
+              a vignette on every page. Keeping the pair on top of it put
+              five gradient layers on the one surface that already had an
+              exception, and an independent review named it as the clearest
+              restraint failure in the pass — correctly. The exception is
+              retired rather than merely reduced; the paired-wash tokens
+              stay in `tokens.css` for whatever else may earn them.
+              The layer itself remains: it is what gives the two cards a
+              shared frame, and it is absolutely positioned, so it is not a
+              grid item and adds no height — the geometry contract in this
+              file's header. */}
+          <div className="duel-faceoff-stage" aria-hidden="true" data-testid="duel-faceoff-stage" />
           <DuelSidePanel
             side="left"
             card={duel.left}

@@ -213,7 +213,7 @@ export default function PeakDuelV2Reveal({
           failure mode). The header-to-grid gap is `mt-10` in both
           components for the same reason — verified by that file's own
           pixel-level assertions, not a coincidence. */}
-      <div className="mt-10 grid grid-cols-1 items-start gap-6 sm:grid-cols-[1fr_auto_1fr] sm:gap-4">
+      <div className="duel-grid mt-10 grid grid-cols-1 items-start gap-6 sm:grid-cols-[1fr_auto_1fr] sm:gap-4">
         <div data-testid="duel-card-left" className="duel-reveal-card flex flex-col items-start gap-1.5 text-left" data-winner={leftIsWinner ? "true" : "false"} data-picked={leftPicked ? "true" : "false"}>
           <span
             style={{

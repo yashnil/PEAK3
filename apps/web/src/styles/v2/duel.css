@@ -91,6 +91,63 @@
   }
 }
 
+/* A SHORT VIEWPORT IS THE BINDING CONSTRAINT, NOT A WIDE ONE.
+   The reveal is taller than the question by the component rails and the
+   explanation, and it ends in `Next Matchup` — the only way forward. At
+   1280x720 the taller framed cards pushed that button off screen entirely,
+   which an independent review caught as a functional regression, not a
+   taste call. `duel-viewport.spec.ts` did not: it asserts the whole result
+   fits at 1440x900 and 1728x1000, and both are tall enough.
+
+   Height, not width, is what runs out, so the guard is a height query. A
+   laptop at 720px logical gets shorter panels; nothing else changes, and
+   the frames, the axis and the entrance are all untouched. */
+@media (max-height: 820px) and (min-width: 640px) {
+  [data-duel-mode] {
+    --duel-side-min-h: 11rem;
+    --duel-side-pad: 0.875rem 1.25rem 1.125rem;
+  }
+  [data-duel-mode="endless"] {
+    --duel-side-min-h: 13rem;
+  }
+  /* The reveal's own cards, and the stage's air above them. Measured at
+     1280x720: `Next Matchup` sat 95px below the fold, so the guard has to
+     reclaim at least that much or it has not fixed anything. The card
+     padding and the stage's top padding are where the space actually is;
+     the component rails and the explanation are information and are not
+     touched. */
+  [data-duel-mode] .duel-reveal-card {
+    padding: 0.625rem 1.125rem 0.75rem;
+  }
+  [data-testid="duel-stage-slot"] {
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+  }
+  /* `.duel-grid` is on BOTH the question's grid and the reveal's, and it
+     exists so this margin can only ever be changed for both at once. The
+     header-to-grid gap is the geometry contract (`duel-viewport.spec.ts`:
+     the left card's top edge is the same y in both phases); trimming it in
+     one component and not the other would move the cards under the player,
+     which is the exact defect that contract was written for. */
+  [data-duel-mode] .duel-grid {
+    margin-top: 0.75rem;
+  }
+  /* The five component lanes and the two blocks under them. Measured: at
+     1280x720 the lanes are 231px of the 710px reveal, almost all of it the
+     48px pitch between rows rather than the rows themselves. Tightening the
+     pitch and the two `mt-6` gaps recovers the rest of the fold without
+     removing a single value from the screen. */
+  [data-duel-mode] .duel-reveal-lane + .duel-reveal-lane {
+    margin-top: -0.5rem;
+  }
+  [data-duel-mode] .duel-reveal-explanation {
+    margin-top: 0.75rem;
+  }
+  [data-duel-mode] .duel-reveal-explanation + div {
+    margin-top: 0.75rem;
+  }
+}
+
 /* ENDLESS = the same composition with room to breathe. */
 [data-duel-mode="endless"] {
   --duel-name-size: 1.5rem;
@@ -130,11 +187,10 @@
   border-radius: 18px;
   pointer-events: none;
 }
-[data-duel-mode] .duel-faceoff-stage .v2-arena-light {
-  /* The paired wash is authored for a header-height band; here it lights a
-     full card, so it is scaled up once rather than re-tuned per light. */
-  transform: scale(1.35);
-}
+/* The stage no longer contains lights — see `PeakDuelV2Question`'s note on
+   retiring the paired wash. It is a shared frame behind the pair and nothing
+   else, so the `.v2-arena-light` scale rule that used to live here is gone
+   with its subjects rather than left as a selector matching nothing. */
 [data-duel-mode] .duel-side,
 [data-duel-mode] .duel-versus {
   position: relative;
