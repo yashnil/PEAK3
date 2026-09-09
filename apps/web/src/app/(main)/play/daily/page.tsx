@@ -142,7 +142,7 @@ export default function DailyPage() {
   if (!challenge) return null;
 
   return (
-    <div className="min-h-screen court-grid-bg">
+    <div className="min-h-screen">
       <GameIntro
         open={introOpen}
         onStart={() => setIntroOpen(false)}

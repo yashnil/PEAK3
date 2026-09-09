@@ -127,17 +127,17 @@ export default function ModelProofStrip({
   if (facts.length === 0) return null;
 
   return (
-    /* `.pk-atmosphere` GIVES THIS BAND A ROOM TO BE IN. It is a full-bleed
-       strip, so it has no radius and casts no shadow — the two things every
-       other surface on the homepage uses to separate itself. It borrowed a
-       `--bg-elevated`-at-80% fill instead, which on Arena Day is a 1.05:1
-       difference from the page and read as a pair of horizontal rules with
-       nothing between them. The court floodlights and grid are the same
-       lighting the hero uses, at a tighter pitch (`--pk-court-grid-size` is
-       scoped down to 32px in home.css), so the strip reads as a smaller piece
-       of the same arena rather than as a second hero. */
+    /* THIS BAND USED TO CARRY ITS OWN ROOM (`.pk-atmosphere`: two corner
+       floodlights over a 32px square grid) because it is full-bleed and so
+       has neither the radius nor the shadow every other homepage surface
+       uses to separate itself. `PeakV2ArenaBackdrop` now supplies the room
+       for the whole page, at the page's scale, so the local copy has been
+       removed: two environments stacked here would have been two floodlights
+       over one strip, and the grid it drew is superseded by real court
+       geometry. The strip still reads as a smaller piece of the same arena —
+       it is now literally the same arena. */
     <section
-      className="home-proof pk-atmosphere px-4 py-8"
+      className="home-proof px-4 py-8"
       aria-labelledby="model-proof-heading"
       data-testid="home-model-proof"
     >

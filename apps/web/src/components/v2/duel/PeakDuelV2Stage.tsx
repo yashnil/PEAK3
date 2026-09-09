@@ -53,7 +53,7 @@ export default function PeakDuelV2Stage({ state, date, deadlineAt, onSelect, onT
           `pt-12` keeps a question landing with some real air above it
           instead of jamming against the nav, matching the amount of breathing
           room `justify-center` gave a typical (short) question at rest. */}
-      <div data-testid="duel-stage-slot" className="flex min-h-[calc(100vh-8rem)] flex-col justify-start pt-12 pb-8">
+      <div data-testid="duel-stage-slot" data-arena="live" className="flex min-h-[calc(100vh-8rem)] flex-col justify-start pt-12 pb-8">
         {revealed && state.current_answer ? (
           <PeakDuelV2Reveal
             mode={state.mode}

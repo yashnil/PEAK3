@@ -80,6 +80,7 @@ function HeaderChip({
 export default function DailyGridBoardView({ board, progress, selected, invalidCell, onSelect }: Props) {
   return (
     <div
+      data-arena="live"
       data-testid="daily-grid-board"
       role="group"
       aria-label={`Daily grid, ${GRID_SIZE} by ${GRID_SIZE}`}

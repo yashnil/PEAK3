@@ -79,7 +79,10 @@ export default function MethodologyPage() {
 
   const v2View = (
     <PeakV2Shell width="live">
-      <div className="py-6 space-y-10">
+      {/* QUIET ROOM — this page is a long read with a component table and an
+          accordion; court geometry behind it would be noise. See
+          `styles/v2/arena-room.css`. */}
+      <div data-arena="quiet" className="py-6 space-y-10">
         <div>
           <PeakV2ResultHeadline as="h1" scale="moment">
             Formula Explorer

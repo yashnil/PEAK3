@@ -97,7 +97,7 @@ export default function PeakV2RTTShell({
   if (layout === "bare") {
     return (
       <PeakV2Shell width="live">
-        <div data-testid="rtt-shell" className="rtt-run rtt-shell-bare" data-layout="bare">
+        <div data-testid="rtt-shell" data-arena="live" className="rtt-run rtt-shell-bare" data-layout="bare">
           {content}
         </div>
       </PeakV2Shell>
@@ -111,7 +111,7 @@ export default function PeakV2RTTShell({
 
   return (
     <PeakV2Shell width="live-wide">
-      <div data-testid="rtt-shell" className="rtt-run" data-layout={layout} data-boss={boss ? "true" : "false"} data-danger={danger ? "true" : "false"}>
+      <div data-testid="rtt-shell" data-arena="live" className="rtt-run" data-layout={layout} data-boss={boss ? "true" : "false"} data-danger={danger ? "true" : "false"}>
         <header className="rtt-head" data-testid="rtt-hud">
           <div className="rtt-head-identity">
             <div className="rtt-head-title-row">

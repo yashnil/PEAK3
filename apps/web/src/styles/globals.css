@@ -2698,7 +2698,21 @@ html, body {
    The arena lighting, as a class. `.home-hero-glow` already did this
    inline for one surface; this is the same stack, named, so the next
    surface that wants it does not paste a fourth copy of the gradient
-   list. */
+   list.
+
+   SUPERSEDED AS A PAGE ENVIRONMENT (broadcast-immersion pass). Eight
+   surfaces used to carry this class to give themselves a room, which is
+   how the app ended up with eight independent floodlit rectangles sitting
+   in an unlit void — and the grid it draws is a uniform 48px lattice,
+   i.e. graph paper rather than a basketball court. The room is now
+   `PeakV2ArenaBackdrop`, mounted once in `(main)/layout.tsx`, drawing real
+   court geometry across the viewport; those eight call sites have been
+   removed rather than left to stack a second environment on top of it.
+
+   The rule stays, and is still the right answer for the narrower thing it
+   was originally for: one CONTAINED panel that genuinely needs a floor of
+   its own inside a page (not the page). Reach for it deliberately, and
+   never on a full-bleed section — that is the room's job now. */
 .pk-atmosphere {
   background-image: var(--pk-atmosphere);
   background-size:

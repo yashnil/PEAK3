@@ -39,7 +39,7 @@ export default function EndlessPage() {
 
   if (!session) {
     return (
-      <div className="min-h-screen court-grid-bg flex items-center justify-center px-4">
+      <div className="min-h-screen flex items-center justify-center px-4">
         <div className="card-elevated max-w-md w-full p-8 space-y-6">
           <div className="text-center">
             <h1 className="font-display text-3xl font-bold">Endless Mode</h1>
@@ -114,7 +114,7 @@ export default function EndlessPage() {
   }
 
   return (
-    <div className="min-h-screen court-grid-bg">
+    <div className="min-h-screen">
       <div>
         {/* V2's own in-game header (`PeakV2LiveHeader`, "Peak Duel ·
             Endless") already carries the mode/title identity, so this is

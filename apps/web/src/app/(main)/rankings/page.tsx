@@ -385,7 +385,12 @@ export default function RankingsPage() {
   // rather than editing the shared table component itself.
   const v2View = (
     <PeakV2Shell width="live">
-      <div className="py-6 flex flex-col gap-5">
+      {/* QUIET ROOM. The court geometry is hidden behind a dense ranking
+          table — `styles/v2/arena-room.css` reads this attribute upward — so
+          nothing competes with a column of tabular figures. The floodlight
+          and vignette stay, so arriving here from a game still feels like
+          the same building. */}
+      <div data-arena="quiet" className="py-6 flex flex-col gap-5">
         <header className="flex flex-col gap-1.5">
           <PeakV2ResultHeadline as="h1" scale="moment">
             PEAK3 Rankings
