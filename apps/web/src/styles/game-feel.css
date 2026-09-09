@@ -263,7 +263,13 @@ button[data-state="error"] {
   0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--gf-accent) 60%, transparent); background-color: color-mix(in srgb, var(--gf-accent) 14%, transparent); }
   100% { box-shadow: 0 0 0 8px transparent; background-color: transparent; }
 }
-/* The moving variant: cards that may travel (Three-Man Weave courts). */
+/* The moving variant: cards that may travel (Three-Man Weave courts).
+   `.tmw-court-seat` NO LONGER EXISTS — the seat class is `.tmw-slot`'s
+   ancestor `.tmw-seat`, and TMW never set `data-gf-lock` on anything, so
+   both rules below have been inert since the class was renamed. They are
+   kept as the keyframes' documentation and second consumer is now
+   `.tmw-slot[data-beat]` in three-man-weave.css, which drives the same two
+   animations off the same `useArrivals` diff. */
 .tmw-court-seat [data-gf-lock="arrived"] > * {
   animation: gf-pick-lock 260ms var(--gf-ease-emphasized) 1;
 }

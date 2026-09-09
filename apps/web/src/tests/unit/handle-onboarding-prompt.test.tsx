@@ -202,12 +202,40 @@ describe("during a live Arena match", () => {
     ).toBeInTheDocument();
   });
 
-  it("still appears on the mode landing page, which has no match on it", async () => {
+  it("still appears on the mode landing page while it is only a start gate", async () => {
     mockPathname = "/arena/three-man-weave";
     render(<HandleOnboardingPrompt />);
     expect(
       await screen.findByTestId("handle-onboarding-prompt"),
     ).toBeInTheDocument();
+  });
+
+  /**
+   * THE DEFECT THE ROUTE LIST COULD NOT SEE, found by screenshotting a real
+   * draft: the prompt over seat three's roster with a 43-second clock
+   * running, on `/arena/three-man-weave` — the route the test directly above
+   * asserts is safe.
+   *
+   * Both are correct. TMW's start gate creates the practice match and sets it
+   * into state IN PLACE rather than navigating, so the same URL is the gate
+   * for one second and a live draft for the next ten minutes. The board
+   * itself is the only honest signal, and it already publishes one:
+   * `data-arena="live"`, which every live surface carries for the arena
+   * backdrop.
+   */
+  it("hides once a live board mounts under it, even on a safe route", async () => {
+    mockPathname = "/arena/three-man-weave";
+    render(<HandleOnboardingPrompt />);
+    expect(await screen.findByTestId("handle-onboarding-prompt")).toBeInTheDocument();
+
+    const board = document.createElement("div");
+    board.setAttribute("data-arena", "live");
+    document.body.appendChild(board);
+    // MutationObserver callbacks are microtask-scheduled, so one turn is enough.
+    await waitFor(() =>
+      expect(screen.queryByTestId("handle-onboarding-prompt")).not.toBeInTheDocument(),
+    );
+    board.remove();
   });
 
   for (const route of [

@@ -1,5 +1,5 @@
 "use client";
-import type { DragEvent } from "react";
+import { useMemo, type DragEvent } from "react";
 
 import type {
   ArenaSeatPublic,
@@ -18,6 +18,7 @@ import {
   slotAbbrev,
 } from "@/lib/three-man-weave-state";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
+import { useArrivals } from "@/lib/game-feel/arrivals";
 
 /**
  * ONE PARTICIPANT'S TEAM. Rendered for ALL THREE seats, always.
@@ -93,6 +94,33 @@ export default function SeatCourt({
   const accent = seatAccent(roster.seat_index);
   const legal = new Set(legalTargets);
 
+  /**
+   * A PICK LANDS; IT DOES NOT APPEAR.
+   *
+   * Before this, a drafted player materialised as a slot's text changing from
+   * "Open" to a name — on all three courts, including the player's own. The
+   * one existing signal, `data-just-picked`, is a static ring and only ever
+   * marked the local player's most recent pick, so an opponent taking a name
+   * off the shared board (the whole tension of the mode: once a name is
+   * taken it is gone for everyone) produced no beat at all.
+   *
+   * `useArrivals` is the shared primitive for exactly this and was already
+   * used by 82-0's court. It diffs the occupant map between renders, so the
+   * beat fires when the server's snapshot lands and on nothing else — never
+   * on a re-render for another reason, and never on a timer. It also
+   * distinguishes an ARRIVAL (empty -> filled, a draft) from a SWAP (two
+   * occupied slots trading, a rearrangement on your own court), which are
+   * different events and should not look the same.
+   */
+  const occupants = useMemo(() => {
+    const map: Record<string, string | null> = {};
+    for (const [slotType, pick] of Object.entries(roster.slots)) {
+      map[slotType] = pick?.player_slug ?? null;
+    }
+    return map;
+  }, [roster.slots]);
+  const arrivals = useArrivals(occupants);
+
   function cardFor(slotType: TmwSlotType) {
     return (
       <SlotCard
@@ -100,6 +128,13 @@ export default function SeatCourt({
         slotType={slotType}
         pick={roster.slots[slotType] ?? null}
         highlight={roster.slots[slotType]?.player_slug === justPickedSlug}
+        beat={
+          arrivals.arrived.includes(slotType)
+            ? "arrived"
+            : arrivals.swapped.includes(slotType)
+              ? "swapped"
+              : "none"
+        }
         interactive={interactive && !busy}
         picked={selectedSlot === slotType}
         moving={selectedSlot !== null}
@@ -239,6 +274,7 @@ function SlotCard({
   slotType,
   pick,
   highlight,
+  beat,
   interactive,
   picked,
   moving,
@@ -249,6 +285,8 @@ function SlotCard({
   slotType: TmwSlotType;
   pick: TmwPick | null;
   highlight: boolean;
+  /** The pick-lock beat from the roster diff — see `useArrivals` above. */
+  beat: "arrived" | "swapped" | "none";
   interactive: boolean;
   picked: boolean;
   moving: boolean;
@@ -293,6 +331,7 @@ function SlotCard({
     "data-testid": `tmw-slot-${slotType}`,
     "data-filled": pick ? "true" : "false",
     "data-just-picked": highlight ? "true" : "false",
+    "data-beat": beat,
     "data-picked-up": picked ? "true" : "false",
     "data-legal": moving && legal ? "true" : "false",
     "data-moving": moving ? "true" : "false",

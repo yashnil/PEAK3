@@ -71,6 +71,46 @@ type Phase = "checking" | "hidden" | "prompting" | "saving" | "saved";
  * by waiting until the player is not on a clock.
  */
 
+/**
+ * IS A LIVE BOARD MOUNTED RIGHT NOW?
+ *
+ * The route denylist below is necessary but not sufficient, and the gap was
+ * found by screenshotting a real Three-Man Weave draft: the prompt sat over
+ * seat three's roster with a 43-second clock running, on `/arena/three-man-
+ * weave` — the very route this file's own test asserts "has no match on it".
+ *
+ * That premise was true when written and is not true now. TMW's start gate
+ * calls `createPracticeMatch` and sets the match into state IN PLACE; it
+ * never navigates, so the URL stays at the landing route for the whole
+ * draft. Broadening the regex to the bare route would suppress the prompt on
+ * the start gate too, where it is perfectly welcome, and would trade one
+ * wrong answer for another.
+ *
+ * So the second signal is the board itself. `data-arena="live"` is already on
+ * every live game surface — the RTT shell, the Showdown room, the TMW room,
+ * CourtBuilder, the duel stage, the Daily Grid board — because
+ * `styles/v2/arena-room.css` reads it to decide how present the arena
+ * backdrop should be. It means exactly "a live board is on screen", which is
+ * exactly the question being asked here, so this reuses it rather than
+ * maintaining a second list of the same surfaces.
+ *
+ * A `MutationObserver` rather than a one-shot check: a board can mount after
+ * this component has already decided to show (which is precisely the TMW
+ * case — the prompt is up on the start gate, then the player presses Play
+ * bots and the draft appears underneath it).
+ */
+function useLiveBoardMounted(): boolean {
+  const [live, setLive] = useState(false);
+  useEffect(() => {
+    const read = () => setLive(document.querySelector('[data-arena="live"]') !== null);
+    read();
+    const observer = new MutationObserver(read);
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-arena"] });
+    return () => observer.disconnect();
+  }, []);
+  return live;
+}
+
 /** Routes where a modal prompt would land on top of a live game board. */
 function isLiveMatchRoute(pathname: string | null): boolean {
   if (!pathname) return false;
@@ -109,6 +149,7 @@ export default function HandleOnboardingPrompt() {
   // a page short enough for its own content to reach this prompt's corner
   // is also short enough for its footer to be nearby.
   const footerVisible = useFooterVisible();
+  const liveBoardMounted = useLiveBoardMounted();
 
   useEffect(() => {
     if (loading) return;
@@ -180,8 +221,10 @@ export default function HandleOnboardingPrompt() {
   }
 
   // A LIVE MATCH OWNS THE SCREEN. See the docstring: the capture caught this
-  // covering a player's own roster mid-draft, under a running clock.
-  if (isLiveMatchRoute(pathname)) return null;
+  // covering a player's own roster mid-draft, under a running clock. Two
+  // signals, because the route alone is not enough — a mode whose board
+  // mounts in place keeps the landing route's URL for the whole match.
+  if (isLiveMatchRoute(pathname) || liveBoardMounted) return null;
   if (phase !== "prompting" && phase !== "saving" && phase !== "saved") return null;
   // THE PAGE'S OWN CONTENT OWNS THE SCREEN TOO, once it's reached. See the
   // fix note above this component's state block.
