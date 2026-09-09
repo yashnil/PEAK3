@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, type DragEvent } from "react";
+import { useEffect, useMemo, type DragEvent } from "react";
 
 import type {
   ArenaSeatPublic,
@@ -19,6 +19,7 @@ import {
 } from "@/lib/three-man-weave-state";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
 import { useArrivals } from "@/lib/game-feel/arrivals";
+import { playArenaCue } from "@/lib/arena-audio";
 
 /**
  * ONE PARTICIPANT'S TEAM. Rendered for ALL THREE seats, always.
@@ -120,6 +121,14 @@ export default function SeatCourt({
     return map;
   }, [roster.slots]);
   const arrivals = useArrivals(occupants);
+
+  /* The roster cue rides the same diff as the beat, so sound and motion can
+     never disagree about when a pick landed. Off by default; a no-op when
+     off. Fires once per arrival batch, not once per slot, so a rearrangement
+     that moves two cards is one sound rather than two. */
+  useEffect(() => {
+    if (arrivals.arrived.length > 0) playArenaCue("roster");
+  }, [arrivals.arrived]);
 
   function cardFor(slotType: TmwSlotType) {
     return (

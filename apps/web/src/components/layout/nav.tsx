@@ -79,6 +79,7 @@ import { useAuth } from "@/lib/auth-context";
 import { isActive, topLevelLinks } from "@/lib/nav-model";
 import { AccountMenu } from "@/components/auth/AccountMenu";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { SoundToggle } from "@/components/ui/SoundToggle";
 import { useAccountThemeSync } from "@/lib/theme";
 import { PlayMenu } from "./PlayMenu";
 import { MobileNavDrawer } from "./MobileNavDrawer";
@@ -204,6 +205,13 @@ export function Nav() {
               nav links reads as one intentional "account & display" zone,
               not an icon that wandered in from somewhere else. */}
           <div className="ml-2 flex items-center gap-1 border-l border-[var(--border-subtle)] pl-2">
+            {/* The cluster is the "account & display" zone, so a global
+                presentation preference belongs in it. Sound is off by
+                default and this is its only control — see
+                `components/ui/SoundToggle` for why it is here and not on
+                /profile (behind sign-in, and PEAK3 is playable anonymously)
+                or /accessibility (a document, not a settings surface). */}
+            <SoundToggle />
             <ThemeToggle />
             {/* Gating lives inside AccountMenu (it needs `user` anyway), so the
                 anonymous-only deployment still renders no account affordance. */}

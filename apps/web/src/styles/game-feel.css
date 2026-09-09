@@ -980,16 +980,34 @@ button[data-state="error"] {
   border-radius: inherit;
   border: 1px solid color-mix(in srgb, var(--v2-color-negative, #f87171) 60%, transparent);
 }
+/* THE RUN TRACK NAMES THE RUN, SO ITS NAMES HAVE TO BE READABLE.
+   `white-space: nowrap` + `text-overflow: ellipsis` truncated almost every
+   label at 1440px, because a five-act run puts up to fifteen marks across
+   ~1150px — about 76px each, against "Draft Room" at ~62px and an
+   uppercase-mono boss name at ~78px. Measured on screen, the track read:
+   `Draft Roo… / Rest / Bank… / THE CEILI… / THE STAND… / THE LONG …`. A
+   run map whose chapter names are all cut off is not a run map.
+
+   Two lines instead of one ellipsis. `min-height` reserves both lines
+   whether or not a label uses them, so a track with one long name does not
+   sit taller than a track without one, and the dots stay on a single
+   baseline. `overflow-wrap: anywhere` is what lets a long single word (a
+   boss name) break at all rather than overflow its column. */
 .gf-track-mark-label {
   font-family: var(--v2-font-ui, sans-serif);
   font-size: 0.6875rem;
   line-height: 1.15;
   color: var(--v2-text-secondary, #8c8fa8);
   max-width: 100%;
+  padding-right: 0.4rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding-right: 0.3rem;
+  min-height: calc(2 * 1.15em);
 }
 .gf-track-mark[data-row-state="current"] .gf-track-mark-label { color: var(--v2-text-primary, #fff); font-weight: 600; }
 .gf-track-mark[data-row-kind="boss"] .gf-track-mark-label { text-transform: uppercase; letter-spacing: 0.04em; font-family: var(--v2-font-mono, monospace); font-size: 0.625rem; }

@@ -23,6 +23,7 @@
  */
 
 import { forwardRef, useCallback, useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { playArenaCue } from "@/lib/arena-audio";
 import PeakV2PrimaryAction from "@/components/v2/PeakV2PrimaryAction";
 import PeakV2SecondaryAction from "@/components/v2/PeakV2SecondaryAction";
 import type { V2ActionSize } from "@/components/v2/v2-action-base";
@@ -96,6 +97,17 @@ const GameActionButton = forwardRef<HTMLButtonElement, GameActionButtonProps>(fu
     // THE DUPLICATE GUARD, synchronous. Nothing below runs twice.
     if (inFlight.current || disabled) return;
     inFlight.current = true;
+    // THE ONE PLACE THE SELECTION CUE FIRES, so it covers every mode at once
+    // rather than eight call sites drifting apart. It is deliberately here,
+    // on the LOCAL press, and not on the server's confirmation: the cue is an
+    // acknowledgement, and acknowledgement belongs in the same frame as the
+    // press (`GAME_FEEL.md`'s interaction contract). It is also after the
+    // duplicate guard, so a refused double-press is silent — which is
+    // correct, because nothing happened.
+    //
+    // Audio is off by default and `playArenaCue` is a no-op when it is off,
+    // never throws, and returns nothing, so this cannot affect the press.
+    playArenaCue("lock");
     setState("pending");
     let outcome: Promise<unknown>;
     try {
