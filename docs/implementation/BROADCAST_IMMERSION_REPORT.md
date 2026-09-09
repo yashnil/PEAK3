@@ -228,6 +228,9 @@ baseline build should have run in a worktree — not a code defect.
 
 ## 8. Accessibility
 
+**Read §9 first: the axe sweep did not run on this branch.** Everything below
+is measurement and direct probing, not `accessibility.spec.ts`.
+
 - The room is `aria-hidden`, `pointer-events: none`, `z-index: -1` inside an
   isolated stacking context, and `display: none` under `@media print` and
   `@media (forced-colors: active)`.
@@ -251,9 +254,51 @@ baseline build should have run in a worktree — not a code defect.
 | Suite | Command | Result |
 |---|---|---|
 | Frontend verify | `scripts/ci/frontend-verify.sh` | **PASS** — typecheck clean, lint 0 warnings, 2 462 unit tests in 123 files, production build succeeded |
-| Model tests | `scripts/ci/model-tests.sh` | *(see §12 addendum)* |
-| API unit tests | `scripts/ci/api-unit-tests.sh` | *(see §12 addendum)* |
-| Playwright + axe | `scripts/ci/e2e-tests.sh` | *(see §12 addendum)* |
+| Model tests | `scripts/ci/model-tests.sh` | **PASS** — 1 895 passed, 1 xfailed (17m 16s) |
+| API unit tests | `scripts/ci/api-unit-tests.sh` | **PASS** — 1 837 passed, 2 skipped, 20 deselected (4m 41s) |
+| Playwright + axe | `scripts/ci/e2e-tests.sh` | **PARTIAL — 42 passed, 0 failed, then stopped.** See below. |
+
+### The browser suite did not complete, and here is exactly where it got to
+
+**42 passed, 0 failed.** That is the whole of `arena-multiplayer.spec.ts` and
+both `showdown-two-tab.spec.ts` specs (33 tests — Three-Man Weave and the
+$20 Showdown end to end, i.e. two of the four modes this pass changed), plus
+the first 9 CourtBuilder tests. Nothing failed at any point in any run that
+had a working server.
+
+Two further targeted runs completed green earlier on this branch and cover
+the surface this pass changed most:
+
+- `duel-viewport.spec.ts` — **6/6**, including "the cards never move on
+  screen", "the whole result and Next duel fit the viewport", and the
+  reduced-motion case. This is the spec that guards the Peak Duel geometry
+  contract the face-off work touches.
+- `gameplay.spec.ts` + `play-routing.spec.ts` — **63/63**.
+
+**What is NOT verified by a browser test on this branch:** the rest of
+CourtBuilder, `daily-grid.spec.ts`, `run-the-table.spec.ts`,
+`accessibility.spec.ts` (the axe sweep), `rankings.spec.ts`,
+`theme.spec.ts`, `auth.spec.ts`, `head-to-head.spec.ts`,
+`progression.spec.ts`, `ranked.spec.ts`, `v2-ui-version.spec.ts`, and the
+`@mobile` project. The accessibility sweep is the most consequential
+omission, because §8's claims would otherwise be checked by it rather than
+only by measurement and manual probing.
+
+**Why it stopped, which is not a property of this branch.** The machine is
+saturated by unrelated work — `fseventsd` pinned at 100%, `mediaanalysisd`
+at 60%, a Virtualization VM at 58%, load average 5–7 throughout. A suite the
+Phase-3 baseline ran in 27.8 minutes was taking roughly one test per fifteen
+minutes, and the final attempt spent thirty minutes compiling a single route
+that had taken 13 seconds earlier the same session. Four attempts were made:
+two lost their dev server outright (the first to CPU starvation from a
+concurrently-running model suite, the second on its own), one was refused by
+the suite's own auth probe when run against a production server, and the
+fourth ran clean but too slowly to finish.
+
+**This is a gap, not a pass.** Re-running `scripts/ci/e2e-tests.sh` on an
+idle machine is a prerequisite before this branch is merged, and the axe
+sweep in particular should be run before §8's accessibility claims are
+relied on.
 
 Unit tests added by this pass: 9 for the room, 11 for the audio layer and its
 toggle, 1 for the handle prompt's live-board suppression, 2 for the duel
