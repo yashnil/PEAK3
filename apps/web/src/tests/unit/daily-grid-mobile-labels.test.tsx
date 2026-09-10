@@ -56,7 +56,11 @@ describe("DailyGridBoardView — row-header labels never break mid-word (task §
       />,
     );
     const headers = screen.getAllByTestId("grid-row-header");
-    const span = headers[0].querySelector("span:last-child") as HTMLElement;
+    // Queried by test id rather than `span:last-child`: the header may now
+    // carry a trailing definition marker (an SVG) after the label, so the
+    // positional selector no longer names the label element. Every assertion
+    // below is unchanged.
+    const span = headers[0].querySelector("[data-testid='grid-header-label']") as HTMLElement;
     expect(span.textContent).toBe(label);
     // No tracking-*/letter-spacing on row headers at all (column headers,
     // ~3x wider, keep theirs) -- reclaimed pixels the long word needs.
@@ -80,7 +84,7 @@ describe("DailyGridBoardView — row-header labels never break mid-word (task §
       />,
     );
     const colHeaders = screen.getAllByTestId("grid-col-header");
-    const span = colHeaders[0].querySelector("span:last-child") as HTMLElement;
+    const span = colHeaders[0].querySelector("[data-testid='grid-header-label']") as HTMLElement;
     expect(span.className).toMatch(/tracking-\[0\.04em\]/);
   });
 

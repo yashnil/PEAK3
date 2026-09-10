@@ -65,6 +65,19 @@ function ConstraintBlock({
       <p className="mt-1 text-sm font-bold" style={{ color: "var(--v2-text-primary)" }}>
         {constraint.label}
       </p>
+      {/* "What counts" only for the axes whose rule cannot be read off the
+          label -- the same set the board header marks. The description itself
+          is always shown: this labels it for the constraints where the player
+          genuinely needs to be told, without adding a heading to "Lakers". */}
+      {constraint.needs_definition ? (
+        <p
+          data-testid={`cell-panel-${axis.toLowerCase()}-definition-heading`}
+          className="mt-2 text-[10px] font-bold uppercase tracking-[0.16em]"
+          style={{ fontFamily: "var(--v2-font-mono)", color: "var(--v2-text-muted)" }}
+        >
+          What counts
+        </p>
+      ) : null}
       <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--v2-text-secondary)" }}>
         {constraint.description}
       </p>

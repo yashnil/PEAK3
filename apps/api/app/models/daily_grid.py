@@ -63,6 +63,11 @@ ConstraintCategory = Literal[
     "production",
     "shooting",
     "usage",
+    # v5 families: draft slot, birth country, listed height, career shape.
+    "draft",
+    "origin",
+    "size",
+    "journey",
 ]
 RarityBucket = Literal["very_rare", "rare", "uncommon", "common", "very_common"]
 GridDifficulty = Literal["easy", "medium", "hard"]
@@ -84,6 +89,16 @@ class GridConstraint(BaseModel):
     short_label: str = Field(..., description="Compact form for the grid header")
     category: ConstraintCategory
     description: str = Field(..., description="Full sentence explaining what qualifies")
+    needs_definition: bool = Field(
+        False,
+        description=(
+            "True when the eligibility rule cannot be read off the label "
+            '("Elite Efficiency", "Undrafted"), false when the label is the '
+            'rule ("All-Star", "Lakers"). Presentation only -- `description` '
+            "carries the full sentence either way; this decides whether the "
+            "board header shows an info marker."
+        ),
+    )
 
 
 class GridCellSpec(BaseModel):
