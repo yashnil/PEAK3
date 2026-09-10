@@ -21,7 +21,7 @@ docs/implementation/CI_DATA_CONTRACT.md):
       has the field in this table or it is not eligible for the constraint
       that needs it.
 
-      `smoy_rank` and `mip_rank` (Sixth Man of the Year / Most Improved
+      `smoy_rank`, `mip_rank` and `roy_rank` (Sixth Man of the Year / Most Improved
       Player) are the one exception to "already a column": the table carries
       no pre-parsed rank column for either award the way it does for
       mvp_rank/dpoy_rank, but it DOES carry the same raw `awards` string
@@ -58,6 +58,34 @@ so a fixed `ts_pct` threshold is a decade filter wearing an efficiency label.
 `ts_plus` is already relative to the season's own league, which is the only
 honest way to ask "was this an efficient season" across a 46-season window.
 
+  data/reference/player_season_box.v1.parquet
+  data/reference/player_bio.v1.json
+      THE BASKETBALL-FACT LAYER (v5). PEAK3's own tables answer "how good was
+      this season" extremely well and answer almost nothing about the PLAYER:
+      they carry no height, no draft slot, no birth country, no franchise
+      history, and rates per 100 possessions rather than the per-GAME line a
+      fan actually quotes. The v5 Daily Grid taxonomy is built out of exactly
+      those facts, so they are read from a committed reference dataset built by
+      scripts/build_player_reference_dataset.py from Basketball-Reference --
+      the same source the committed parquets above were themselves scraped
+      from. See docs/model/DAILY_GRID_TAXONOMY.md for every field's definition
+      and data/reference/player_reference_manifest.v1.json for its provenance.
+
+      The season file joins on the exact (player_slug, season, team) key the
+      rest of this module already uses and supplies the per-game box line
+      (points/rebounds/assists/steals/blocks per game, three-pointers made) plus
+      the Basketball-Reference player id for that row. The bio file is keyed on
+      that id -- never on a name -- and supplies listed height, draft round and
+      overall pick, birth country, and how many franchises and seasons the
+      player's career ran to.
+
+      NOTHING HERE IS INFERRED. A field the reference dataset does not have for
+      a player is None, and every v5 constraint that reads it rejects the
+      season rather than guessing: a null height fails "7'0\" or Taller", a
+      null birth country fails "International Player", and a career that began
+      before the 1979-80 window fails the career-shape constraints outright
+      (see `career_fully_in_window`).
+
   data/game/experimental/player_pool_1500/candidate_identity_manifest.v1.json
       The 1,390 real, criteria-admitted player identities (All-Star / MVP or
       DPOY votes / All-Defense / championship-or-finals starter / minutes
@@ -90,6 +118,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 SCORED_PATH = REPO_ROOT / "cache" / "processed" / "scored_1980_2026.parquet"
 REGULAR_PATH = REPO_ROOT / "cache" / "processed" / "regular_1980_2026.parquet"
+REFERENCE_DIR = REPO_ROOT / "data" / "reference"
+REFERENCE_SEASON_BOX_PATH = REFERENCE_DIR / "player_season_box.v1.parquet"
+REFERENCE_BIO_PATH = REFERENCE_DIR / "player_bio.v1.json"
+
 MANIFEST_PATH = (
     REPO_ROOT
     / "data"
@@ -102,7 +134,46 @@ MANIFEST_PATH = (
 # v4: carries the season-grain age, rate (per-75) and efficiency/usage columns
 # the v4 constraint families read. Purely additive -- every column the v3 pool
 # published is still here, unchanged, so a v2/v3 board generates identically.
-POOL_VERSION = "daily_grid_pool.v4"
+# v5: carries the per-GAME box line and the career-identity columns (height,
+# draft slot, birth country, franchise/season counts) the v5 basketball-native
+# taxonomy reads. Purely additive -- every column the v4 pool published is
+# still here, unchanged, so a v2/v3/v4 board generates identically.
+POOL_VERSION = "daily_grid_pool.v5"
+
+# The reference columns joined onto every pool row at SEASON grain, straight
+# from data/reference/player_season_box.v1.parquet. Per-game, because that is
+# the line a fan quotes -- "he averaged 25 a game" -- where the scored table
+# carries only rates per 100 possessions.
+_REFERENCE_SEASON_COLUMNS: tuple[str, ...] = (
+    "bbref_id",
+    "pts_pg",
+    "trb_pg",
+    "ast_pg",
+    "stl_pg",
+    "blk_pg",
+    "fg3m",
+)
+
+# The reference columns joined at CAREER grain, from
+# data/reference/player_bio.v1.json, keyed on the Basketball-Reference player
+# id the season join above supplies. Career facts repeat on every one of a
+# player's season rows: a Lakers season by a top-10 pick answers
+# "Lakers x Top-10 Pick", which is how a grid game has always read.
+#
+# Stored as float rather than bool so a MISSING value stays missing. A boolean
+# column has no room for "unknown", and NumPy would coerce it to False -- which
+# is the difference between "we know he was not born abroad" and "we do not
+# know where he was born", and only the first may reject an answer silently.
+_REFERENCE_BIO_COLUMNS: tuple[str, ...] = (
+    "height_in",
+    "draft_round",
+    "draft_pick_overall",
+    "international",
+    "undrafted",
+    "franchise_count",
+    "seasons_played",
+    "career_fully_in_window",
+)
 
 # The league-leader flags on the scored table, in the order their labels are
 # read out in a rejection sentence. Each is a real 0/1 column: the player led
@@ -226,6 +297,7 @@ class PlayerSeason:
     # _award_rank() and the module docstring's note on this column.
     smoy_rank: Optional[int]
     mip_rank: Optional[int]
+    roy_rank: Optional[int]
     all_nba_team: Optional[int]
     all_defense_team: Optional[int]
     all_star: bool
@@ -245,6 +317,27 @@ class PlayerSeason:
     # Categories this season led the league in, e.g. ("scoring",). Empty tuple
     # for the overwhelming majority of seasons.
     stat_titles: tuple[str, ...]
+    # --- v5 basketball-fact layer (data/reference/, see module docstring) ---
+    # SEASON grain: the per-game box line. Defaulted to None so the several
+    # hand-built PlayerSeasons in tests keep constructing, and so a season the
+    # reference dataset has no row for is honestly blank rather than zeroed.
+    points_per_game: Optional[float] = None
+    rebounds_per_game: Optional[float] = None
+    assists_per_game: Optional[float] = None
+    steals_per_game: Optional[float] = None
+    blocks_per_game: Optional[float] = None
+    three_pointers_made: Optional[int] = None
+    # CAREER grain: facts about the player, repeated on each of their seasons.
+    # These are what make "Top-10 Pick", "International Player", "7'0\" or
+    # Taller" and "Played for 5+ Franchises" answerable, and they are the
+    # numbers the rejection sentences quote back when an answer misses.
+    height_inches: Optional[int] = None
+    draft_round: Optional[int] = None
+    draft_pick_overall: Optional[int] = None
+    international: Optional[bool] = None
+    undrafted: Optional[bool] = None
+    franchise_count: Optional[int] = None
+    career_seasons: Optional[int] = None
 
     @property
     def label(self) -> str:
@@ -355,6 +448,15 @@ def _optional_int(value) -> Optional[int]:
     return int(value)
 
 
+def _optional_bool(value) -> Optional[bool]:
+    """NaN -> None, else bool. The three-state contract the v5 reference
+    columns are stored as float to preserve: False and "we do not know" are
+    different answers and only one of them is a fact about the player."""
+    if value is None or pd.isna(value):
+        return None
+    return bool(value)
+
+
 def _optional_float(value) -> Optional[float]:
     """NaN -> None, else float. Same contract as _optional_int: a missing
     minutes/games value is a hole in the source table, not a zero."""
@@ -423,10 +525,65 @@ def canonical_playoff_round(row) -> str:
     return str(stored) if stored else PLAYOFF_ROUND_MISSED
 
 
+def _join_reference(
+    scored: pd.DataFrame,
+    season_box_path: Path | None = None,
+    bio_path: Path | None = None,
+) -> pd.DataFrame:
+    """Attach the committed basketball-fact layer to the scored frame.
+
+    TWO GRAINS, ONE JOIN PATH. The season file is joined on the exact
+    (player_slug, season, team) key the position and age joins above already
+    use, and it carries the Basketball-Reference player id for that row; the
+    career file is then looked up BY THAT ID, so a career fact lands on the
+    right person even where two players share a slug. The league has had two
+    Charles Joneses on one roster and two Mike Dunleavys in one era, and a
+    slug-keyed career join would have quietly merged them.
+
+    `slug_primary` is the reference dataset's own resolution of the one
+    (slug, season, team) collision in the window -- see
+    scripts/build_player_reference_dataset.py::_mark_slug_primary.
+
+    Every column added here is nullable and stays null when the reference
+    dataset has no value. `.astype(float)` on the boolean-shaped columns is
+    deliberate and is why: a NumPy bool column cannot hold "unknown", so a
+    player whose birth country the source does not record would arrive as
+    False -- indistinguishable from a player known to be American -- and an
+    International Player square would reject a correct answer with no way to
+    tell that had happened.
+    """
+    box_load = season_box_path or REFERENCE_SEASON_BOX_PATH
+    bio_load = bio_path or REFERENCE_BIO_PATH
+    for required in (box_load, bio_load):
+        if not required.exists():
+            raise FileNotFoundError(
+                f"{required} missing -- broken checkout (this file is committed). "
+                "Rebuild with scripts/build_player_reference_dataset.py."
+            )
+
+    box = pd.read_parquet(box_load)
+    box = box[box["slug_primary"].to_numpy(dtype=bool)]
+    keyed_box = box.set_index(["player_slug", "season", "team"])
+    key = scored.set_index(["player_slug", "season", "team"]).index
+    for column in _REFERENCE_SEASON_COLUMNS:
+        scored[column] = key.map(keyed_box[column])
+
+    bio = json.loads(bio_load.read_text())["players"]
+    for column in _REFERENCE_BIO_COLUMNS:
+        scored[column] = [
+            (bio.get(player_id) or {}).get(column) if isinstance(player_id, str) else None
+            for player_id in scored["bbref_id"]
+        ]
+        scored[column] = pd.to_numeric(scored[column], errors="coerce").astype(float)
+    return scored
+
+
 def build_pool(
     scored_path: Path | None = None,
     regular_path: Path | None = None,
     manifest_path: Path | None = None,
+    season_box_path: Path | None = None,
+    bio_path: Path | None = None,
 ) -> GridPool:
     """Build the answer universe from committed local data. No network."""
     scored_load = scored_path or SCORED_PATH
@@ -446,6 +603,8 @@ def build_pool(
     # _award_rank().
     scored["smoy_rank"] = scored["awards"].map(lambda a: _award_rank(a, "6MOY"))
     scored["mip_rank"] = scored["awards"].map(lambda a: _award_rank(a, "MIP"))
+    # v5: Rookie of the Year, read the identical way from the identical column.
+    scored["roy_rank"] = scored["awards"].map(lambda a: _award_rank(a, "ROY"))
 
     eligible = _load_manifest_slugs(manifest_path)
     scored = scored[scored["player_slug"].isin(eligible)].copy()
@@ -482,6 +641,11 @@ def build_pool(
     for source, target in _PER_100_TO_PER_75:
         scored[target] = pd.to_numeric(scored[source], errors="coerce") * 0.75
 
+    # The committed basketball-fact layer -- per-game box line at season grain,
+    # height/draft/birth country/career shape at career grain. See
+    # _join_reference() and the module docstring.
+    scored = _join_reference(scored, season_box_path, bio_path)
+
     scored["season_start_year"] = scored["season"].str[:4].astype(int)
     # Rebuild the round label from the flags PEAK3 actually scores from, so the
     # label the player is shown can never contradict the constraint that
@@ -513,6 +677,7 @@ def build_pool(
             dpoy_rank=_optional_int(row.dpoy_rank),
             smoy_rank=_optional_int(row.smoy_rank),
             mip_rank=_optional_int(row.mip_rank),
+            roy_rank=_optional_int(row.roy_rank),
             all_nba_team=_optional_int(row.all_nba_team),
             all_defense_team=_optional_int(row.all_defense_team),
             all_star=bool(row.all_star == 1),
@@ -529,6 +694,19 @@ def build_pool(
                 for column, name in STAT_TITLE_COLUMNS
                 if int(getattr(row, column)) == 1
             ),
+            points_per_game=_optional_float(row.pts_pg),
+            rebounds_per_game=_optional_float(row.trb_pg),
+            assists_per_game=_optional_float(row.ast_pg),
+            steals_per_game=_optional_float(row.stl_pg),
+            blocks_per_game=_optional_float(row.blk_pg),
+            three_pointers_made=_optional_int(row.fg3m),
+            height_inches=_optional_int(row.height_in),
+            draft_round=_optional_int(row.draft_round),
+            draft_pick_overall=_optional_int(row.draft_pick_overall),
+            international=_optional_bool(row.international),
+            undrafted=_optional_bool(row.undrafted),
+            franchise_count=_optional_int(row.franchise_count),
+            career_seasons=_optional_int(row.seasons_played),
         )
         for row in scored.itertuples(index=False)
     ]
@@ -552,6 +730,7 @@ def build_pool(
             "dpoy_rank",
             "smoy_rank",
             "mip_rank",
+            "roy_rank",
             "all_nba_team",
             "all_defense_team",
             "all_star",
@@ -574,6 +753,9 @@ def build_pool(
             "usg_pct",
             "ts_plus",
             "threepar",
+            # v5 basketball-fact columns. See _join_reference().
+            *_REFERENCE_SEASON_COLUMNS,
+            *_REFERENCE_BIO_COLUMNS,
             *[column for column, _ in STAT_TITLE_COLUMNS],
         ]
     ].reset_index(drop=True)

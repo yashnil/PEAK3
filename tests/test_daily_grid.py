@@ -21,6 +21,8 @@ from nba_peak.daily_grid.constraints import (
     SMOY_SEASON_START,
     V3_ADDED_CONSTRAINT_IDS,
     V4_ADDED_CONSTRAINT_IDS,
+    V5_ADDED_CONSTRAINT_IDS,
+    V5_RETIRED_CONSTRAINT_IDS,
     build_constraints,
     constraint_by_id,
 )
@@ -30,7 +32,9 @@ from nba_peak.daily_grid.generator import (
     DAILY_GRID_VERSION_V2,
     DAILY_GRID_VERSION_V3,
     DAILY_GRID_VERSION_V4,
+    DAILY_GRID_VERSION_V5,
     FAMILY_CUTOVER_DATE,
+    TAXONOMY_CUTOVER_DATE,
     GRID_SIZE,
     GridBoard,
     GridCell as ModelGridCell,
@@ -190,6 +194,12 @@ class TestConstraints:
             "production",
             "shooting",
             "usage",
+            # v5 families: how the player entered the league, where he was
+            # born, how tall he is, what his career looked like.
+            "draft",
+            "origin",
+            "size",
+            "journey",
         }
 
     def test_all_thirty_franchises_ship(self, taxonomy):
@@ -1792,12 +1802,74 @@ class TestVersionCutover:
         for date in (day_after, "2026-09-01", FAMILY_CUTOVER_DATE):
             assert _version_for_date(date) == DAILY_GRID_VERSION_V3, date
 
-    def test_every_date_after_the_family_cutover_resolves_to_v4(self):
+    @pytest.mark.parametrize(
+        "date,expected_version,expected_board_id,expected_rows,expected_cols,expected_attempts",
+        [
+            (
+                # The first v3 date, and the last two v4 dates -- the whole v4
+                # window, since v5 shipped two days after v4 did. Pinned for
+                # the same reason the v2 boards above are: these are boards a
+                # real player could already have opened, and the v5 pass
+                # RETIRES constraints two of them are built from
+                # (`shoot_efficiency`, `comp_traditional_production`,
+                # `prod_perimeter_defense`). Retired must mean "not drawn for a
+                # NEW board", never "gone" -- if it ever came to mean the
+                # second, these three are what notices.
+                "2026-08-26",
+                DAILY_GRID_VERSION_V3,
+                "daily-grid-v3-2026-08-26",
+                ("pos_center", "award_all_star", "era_2000s"),
+                ("team_nyk", "award_all_defense_first", "context_mpg_30"),
+                238,
+            ),
+            (
+                "2026-09-09",
+                DAILY_GRID_VERSION_V4,
+                "daily-grid-v4-2026-09-09",
+                ("shoot_efficiency", "pos_forward", "usage_primary"),
+                ("team_cha", "outcome_missed_playoffs", "award_finals_mvp"),
+                2814,
+            ),
+            (
+                # The cutover date itself is still v4 ("at or before").
+                "2026-09-10",
+                DAILY_GRID_VERSION_V4,
+                "daily-grid-v4-2026-09-10",
+                ("usage_high", "comp_traditional_production", "prod_perimeter_defense"),
+                ("award_dpoy_votes", "era_2020s", "team_phi"),
+                700,
+            ),
+        ],
+    )
+    def test_v3_and_v4_dates_resolve_to_their_recorded_board(
+        self,
+        date,
+        expected_version,
+        expected_board_id,
+        expected_rows,
+        expected_cols,
+        expected_attempts,
+    ):
+        board = get_board(date)
+        assert board.version == expected_version
+        assert board.board_id == expected_board_id
+        assert tuple(c.id for c in board.rows) == expected_rows
+        assert tuple(c.id for c in board.cols) == expected_cols
+        assert board.attempts == expected_attempts
+
+    def test_dates_between_the_family_and_taxonomy_cutovers_resolve_to_v4(self):
         day_after = (
             datetime.date.fromisoformat(FAMILY_CUTOVER_DATE) + datetime.timedelta(days=1)
         ).isoformat()
-        for date in (day_after, "2030-01-01", "2036-08-25"):
+        for date in (day_after, TAXONOMY_CUTOVER_DATE):
             assert _version_for_date(date) == DAILY_GRID_VERSION_V4, date
+
+    def test_every_date_after_the_taxonomy_cutover_resolves_to_v5(self):
+        day_after = (
+            datetime.date.fromisoformat(TAXONOMY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        ).isoformat()
+        for date in (day_after, "2030-01-01", "2036-08-25"):
+            assert _version_for_date(date) == DAILY_GRID_VERSION_V5, date
 
     def test_the_version_ladder_ascends(self):
         """Each cutover must be strictly later than the one before it, or a
@@ -1858,11 +1930,22 @@ class TestVersionCutover:
         as_v2 = {c.id for c in _legacy_taxonomy(taxonomy, DAILY_GRID_VERSION_V2)}
         as_v3 = {c.id for c in _legacy_taxonomy(taxonomy, DAILY_GRID_VERSION_V3)}
         as_v4 = {c.id for c in _legacy_taxonomy(taxonomy, DAILY_GRID_VERSION_V4)}
+        as_v5 = {c.id for c in _legacy_taxonomy(taxonomy, DAILY_GRID_VERSION_V5)}
         every_id = {c.id for c in taxonomy}
 
-        assert as_v2 == every_id - V3_ADDED_CONSTRAINT_IDS - V4_ADDED_CONSTRAINT_IDS
-        assert as_v3 == every_id - V4_ADDED_CONSTRAINT_IDS
-        assert as_v4 == every_id
+        assert as_v2 == (
+            every_id
+            - V3_ADDED_CONSTRAINT_IDS
+            - V4_ADDED_CONSTRAINT_IDS
+            - V5_ADDED_CONSTRAINT_IDS
+        )
+        assert as_v3 == every_id - V4_ADDED_CONSTRAINT_IDS - V5_ADDED_CONSTRAINT_IDS
+        assert as_v4 == every_id - V5_ADDED_CONSTRAINT_IDS
+        # v5 is the first version that also REMOVES: it sees everything except
+        # the PEAK3-native and per-75 constraints it retired, which stay in the
+        # module so that already-published boards keep resolving.
+        assert as_v5 == every_id - V5_RETIRED_CONSTRAINT_IDS
+        assert V5_RETIRED_CONSTRAINT_IDS <= as_v4
 
         # ORDER IS PRESERVED at every rung -- generation samples from this list
         # by index against a date-seeded RNG, so a legacy date's determinism
@@ -2021,7 +2104,7 @@ class TestNoveltyCooldown:
         # day after NOVELTY_CUTOVER_DATE and assert v3 for 200 consecutive
         # days, which stopped being true the moment a second cutover landed
         # inside that span.
-        current_start = datetime.date.fromisoformat(FAMILY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        current_start = datetime.date.fromisoformat(TAXONOMY_CUTOVER_DATE) + datetime.timedelta(days=1)
         current_dates = [
             (current_start + datetime.timedelta(days=i)).isoformat() for i in range(200)
         ]
@@ -2077,6 +2160,238 @@ class TestNoImpossibleCells:
 
     def test_the_floor_itself_is_well_above_the_brief(self):
         assert MIN_ANSWERS_PER_CELL >= 3
+
+
+# ---------------------------------------------------------------------------
+# The v5 basketball taxonomy: draft, origin, size, journey, per-game
+# production, and the retirement of the PEAK3-native and per-75 families
+# ---------------------------------------------------------------------------
+
+class TestV5Taxonomy:
+    """The basketball-taxonomy pass: the four new families, the retirements,
+    and the promise that a published board never moves because of either."""
+
+    def test_the_new_families_are_all_registered(self, taxonomy):
+        families = {c.category for c in taxonomy}
+        assert {"draft", "origin", "size", "journey"} <= families
+
+    def test_every_v5_id_exists_and_every_added_id_is_new(self, taxonomy):
+        ids = {c.id for c in taxonomy}
+        assert V5_ADDED_CONSTRAINT_IDS <= ids
+        assert V5_RETIRED_CONSTRAINT_IDS <= ids
+        assert not (V5_ADDED_CONSTRAINT_IDS & V5_RETIRED_CONSTRAINT_IDS)
+
+    def test_the_retired_ids_are_exactly_the_peak3_native_and_per_75_families(
+        self, taxonomy
+    ):
+        """Retirement is a product decision about which axes read as
+        basketball, so what it covers is worth pinning: everything PEAK3's own
+        model output (`peak`, `component`), plus the per-75-possession bands
+        and the three-point-RATE band that the per-game constraints replaced.
+        Nothing else."""
+        by_id = {c.id: c for c in taxonomy}
+        retired_families = {by_id[i].category for i in V5_RETIRED_CONSTRAINT_IDS}
+        assert retired_families == {"peak", "component", "production", "shooting"}
+        assert {c.id for c in taxonomy if c.category in {"peak", "component"}} <= (
+            V5_RETIRED_CONSTRAINT_IDS
+        )
+
+    @pytest.mark.parametrize("date", ["1990-01-01", "2026-08-25", "2026-09-01", "2026-09-10"])
+    def test_pre_v5_boards_never_use_a_v5_constraint(self, date):
+        board = get_board(date)
+        ids = {c.id for c in board.rows} | {c.id for c in board.cols}
+        assert not (ids & V5_ADDED_CONSTRAINT_IDS), (date, ids)
+
+    def test_v5_boards_never_use_a_retired_constraint(self):
+        """The whole point of the pass, asserted against real generated boards
+        rather than against the filter in isolation: an axis reading
+        "Top 10% TP" or "1.8+ STL/75" must not reach a new board."""
+        start = datetime.date.fromisoformat(TAXONOMY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        for offset in range(200):
+            date = (start + datetime.timedelta(days=offset)).isoformat()
+            board = get_board(date)
+            ids = {c.id for c in board.rows} | {c.id for c in board.cols}
+            assert not (ids & V5_RETIRED_CONSTRAINT_IDS), (date, ids)
+
+    def test_the_v5_families_do_reach_a_real_board(self):
+        start = datetime.date.fromisoformat(TAXONOMY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        seen: set[str] = set()
+        for offset in range(120):
+            date = (start + datetime.timedelta(days=offset)).isoformat()
+            board = get_board(date)
+            seen |= {c.category for c in board.rows} | {c.category for c in board.cols}
+        assert {"draft", "origin", "size", "journey"} <= seen, seen
+
+    def test_no_v5_board_is_more_than_two_identity_axes(self):
+        """MAX_IDENTITY_CONSTRAINTS, on real boards. Three biography axes and
+        every square becomes a lookup about the player rather than a question
+        about a season."""
+        from nba_peak.daily_grid.generator import MAX_IDENTITY_CONSTRAINTS, _IDENTITY
+
+        start = datetime.date.fromisoformat(TAXONOMY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        for offset in range(200):
+            date = (start + datetime.timedelta(days=offset)).isoformat()
+            board = get_board(date)
+            categories = [c.category for c in board.rows] + [c.category for c in board.cols]
+            identity = sum(1 for cat in categories if cat in _IDENTITY)
+            assert identity <= MAX_IDENTITY_CONSTRAINTS, (date, categories)
+
+    def test_the_native_allowance_is_zero_at_v5_for_every_seed(self):
+        """`_native_allowance` has to be version-aware, not seed-only. If it
+        still returned 1 on a spice seed, every spice-seeded v5 date would burn
+        _PREFER_SPICE_UNTIL_ATTEMPT attempts insisting on a PEAK3-native axis
+        that no longer exists in its population."""
+        for seed in range(0, 50):
+            assert _native_allowance(seed, DAILY_GRID_VERSION_V5) == 0, seed
+        # ... while the older versions keep their original behaviour exactly.
+        assert _native_allowance(0, DAILY_GRID_VERSION_V4) == MAX_PEAK3_NATIVE
+        assert _native_allowance(1, DAILY_GRID_VERSION_V4) == 0
+
+    def test_the_draft_slots_can_never_cross(self, taxonomy):
+        """Top-10, second round and undrafted are mutually exclusive, and
+        "No. 1 Overall" is nested inside "Top-10", so all four share a group."""
+        draft = [c for c in taxonomy if c.category == "draft"]
+        assert len(draft) == 4
+        assert len({c.exclusive_group for c in draft}) == 1
+        assert draft[0].exclusive_group is not None
+
+    def test_the_height_bands_can_never_cross(self, taxonomy):
+        size = [c for c in taxonomy if c.category == "size"]
+        assert len({c.exclusive_group for c in size}) == 1
+
+    def test_the_two_points_per_game_rungs_share_a_group(self, taxonomy):
+        """20+ and 25+ PPG are nested, so crossing them would make the looser
+        one decoration. The other per-game bands measure different acts and are
+        free to cross."""
+        by_id = {c.id: c for c in taxonomy}
+        assert (
+            by_id["prod_ppg_20"].exclusive_group
+            == by_id["prod_ppg_25"].exclusive_group
+            is not None
+        )
+        for other in ("prod_rpg_10", "prod_apg_7", "prod_spg_2", "prod_bpg_2"):
+            assert by_id[other].exclusive_group is None
+
+
+class TestConstraintDefinitions:
+    """`needs_definition` -- which axes get an info marker, and why."""
+
+    def test_the_flag_is_published_to_the_client(self, taxonomy):
+        payload = taxonomy[0].as_dict()
+        assert "needs_definition" in payload
+        assert isinstance(payload["needs_definition"], bool)
+
+    def test_the_axes_whose_rule_cannot_be_read_off_the_label_are_marked(
+        self, taxonomy
+    ):
+        by_id = {c.id: c for c in taxonomy}
+        for constraint_id in (
+            "shoot_elite_efficiency",   # relative to WHICH league average?
+            "draft_second_round",       # rounds were not always two
+            "draft_undrafted",          # drafted in which league?
+            "origin_international",     # birthplace, citizenship or flag?
+            "journey_one_franchise",    # counted over which seasons?
+            "journey_franchises_5",
+            "journey_seasons_15",
+        ):
+            assert by_id[constraint_id].needs_definition, constraint_id
+
+    def test_self_explanatory_axes_are_not_marked(self, taxonomy):
+        by_id = {c.id: c for c in taxonomy}
+        for constraint_id in (
+            "team_lal",
+            "award_all_star",
+            "award_mvp",
+            "era_1990s",
+            "size_7ft",
+            "draft_top10",
+            "prod_ppg_25",
+            "outcome_champion",
+        ):
+            assert not by_id[constraint_id].needs_definition, constraint_id
+
+    def test_every_constraint_carries_a_real_sentence_either_way(self, taxonomy):
+        """The marker decides whether the rule is FLAGGED, never whether it
+        exists: the cell panel prints `description` for every axis."""
+        for constraint in taxonomy:
+            assert constraint.description.strip().endswith("."), constraint.id
+            assert len(constraint.description) > 20, constraint.id
+
+
+class TestReferenceBackedPredicates:
+    """The v5 predicates against named players, through the real pool.
+
+    tests/test_player_reference_dataset.py checks the DATA is right; this
+    checks the constraints read it correctly, which is a different failure.
+    """
+
+    @staticmethod
+    def _season(pool, name: str, season: str):
+        matches = [s for s in pool.seasons if s.player_name == name and s.season == season]
+        assert matches, f"{season} {name} is not in the pool"
+        return matches[0]
+
+    @pytest.mark.parametrize(
+        "name,season,constraint_id,expected",
+        [
+            # Draft.
+            ("Michael Jordan", "1990-91", "draft_top10", True),
+            ("Michael Jordan", "1990-91", "draft_first_overall", False),
+            ("Michael Jordan", "1990-91", "draft_second_round", False),
+            ("Nikola Jokic", "2021-22", "draft_second_round", True),
+            ("Nikola Jokic", "2021-22", "draft_top10", False),
+            ("LeBron James", "2012-13", "draft_first_overall", True),
+            ("Ben Wallace", "2003-04", "draft_undrafted", True),
+            ("Ben Wallace", "2003-04", "draft_top10", False),
+            # A pre-window career with no NBA draft row is NOT undrafted.
+            ("Moses Malone", "1982-83", "draft_undrafted", False),
+            # Origin.
+            ("Hakeem Olajuwon", "1993-94", "origin_international", True),
+            ("Tim Duncan", "2002-03", "origin_international", True),
+            ("Michael Jordan", "1990-91", "origin_international", False),
+            # Size.
+            ("Hakeem Olajuwon", "1993-94", "size_7ft", True),
+            ("Tim Duncan", "2002-03", "size_7ft", False),
+            ("Tim Duncan", "2002-03", "size_6ft10", True),
+            ("Chris Paul", "2008-09", "size_6ft3_under", True),
+            ("Michael Jordan", "1990-91", "size_6ft3_under", False),
+            # Journey.
+            ("Tim Duncan", "2002-03", "journey_one_franchise", True),
+            ("Tim Duncan", "2002-03", "journey_franchises_5", False),
+            ("Michael Jordan", "1990-91", "journey_one_franchise", False),
+            # A career that began before the window cannot make the
+            # one-franchise claim even when its in-window teams are all one.
+            ("Julius Erving", "1982-83", "journey_one_franchise", False),
+            # Per-game production.
+            ("Michael Jordan", "1990-91", "prod_ppg_25", True),
+            ("Michael Jordan", "1990-91", "prod_rpg_10", False),
+            ("Dennis Rodman", "1991-92", "prod_rpg_10", True),
+            ("Dennis Rodman", "1991-92", "prod_ppg_20", False),
+            ("John Stockton", "1990-91", "prod_apg_7", True),
+            ("Stephen Curry", "2015-16", "shoot_threes_200", True),
+            ("Michael Jordan", "1990-91", "shoot_threes_200", False),
+        ],
+    )
+    def test_predicate(self, pool, name, season, constraint_id, expected):
+        season_row = self._season(pool, name, season)
+        constraint = constraint_by_id(constraint_id, pool)
+        matched = constraint.matches(pool.frame)
+        index = list(pool.frame["answer_id"]).index(season_row.id)
+        assert bool(matched[index]) is expected, (name, season, constraint_id)
+
+    def test_a_missing_reference_value_rejects_rather_than_passing(self, pool):
+        """The three-state contract, at the predicate layer. Nothing in the
+        pool may satisfy a v5 constraint by having a null where its fact should
+        be."""
+        frame = pool.frame
+        for constraint_id, column in (
+            ("size_7ft", "height_in"),
+            ("origin_international", "international"),
+            ("draft_top10", "draft_pick_overall"),
+            ("draft_undrafted", "undrafted"),
+        ):
+            matched = constraint_by_id(constraint_id, pool).matches(frame)
+            assert not frame.loc[matched, column].isna().any(), constraint_id
 
 
 # ---------------------------------------------------------------------------
@@ -2179,8 +2494,15 @@ class TestV4Families:
 
     def test_the_production_rates_are_independent_and_may_cross(self, taxonomy):
         """Rebounding and playmaking measure different acts, so crossing them
-        is a real two-condition square rather than one condition twice."""
-        production = [c for c in taxonomy if c.category == "production"]
+        is a real two-condition square rather than one condition twice.
+
+        Asserted over the v4 per-75 bands SPECIFICALLY, by id, rather than over
+        the whole `production` family: v5 added six per-game constraints to the
+        same family (and two of those, 20+ and 25+ PPG, ARE nested and do share
+        a group). The property this test names is still exactly true of the
+        five it was written about.
+        """
+        production = [c for c in taxonomy if c.id in V4_ADDED_CONSTRAINT_IDS and c.category == "production"]
         assert len(production) == 5
         assert all(c.exclusive_group is None for c in production)
 

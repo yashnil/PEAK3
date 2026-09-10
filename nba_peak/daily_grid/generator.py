@@ -81,6 +81,8 @@ from nba_peak.daily_grid.constraints import (
     Constraint,
     V3_ADDED_CONSTRAINT_IDS,
     V4_ADDED_CONSTRAINT_IDS,
+    V5_ADDED_CONSTRAINT_IDS,
+    V5_RETIRED_CONSTRAINT_IDS,
     all_constraints,
 )
 from nba_peak.daily_grid.pool import GridPool, load_pool
@@ -114,13 +116,22 @@ DAILY_GRID_VERSION_V3 = "daily_grid.v3"
 # that was in force when it shipped.
 DAILY_GRID_VERSION_V4 = "daily_grid.v4"
 
+# v5: the basketball-taxonomy pass. Adds the draft, origin (birth country),
+# size (listed height) and career-journey families, restates the production
+# bands per GAME rather than per 75 possessions, adds Rookie of the Year and
+# the four remaining league-leader titles, and RETIRES the PEAK3-native
+# (`peak`, `component`) and per-75 constraints from new generation -- the first
+# version to remove rather than only add. Effective only for a board date
+# strictly after TAXONOMY_CUTOVER_DATE.
+DAILY_GRID_VERSION_V5 = "daily_grid.v5"
+
 # The symbol every external caller imports as "the current taxonomy version".
 # Code that needs to know what a SPECIFIC DATE's board actually resolves
 # under -- generation, the seed, the board id -- must go through
 # _version_for_date(date_str), never this constant directly, because a date
 # at or before the cutover has to keep resolving under v2 even after this
 # constant moves on to v4, v5, etc.
-DAILY_GRID_VERSION = DAILY_GRID_VERSION_V4
+DAILY_GRID_VERSION = DAILY_GRID_VERSION_V5
 
 # THE CUTOVER. A board date <= this value resolves EXACTLY as it always has:
 # same version salt (v2), same frozen v2 taxonomy (no Sixth Man of the Year /
@@ -137,14 +148,25 @@ NOVELTY_CUTOVER_DATE = "2026-08-25"
 # so no board a player could already have seen is touched.
 FAMILY_CUTOVER_DATE = "2026-09-08"
 
+# THE THIRD CUTOVER, same contract as the first two. A date at or before this
+# resolves under v4 exactly as it always has -- v4 salt, v4 taxonomy, v4
+# composition and novelty rules, same seed, same board_id, same axis LABELS.
+# Only a date strictly after it picks up v5. Set to the date the v5 taxonomy
+# shipped, so no board a real player could already have opened is touched --
+# including today's.
+TAXONOMY_CUTOVER_DATE = "2026-09-10"
+
 # The version ladder, OLDEST FIRST: each entry is the date at or before which a
 # board resolves under that version. Written as a table rather than a chain of
-# comparisons so adding v5 is one row, and so the ordering invariant (the
+# comparisons so adding the next version is one row, and so the ordering
+# invariant (the
 # cutovers must ascend) is visible at a glance rather than implied by control
-# flow.
+# flow. The CURRENT version is deliberately absent: it is what
+# `_version_for_date` falls through to.
 _VERSION_LADDER: tuple[tuple[str, str], ...] = (
     (NOVELTY_CUTOVER_DATE, DAILY_GRID_VERSION_V2),
     (FAMILY_CUTOVER_DATE, DAILY_GRID_VERSION_V3),
+    (TAXONOMY_CUTOVER_DATE, DAILY_GRID_VERSION_V4),
 )
 
 
@@ -180,12 +202,24 @@ def _legacy_taxonomy(taxonomy: Sequence[Constraint], version: str) -> list[Const
     legacy date's determinism depends on. Silently leaving newer constraints
     in for an old date would reshuffle what every past board resolves to, even
     the ones nothing about the change touches.
+
+    v5 IS THE FIRST VERSION THAT ALSO REMOVES. The PEAK3-native and
+    per-75-possession constraints stay in the module (a published board that
+    used one has to keep resolving, and every OLDER version's population still
+    contains them) but drop out of the population v5 draws from. So this
+    function is no longer "the full list minus what came later" -- it is "the
+    population THIS version sampled from", which for the current version means
+    subtracting its own retirements.
     """
     drop: set[str] = set()
+    if version in (DAILY_GRID_VERSION_V2, DAILY_GRID_VERSION_V3, DAILY_GRID_VERSION_V4):
+        drop |= V5_ADDED_CONSTRAINT_IDS
     if version in (DAILY_GRID_VERSION_V2, DAILY_GRID_VERSION_V3):
         drop |= V4_ADDED_CONSTRAINT_IDS
     if version == DAILY_GRID_VERSION_V2:
         drop |= V3_ADDED_CONSTRAINT_IDS
+    if version == DAILY_GRID_VERSION_V5:
+        drop |= V5_RETIRED_CONSTRAINT_IDS
     return [c for c in taxonomy if c.id not in drop]
 
 
@@ -237,6 +271,16 @@ MAX_CONTEXT_CONSTRAINTS = 1
 _STYLE = frozenset({"context", "production", "shooting", "usage"})
 MAX_STYLE_CONSTRAINTS = 2
 
+# v5: the same argument again, applied to the four families that describe the
+# PLAYER rather than the season -- how he entered the league, where he was
+# born, how tall he is, how his career ran. Two of them crossed is a good
+# square ("International x Second-Round Pick" is a real think). Three or more
+# and the board stops being about basketball seasons at all: every square
+# becomes a biography lookup, and the awards, franchises and eras that give a
+# board its texture get crowded out of the six slots.
+_IDENTITY = frozenset({"draft", "origin", "size", "journey"})
+MAX_IDENTITY_CONSTRAINTS = 2
+
 # Every board needs at least two constraints a fan can anchor on that are not
 # a franchise, a position or a workload line: awards, playoff outcomes, eras.
 # Raised from 1 in 11C -- with the PEAK3-native axes gone there is room for
@@ -260,6 +304,14 @@ _RECOGNIZABLE = frozenset(
         "production",
         "shooting",
         "usage",
+        # v5 families. Draft slot, birth country, listed height and career
+        # shape are the most recognisable facts in the whole taxonomy -- a fan
+        # can name second-round picks and seven-footers without knowing a
+        # single PEAK3 term.
+        "draft",
+        "origin",
+        "size",
+        "journey",
     }
 )
 _PEAK3_NATIVE = frozenset({"peak", "component"})
@@ -411,13 +463,23 @@ _PREFER_NOVELTY_UNTIL_ATTEMPT = 4000
 _AXIS_FINGERPRINT_CACHE: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {}
 
 
-def _native_allowance(seed: int) -> int:
-    """How many PEAK3 score/component axes this date's board may carry: 1 on a
-    spice date, 0 otherwise. Never more than MAX_PEAK3_NATIVE.
+def _native_allowance(seed: int, version: str = DAILY_GRID_VERSION) -> int:
+    """How many PEAK3 score/component axes this date's board may carry.
 
-    Pure function of the seed, so it is as deterministic as the rest of
-    generation -- the same date gets the same allowance forever.
+    ZERO AT v5, ALWAYS. The `peak` and `component` families are retired from
+    the v5 population entirely (constraints.V5_RETIRED_CONSTRAINT_IDS), so a v5
+    board could not carry one even if it were allowed to -- and leaving the
+    spice allowance at 1 would be actively harmful rather than merely dead:
+    `_composition_ok` spends its first _PREFER_SPICE_UNTIL_ATTEMPT attempts
+    REJECTING any board that does not use the allowance, so every spice-seeded
+    v5 date would burn 2,500 attempts proving the impossible before falling
+    through. Hence version-aware rather than seed-only.
+
+    For v2-v4 the behaviour is bit-for-bit what it was: 1 on a spice date, 0
+    otherwise, never more than MAX_PEAK3_NATIVE.
     """
+    if version == DAILY_GRID_VERSION_V5:
+        return 0
     return MAX_PEAK3_NATIVE if seed % _SPICE_MODULUS == 0 else 0
 
 
@@ -784,6 +846,15 @@ _VETERAN_CONSTRAINT_IDS = frozenset({"career_age_30_over", "career_age_34_over"}
 # "Efficiency Night": the board is asking how the player scored -- shot diet,
 # era-relative efficiency, share of the offence -- rather than how much.
 _EFFICIENCY_CATEGORIES = frozenset({"shooting", "usage"})
+# v5 families, as themes. Same reason the v4 families needed their own: a
+# board built largely out of draft slots, birthplaces, heights and career
+# shapes would otherwise be labelled by whichever older predicate happened to
+# scrape through, and `resolve_theme_id` needs at least two true descriptions
+# per board to be able to skip yesterday's.
+_DRAFT_NIGHT_CATEGORIES = frozenset({"draft"})
+_AROUND_THE_WORLD_CATEGORIES = frozenset({"origin"})
+_TALE_OF_THE_TAPE_CATEGORIES = frozenset({"size"})
+_LONG_ROAD_CATEGORIES = frozenset({"journey"})
 
 #: Every theme the game can print, `theme_id -> display label`.
 #:
@@ -810,6 +881,15 @@ THEME_LABELS: "OrderedDict[str, str]" = OrderedDict(
         ("engine-room", "Engine Room"),
         ("playoff-pressure", "Playoff Pressure"),
         ("open-court", "Open Court"),
+        # v5, appended. Their position in THIS dict is irrelevant to priority:
+        # priority is `_theme_order(version)`, and v5 has its own re-measured
+        # ordering below (`_THEME_ORDER_V5`). They live at the end here so the
+        # legacy orderings, which are written as explicit tuples, keep naming
+        # every key this dict holds.
+        ("draft-night", "Draft Night"),
+        ("around-the-world", "Around the World"),
+        ("tale-of-the-tape", "Tale of the Tape"),
+        ("the-long-road", "The Long Road"),
     )
 )
 
@@ -859,13 +939,75 @@ _THEME_ORDER_LEGACY: tuple[str, ...] = (
     "veteran-night",
     "efficiency-night",
     "engine-room",
+    # The v5 themes, appended for exactly the same reason: unreachable on a
+    # legacy board (its taxonomy has none of those families), so appending them
+    # changes no published legacy label, while keeping `theme_candidates`
+    # total for a caller that hands the full taxonomy to a legacy date.
+    "draft-night",
+    "around-the-world",
+    "tale-of-the-tape",
+    "the-long-road",
 )
 
-_THEME_ORDER_V4: tuple[str, ...] = tuple(THEME_LABELS)
+#: v4's priority order: the thirteen themes that taxonomy could produce, in the
+#: order it produced them. Frozen as an explicit tuple rather than derived from
+#: THEME_LABELS, because appending the v5 themes to that dict would otherwise
+#: have silently changed which label a v4 board publishes.
+_THEME_ORDER_V4: tuple[str, ...] = (
+    "ring-chasers",
+    "box-score-night",
+    "young-legs",
+    "veteran-night",
+    "throwback-night",
+    "award-season",
+    "modern-era",
+    "two-way-night",
+    "franchise-icons",
+    "efficiency-night",
+    "engine-room",
+    "playoff-pressure",
+    "open-court",
+    "draft-night",
+    "around-the-world",
+    "tale-of-the-tape",
+    "the-long-road",
+)
+
+#: v5's priority order, rarest applicable predicate first, MEASURED over 300
+#: consecutive v5 keys rather than assumed -- retiring the PEAK3-native and
+#: per-75 families changed what every predicate competes against, so v4's
+#: ordering would have been wrong here. Observed shares: outcome>=2 3.3%,
+#: production>=2 4.0%, origin 8.0%, young 12.0%, veteran 14.0%, team>=2 20.3%,
+#: throwback 22.7%, size 24.3%, award>=2 25.7%, defence 25.7%, journey 26.0%,
+#: draft 28.7%, modern 30.7%, shooting-or-usage 32.7%, production>=1 36.3%,
+#: position-or-context 48.3%, outcome>=1 56.7%.
+_THEME_ORDER_V5: tuple[str, ...] = (
+    "ring-chasers",
+    "box-score-night",
+    "around-the-world",
+    "young-legs",
+    "veteran-night",
+    "franchise-icons",
+    "throwback-night",
+    "tale-of-the-tape",
+    "award-season",
+    "two-way-night",
+    "the-long-road",
+    "draft-night",
+    "modern-era",
+    "efficiency-night",
+    "engine-room",
+    "open-court",
+    "playoff-pressure",
+)
 
 
 def _theme_order(version: str) -> tuple[str, ...]:
-    return _THEME_ORDER_V4 if version == DAILY_GRID_VERSION_V4 else _THEME_ORDER_LEGACY
+    if version == DAILY_GRID_VERSION_V5:
+        return _THEME_ORDER_V5
+    if version == DAILY_GRID_VERSION_V4:
+        return _THEME_ORDER_V4
+    return _THEME_ORDER_LEGACY
 
 
 def theme_candidates(
@@ -905,6 +1047,10 @@ def theme_candidates(
         "engine-room": categories.count("production") >= 1,
         "playoff-pressure": categories.count("outcome") >= 1,
         "open-court": any(c in _OPEN_COURT_CATEGORIES for c in categories),
+        "draft-night": any(c in _DRAFT_NIGHT_CATEGORIES for c in categories),
+        "around-the-world": any(c in _AROUND_THE_WORLD_CATEGORIES for c in categories),
+        "tale-of-the-tape": any(c in _TALE_OF_THE_TAPE_CATEGORIES for c in categories),
+        "the-long-road": any(c in _LONG_ROAD_CATEGORIES for c in categories),
     }
     candidates = [
         theme_id
@@ -997,6 +1143,9 @@ def _composition_ok(
         return False
 
     if sum(1 for cat in categories if cat in _STYLE) > MAX_STYLE_CONSTRAINTS:
+        return False
+
+    if sum(1 for cat in categories if cat in _IDENTITY) > MAX_IDENTITY_CONSTRAINTS:
         return False
 
     # Phase 11C: the score/component axes are capped by the date's allowance,
@@ -1399,17 +1548,24 @@ def _generate_core(
         pool if pool is not None else None
     )
 
-    # A legacy date (version resolved to v2) generates from the FROZEN v2
-    # subset of today's taxonomy, never today's full one -- see
-    # _legacy_v2_taxonomy(). Only applies to the auto/default taxonomy: a
-    # caller that hands its own `constraints` (tests do) gets exactly that
-    # list, at every date, unchanged from before this pass.
-    if using_default_taxonomy and version != DAILY_GRID_VERSION:
+    # THE POPULATION THIS DATE'S VERSION ACTUALLY SAMPLED FROM. A legacy date
+    # generates from the frozen subset of today's taxonomy that existed when it
+    # shipped -- never today's full one. Applied for EVERY version including the
+    # current one, because since v5 a version can also RETIRE constraints: the
+    # retired ids are still in the module (an already-published board that used
+    # one has to keep resolving) but must not be drawn from for a new v5 board,
+    # and this is the single place that distinction is made. It was previously
+    # skipped when `version == DAILY_GRID_VERSION` as a cheap no-op, which was
+    # true only while every version was purely additive.
+    #
+    # Only applies to the auto/default taxonomy: a caller that hands its own
+    # `constraints` (tests do) gets exactly that list, at every date.
+    if using_default_taxonomy:
         taxonomy = _legacy_taxonomy(taxonomy, version)
 
     seed = grid_seed(date_str, version)
     rng = random.Random(seed)
-    native_allowance = _native_allowance(seed)
+    native_allowance = _native_allowance(seed, version)
 
     # Novelty/cooldown only ever runs for the real default taxonomy on a
     # post-cutover date -- never for a caller-supplied taxonomy (its history
@@ -1418,10 +1574,14 @@ def _generate_core(
     novelty_enabled = using_default_taxonomy and version in (
         DAILY_GRID_VERSION_V3,
         DAILY_GRID_VERSION_V4,
+        DAILY_GRID_VERSION_V5,
     )
     # The family rule (v4) rides on the same history the id/pair cooldowns
     # already walk, but must not change what a v3 date resolves to.
-    family_enabled = using_default_taxonomy and version == DAILY_GRID_VERSION_V4
+    family_enabled = using_default_taxonomy and version in (
+        DAILY_GRID_VERSION_V4,
+        DAILY_GRID_VERSION_V5,
+    )
     pair_last_seen: dict[frozenset[str], int] = {}
     # The population `rng.sample` draws from during the strict-preference
     # phase: the full taxonomy with anything still id-cooling-down removed
