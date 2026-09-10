@@ -2115,16 +2115,25 @@ class TestNoveltyCooldown:
         assert legacy_rate > 0.08, legacy_rate  # sanity: the comparison means something
         assert current_rate < legacy_rate / 2, (current_rate, legacy_rate)
 
-    def test_every_registered_category_is_reachable(self, taxonomy):
-        """No constraint the taxonomy ships is dead weight -- every id shows
-        up on at least one real board somewhere in a long enough window.
-        Walks both a legacy stretch and a v3 stretch, since the two draw from
-        different (v2-frozen vs full) taxonomies -- Sixth Man of the Year /
-        Most Improved Player can only ever appear in the v3 half, and a
-        handful of the rarer team ids need the full 1,000-day window on
-        either side to show up at all (measured empirically: 900 was not
-        always enough, so this keeps a margin above that rather than
-        chasing the exact minimum)."""
+    def test_every_ACTIVE_category_is_reachable(self, taxonomy):
+        """No constraint the generator may still DRAW is dead weight -- every
+        one shows up on a real board somewhere in a long enough window.
+
+        Walked per version, because each version samples a different
+        population: the legacy stretch covers everything v2 could draw, and the
+        v5 stretch covers everything v5 can. A handful of the rarer team ids
+        need the full 1,000-day window on either side to appear at all
+        (measured: 900 was not always enough, so this keeps a margin rather
+        than chasing the exact minimum).
+
+        RETIRED IDS ARE EXCLUDED, AND THAT IS THE POINT rather than a
+        loosening. `V5_RETIRED_CONSTRAINT_IDS` names constraints the taxonomy
+        deliberately no longer draws; asserting they still turn up would be
+        asserting the taxonomy pass had failed. That they remain RESOLVABLE --
+        which is what an already-published board needs -- is checked by
+        `TestV5Taxonomy::test_the_retired_ids_are_exactly_...` and by the v3/v4
+        board pins in TestVersionCutover, two of which are built from them.
+        """
         seen: set[str] = set()
         legacy_start = datetime.date(2020, 1, 1)
         for offset in range(1000):
@@ -2132,14 +2141,30 @@ class TestNoveltyCooldown:
             board = get_board(date)
             seen |= {c.id for c in board.rows} | {c.id for c in board.cols}
 
-        v3_start = datetime.date.fromisoformat(FAMILY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        v5_start = datetime.date.fromisoformat(TAXONOMY_CUTOVER_DATE) + datetime.timedelta(days=1)
         for offset in range(1000):
-            date = (v3_start + datetime.timedelta(days=offset)).isoformat()
+            date = (v5_start + datetime.timedelta(days=offset)).isoformat()
             board = get_board(date)
             seen |= {c.id for c in board.rows} | {c.id for c in board.cols}
 
-        unreached = {c.id for c in taxonomy} - seen
+        active = {c.id for c in taxonomy} - V5_RETIRED_CONSTRAINT_IDS
+        unreached = active - seen
         assert not unreached, unreached
+
+    def test_no_retired_id_reaches_a_board_in_either_window(self, taxonomy):
+        """The other half of the statement above, so "excluded from the
+        reachability check" cannot quietly become "still being drawn".
+
+        Only the v5 window is checked: the legacy window SHOULD keep drawing
+        the PEAK3-native ids, because they were part of v2's population and
+        those boards are frozen.
+        """
+        v5_start = datetime.date.fromisoformat(TAXONOMY_CUTOVER_DATE) + datetime.timedelta(days=1)
+        for offset in range(400):
+            date = (v5_start + datetime.timedelta(days=offset)).isoformat()
+            board = get_board(date)
+            ids = {c.id for c in board.rows} | {c.id for c in board.cols}
+            assert not (ids & V5_RETIRED_CONSTRAINT_IDS), (date, ids)
 
 
 # ---------------------------------------------------------------------------

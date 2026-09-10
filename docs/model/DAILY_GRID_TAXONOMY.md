@@ -284,6 +284,21 @@ never drawn for a new board. See `V5_RETIRED_CONSTRAINT_IDS`.
 | `shoot_efficiency` | `Elite TS+` | Same predicate, opaque header. Replaced by `shoot_elite_efficiency`, labelled **Elite Efficiency** with a definition marker. |
 | `shoot_three_volume` | `3PT Volume` | Share of attempts taken from three. Replaced by `200+ 3PM`, which is the sentence a fan actually says. |
 
+**Five of them never reached a board and now never will.** `v4` was in force for
+exactly two dates (2026-09-09 and 2026-09-10), and the seven ids v4 introduced
+that v5 retires could only ever have been drawn on those two. Two of them were
+(`prod_perimeter_defense`, `shoot_efficiency`); `prod_scoring`,
+`prod_rebounding`, `prod_playmaking`, `prod_rim_protection` and
+`shoot_three_volume` were not. They stay registered anyway, because the cost is
+five dataclass instances and the alternative is a taxonomy where "was this id
+ever drawable" depends on how long its version happened to last. The `peak` and
+`component` ids are a different case entirely: they were part of v2 and appear
+on many published boards.
+
+This is also why the reachability test is asserted per version and excludes the
+retired set. A test that still demanded every registered id turn up would be
+demanding that the retirement had not happened.
+
 **Why replace rather than rename.** `shoot_efficiency` and
 `shoot_elite_efficiency` have identical predicates. A published board's axis
 label is part of that published board, and renaming in place would have changed
