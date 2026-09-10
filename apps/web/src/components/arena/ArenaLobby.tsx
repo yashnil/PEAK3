@@ -398,14 +398,15 @@ function LobbyShell({
     : { title: "Multiplayer", intro: "" };
   return (
     <PeakV2Shell width="live">
-      {/* THE LOBBY IS THE CONCOURSE. `.pk-atmosphere` puts the same two
-          floodlights and court grid behind the mode cards that both game
-          rooms now sit on, so walking from the lobby into a match is one
-          building rather than two pages. The grid pitch is set in
-          `arena.css`; `PeakV2Shell` supplies the page-width/centering this
-          element used to hand-mimic via a CSS override. */}
+      {/* THE LOBBY IS THE CONCOURSE, and it no longer has to say so itself.
+          This used to carry `.pk-atmosphere` so the mode cards sat on the
+          same floodlights and grid as both game rooms; the page-level
+          `PeakV2ArenaBackdrop` now puts every one of those surfaces on one
+          continuous floor, which is what that comment was reaching for.
+          `PeakV2Shell` supplies the page-width/centering this element used
+          to hand-mimic via a CSS override. */}
       <div
-        className="pk-atmosphere pb-14 pt-9"
+        className="pb-14 pt-9"
         data-testid="arena-lobby"
         data-posture={capability?.posture ?? "loading"}
         style={{ "--pk-court-grid-size": "96px" } as CSSProperties}

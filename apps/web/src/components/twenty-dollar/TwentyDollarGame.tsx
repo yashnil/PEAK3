@@ -475,7 +475,7 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
   if (!view || !room) {
     return (
       <PeakV2Shell width="live">
-        <div className="pk-atmosphere py-9">
+        <div className="py-9">
           <p role="status" className="text-sm" style={{ color: "var(--v2-text-secondary)" }}>
             Loading the auction…
           </p>

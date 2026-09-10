@@ -54,12 +54,13 @@ import { EventMoment, ScoreTransition } from "@/components/game-feel";
 import { usePrefersReducedMotion } from "@/lib/a11y";
 import PeakV2LiveHeader from "../PeakV2LiveHeader";
 import PeakV2GameStatus from "../PeakV2GameStatus";
+import DuelProgressDashes from "./DuelProgressDashes";
 import PeakV2PlayerIdentity from "../PeakV2PlayerIdentity";
 import PeakV2Score from "../PeakV2Score";
 import PeakV2DataLane from "../PeakV2DataLane";
 import PeakV2PrimaryAction from "../PeakV2PrimaryAction";
 import { RANKING_COMPONENT_ORDER, RANKING_COMPONENT_TONE, RANKING_COMPONENT_LABEL } from "@/lib/v2-component-map";
-import type { AnswerResponse, Duel } from "@/types";
+import type { AnswerResponse, Duel, DuelResult } from "@/types";
 
 export interface PeakDuelV2RevealProps {
   mode: "daily" | "endless";
@@ -72,6 +73,9 @@ export interface PeakDuelV2RevealProps {
   selectedPeakId: string | null;
   currentIndex: number;
   totalDuels: number;
+  /** The session so far. Rendered as the same strip the question shows, in
+   *  the same slot — see `DuelProgressDashes` for why it is not optional. */
+  results: DuelResult[];
   totalArenaPoints: number;
   currentStreak: number;
   isLast: boolean;
@@ -85,6 +89,7 @@ export default function PeakDuelV2Reveal({
   selectedPeakId,
   currentIndex,
   totalDuels,
+  results,
   totalArenaPoints,
   currentStreak,
   isLast,
@@ -187,6 +192,16 @@ export default function PeakDuelV2Reveal({
         }
       />
 
+      {/* THE SAME STRIP THE QUESTION SHOWED, IN THE SAME SLOT. Not a
+          decoration: it is what stops the cards jumping when the answer
+          lands (see `DuelProgressDashes`), and the reveal is where the dash
+          for this matchup actually changes colour. */}
+      {mode === "daily" ? (
+        <div className="mt-3">
+          <DuelProgressDashes results={results} total={totalDuels} currentIndex={currentIndex} />
+        </div>
+      ) : null}
+
       {/* The verdict lives INSIDE the grid's center column (below), not as a
           block above it. `PeakDuelV2Stage`'s wrapper vertically CENTERS its
           single child (`justify-center`, so a short question is never
@@ -198,7 +213,7 @@ export default function PeakDuelV2Reveal({
           failure mode). The header-to-grid gap is `mt-10` in both
           components for the same reason — verified by that file's own
           pixel-level assertions, not a coincidence. */}
-      <div className="mt-10 grid grid-cols-1 items-start gap-6 sm:grid-cols-[1fr_auto_1fr] sm:gap-4">
+      <div className="duel-grid mt-10 grid grid-cols-1 items-start gap-6 sm:grid-cols-[1fr_auto_1fr] sm:gap-4">
         <div data-testid="duel-card-left" className="duel-reveal-card flex flex-col items-start gap-1.5 text-left" data-winner={leftIsWinner ? "true" : "false"} data-picked={leftPicked ? "true" : "false"}>
           <span
             style={{

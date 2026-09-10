@@ -30,7 +30,7 @@ export default function ArenaLobbyPage() {
     <Suspense
       fallback={
         <PeakV2Shell width="live">
-          <div className="pk-atmosphere pb-14 pt-9">
+          <div className="pb-14 pt-9">
             <header className="flex flex-col gap-1.5 pb-1">
               <p
                 className="text-xs font-bold uppercase tracking-[0.14em]"

@@ -110,7 +110,19 @@ export default function RunStartGate({
 
   return (
       <PeakV2Shell width="cinematic">
-        <div className="v2-rtt-gate" data-testid="rtt-start-gate">
+        {/* THE GATE IS PROSE, SO THE ROOM STAYS QUIET UNDER IT.
+            This route is one URL for two very different surfaces: this gate
+            (a headline, a paragraph, four numbered lines and a stat row) and,
+            once a run exists, the live board — which sets `data-arena="live"`
+            on `PeakV2RTTShell` and earns the firmer court. A review of the
+            shipped build measured what happened here without this: the
+            division line ran 15px from the II and IV numerals and read as an
+            unintended column rule, the centre-circle arc crossed a stat row,
+            and a key line landed 8px from the real section divider — two
+            near-parallel hairlines that read as a rendering fault rather
+            than as depth. Court geometry behind five paragraphs is noise; the
+            light and the vignette are not. */}
+        <div className="v2-rtt-gate" data-arena="quiet" data-testid="rtt-start-gate">
           <p className="v2-page-kicker">Run the Table</p>
           <h1 className="v2-page-title" style={{ fontSize: "var(--v2-display-size-line)" }}>
             Take over a front office.

@@ -3022,3 +3022,79 @@
     animation: none !important;
   }
 }
+
+/* ================================================================
+   A PICK LANDS ON A COURT
+   ================================================================
+   Before the broadcast-immersion pass, a drafted player materialised as a
+   slot's text changing from "Open" to a name — on the player's own court
+   and on both opponents'. The only signal was `data-just-picked`, a static
+   ring, and it only ever marked the LOCAL player's most recent pick. So the
+   single most consequential event in the mode — an opponent taking a name
+   off the shared board, which removes it for everyone — produced no beat at
+   all on the two courts where it mattered.
+
+   `SeatCourt` now runs the shared `useArrivals` diff per seat and marks each
+   slot with `data-beat`. Every court gets the same beat from the same
+   source: the server's snapshot landing, never a timer, never a re-render
+   for any other reason.
+
+   TWO DIFFERENT EVENTS, TWO DIFFERENT BEATS. An ARRIVAL is a draft — a
+   player who was not on this roster now is, so the card drops into the slot
+   and settles (`gf-pick-lock`). A SWAP is a rearrangement on your own court
+   — nobody new, two cards trading places — so it pulses in place without
+   travelling (`gf-swap`). Both keyframes already existed in game-feel.css
+   for exactly this purpose and are reused rather than re-authored.
+
+   NOTHING WAITS ON THIS. The beat is decoration over a roster that is
+   already in the DOM; `useArrivals` clears itself after its hold and no
+   control is gated on it.
+   ================================================================ */
+
+.tmw-slot[data-beat="arrived"] {
+  animation: gf-pick-lock 260ms var(--gf-ease-emphasized, cubic-bezier(0.34, 1.56, 0.64, 1)) 1;
+}
+
+.tmw-slot[data-beat="swapped"] {
+  animation: gf-swap 380ms var(--gf-ease-emphasized, cubic-bezier(0.34, 1.56, 0.64, 1)) 1;
+}
+
+/* The arriving card also takes the seat's own accent for the length of the
+   beat, so on a three-court board you can tell WHICH seat just signed
+   someone without reading a name. Colour is not the only cue — the motion
+   is the primary one, and the roster count in the seat header changes too. */
+.tmw-slot[data-beat="arrived"]::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid var(--seat-fill);
+  opacity: 0;
+  pointer-events: none;
+  animation: tmw-arrival-edge 420ms var(--gf-ease-out, ease-out) 1;
+}
+
+@keyframes tmw-arrival-edge {
+  0% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--seat-fill) 55%, transparent);
+  }
+  100% {
+    opacity: 0;
+    box-shadow: 0 0 0 9px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* SUBSTITUTION, NOT DELETION. The travel and the pulse go; the accent edge
+     stays lit for the same hold, so "this slot just changed" is still said —
+     it is simply said with light instead of movement. */
+  .tmw-slot[data-beat="arrived"],
+  .tmw-slot[data-beat="swapped"] {
+    animation: none;
+  }
+  .tmw-slot[data-beat="arrived"]::after {
+    animation: none;
+    opacity: 1;
+  }
+}

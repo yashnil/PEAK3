@@ -238,3 +238,105 @@ felt; controls still acknowledge in under 100 ms and nothing waits on a beat.
   it; reduced motion collapses it.
 - "Taken this roll" chips replace the sentence; the end screen marks your
   seat in gold at any placement, alongside the winner.
+
+## Broadcast immersion pass (2026-09-09)
+
+Branch `feature/arena-broadcast-immersion`. Full report:
+`docs/implementation/BROADCAST_IMMERSION_REPORT.md`; plan and audit:
+`docs/design/BROADCAST_IMMERSION_PLAN.md`.
+
+### The room
+
+`PeakV2ArenaBackdrop`, mounted **once** in `(main)/layout.tsx`, is the page-level
+environment: a real 94×50 NBA court seen overhead (boundary, division line,
+centre circle, both keys, both free-throw circles, both restricted arcs, both
+three-point lines, drawn from actual dimensions), one floodlight and a vignette,
+fixed to the viewport.
+
+It replaced eight per-component `.pk-atmosphere` / `.court-grid-bg` call sites.
+`.pk-atmosphere` survives in `globals.css` for the narrower thing it was
+originally for — one *contained* panel that needs a floor of its own inside a
+page — and must never go back on a full-bleed section.
+
+Three rules it holds, all asserted in `tests/unit/arena-backdrop.test.tsx`:
+
+- **Nothing animates.** Painted once into one composited layer, `contain:
+  layout paint style`, no keyframes, no transition, no filter. Measured over a
+  120-frame scroll at 4× CPU throttle: zero frames over 16.7 ms on `/rankings`
+  and `/arena`. There is also nothing for `prefers-reduced-motion` to undo.
+- **It cannot move text contrast.** The court line is gold at 0.10 alpha, which
+  puts `--text-muted` at ≈5.1:1 in the worst case of a hairline directly behind
+  text. The ceiling is a test, not a convention.
+- **It is mounted exactly once.** A second `position: fixed` instance is a
+  second floodlight. A test enumerates the call sites.
+
+**A route says what kind of surface it is** with `data-arena="live" | "quiet"`
+on its own root; `styles/v2/arena-room.css` reads it upward through `:has()`.
+No prop threading, no client component, no route table. Unclassified is
+`ambient`, which is the right fallback. `quiet` hides the court and keeps the
+light — for dense tables, reading pages, the Daily Grid board and the RTT start
+gate (one URL, two very different surfaces). Below 768 px the geometry is
+dropped everywhere: the portrait crop leaves one hairline and one circle, which
+does not read as a court and is not worth the noise.
+
+**Light and floor are one fact.** A radial falloff mask centred where the
+floodlight hangs takes the line alpha to a quarter strength at the far edge. A
+uniform alpha reads as a diagram; the falloff reads as a lit floor, and it also
+quiets the lines furthest from the light, which are the ones that collide with
+body copy.
+
+### Peak Duel
+
+The framed panels, the versus axis and the paired wash were built for Endless
+and scoped away from Daily. Daily now has all of it, at its own scale, with the
+countdown on the axis where Endless carries the VS mark. Every size is a custom
+property with Daily as the base.
+
+- **The entrance** is keyed on the duel's id (`.duel-grid`'s `key`), so it
+  replays per matchup rather than once per session. Transform/opacity only at
+  220 ms; the buttons are live mid-flight.
+- **The axis** is a gradient seam brightest where the two cards meet it. A flat
+  neutral hairline disappeared once there was court geometry behind it.
+- **The paired cool/warm wash is retired.** It was the one documented exception
+  to the single-light rule, added when the page behind it was flat black. The
+  room supplies direction now, so keeping it meant five gradient layers on the
+  single surface that already had an exception.
+- **`.duel-grid` is on both grids** and exists so the header-to-grid gap can
+  only ever be changed for both phases at once. That gap is the never-moves
+  contract (`duel-viewport.spec.ts`).
+- **Height, not width, is the binding constraint on the reveal.** A
+  `max-height: 820px` guard trims panel height, padding, lane pitch and two
+  gaps so `Next Matchup` stays above the fold at 1280×720.
+
+### Three-Man Weave
+
+Every seat runs the shared `useArrivals` diff. An arrival (a draft) drops into
+the slot and settles; a swap (a rearrangement, nobody new) pulses in place. The
+arriving card takes its seat's accent for the length of the beat, so a
+three-court board says *which* seat signed someone without a name being read.
+
+`game-feel.css`'s `.tmw-court-seat [data-gf-lock]` rules have been inert since
+that class was renamed; they are marked as such. `.tmw-slot[data-beat]` in
+`three-man-weave.css` is the live consumer of the same keyframes.
+
+### Audio
+
+`lib/arena-audio` — eight cues, synthesised from the Web Audio API, no assets,
+no dependency, **off by default**, with the mute control in the header's display
+cluster. No cue carries information that is not already visible, the
+`AudioContext` is constructed lazily on a real gesture, and every entry point is
+wrapped so a cue can never throw into a press. Wired through shared primitives:
+the selection cue fires in `GameActionButton`'s press (after the duplicate
+guard, so a refused double-press is silent), the roster cue rides the same
+`useArrivals` diff as TMW's beat.
+
+The public surface is `play(cue)`. Swapping the envelopes for recorded samples
+is a change inside one function; no call site moves.
+
+### Interruption
+
+`HandleOnboardingPrompt` suppresses itself on a route denylist **and** whenever
+any `[data-arena="live"]` element is in the document, watched with a
+`MutationObserver`. The route list alone was not enough: TMW's start gate
+creates its practice match and sets it into state in place, so one URL is a
+gate for a second and a live draft for ten minutes.

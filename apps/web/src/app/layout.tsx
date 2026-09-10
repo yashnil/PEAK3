@@ -6,6 +6,7 @@ import { uiVersionInitScript } from "@/lib/ui-version-script";
 import UiVersionDevSwitch from "@/components/v2/UiVersionDevSwitch";
 import "@/styles/globals.css";
 import "@/styles/v2/tokens.css";
+import "@/styles/v2/arena-room.css";
 import "@/styles/v2/nav.css";
 import "@/styles/v2/footer.css";
 import "@/styles/v2/home.css";

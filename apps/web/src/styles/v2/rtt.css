@@ -191,6 +191,35 @@
 
 /* Moments over the decision column. */
 .gf-moment.rtt-moment { top: 9.5rem; }
+
+/* A BOSS SURFACE IS CENTRED, SO A CENTRED NOTICE COLLIDES WITH IT.
+   The moment is `left: 50%` at a fixed offset down the stage, which is
+   empty space beside a decision heading on every ordinary surface. On a
+   boss title card — act numeral, name, tagline, all centred — 9.5rem is
+   exactly where the numeral sits, and the "+11 credits · Banked" chip
+   landed on top of it (screenshotted at 1440x900).
+
+   Boss surfaces already declare themselves: `PeakV2RTTShell` sets
+   `data-boss` on the run root for the focus layout. The notice moves out
+   of the centre column and pins to the stage's top-right instead, where a
+   self-dismissing notice belongs and where nothing on a centred title
+   card can reach it. It stays `pointer-events: none`, so it still cannot
+   intercept the press that ends the card early. */
+.rtt-run[data-boss="true"] .gf-moment.rtt-moment {
+  left: auto;
+  right: 0;
+  top: 0.5rem;
+  transform: none;
+  align-items: flex-end;
+  text-align: right;
+}
+.rtt-run[data-boss="true"] .gf-moment.rtt-moment[data-reduced-motion="false"] {
+  animation-name: rtt-moment-in-corner;
+}
+@keyframes rtt-moment-in-corner {
+  0%   { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
 .rtt-act-transition { background: color-mix(in srgb, var(--v2-bg-page) 78%, transparent); backdrop-filter: blur(2px); border-radius: var(--v2-radius-control); }
 
 /* Mobile bar */

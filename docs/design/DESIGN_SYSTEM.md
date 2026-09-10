@@ -222,3 +222,84 @@ currently communicate "next step" via numbered paragraphs and bordered
 cards rather than the game-state grammar (selection/active/CTA) the rest of
 the system already uses elsewhere (e.g. Peak Duel's decision state). This is
 the clearest, most concrete instance of game-state clarity needing work.
+
+---
+
+## AMENDMENT — the room (broadcast-immersion pass, 2026-09-09)
+
+Three sections above need correcting, because the pass changed what they
+describe. Full detail: `docs/design/GAME_FEEL.md` and
+`docs/implementation/BROADCAST_IMMERSION_REPORT.md`.
+
+### §MOTION — "the arena light" is no longer the only ambient effect
+
+That section says the `--v2-light-*` arena light is "the one ambient
+decorative effect in the system" and that this is "the program's one
+'signature moment' budget for glow, already spent correctly."
+
+There are now **two, and they are hierarchically distinct**:
+
+1. **The room** (`PeakV2ArenaBackdrop`) — the page-level environment. One
+   floodlight, one vignette, one court plane, mounted exactly once, fixed to
+   the viewport, never animated. It is not a per-surface effect and does not
+   count against a surface's light budget; it is the building the surfaces
+   are in.
+2. **The arena light** (`PeakV2ArenaLight`) — unchanged, and still **one per
+   surface**, still tied to real game focus.
+
+The rule that replaces "one light" is: **one light per surface, inside one
+room.** A surface that wants to mark its focus still mounts exactly one
+`PeakV2ArenaLight`.
+
+**The documented Peak Duel paired-wash exception is retired.** It existed
+because the page behind that face-off was flat black and the pair needed its
+own direction. The room supplies direction now; keeping the pair put five
+gradient layers on the one surface that already had an exception. The
+`--v2-light-opacity-paired` / `--v2-light-neutral` tokens remain in
+`tokens.css` for anything that later earns them, but nothing currently uses
+them.
+
+### §COLOR — the environment has its own line token
+
+`--court-line` (0.06 alpha) is unchanged and still correct for the 48px grid
+motif it was tuned for: hundreds of lines whose *combined* presence is what
+you see. A court has about twenty lines in a viewport, and at 0.06 it is
+invisible. `--pk-backdrop-line` is a separate token at 0.10 (0.13 light
+theme) with its own measured budget: gold at 0.10 over `--bg-page` puts
+`--text-muted` at ≈5.1:1 in the worst case of a hairline directly behind
+text, against 5.8:1 on the bare page. **0.14 was rejected** at ≈4.6:1 — the
+same tenth-of-a-point margin the `--v2-court-dim-opacity` incident already
+taught this codebase to avoid. The ceiling is asserted in
+`tests/unit/arena-backdrop.test.tsx` rather than left to review.
+
+### §RESPONSIVE — 768px is now a real threshold, not just a reference point
+
+The court is a landscape object. Below 768px the `slice` crop leaves one
+vertical hairline and one circle, which reads as a generic motif rather than
+as a court and runs through the body copy. The geometry is dropped there; the
+light and the vignette remain. This is the first breakpoint in the system
+that changes *what is drawn* rather than how it is laid out, and it is
+deliberate: a crop that does not read as a court is not worth the noise.
+
+### New: how a route classifies itself
+
+A route states what kind of surface it is with `data-arena="live" | "quiet"`
+on its own root element, and `styles/v2/arena-room.css` reads it upward
+through `:has()`. No prop threading, no client component, no route table, and
+an unclassified route gets `ambient`.
+
+- `live` — an active game board. Firmer court, tighter floodlight.
+- `quiet` — anything whose own content is line-dense or prose-dense: a
+  ranking table, a reading page, the Daily Grid board (which has its own cell
+  grid), the RTT start gate (one URL serving both a gate and a live run).
+- `ambient` (default) — hubs, start gates, results.
+
+`data-arena="live"` has a second consumer: `HandleOnboardingPrompt` watches
+for it and suppresses itself whenever a live board is mounted, which a route
+denylist could not do for a mode whose board mounts in place.
+
+### New: an optional sound layer
+
+`lib/arena-audio` — eight synthesised cues, no assets, no dependency, **off by
+default**, control in the header's display cluster. No cue carries information
+that is not already visible. See `GAME_FEEL.md`.

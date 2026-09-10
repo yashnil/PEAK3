@@ -1,0 +1,301 @@
+/* ================================================================
+   PEAK3 — THE ROOM
+   ================================================================
+   The page-level environment introduced by the broadcast-immersion pass:
+   one floodlight, one vignette, one court plane, fixed to the viewport.
+
+   Read `components/v2/PeakV2ArenaBackdrop.tsx` first — it carries the full
+   rationale. The short version: the app's previous environmental motif was
+   a uniform 48px square grid applied per component, so every screen was a
+   lit rectangle floating in an unlit void, and the two `.pk-atmosphere`
+   floodlights terminated at a container edge instead of at the horizon.
+
+   THREE RULES THIS FILE HOLDS.
+
+   1. NOTHING HERE ANIMATES. No keyframes, no transitions, no filters. The
+      backdrop is painted once into one composited layer and is never
+      touched again, so it cannot cost a frame during gameplay and there is
+      nothing for `prefers-reduced-motion` to switch off. That is deliberate:
+      an ambient effect that breathes is an ambient effect competing with the
+      game for attention, and this app's motion budget is spent on
+      consequence, not on wallpaper.
+
+   2. IT CANNOT AFFECT TEXT CONTRAST. Every line is `--court-line`, the
+      token that already exists and is already theme-defined
+      (rgba(245,200,66,0.06) dark / rgba(180,138,20,0.08) light). The
+      floodlight's alpha ceiling matches `--pk-glow-warm`'s existing 0.10.
+      Nothing in here goes above the 12% discipline the atmosphere tokens
+      have held since Phase 8E.
+
+   3. IT IS BEHIND EVERYTHING AND CATCHES NOTHING. `z-index: -1` inside an
+      isolated stacking context, `pointer-events: none`, `aria-hidden` on
+      the element itself. It can never intercept a click or reach a screen
+      reader.
+   ================================================================ */
+
+[data-ui-version="v2"],
+:root {
+  /* The backdrop's own aliases. Separate names, not new values: a surface
+     that wants to tune the room tunes these, and the underlying
+     `--court-line` / `--pk-glow-*` tokens stay the single source of truth
+     for everything that already reads them. */
+  /* THE COURT LINE, AND WHY IT IS NOT `--court-line`.
+     `--court-line` is rgba(245,200,66,0.06) and was tuned for a 48px grid
+     covering an entire panel — hundreds of lines, whose combined presence is
+     what you actually see. A court has about twenty lines in a viewport, so
+     at the same alpha it is invisible: the first build of this backdrop
+     rendered correctly and read as nothing at all.
+
+     0.10 is the value this is raised to, and it is a MEASURED choice, not a
+     nudge. Worst case for text contrast is a 1px line passing directly
+     behind the weakest text token. Gold at 0.10 over `--bg-page` composites
+     to roughly #211d10 (relative luminance 0.0105 against the page's
+     0.0035); `--text-muted` scores 5.1:1 on that, against 5.8:1 on the bare
+     page. Both clear WCAG AA's 4.5:1 floor, and every stronger text token
+     clears it by a much wider margin. 0.14 was rejected: it puts the same
+     worst case at 4.6:1, which is the exact tenth-of-a-point margin the
+     `--v2-court-dim-opacity` incident already taught this codebase not to
+     ship.
+
+     `--court-line` itself is untouched — the six surfaces still using the
+     grid motif keep the value that was tuned for them. */
+  --pk-backdrop-line: rgba(245, 200, 66, 0.085);
+  /* The floor between the lines. A court is a lit hardwood surface, not
+     lines floating in a void, and one flat 1.5% wash is what separates
+     "there is a diagram behind this page" from "this page is on a floor".
+     Uniform, so it cannot change a contrast ratio by more than the same
+     constant everywhere. */
+  --pk-backdrop-floor: rgba(245, 200, 66, 0.014);
+  --pk-backdrop-light: var(--pk-glow-warm);
+  --pk-backdrop-fill: var(--pk-glow-cool);
+  --pk-backdrop-light-x: 50%;
+}
+
+.pk-arena-backdrop {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  /* Layout/paint/style containment: this subtree has no layout relationship
+     to the page and should never be considered when something above it
+     changes. `size` is deliberately NOT included — the element is sized
+     entirely by `inset: 0` against its containing block, so size containment
+     would buy nothing and only adds an edge case to reason about. */
+  contain: layout paint style;
+
+  /* The room, in three passes, painted bottom-up:
+       1. the floodlight hanging over the court
+       2. a cool fill from the far side, so the light has a direction
+       3. a vignette, so the content sits IN something rather than ON it
+     All three are viewport-sized because the element is fixed, which is the
+     entire reason they never acquire the hard container edge the old
+     per-component `.pk-atmosphere` instances did. */
+  background-image:
+    radial-gradient(
+      70% 55% at var(--pk-backdrop-light-x) -8%,
+      var(--pk-backdrop-light),
+      transparent 72%
+    ),
+    radial-gradient(90% 60% at 50% 108%, var(--pk-backdrop-fill), transparent 70%),
+    radial-gradient(
+      120% 90% at 50% 45%,
+      transparent 55%,
+      color-mix(in srgb, black 26%, transparent)
+    );
+}
+
+/* LIGHT THEME. Two things invert. The line goes from a warm highlight on a
+   dark floor to warm ink on a pale one, tracking `--court-line`'s own
+   light-theme value (rgba(180,138,20,0.08)) at the same +0.02 the dark
+   theme takes. And the vignette becomes a shadow of the page's own ink
+   rather than of black — a lit arena in daylight reads as a brighter floor,
+   not a darker one. */
+[data-theme="light"] {
+  --pk-backdrop-line: rgba(180, 138, 20, 0.13);
+  --pk-backdrop-floor: rgba(180, 138, 20, 0.018);
+}
+
+[data-theme="light"] .pk-arena-backdrop {
+  background-image:
+    radial-gradient(
+      70% 55% at var(--pk-backdrop-light-x) -8%,
+      var(--pk-backdrop-light),
+      transparent 72%
+    ),
+    radial-gradient(90% 60% at 50% 108%, var(--pk-backdrop-fill), transparent 70%),
+    radial-gradient(
+      120% 90% at 50% 45%,
+      transparent 60%,
+      color-mix(in srgb, var(--text-primary) 7%, transparent)
+    );
+}
+
+/* LIVE — an active game surface. The court is drawn a step firmer and the
+   floodlight tightens onto it, so the screen reads as attended-to rather
+   than as a hub. Still one light; still under the alpha ceiling. */
+.pk-arena-backdrop[data-intensity="live"] {
+  --pk-backdrop-light: var(--pk-glow-strong);
+  background-image:
+    radial-gradient(
+      52% 46% at var(--pk-backdrop-light-x) -6%,
+      color-mix(in srgb, var(--pk-backdrop-light) 55%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(90% 60% at 50% 108%, var(--pk-backdrop-fill), transparent 70%),
+    radial-gradient(
+      110% 85% at 50% 42%,
+      transparent 48%,
+      color-mix(in srgb, black 34%, transparent)
+    );
+}
+
+/* QUIET — a reading or data surface. Light and vignette only; the court
+   geometry is not rendered at all (the component returns no SVG), so a
+   dense table has nothing behind it competing for the eye. The room is
+   still there, which is the point: Rankings should not feel like leaving
+   the building. */
+.pk-arena-backdrop[data-intensity="quiet"] {
+  background-image:
+    radial-gradient(
+      80% 40% at var(--pk-backdrop-light-x) -12%,
+      color-mix(in srgb, var(--pk-backdrop-light) 60%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      120% 90% at 50% 45%,
+      transparent 62%,
+      color-mix(in srgb, black 20%, transparent)
+    );
+}
+
+/* The page body has to sit above the room.
+   `isolation: isolate` on the wrapper plus `z-index: -1` on the backdrop,
+   NOT `z-index: 1` on every sibling. The difference matters: the wrapper's
+   siblings here are the Nav (which is `position: sticky` with its own
+   stacking) and the Footer, and forcing `position: relative` onto them to
+   hang a z-index would quietly break the sticky header. A negative z-index
+   inside an isolated stacking context paints behind the in-flow content of
+   that context but still above the page background, which is exactly the
+   layer this wants and requires touching nothing else. */
+.pk-arena-room {
+  position: relative;
+  isolation: isolate;
+}
+
+.pk-arena-backdrop {
+  z-index: -1;
+}
+
+/* PRINT / FORCED COLORS. A backdrop made entirely of low-alpha gradients is
+   meaningless in forced-colors mode and actively harmful on paper. */
+@media print {
+  .pk-arena-backdrop {
+    display: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .pk-arena-backdrop {
+    display: none;
+  }
+}
+
+/* ================================================================
+   PER-ROUTE INTENSITY, WITHOUT PROP-DRILLING OR CLIENT JS
+   ================================================================
+   The backdrop is mounted once, in `(main)/layout.tsx`, because it is
+   `position: fixed` — mounting a second one per route would stack two
+   floodlights, which is precisely the one-light rule this pass exists to
+   restore.
+
+   But a layout does not know which route rendered into it, and making it
+   find out means either a client component reading `usePathname()` (JS on
+   every page, plus a route table to maintain in a second place) or
+   threading a prop through every page file.
+
+   `:has()` removes the question. A page states what kind of surface it is
+   by putting `data-arena="live" | "quiet"` on its own root element, and
+   the room reads it upward. Zero JS, no route table, no prop, and a page
+   that says nothing gets the ambient default — which is the correct
+   fallback for anything unclassified.
+
+   The selector is anchored at `main` rather than left as a bare descendant
+   `:has()`, so invalidation is scoped to one subtree instead of the whole
+   document.
+   ================================================================ */
+
+.pk-arena-room:has(main [data-arena="live"]) > .pk-arena-backdrop {
+  --pk-backdrop-light: var(--pk-glow-strong);
+  /* A live surface earns the firmer floor, and the line goes to the full
+     0.10 measured above — an active game is where the room should be most
+     present, and it is also where the least prose sits over it. */
+  --pk-backdrop-line: rgba(245, 200, 66, 0.10);
+  --pk-backdrop-floor: rgba(245, 200, 66, 0.022);
+  background-image:
+    radial-gradient(
+      52% 46% at var(--pk-backdrop-light-x) -6%,
+      color-mix(in srgb, var(--pk-backdrop-light) 55%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(90% 60% at 50% 108%, var(--pk-backdrop-fill), transparent 70%),
+    radial-gradient(
+      110% 85% at 50% 42%,
+      transparent 48%,
+      color-mix(in srgb, black 34%, transparent)
+    );
+}
+
+/* A reading or data surface hides the court entirely rather than dimming
+   it: a 3-point arc behind a dense ranking table is noise no matter how
+   faint it is. The light and the vignette stay, so the page still belongs
+   to the same building. */
+.pk-arena-room:has(main [data-arena="quiet"]) > .pk-arena-backdrop > svg,
+.pk-arena-room:has(main .v2-info-page) > .pk-arena-backdrop > svg {
+  display: none;
+}
+
+/* `.v2-info-page` is listed alongside the attribute because it is already
+   the shared root class of every legal/about/accessibility page — six
+   routes classified by one selector instead of six identical edits. */
+.pk-arena-room:has(main [data-arena="quiet"]) > .pk-arena-backdrop,
+.pk-arena-room:has(main .v2-info-page) > .pk-arena-backdrop {
+  background-image:
+    radial-gradient(
+      80% 40% at var(--pk-backdrop-light-x) -12%,
+      color-mix(in srgb, var(--pk-backdrop-light) 60%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      120% 90% at 50% 45%,
+      transparent 62%,
+      color-mix(in srgb, black 20%, transparent)
+    );
+}
+
+/* ================================================================
+   THE COURT IS A LANDSCAPE OBJECT. IT DOES NOT SURVIVE PORTRAIT.
+   ================================================================
+   At 390px the `slice` crop leaves exactly one full-height vertical
+   hairline and one circle. An independent review of the shipped build put
+   it plainly: no basketball content survives, it reads as a generic
+   "circle behind the headline" motif, and both marks run straight through
+   the body copy — the division line down every line of a paragraph, the
+   centre-circle arc across three display headings. That is a downgrade on
+   the narrowest viewport, which is also the most common one.
+
+   A crop that does not read as a court is not worth the noise, so below
+   the tablet threshold the geometry is dropped and the room is the light
+   and the vignette alone — the same treatment a dense ranking table gets,
+   for the same reason. Nothing about the page's identity depends on the
+   court being present; it depends on the court being LEGIBLE when it is.
+
+   768px, not 640px: at 640-767 the crop is still a sliver. The threshold
+   is where the full division line plus at least one key becomes visible,
+   which is the narrowest crop that still says "court".
+   ================================================================ */
+
+@media (max-width: 767px) {
+  .pk-arena-backdrop > svg {
+    display: none;
+  }
+}

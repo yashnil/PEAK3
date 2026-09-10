@@ -396,7 +396,7 @@ export default function PeakV2ShowdownLive({
 
   return (
     <PeakV2Shell width="live-wide">
-      <div className="sd-room py-5" data-testid="td-game" data-phase={phase} data-contested={contested ? "true" : "false"}>
+      <div className="sd-room py-5" data-arena="live" data-testid="td-game" data-phase={phase} data-contested={contested ? "true" : "false"}>
         <div className="sd-topbar">
           <div className="sd-topbar-left">
             <PeakV2GameStatus label={lotLabel} state="active" labelTestId="td-lot-number" />

@@ -134,7 +134,7 @@ export default function ThreeManWeaveLoader({ matchId }: { matchId?: string }) {
   if (matchId) {
     return (
       <PeakV2Shell width="live">
-        <div className="pk-atmosphere py-9" data-testid="tmw-loading">
+        <div className="py-9" data-testid="tmw-loading">
           <p role="status" className="text-sm" style={{ color: "var(--v2-text-secondary)" }}>
             Loading the draft room…
           </p>
@@ -159,7 +159,7 @@ export default function ThreeManWeaveLoader({ matchId }: { matchId?: string }) {
           `ThreeManWeaveGame` instead means every entry point -- this button,
           the Arena hub, a direct link, a resume -- shows the exact same
           briefing exactly once per match. */}
-      <div className="pk-atmosphere pb-14 pt-9">
+      <div className="pb-14 pt-9">
         <header className="flex flex-col gap-1.5 pb-1">
           <p
             className="text-xs font-bold uppercase tracking-[0.14em]"

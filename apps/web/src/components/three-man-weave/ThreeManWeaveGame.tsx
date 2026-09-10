@@ -762,7 +762,8 @@ export default function ThreeManWeaveGame({
 
   return (
     <div
-      className="ar-room tmw-room pk-atmosphere"
+      className="ar-room tmw-room"
+      data-arena="live"
       data-testid="tmw-room"
       // The server's own phase, on the room, so a browser test can assert what
       // is on screen AGAINST what the server said rather than against a timer.

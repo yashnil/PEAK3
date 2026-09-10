@@ -136,6 +136,7 @@ function renderReveal(opts: {
       selectedPeakId={opts.selectedPeakId}
       currentIndex={0}
       totalDuels={10}
+      results={[]}
       totalArenaPoints={0}
       currentStreak={0}
       isLast={false}

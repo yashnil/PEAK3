@@ -40,7 +40,27 @@ export default function PeakV2Shell({ children, width = "live", className }: Pea
       data-testid="peak-v2-shell"
       className={className}
       style={{
-        background: "var(--v2-bg-page)",
+        /* TRANSPARENT, NOT `--v2-bg-page`.
+         *
+         * It used to paint `--v2-bg-page`, which was always redundant —
+         * `body` in globals.css sets `background-color: var(--bg-page)`, the
+         * same resolved value, and every one of this component's 47 call
+         * sites renders inside that body. So the fill changed nothing that
+         * was visible.
+         *
+         * It stopped being harmless when the arena backdrop arrived. The
+         * room (`PeakV2ArenaBackdrop`, mounted once in `(main)/layout.tsx`)
+         * paints the court and the floodlight BEHIND the page content; an
+         * opaque full-width plane in front of it hid the environment on
+         * every V2 screen and left the court visible only in the margins
+         * outside the shell. Verified by DOM probe: one 1368x612 rect at
+         * rgb(10,11,13) directly over the court.
+         *
+         * Transparent means the body's own fill still provides the page
+         * colour and the room shows through it. Nothing else about this
+         * component changes.
+         */
+        background: "transparent",
         color: "var(--v2-text-primary)",
         fontFamily: "var(--v2-font-ui)",
       }}

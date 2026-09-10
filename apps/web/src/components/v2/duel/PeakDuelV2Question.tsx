@@ -34,9 +34,9 @@
 
 import { useEffect, useState } from "react";
 import ArenaTimer, { useRemainingSeconds } from "@/components/shared/ArenaTimer";
-import PeakV2ArenaLight from "../PeakV2ArenaLight";
 import PeakV2LiveHeader from "../PeakV2LiveHeader";
 import PeakV2GameStatus from "../PeakV2GameStatus";
+import DuelProgressDashes from "./DuelProgressDashes";
 import { v2ActionBaseStyle } from "../v2-action-base";
 import { DECISION_CLOCK_SECONDS } from "@/lib/peak-duel-constants";
 import type { Duel, DuelResult } from "@/types";
@@ -57,25 +57,6 @@ function useFractionalSecondsRemaining(deadlineAt: number | null): number | null
     return () => window.clearInterval(id);
   }, [deadlineAt]);
   return remaining;
-}
-
-function ProgressDashes({ results, total, currentIndex }: { results: DuelResult[]; total: number; currentIndex: number }) {
-  return (
-    <div className="flex items-center gap-1" aria-hidden="true">
-      {Array.from({ length: total }, (_, i) => {
-        const result = results[i];
-        const color =
-          result === undefined
-            ? i === currentIndex
-              ? "var(--v2-color-accent)"
-              : "var(--v2-border)"
-            : result.correct
-              ? "var(--v2-color-positive)"
-              : "var(--v2-color-negative)";
-        return <span key={i} style={{ width: 14, height: 3, borderRadius: 1, background: color }} />;
-      })}
-    </div>
-  );
 }
 
 function DuelSidePanel({
@@ -194,12 +175,6 @@ export default function PeakDuelV2Question({
 
   return (
     <div className="relative" data-duel-mode={mode}>
-      {mode === "daily" ? (
-        <>
-          <PeakV2ArenaLight pair="cool" y="-10%" />
-          <PeakV2ArenaLight pair="warm" y="-10%" />
-        </>
-      ) : null}
 
       {/* Real timing/expiry authority, visually hidden — the one place
           `onExpire` actually fires. See module docstring. */}
@@ -236,7 +211,7 @@ export default function PeakDuelV2Question({
         />
         {mode === "daily" ? (
           <div className="mt-3">
-            <ProgressDashes results={results} total={totalDuels} currentIndex={currentIndex} />
+            <DuelProgressDashes results={results} total={totalDuels} currentIndex={currentIndex} />
           </div>
         ) : null}
 
@@ -244,13 +219,34 @@ export default function PeakDuelV2Question({
             is NOT a grid item and adds no height) can sit behind the pair.
             The `mt-10` header-to-grid gap is the geometry contract shared
             with `PeakDuelV2Reveal` — see that file's comment above its grid. */}
-        <div className="duel-faceoff relative mt-10 grid grid-cols-1 items-center gap-8 sm:grid-cols-[1fr_auto_1fr] sm:gap-4">
-          {mode === "endless" ? (
-            <div className="duel-faceoff-stage" aria-hidden="true" data-testid="duel-faceoff-stage">
-              <PeakV2ArenaLight pair="cool" y="50%" intensity="focus" />
-              <PeakV2ArenaLight pair="warm" y="50%" intensity="focus" />
-            </div>
-          ) : null}
+        {/* KEYED ON THE DUEL. React reuses a subtree whose position and type
+            are unchanged, so without this the entrance animation played once
+            per session and every subsequent matchup simply swapped the names
+            in place — ten duels reading as one screen. The key forces a
+            remount per question, which restarts the CSS animation. It is
+            also the only thing this key does: no state lives in these
+            children, so remounting them discards nothing. */}
+        <div
+          key={`${duel.left.peak_id}:${duel.right.peak_id}`}
+          className="duel-faceoff duel-grid relative mt-10 grid grid-cols-1 items-center gap-8 sm:grid-cols-[1fr_auto_1fr] sm:gap-4"
+        >
+          {/* THE STAGE IS A FRAME NOW, NOT A SECOND LIGHT SOURCE.
+              This layer used to carry two `PeakV2ArenaLight`s (cool left,
+              warm right) — the documented single-light exception, added
+              back when the page behind it was flat black and the pair
+              needed its own direction.
+              The room supplies that direction now: a floodlight, a fill and
+              a vignette on every page. Keeping the pair on top of it put
+              five gradient layers on the one surface that already had an
+              exception, and an independent review named it as the clearest
+              restraint failure in the pass — correctly. The exception is
+              retired rather than merely reduced; the paired-wash tokens
+              stay in `tokens.css` for whatever else may earn them.
+              The layer itself remains: it is what gives the two cards a
+              shared frame, and it is absolutely positioned, so it is not a
+              grid item and adds no height — the geometry contract in this
+              file's header. */}
+          <div className="duel-faceoff-stage" aria-hidden="true" data-testid="duel-faceoff-stage" />
           <DuelSidePanel
             side="left"
             card={duel.left}
@@ -260,7 +256,7 @@ export default function PeakDuelV2Question({
           />
 
           <div className="duel-versus flex flex-col items-center gap-2 py-2" data-testid="duel-versus-axis">
-            {mode === "endless" ? <span className="duel-versus-rule" aria-hidden="true" /> : null}
+            <span className="duel-versus-rule" aria-hidden="true" />
             <span
               style={{
                 fontFamily: "var(--v2-font-ui)",
@@ -319,7 +315,7 @@ export default function PeakDuelV2Question({
                 vs
               </span>
             )}
-            {mode === "endless" ? <span className="duel-versus-rule" aria-hidden="true" /> : null}
+            <span className="duel-versus-rule" aria-hidden="true" />
           </div>
 
           <DuelSidePanel
