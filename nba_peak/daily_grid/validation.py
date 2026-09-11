@@ -107,7 +107,129 @@ def _constraint_failure_reason(
             f"{label} appeared in {player_season.games_played} games, below the "
             f"{constraint.short_label} line."
         )
+    if constraint.category == "production":
+        return _per_game_failure_reason(player_season, constraint)
+    if constraint.category == "size":
+        if player_season.height_inches is None:
+            return f"{player_season.player_name} has no listed height on record."
+        return (
+            f"{player_season.player_name} is listed at "
+            f"{_feet_inches(player_season.height_inches)}, which is not "
+            f"{constraint.label.lower()}."
+        )
+    if constraint.category == "draft":
+        return _draft_failure_reason(player_season, constraint)
+    if constraint.category == "origin":
+        if player_season.international is None:
+            return f"{player_season.player_name} has no birthplace on record."
+        return f"{player_season.player_name} was born in the United States."
+    if constraint.category == "journey":
+        return _journey_failure_reason(player_season, constraint)
+    if constraint.id == "shoot_threes_200":
+        if player_season.three_pointers_made is None:
+            return f"{label} has no recorded three-pointers."
+        return (
+            f"{label} made {player_season.three_pointers_made} three-pointers, "
+            f"below the {constraint.short_label} line."
+        )
     return f"{label} does not satisfy {constraint.label}."
+
+
+def _feet_inches(inches: int) -> str:
+    """72 -> 6'0\". The unit basketball is spoken in, so a rejection about
+    height reads the way the constraint label does."""
+    return f"{inches // 12}'{inches % 12}\""
+
+
+# Which per-game number each production constraint is about, and how to say it.
+_PER_GAME_FIELDS: dict[str, tuple[str, str]] = {
+    "prod_ppg_20": ("points_per_game", "points"),
+    "prod_ppg_25": ("points_per_game", "points"),
+    "prod_rpg_10": ("rebounds_per_game", "rebounds"),
+    "prod_apg_7": ("assists_per_game", "assists"),
+    "prod_spg_2": ("steals_per_game", "steals"),
+    "prod_bpg_2": ("blocks_per_game", "blocks"),
+}
+
+
+def _per_game_failure_reason(player_season: PlayerSeason, constraint: Constraint) -> str:
+    """Names the season's real per-game average.
+
+    Safe to print, and deliberately so: this is a plain box-score fact from a
+    committed reference table, not the PEAK3 rating the mode withholds until a
+    pick locks (see the `peak` branch above). Telling a player that 1996-97
+    Michael Jordan averaged 29.6 points teaches them the fact; telling them
+    only "no" teaches them nothing.
+    """
+    field = _PER_GAME_FIELDS.get(constraint.id)
+    if field is None:
+        return f"{player_season.label} does not satisfy {constraint.label}."
+    attribute, noun = field
+    value = getattr(player_season, attribute)
+    if value is None:
+        return f"{player_season.label} has no recorded {noun} per game."
+    return (
+        f"{player_season.label} averaged {value:.1f} {noun} per game, below the "
+        f"{constraint.short_label} line."
+    )
+
+
+def _draft_failure_reason(player_season: PlayerSeason, constraint: Constraint) -> str:
+    name = player_season.player_name
+    if constraint.id == "draft_undrafted":
+        if player_season.draft_pick_overall is None:
+            return f"{name}'s draft status is not on record."
+        return f"{name} was drafted, at pick {player_season.draft_pick_overall}."
+    if player_season.draft_pick_overall is None:
+        # The genuinely undrafted case reads as a fact, not as missing data.
+        if player_season.undrafted:
+            return f"{name} went undrafted."
+        return f"{name}'s draft position is not on record."
+    if constraint.id == "draft_second_round":
+        round_number = player_season.draft_round
+        if round_number is None:
+            return f"{name}'s draft round is not on record."
+        return f"{name} was a round-{round_number} pick, not a second-rounder."
+    # "was pick 3, not a top-10 pick" -- the article makes it read as English,
+    # where interpolating the label raw gives "not no. 1 overall pick".
+    return (
+        f"{name} was pick {player_season.draft_pick_overall}, not "
+        f"{_DRAFT_PHRASE.get(constraint.id, constraint.label.lower())}."
+    )
+
+
+#: How each draft constraint's label reads inside a "not ___" clause.
+_DRAFT_PHRASE: dict[str, str] = {
+    "draft_first_overall": "the first overall pick",
+    "draft_top10": "a top-10 pick",
+}
+
+
+def _journey_failure_reason(player_season: PlayerSeason, constraint: Constraint) -> str:
+    name = player_season.player_name
+    if constraint.id == "journey_seasons_15":
+        if player_season.career_seasons is None:
+            return f"{name}'s career length is not on record."
+        return (
+            f"{name} played {player_season.career_seasons} NBA seasons, below "
+            f"the {constraint.short_label} line."
+        )
+    if player_season.franchise_count is None:
+        return f"{name}'s franchise history is not on record."
+    if constraint.id == "journey_one_franchise":
+        if player_season.franchise_count > 1:
+            return f"{name} played for {player_season.franchise_count} franchises."
+        # One franchise in the window, but a career that started before it --
+        # the constraint's own eligibility rule, said plainly.
+        return (
+            f"{name}'s career began before 1979-80, so PEAK3 cannot confirm he "
+            "played for only one franchise."
+        )
+    return (
+        f"{name} played for {player_season.franchise_count} "
+        f"{'franchise' if player_season.franchise_count == 1 else 'franchises'}, "
+        f"below the {constraint.short_label} line."
+    )
 
 
 def validate_answer(

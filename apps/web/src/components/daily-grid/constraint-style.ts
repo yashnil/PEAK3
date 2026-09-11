@@ -25,6 +25,14 @@ export const CATEGORY_COLOR: Record<ConstraintCategory, string> = {
   production: "var(--comp-tp)", // violet -- Traditional Production
   shooting: "var(--comp-si)", // blue -- Statistical Impact
   usage: "var(--comp-si)", // blue -- Statistical Impact
+  // v5 families. All four describe the PLAYER rather than the season, so they
+  // share the neutral slate token the other non-component families use --
+  // borrowing a component colour would imply a draft slot or a birthplace is
+  // part of the PEAK3 score, which it is not.
+  draft: "var(--comp-tm)", // slate
+  origin: "var(--comp-tm)", // slate
+  size: "var(--comp-tm)", // slate
+  journey: "var(--comp-tm)", // slate
 };
 
 export const CATEGORY_LABEL: Record<ConstraintCategory, string> = {
@@ -40,6 +48,10 @@ export const CATEGORY_LABEL: Record<ConstraintCategory, string> = {
   production: "Production",
   shooting: "Shooting",
   usage: "Usage",
+  draft: "Draft",
+  origin: "Where from",
+  size: "Size",
+  journey: "Career",
 };
 
 export function categoryColor(category: ConstraintCategory): string {

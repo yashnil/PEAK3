@@ -22,10 +22,46 @@ CATEGORIES
   peak       PEAK3 prime_score thresholds.
   component  top-decile seasons in one of the five PEAK3 components.
   career     the player's AGE that season -- early, veteran, late career.
-  production per-75-possession scoring, rebounding, playmaking and defensive
-             rate bands: what kind of season this was, not how good it was.
-  shooting   era-relative shooting efficiency (TS+) and three-point volume.
+  production the per-GAME box line -- points, rebounds, assists, steals,
+             blocks -- at the round numbers basketball conversation uses.
+             (v4's per-75-possession bands are retired; see
+             V5_RETIRED_CONSTRAINT_IDS.)
+  shooting   era-relative shooting efficiency and three-pointers made.
   usage      share of the team's possessions the player used.
+  draft      how the player entered the league: first overall, top-10, second
+             round, undrafted.
+  origin     born outside the United States.
+  size       listed height.
+  journey    what the career looked like: how many franchises, how many
+             seasons, or only ever one team.
+
+SEASON FACTS AND CAREER FACTS, ON ONE SEASON-GRAIN POOL
+The answer universe is player-SEASONS, and most of this taxonomy asks about
+the season in the square: was he an All-Star THAT year, did he average 25 a
+game THAT year, did that team win the title. Four families ask about the
+PLAYER instead -- `draft`, `origin`, `size`, `journey` -- and those facts hold
+for every season of that player's career, so "Lakers x Top-10 Pick" means "a
+Lakers season played by a top-10 pick". That is how every grid game of this
+shape reads and how a fan says it out loud. Every one of those constraints'
+descriptions states the grain explicitly, so the two kinds are never silently
+mixed.
+
+WHERE THE CAREER FACTS COME FROM
+data/reference/player_bio.v1.json and player_season_box.v1.parquet, built by
+scripts/build_player_reference_dataset.py from Basketball-Reference -- the same
+source the committed PEAK3 parquets were themselves scraped from. PEAK3's own
+tables carry no height, no draft slot, no birth country and no per-game line;
+they were built to score seasons, not to describe players. Provenance,
+normalization rules and checksums live in
+data/reference/player_reference_manifest.v1.json, and every definition is
+written out in docs/model/DAILY_GRID_TAXONOMY.md.
+
+A reference field that is missing is MISSING, never zero: the columns are
+carried as floats precisely so "unknown" survives, and every predicate reading
+one rejects the season rather than guessing. A null height fails "7'0" or
+Taller"; a career that began before the 1979-80 window fails
+"One-Franchise Career" and "Undrafted" outright, because in-window data cannot
+prove either claim about it.
 
 SEASON VALIDITY (`Constraint.valid_from`)
 Some awards did not exist for the whole 1979-80..2025-26 data window: DPOY
@@ -87,7 +123,13 @@ from nba_peak.franchises import FRANCHISES
 # `Constraint.valid_from` season-gating field. See generator.py's
 # NOVELTY_CUTOVER_DATE for why a date before that cutover still generates
 # from the frozen v2 subset of this taxonomy rather than the whole thing.
-CONSTRAINTS_VERSION = "daily_grid_constraints.v4"
+# v5: the basketball-taxonomy pass. Adds the DRAFT, ORIGIN, SIZE and JOURNEY
+# families, per-GAME production bands, real awards the scored table already
+# carried (Rookie of the Year, the four remaining league-leader titles), and
+# retires the PEAK3-native and per-75-possession constraints from new
+# generation. See V5_ADDED_CONSTRAINT_IDS / V5_RETIRED_CONSTRAINT_IDS below and
+# docs/model/DAILY_GRID_TAXONOMY.md.
+CONSTRAINTS_VERSION = "daily_grid_constraints.v5"
 
 # Constraint ids that did not exist in v2. generator.py filters these back out
 # to reconstruct the EXACT v2 taxonomy (same members, same order) for any
@@ -119,6 +161,98 @@ V4_ADDED_CONSTRAINT_IDS = frozenset(
     }
 )
 
+# Constraint ids that did not exist in v4. Filtered back out for any earlier
+# version exactly the way V3_/V4_ADDED_CONSTRAINT_IDS are, and for the same
+# reason -- generation samples this list BY INDEX against a date-seeded RNG.
+V5_ADDED_CONSTRAINT_IDS = frozenset(
+    {
+        # Awards the scored table already carried and the taxonomy had not
+        # exposed.
+        "award_roy",
+        "award_rebound_title",
+        "award_assist_title",
+        "award_steals_title",
+        "award_blocks_title",
+        # Draft / entry path.
+        "draft_first_overall",
+        "draft_top10",
+        "draft_second_round",
+        "draft_undrafted",
+        # Where the player came from.
+        "origin_international",
+        # How big the player was.
+        "size_7ft",
+        "size_6ft10",
+        "size_6ft3_under",
+        # What the career looked like.
+        "journey_franchises_5",
+        "journey_one_franchise",
+        "journey_seasons_15",
+        # Per-GAME production, replacing the per-75-possession bands.
+        "prod_ppg_20",
+        "prod_ppg_25",
+        "prod_rpg_10",
+        "prod_apg_7",
+        "prod_spg_2",
+        "prod_bpg_2",
+        # Shooting, restated in makes rather than shot share.
+        "shoot_threes_200",
+        "shoot_elite_efficiency",
+    }
+)
+
+# Constraint ids that are RETIRED FROM NEW GENERATION at v5 -- the first time
+# this taxonomy has removed rather than added.
+#
+# WHY THEY STILL EXIST AS OBJECTS. Every one of them appears on boards that
+# have already been published, and a published board must stay resolvable
+# forever: `constraint_by_id` has to answer for an archived date's axes, the
+# legacy taxonomy filters have to reproduce those dates' populations by index,
+# and a board a player already played must keep the label it was played under.
+# So they are not deleted -- they are excluded from the population v5 samples
+# from (generator._legacy_taxonomy), which is the same mechanism, run the other
+# way.
+#
+# WHY THEY ARE RETIRED. Two different reasons, both about the axis being
+# BASKETBALL rather than analytics:
+#
+#   `peak` and `component` -- "75+ PEAK Season", "Top 10% TP" -- are PEAK3's
+#   own model output on the axis of a game whose objective is to maximise
+#   PEAK3 score. They read as a formula, not a fact, and a player cannot tell
+#   whether an answer qualifies without knowing the methodology. 11C had
+#   already cut them to at most one axis on one date in five; v5 finishes the
+#   job. (`_native_allowance` is version-aware for exactly this reason.)
+#
+#   The per-75-possession production bands and the three-point-RATE band --
+#   "22+ PTS/75", "1.8+ STL/75", "3PT Volume" -- are honest measurements
+#   written in a denominator no fan quotes. They are replaced one-for-one by
+#   the per-GAME line the same fan already knows ("20+ PPG", "2+ SPG") and by
+#   three-pointers MADE, now that data/reference/player_season_box.v1.parquet
+#   supplies both. `shoot_efficiency` is replaced rather than relabelled by
+#   `shoot_elite_efficiency`, whose predicate is identical: renaming in place
+#   would have changed the axis label printed on boards already played.
+V5_RETIRED_CONSTRAINT_IDS = frozenset(
+    {
+        "peak_60_plus",
+        "peak_70_plus",
+        "peak_75_plus",
+        "peak_80_plus",
+        "peak_85_plus",
+        "comp_statistical_impact",
+        "comp_traditional_production",
+        "comp_recognition",
+        "comp_postseason",
+        "comp_team_achievement",
+        "prod_scoring",
+        "prod_rebounding",
+        "prod_playmaking",
+        "prod_rim_protection",
+        "prod_perimeter_defense",
+        "shoot_efficiency",
+        "shoot_three_volume",
+    }
+)
+
 # Top-decile cut for the component constraints. One shared value so "top 10%"
 # means the same thing in every component label.
 COMPONENT_PERCENTILE = 0.90
@@ -145,6 +279,21 @@ class Constraint:
     # constraint whose real-world award predates 1979-80 (or has no season
     # concept at all, e.g. team/era/position) leaves this at the default.
     valid_from: Optional[int] = None
+    # Does this axis need its rule spelled out before a player can use it?
+    #
+    # "All-Star", "Lakers", "Top-10 Pick" and "7'0\" or Taller" do not -- the
+    # label IS the rule, and hanging an info affordance on them is clutter that
+    # teaches nothing. "Elite Efficiency", "25%+ Usage Rate", "Undrafted" and
+    # the career-shape axes do: each has a real eligibility rule (relative to
+    # which league average? which possessions? drafted in which league? counted
+    # over which seasons?) that a player would otherwise have to guess at, and
+    # guessing is what produces "how was I supposed to know PEAK3 meant that".
+    #
+    # Presentation only. `description` already carries the full sentence for
+    # EVERY constraint and the cell panel already shows it; this flag is what
+    # tells the board header to surface an info marker rather than making the
+    # player open the panel to find out a rule they could not infer.
+    needs_definition: bool = False
 
     def matches(self, frame: pd.DataFrame) -> np.ndarray:
         mask = np.asarray(self.mask(frame), dtype=bool)
@@ -162,6 +311,7 @@ class Constraint:
             "short_label": self.short_label,
             "category": self.category,
             "description": self.description,
+            "needs_definition": self.needs_definition,
         }
 
 
@@ -385,6 +535,42 @@ def _award_constraints() -> list[Constraint]:
             mask=lambda f: (f["mip_rank"] == 1).to_numpy(),
             valid_from=MIP_SEASON_START,
         ),
+        # v5. Rookie of the Year comes from the same `awards` string 6MOY and
+        # MIP are parsed out of (pool.py::_award_rank), and the four remaining
+        # league-leader titles are real 0/1 columns that were already on the
+        # scored table and already feeding the combined "League Leader"
+        # constraint above -- they had simply never been offered individually.
+        # "Led the league in rebounding" is the kind of thing a fan can answer;
+        # it is strictly more legible than the aggregate.
+        Constraint(
+            id="award_roy",
+            label="Rookie of the Year",
+            short_label="ROY",
+            category="award",
+            exclusive_group="roy",
+            description="Won Rookie of the Year that season.",
+            mask=lambda f: (f["roy_rank"] == 1).to_numpy(),
+        ),
+        *[
+            Constraint(
+                id=f"award_{column}",
+                label=f"Led the League in {title}",
+                short_label=short,
+                category="award",
+                # Nested inside the aggregate "Led the League in a Major
+                # Category", and disjoint from the scoring title, so all six
+                # league-leader constraints share one group.
+                exclusive_group="stat_title",
+                description=f"Led the league in {leader_stat} that season.",
+                mask=lambda f, col=column: (f[col] == 1).to_numpy(),
+            )
+            for column, title, short, leader_stat in (
+                ("rebound_title", "Rebounding", "Rebound Title", "rebounds per game"),
+                ("assist_title", "Assists", "Assist Title", "assists per game"),
+                ("steals_title", "Steals", "Steals Title", "steals per game"),
+                ("blocks_title", "Blocks", "Blocks Title", "blocks per game"),
+            )
+        ],
     ]
 
 
@@ -898,6 +1084,423 @@ def _usage_constraints() -> list[Constraint]:
     ]
 
 
+
+# ---------------------------------------------------------------------------
+# Draft / entry-path constraints (v5)
+# ---------------------------------------------------------------------------
+#
+# CAREER FACTS ON A SEASON-GRAIN POOL, DELIBERATELY. Everything above this
+# point asks something about the SEASON in the square ("was he an All-Star
+# THAT year"). Draft slot, birthplace, height and career shape are facts about
+# the PLAYER, so they attach to every one of that player's seasons: "Lakers x
+# Top-10 Pick" means "a Lakers season played by someone who was a top-10 pick",
+# which is how every grid game of this kind has always read and how a fan
+# reads it out loud. Each description says so explicitly.
+#
+# All four draft constraints share one exclusive group. Three of them are
+# mutually exclusive outright (a player is a top-10 pick or a second-rounder or
+# undrafted, never two), and "No. 1 Overall" is nested inside "Top-10", so
+# crossing any pair is either impossible or decoration.
+#
+# ROUND IS THE DRAFT'S OWN ROUND, NOT ARITHMETIC ON THE PICK NUMBER. The
+# two-round draft dates from 1989; the 1984 draft ran ten rounds of 23-24
+# picks, so overall pick 30 there was a SECOND-round pick while overall pick 30
+# in 1996 was a first-round pick. The reference dataset reads the round from
+# Basketball-Reference's own per-round sections for exactly this reason (see
+# scripts/build_player_reference_dataset.py::_drafts), so "Second-Round Pick"
+# means what it meant in that year's draft.
+
+DRAFT_TOP_PICK_MAX = 10
+
+
+def _draft_constraints() -> list[Constraint]:
+    return [
+        Constraint(
+            id="draft_first_overall",
+            label="No. 1 Overall Pick",
+            short_label="No. 1 Pick",
+            category="draft",
+            exclusive_group="draft_slot",
+            description=(
+                "The player was the first overall selection in an NBA draft. "
+                "A fact about the player, so it holds for every season of his "
+                "career."
+            ),
+            mask=lambda f: (f["draft_pick_overall"] == 1).to_numpy(),
+        ),
+        Constraint(
+            id="draft_top10",
+            label=f"Top-{DRAFT_TOP_PICK_MAX} Pick",
+            short_label=f"Top-{DRAFT_TOP_PICK_MAX} Pick",
+            category="draft",
+            exclusive_group="draft_slot",
+            description=(
+                f"The player was selected with one of the first "
+                f"{DRAFT_TOP_PICK_MAX} overall picks in an NBA draft."
+            ),
+            mask=lambda f: (f["draft_pick_overall"] <= DRAFT_TOP_PICK_MAX).to_numpy(),
+        ),
+        Constraint(
+            id="draft_second_round",
+            label="Second-Round Pick",
+            short_label="2nd Round",
+            category="draft",
+            exclusive_group="draft_slot",
+            description=(
+                "The player was drafted in the second round -- the round that "
+                "draft actually ran, not a guess from the pick number. Drafts "
+                "before 1989 ran well past two rounds, so a 30th overall pick "
+                "in 1984 was a second-rounder and a 30th overall pick in 1996 "
+                "was not."
+            ),
+            needs_definition=True,
+            mask=lambda f: (f["draft_round"] == 2).to_numpy(),
+        ),
+        Constraint(
+            id="draft_undrafted",
+            label="Undrafted",
+            short_label="Undrafted",
+            category="draft",
+            exclusive_group="draft_slot",
+            description=(
+                "The player was never selected in an NBA draft. Only claimed "
+                "for players whose careers began in 1979-80 or later, because "
+                "an earlier route into the league (the 1976 ABA dispersal "
+                "draft, for instance) leaves no NBA draft record either -- "
+                "those players are treated as unknown rather than undrafted."
+            ),
+            needs_definition=True,
+            mask=lambda f: (f["undrafted"] == 1).to_numpy(),
+        ),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Origin constraints (v5)
+# ---------------------------------------------------------------------------
+#
+# ONE DEFINITION, WRITTEN DOWN. "International player" is used loosely to mean
+# at least four different things -- birthplace, citizenship, national-team
+# affiliation, and the NBA's own draft-eligibility category ("has maintained a
+# permanent residence outside the United States for three years... never
+# enrolled in a US college"). This taxonomy commits to ONE: BORN OUTSIDE THE
+# UNITED STATES, from the birthplace Basketball-Reference records.
+#
+# That is the sense the league's own published counts use ("a record 135
+# international players from 43 countries") and the sense the widely-cited
+# "NBA players born outside the United States" list uses. Puerto Rico and the
+# US Virgin Islands count as international, matching the NBA's treatment.
+#
+# TWO CONSEQUENCES, BOTH ACCEPTED ON PURPOSE. A player born abroad to American
+# parents counts (Patrick Ewing, Kingston; Kyrie Irving, Melbourne; Tim
+# Duncan, St. Croix; Steve Nash, Johannesburg). A player born in the United
+# States who represented another country does not (Joakim Noah). Any other
+# rule would need citizenship or national-team data this repository does not
+# have and could not source consistently across 46 seasons -- and a rule that
+# quietly mixes birthplace with "feels international" is exactly the kind a
+# player cannot check.
+#
+# There is no "American Player" counterpart: it would be true of roughly six
+# player-seasons in seven, which is a filter rather than a question.
+
+
+def _origin_constraints() -> list[Constraint]:
+    return [
+        Constraint(
+            id="origin_international",
+            label="International Player",
+            short_label="International",
+            category="origin",
+            exclusive_group="birth_origin",
+            description=(
+                "The player was born outside the United States. Birthplace, "
+                "not citizenship or national team -- so Patrick Ewing "
+                "(Jamaica) and Tim Duncan (US Virgin Islands) count, and a "
+                "US-born player who represented another country does not."
+            ),
+            needs_definition=True,
+            mask=lambda f: (f["international"] == 1).to_numpy(),
+        ),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Size constraints (v5)
+# ---------------------------------------------------------------------------
+#
+# ONE CANONICAL HEIGHT PER PLAYER: the listed height on Basketball-Reference's
+# player index, read as an integer number of inches from the column's own
+# numeric sort key rather than parsed out of a "6-6" string. Listed height is a
+# career-long fact there, so it does not move between a player's seasons, and
+# it is the number every basketball reference and broadcast quotes.
+#
+# THREE RUNGS, ONE EXCLUSIVE GROUP. 7'0" is nested inside 6'10"; 6'3"-and-under
+# is disjoint from both. Crossing any pair is decoration or impossible.
+
+HEIGHT_SEVEN_FOOT_IN = 84
+HEIGHT_BIG_IN = 82
+HEIGHT_SMALL_MAX_IN = 75
+
+
+def _size_constraints() -> list[Constraint]:
+    return [
+        Constraint(
+            id="size_7ft",
+            label="7'0\" or Taller",
+            short_label="7'0\"+",
+            category="size",
+            exclusive_group="height",
+            description="The player's listed height is 7'0\" or more.",
+            mask=lambda f: (f["height_in"] >= HEIGHT_SEVEN_FOOT_IN).to_numpy(),
+        ),
+        Constraint(
+            id="size_6ft10",
+            label="6'10\" or Taller",
+            short_label="6'10\"+",
+            category="size",
+            exclusive_group="height",
+            description="The player's listed height is 6'10\" or more.",
+            mask=lambda f: (f["height_in"] >= HEIGHT_BIG_IN).to_numpy(),
+        ),
+        Constraint(
+            id="size_6ft3_under",
+            label="6'3\" or Shorter",
+            short_label="6'3\" & Under",
+            category="size",
+            exclusive_group="height",
+            description="The player's listed height is 6'3\" or less.",
+            mask=lambda f: (f["height_in"] <= HEIGHT_SMALL_MAX_IN).to_numpy(),
+        ),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Career-journey constraints (v5)
+# ---------------------------------------------------------------------------
+#
+# COUNTED OVER THE DATA WINDOW, AND THE DESCRIPTIONS SAY SO. Franchise and
+# season counts come from the per-team rows of Basketball-Reference's season
+# pages from 1979-80 on, folded through nba_peak.franchises so a Seattle
+# season counts towards the Thunder -- the same table the team constraints
+# above use, so "played for five franchises" and "played for the Wizards" can
+# never disagree about what a franchise is. A player traded mid-season is
+# credited with both franchises, which PEAK3's own regular-season parquet
+# cannot support: it stores a single combined "2TM" row for a traded season.
+#
+# WHY ONE-FRANCHISE CAREERS ARE GATED ON `career_fully_in_window`. "Played for
+# five franchises" counted inside the window can only UNDERSTATE a career that
+# also ran before 1979-80, so a player who clears it clears it for real. "Never
+# played for anyone else" is the opposite: for a career that started in 1974,
+# in-window data could show one franchise while the player had two, and the
+# square would accept an answer that is simply false. So that constraint
+# additionally requires the player's whole career to sit inside the window --
+# which the reference dataset knows from Basketball-Reference's own career-span
+# column, not from the pool's own coverage.
+#
+# ONE RUNG PER IDEA. 4+, 6+, 7+ and 8+ franchises were all measured; each is a
+# rewording of the same question, and the taxonomy is better for having one
+# clear version of it than four arbitrary ones.
+
+JOURNEY_FRANCHISES_MANY = 5
+JOURNEY_LONG_CAREER_SEASONS = 15
+
+
+def _journey_constraints() -> list[Constraint]:
+    return [
+        Constraint(
+            id="journey_franchises_5",
+            label=f"Played for {JOURNEY_FRANCHISES_MANY}+ Franchises",
+            short_label=f"{JOURNEY_FRANCHISES_MANY}+ Teams",
+            category="journey",
+            exclusive_group="franchise_count",
+            description=(
+                f"The player appeared for at least {JOURNEY_FRANCHISES_MANY} "
+                "different NBA franchises across his career, counting seasons "
+                "from 1979-80 on. Relocated franchises count once: Seattle and "
+                "Oklahoma City are one team here, as are Washington's Bullets "
+                "and Wizards."
+            ),
+            needs_definition=True,
+            mask=lambda f: (f["franchise_count"] >= JOURNEY_FRANCHISES_MANY).to_numpy(),
+        ),
+        Constraint(
+            id="journey_one_franchise",
+            label="One-Franchise Career",
+            short_label="One Team",
+            category="journey",
+            exclusive_group="franchise_count",
+            description=(
+                "The player spent his entire NBA career with a single "
+                "franchise. Only players whose whole career falls inside "
+                "PEAK3's 1979-80 onward window are eligible, because an "
+                "earlier career could have had teams this data cannot see."
+            ),
+            needs_definition=True,
+            mask=lambda f: (
+                (f["franchise_count"] == 1) & (f["career_fully_in_window"] == 1)
+            ).to_numpy(),
+        ),
+        Constraint(
+            id="journey_seasons_15",
+            label=f"{JOURNEY_LONG_CAREER_SEASONS}+ Season Career",
+            short_label=f"{JOURNEY_LONG_CAREER_SEASONS}+ Seasons",
+            category="journey",
+            exclusive_group="career_length",
+            description=(
+                f"The player appeared in at least {JOURNEY_LONG_CAREER_SEASONS} "
+                "NBA seasons, counting seasons from 1979-80 on."
+            ),
+            needs_definition=True,
+            mask=lambda f: (f["seasons_played"] >= JOURNEY_LONG_CAREER_SEASONS).to_numpy(),
+        ),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Per-game production constraints (v5)
+# ---------------------------------------------------------------------------
+#
+# THE DENOMINATOR A FAN ACTUALLY USES. The v4 bands measured the same acts per
+# 75 possessions, which is the better statistic and the worse axis: nobody says
+# "he got 1.8 steals per 75". These read the per-GAME line straight from
+# Basketball-Reference's own season tables (data/reference/), which is the
+# number quoted in every highlight package, box score and argument.
+#
+# The cost is real and worth naming: per-game rates rise and fall with pace, so
+# a 20-point season in 1985 was slightly easier to reach than one in 1999. That
+# is a property of the question fans already ask, not a distortion this
+# taxonomy introduces, and it is why the era-sensitive question -- efficiency --
+# is still asked era-relative (see `shoot_elite_efficiency`).
+#
+# Thresholds are the round numbers basketball conversation already uses.
+# 30+ PPG, 12+ RPG, 10+ APG and 250+ threes were all measured and left out:
+# each has too few qualifying seasons to survive being crossed with a franchise
+# and still leave a findable square.
+
+PER_GAME_SPECS: tuple[tuple[str, str, str, str, float, str], ...] = (
+    (
+        "prod_ppg_20",
+        "pts_pg",
+        "20+ PPG Season",
+        "20+ PPG",
+        20.0,
+        "Averaged 20 or more points per game that season, for this team.",
+    ),
+    (
+        "prod_ppg_25",
+        "pts_pg",
+        "25+ PPG Season",
+        "25+ PPG",
+        25.0,
+        "Averaged 25 or more points per game that season, for this team.",
+    ),
+    (
+        "prod_rpg_10",
+        "trb_pg",
+        "10+ RPG Season",
+        "10+ RPG",
+        10.0,
+        "Averaged 10 or more rebounds per game that season, for this team.",
+    ),
+    (
+        "prod_apg_7",
+        "ast_pg",
+        "7+ APG Season",
+        "7+ APG",
+        7.0,
+        "Averaged 7 or more assists per game that season, for this team.",
+    ),
+    (
+        "prod_spg_2",
+        "stl_pg",
+        "2+ SPG Season",
+        "2+ SPG",
+        2.0,
+        "Averaged 2 or more steals per game that season, for this team.",
+    ),
+    (
+        "prod_bpg_2",
+        "blk_pg",
+        "2+ BPG Season",
+        "2+ BPG",
+        2.0,
+        "Averaged 2 or more blocks per game that season, for this team.",
+    ),
+)
+
+# Points is the one act with two rungs, because 20 and 25 are both lines
+# basketball actually draws. They are nested, so they share a group.
+_PER_GAME_GROUPS: dict[str, Optional[str]] = {
+    "prod_ppg_20": "points_per_game",
+    "prod_ppg_25": "points_per_game",
+}
+
+
+def _per_game_constraints() -> list[Constraint]:
+    return [
+        Constraint(
+            id=cid,
+            label=label,
+            short_label=short_label,
+            category="production",
+            exclusive_group=_PER_GAME_GROUPS.get(cid),
+            description=description,
+            mask=lambda f, col=column, t=threshold: (f[col] >= t).to_numpy(),
+        )
+        for cid, column, label, short_label, threshold, description in PER_GAME_SPECS
+    ]
+
+
+# ---------------------------------------------------------------------------
+# v5 shooting constraints
+# ---------------------------------------------------------------------------
+
+# Three-pointers MADE, not the share of shots taken from three. Both are real,
+# but "he made 200 threes" is a sentence a fan says and "35% of his attempts
+# were threes" is one they do not. 200 is the recognisable line (it is roughly
+# where a season reads as high-volume shooting in any era it was reachable).
+# The era skew IS the fact and the description says so rather than hiding it:
+# the three-pointer arrived in 1979-80 and stayed rare for a decade.
+THREE_POINT_MAKES = 200
+
+
+def _v5_shooting_constraints() -> list[Constraint]:
+    return [
+        Constraint(
+            id="shoot_threes_200",
+            label=f"{THREE_POINT_MAKES}+ Threes Made",
+            short_label=f"{THREE_POINT_MAKES}+ 3PM",
+            category="shooting",
+            exclusive_group="three_point_makes",
+            description=(
+                f"Made at least {THREE_POINT_MAKES} three-pointers that "
+                "season, for this team. The three-pointer arrived in 1979-80 "
+                "and stayed rare for a decade, so early seasons almost never "
+                "qualify."
+            ),
+            mask=lambda f: (f["fg3m"] >= THREE_POINT_MAKES).to_numpy(),
+        ),
+        Constraint(
+            id="shoot_elite_efficiency",
+            label="Elite Efficiency",
+            short_label="Elite Eff.",
+            category="shooting",
+            # Same group the retired `shoot_efficiency` used, so the two can
+            # never appear on opposite axes of one board even in a taxonomy
+            # that somehow contained both.
+            exclusive_group="shooting_efficiency",
+            description=(
+                f"True shooting percentage at least {TS_PLUS_ELITE:.0f}% of the "
+                "league average that season. Measured against that season's own "
+                "league, so an efficient 1985 season counts the same as an "
+                "efficient 2025 one."
+            ),
+            needs_definition=True,
+            mask=lambda f: (f["ts_plus"] >= TS_PLUS_ELITE).to_numpy(),
+        ),
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -928,6 +1531,15 @@ def build_constraints(pool: GridPool) -> list[Constraint]:
         + _production_constraints()
         + _shooting_constraints()
         + _usage_constraints()
+        # v5 families, APPENDED for the same reason every earlier addition was:
+        # generation samples this list by index, so every pre-existing
+        # constraint must keep the position it had.
+        + _draft_constraints()
+        + _origin_constraints()
+        + _size_constraints()
+        + _journey_constraints()
+        + _per_game_constraints()
+        + _v5_shooting_constraints()
     )
     seen: set[str] = set()
     for constraint in constraints:

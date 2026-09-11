@@ -1,0 +1,76 @@
+{
+  "version": "player_reference.v1",
+  "generated_at": "2026-09-10T17:45:56Z",
+  "generator": "scripts/build_player_reference_dataset.py",
+  "fetcher": "scripts/fetch_player_reference_html.py",
+  "window": {
+    "first_season_end": 1980,
+    "last_season_end": 2026
+  },
+  "sources": [
+    {
+      "name": "season per-game tables",
+      "url_pattern": "https://www.basketball-reference.com/leagues/NBA_{season_end}_per_game.html",
+      "supplies": [
+        "per-game points/rebounds/assists/steals/blocks",
+        "three-pointers made (exact, from the cell sort key x games)",
+        "games, games started, minutes per game",
+        "the (player id, season, team) -> display-name bridge onto PEAK3's tables"
+      ],
+      "seasons": "1980..2026"
+    },
+    {
+      "name": "player index",
+      "url_pattern": "https://www.basketball-reference.com/players/{letter}/",
+      "supplies": [
+        "listed height in inches",
+        "weight",
+        "birth date",
+        "career span",
+        "colleges"
+      ]
+    },
+    {
+      "name": "draft results",
+      "url_pattern": "https://www.basketball-reference.com/draft/NBA_{year}.html",
+      "supplies": [
+        "draft round (from the table's own round sections)",
+        "overall pick",
+        "drafting team"
+      ]
+    },
+    {
+      "name": "birthplaces",
+      "url_pattern": "https://www.basketball-reference.com/friv/birthplaces.fcgi?country={code}[&state={state}]",
+      "supplies": [
+        "birth country, as positive evidence on both the foreign and US side"
+      ]
+    }
+  ],
+  "normalization": {
+    "player_identity": "Basketball-Reference player id (data-append-csv); no name matching anywhere in the build",
+    "height": "inches, read from the height cell's numeric sort key rather than parsing a feet-inches string",
+    "draft_round": "read from the table's 'Round N' section headers, never inferred from the overall pick",
+    "international": "born outside the United States. Puerto Rico and the US Virgin Islands count as international, matching the NBA's own roster convention. Birthplace, never citizenship or national-team affiliation.",
+    "franchise": "nba_peak.franchises -- relocations and renames fold into today's franchise",
+    "three_pointers_made": "exact integer: the per-game cell's full-precision sort key multiplied by games played",
+    "multi_team_seasons": "kept as both the combined 2TM/3TM row and one row per team stint; the team column distinguishes them"
+  },
+  "counts": {
+    "season_rows": 25349,
+    "players": 3819,
+    "players_with_height": 3819,
+    "players_drafted": 2758,
+    "players_undrafted": 1053,
+    "players_with_known_birth_country": 3819,
+    "players_international": 616
+  },
+  "artifacts": {
+    "player_season_box.v1.parquet": {
+      "sha256": "230e54a6e34bb04b8641cd2d04f57ccba166b9a699bf30a082511ab182435d30"
+    },
+    "player_bio.v1.json": {
+      "sha256": "93c686ce0cb2da1eeb8042a08bd8731d51b5d1db769ecf24c8d880f4d6214001"
+    }
+  }
+}

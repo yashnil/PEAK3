@@ -110,3 +110,29 @@ directory is committed — see table above).
   present on a clean checkout, not changing their behavior.
 - `cache/processed/` and `cache/html/` remain gitignored in general; only the
   two specific files real tests depend on are carved out.
+
+## Daily Grid v5: the player-reference dataset (2026-09-10)
+
+`data/reference/`, produced by `scripts/build_player_reference_dataset.py`.
+Category 1 (canonical committed inputs), for the same reason
+`data/generated/*.csv` is: rebuilding needs live network access to
+basketball-reference.com, and CI must never depend on that.
+
+The Daily Grid's basketball-native taxonomy — "Top-10 Pick", "International
+Player", "7'0\" or Taller", "25+ PPG Season", "200+ Threes", "Played for 5+
+Franchises" — is built entirely on facts PEAK3's own tables do not carry.
+`scored_1980_2026.parquet` holds rates per 100 possessions, award ranks and
+playoff outcomes; it holds no height, no draft slot, no birth country and no
+per-game box line, because it was built to score seasons rather than to
+describe players. These two artifacts are that missing layer.
+
+| Path | Category | Why |
+|---|---|---|
+| `player_season_box.v1.parquet` (1.2MB, 25,349 rows) | 1 | Per-game points/rebounds/assists/steals/blocks, three-pointers made, and the Basketball-Reference player id for each (player, season, team) row — which is what makes the join onto PEAK3's tables exact rather than name-matched. Read at runtime by `nba_peak/daily_grid/pool.py::_join_reference`; a missing file raises `FileNotFoundError` on pool load, so this is load-bearing for every Daily Grid request. Built from `cache/html/NBA_{year}_per_game.html`, which is the existing (gitignored, 370MB) scrape cache `nba_peak/context_build.py` already reads — so this file is category 1 twice over: a clean checkout has neither the network nor the cache. |
+| `player_bio.v1.json` (2.2MB, 3,819 players) | 1 | Listed height, draft round/pick/team, birth country, franchises and seasons played, and whether the whole career sits inside the 1979-80 window. Same runtime path, same consequence if absent. Built from `cache/html/reference/`, which `scripts/fetch_player_reference_html.py` fills with ~230 live requests. |
+| `player_reference_manifest.v1.json` (4KB) | 1 | Provenance: every source URL pattern and what it decides, the normalization rules (player identity, height units, draft round, the international definition, franchise folding, exact three-point counts, multi-team seasons), row counts, and a SHA-256 for each artifact. Not read at runtime; `tests/test_player_reference_dataset.py` verifies the checksums match, so an artifact edited by anything other than its generator fails CI. |
+
+`cache/html/reference/` is covered by the existing `cache/html/*` ignore rule
+and is not committed. `scripts/fetch_player_reference_html.py` is the only
+script in the repository that performs live requests for this data, it is run
+by hand, and nothing in CI invokes it.

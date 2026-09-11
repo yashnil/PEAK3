@@ -49,7 +49,18 @@ OTHER_DATE = "2026-03-15"
 # equality, not a subset: an extra key here is the failure mode this whole
 # file exists to catch.
 CELL_KEYS = {"row", "col", "row_constraint_id", "col_constraint_id", "rarity_bucket"}
-CONSTRAINT_KEYS = {"id", "label", "short_label", "category", "description"}
+CONSTRAINT_KEYS = {
+    "id",
+    "label",
+    "short_label",
+    "category",
+    "description",
+    # v5. Presentation metadata: whether the board header should mark this axis
+    # as having a rule the label does not state. Carries no answer information
+    # (it is a property of the constraint, not of the pool), which is why it is
+    # allowed through this equality at all.
+    "needs_definition",
+}
 # Phase 11B: the shape a player-season takes BEFORE it is locked -- identity
 # only, no score. Search hits and submit responses both use it, so a score can
 # never be read off a candidate or off a rejected guess.

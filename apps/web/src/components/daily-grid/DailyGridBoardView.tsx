@@ -15,16 +15,49 @@ interface Props {
 
 const INDICES = Array.from({ length: GRID_SIZE }, (_, i) => i);
 
+/**
+ * The "this axis has a rule you cannot read off the label" marker.
+ *
+ * An SVG rather than the "\u24D8" character on purpose, for two reasons. It
+ * renders identically everywhere (the glyph is missing or differently-shaped
+ * in several platform fonts), and an SVG contributes NOTHING to the header's
+ * `textContent` -- which the board's own tests read to assert the label, and
+ * which a screen reader would otherwise announce as an unexplained symbol.
+ *
+ * It is decorative here by design: the rule itself is already on the header's
+ * `title` and printed in full on the selected-cell panel, so this marks WHERE
+ * to look rather than being the only route to the text.
+ */
+function DefinitionMarker({ color }: { color: string }) {
+  return (
+    <svg
+      data-testid="grid-header-definition-marker"
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 16 16"
+      width="9"
+      height="9"
+      style={{ flexShrink: 0, opacity: 0.75 }}
+    >
+      <circle cx="8" cy="8" r="7" fill="none" stroke={color} strokeWidth="1.6" />
+      <circle cx="8" cy="4.4" r="1.05" fill={color} />
+      <rect x="7.1" y="6.6" width="1.8" height="5.2" rx="0.9" fill={color} />
+    </svg>
+  );
+}
+
 function HeaderChip({
   label,
   title,
   color,
   orientation,
+  needsDefinition = false,
 }: {
   label: string;
   title: string;
   color: string;
   orientation: "row" | "col";
+  needsDefinition?: boolean;
 }) {
   return (
     <div
@@ -42,6 +75,7 @@ function HeaderChip({
         style={{ background: color, width: orientation === "col" ? 22 : 16, height: 2 }}
       />
       <span
+        data-testid="grid-header-label"
         className={
           orientation === "col"
             ? "break-words text-[clamp(9px,2.4vw,12px)] font-bold uppercase tracking-[0.04em]"
@@ -66,6 +100,7 @@ function HeaderChip({
       >
         {label}
       </span>
+      {needsDefinition ? <DefinitionMarker color={color} /> : null}
     </div>
   );
 }
@@ -107,6 +142,7 @@ export default function DailyGridBoardView({ board, progress, selected, invalidC
             label={c?.short_label ?? `Col ${col + 1}`}
             title={c ? `${c.label} — ${c.description}` : `Column ${col + 1}`}
             color={c ? categoryColor(c.category) : "var(--border-emphasis)"}
+            needsDefinition={c?.needs_definition ?? false}
           />
         );
       })}
@@ -120,6 +156,7 @@ export default function DailyGridBoardView({ board, progress, selected, invalidC
               label={r?.short_label ?? `Row ${row + 1}`}
               title={r ? `${r.label} — ${r.description}` : `Row ${row + 1}`}
               color={r ? categoryColor(r.category) : "var(--border-emphasis)"}
+              needsDefinition={r?.needs_definition ?? false}
             />
             {INDICES.map((col) => (
               <GridCell

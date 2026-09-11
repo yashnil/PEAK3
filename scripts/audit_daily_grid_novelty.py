@@ -49,10 +49,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from nba_peak.daily_grid.constraints import all_constraints  # noqa: E402
+from nba_peak.daily_grid.constraints import (  # noqa: E402
+    V5_RETIRED_CONSTRAINT_IDS,
+    all_constraints,
+)
 from nba_peak.daily_grid.generator import (  # noqa: E402
     FAMILY_CUTOVER_DATE,
     NOVELTY_CUTOVER_DATE,
+    TAXONOMY_CUTOVER_DATE,
     generate_board,
 )
 from nba_peak.daily_grid.pool import load_pool  # noqa: E402
@@ -76,12 +80,35 @@ def _distance_stats(distances: list[int]) -> dict:
     }
 
 
+def _cell_pool_summary(sizes: list[int]) -> dict:
+    if not sizes:
+        return {"count": 0}
+    ordered = sorted(sizes)
+    def _percentile(fraction: float) -> int:
+        return ordered[min(len(ordered) - 1, int(fraction * len(ordered)))]
+    return {
+        "count": len(ordered),
+        "min": ordered[0],
+        "p10": _percentile(0.10),
+        "median": _percentile(0.50),
+        "p90": _percentile(0.90),
+        "max": ordered[-1],
+    }
+
+
 def run(start: str, days: int) -> dict:
     pool = load_pool()
     taxonomy = all_constraints(pool)
     by_id = {c.id: c for c in taxonomy}
-    registered_ids = set(by_id)
-    registered_families = {c.category for c in taxonomy}
+    # RETIRED IDS ARE NOT UNREACHED, THEY ARE WITHDRAWN. They stay in the
+    # registry so already-published boards keep resolving (see
+    # constraints.V5_RETIRED_CONSTRAINT_IDS) but are deliberately never drawn
+    # for a new board, so counting them as coverage gaps would report the
+    # taxonomy pass working as a regression.
+    registered_ids = set(by_id) - V5_RETIRED_CONSTRAINT_IDS
+    registered_families = {
+        c.category for c in taxonomy if c.id not in V5_RETIRED_CONSTRAINT_IDS
+    }
 
     dates = _keys(start, days)
 
@@ -104,6 +131,11 @@ def run(start: str, days: int) -> dict:
     seen_ids: set[str] = set()
     attempts_all: list[int] = []
     failures: list[str] = []
+    versions: set[str] = set()
+    # Every cell's answer count, so the report can state the smallest and
+    # median square a player would actually face rather than only asserting
+    # that no square is impossible.
+    cell_pool_sizes: list[int] = []
 
     for board_index, date_str in enumerate(dates):
         try:
@@ -114,6 +146,7 @@ def run(start: str, days: int) -> dict:
 
         attempts_all.append(board.attempts)
         difficulty_counter[board.difficulty] += 1
+        versions.add(board.version)
 
         axes = list(board.rows) + list(board.cols)
 
@@ -152,6 +185,7 @@ def run(start: str, days: int) -> dict:
                 pair_last_board[pair] = board_index
 
         for cell in board.cells:
+            cell_pool_sizes.append(cell.answer_count)
             if cell.answer_count == 0:
                 zero_answer_cells += 1
             elif cell.answer_count == 1:
@@ -164,7 +198,14 @@ def run(start: str, days: int) -> dict:
     return {
         "start": start,
         "days": days,
-        "cutover": NOVELTY_CUTOVER_DATE,
+        # Every cutover the run could straddle, oldest first, so a report read
+        # six months from now says which taxonomy the numbers describe.
+        "cutovers": {
+            "novelty_v2_to_v3": NOVELTY_CUTOVER_DATE,
+            "family_v3_to_v4": FAMILY_CUTOVER_DATE,
+            "taxonomy_v4_to_v5": TAXONOMY_CUTOVER_DATE,
+        },
+        "versions_generated": sorted(versions),
         "boards_generated": len(dates) - len(failures),
         "generation_failures": failures,
         "attempts": {
@@ -200,7 +241,15 @@ def run(start: str, days: int) -> dict:
         "difficulty_distribution": dict(difficulty_counter),
         "zero_answer_cells": zero_answer_cells,
         "one_answer_cells": one_answer_cells,
+        # What a player actually faces, square by square. The floors
+        # (MIN_ANSWERS_PER_CELL) guarantee the minimum; these say where the
+        # distribution really sits, which is what "is this fun" turns on.
+        "cell_pool": _cell_pool_summary(cell_pool_sizes),
+        "retired_ids_seen_on_a_generated_board": sorted(
+            seen_ids & V5_RETIRED_CONSTRAINT_IDS
+        ),
         "category_reachability": {
+            "retired_and_excluded": len(V5_RETIRED_CONSTRAINT_IDS),
             "registered": len(registered_ids),
             "reached": len(seen_ids),
             "unreached": sorted(registered_ids - seen_ids),
@@ -241,7 +290,7 @@ def main() -> int:
     parser.add_argument(
         "--start",
         default=None,
-        help="first daily key (YYYY-MM-DD); defaults to the day after NOVELTY_CUTOVER_DATE",
+        help="first daily key (YYYY-MM-DD); defaults to the day after the most recent cutover",
     )
     parser.add_argument("--days", type=int, default=DEFAULT_DAYS, help="consecutive keys")
     args = parser.parse_args()
@@ -250,7 +299,7 @@ def main() -> int:
     # measures the taxonomy that is actually in force rather than a legacy
     # window. `--start` still reaches any older span deliberately.
     start = args.start or (
-        _date.fromisoformat(FAMILY_CUTOVER_DATE) + timedelta(days=1)
+        _date.fromisoformat(TAXONOMY_CUTOVER_DATE) + timedelta(days=1)
     ).isoformat()
 
     report = run(start, args.days)

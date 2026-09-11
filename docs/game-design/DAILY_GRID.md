@@ -108,10 +108,16 @@ two PEAK3-native axes. A board must now have:
 
 - **1–2** team constraints (a third franchise crowds out everything
   interesting and was the main source of the lookup-table feeling)
-- **at most 1** PEAK3 score/component axis, and on most dates **zero** — see
-  "Why score-derived constraints are mostly excluded" below
+- **zero** PEAK3 score/component axes from v5 on — see "Why score-derived
+  constraints are excluded" below. (v2–v4 boards allowed one on about one date
+  in five; those boards are frozen and keep it.)
 - **at most 1** season-context axis (minutes/games); two crossed with each
   other is an availability quiz, not a puzzle
+- **at most 2** style axes in total (season context, per-game production,
+  shooting, usage) — three is a statistical filter with a basketball label
+- **at most 2** identity axes in total (draft, origin, size, career journey) —
+  three and every square is a biography lookup rather than a question about a
+  season
 - at least **2** award / playoff-outcome / era anchors — these are what make
   "Lakers × MVP" rather than "Lakers × Center"
 - team + position together may claim **at most half** the six axes
@@ -132,11 +138,13 @@ Boards this produces: `Lakers × MVP`, `Heat × 2000s`, `Bulls × All-Defense`,
 `Spurs × Champion`, `Knicks × Guard`, `DPOY × Finals Run`, `Center × All-NBA`,
 `2010s × Finals MVP`, `Suns × 1990s`, `Pistons × DPOY`.
 
-### Why score-derived constraints are mostly excluded
+### Why score-derived constraints are excluded
 
-The `peak` and `component` families are still shipped — they are honest,
-well-defined predicates over real data, and `/daily-grid/constraints` still
-enumerates them. What changed in 11C is how often the generator may use one.
+The `peak` and `component` families are still *registered* — they are honest,
+well-defined predicates over real data, `/daily-grid/constraints` still
+enumerates them, and every board that already used one still resolves. What
+changed is how often the generator may draw one: 11C cut it to at most one axis
+on about one date in five, and **v5 cut it to zero**.
 
 The reason is game design, not data quality. The mode's objective is to
 maximise total PEAK3 score. An axis that reads `60+ PEAK` therefore restates
@@ -148,18 +156,26 @@ the objective as an eligibility rule, which has three effects:
    converge on the same names;
 3. the player learns nothing about basketball by solving it.
 
-So `generator._native_allowance()` gives a date **one** such axis on roughly
-one date in five (keyed off the seed, so it is deterministic and cannot line up
-with a weekday), and **zero** on the rest. The hard ceiling is 1; two score or
-component axes on one board is impossible by construction and asserted in
-tests. When one does appear it is a spice, never the shape of the board.
+From v5 those ten ids are simply not in the population the generator samples
+from (`constraints.V5_RETIRED_CONSTRAINT_IDS`), and
+`generator._native_allowance()` returns zero for v5 regardless of seed. The
+same pass retired the five per-75-possession production bands and the
+three-point-*rate* band for a related but different reason — they were honest
+measurements written in a denominator no fan quotes — and replaced them with
+the per-game line and three-pointers made.
+
+`docs/model/DAILY_GRID_TAXONOMY.md` is the full record: every active category,
+its exact eligibility rule, every retirement with its reason, and every idea
+that was investigated and not shipped.
 
 ### Board theme
 
 Each board carries a short, deterministic label derived from the axes it
 actually has — `Ring Chasers`, `Award Season`, `Franchise Icons`,
 `Two-Way Night`, `Playoff Pressure`, `Modern Era`, `Throwback Night`,
-`Open Court`. It is a *description*, never a generation input: `board_theme()`
+`Open Court`, and — from v5 — `Draft Night`, `Around the World`,
+`Tale of the Tape` and `The Long Road`. It is a *description*, never a
+generation input: `board_theme()`
 is a pure function of the axis set, so it cannot drift from the board it labels
 and cannot influence which board a date gets. It carries no answer information
 (it is computed from labels the client already has).
@@ -180,41 +196,69 @@ The empirical answer-count gate would already reject the mutually-exclusive
 pairs (zero answers); nested pairs pass it while still making a bad board, so
 the grouping is enforced explicitly.
 
-### Measured behaviour (365-day sample, 11C rules)
+### Measured behaviour (365-day sample, v5 rules)
 
-- 365/365 boards generated, **all distinct**
-- **298 boards (82%) carry zero PEAK3-native axes**; the other 67 carry exactly
-  one. No board carries two.
-- minimum cell across the whole year: 6 answers, 4 distinct players
-- 65 of the 68 shipped constraints appear at least once
-- ~21 ms per board; worst date needs ~3,300 of 8,000 attempts
-- difficulty splits evenly across the year (122 easy / 123 medium / 120 hard)
-- today's maximum ranges roughly 700–910 points
+Run `scripts/audit_daily_grid_novelty.py --days 365 --start 2026-09-11`; the
+v4 comparison in `docs/model/DAILY_GRID_TAXONOMY.md` §7 uses the same command
+one cutover earlier.
+
+- 365/365 boards generated, **all distinct**, zero failures
+- **every board carries zero PEAK3-native axes**
+- zero impossible and zero one-answer squares; smallest square in the year has
+  6 answers, median 77
+- all 90 active constraints appear at least once; no retired id appears at all
+- worst date needs ~2,000 of 8,000 attempts (v4: ~4,900), mean 256 (v4: 784)
+- every board draws on 4–6 distinct families; 172 draw on all six
+- no axis repeats inside its 3-board cooldown and no matchup inside its
+  10-board cooldown — v4 had 11 and 3 violations respectively
+- difficulty splits 93 easy / 150 medium / 122 hard
 
 ---
 
 ## Constraint taxonomy
 
-`nba_peak/daily_grid/constraints.py` — 68 constraints.
+`nba_peak/daily_grid/constraints.py` — **107 registered, 90 active** (the other
+17 are retired: still resolvable for the boards that already used them, never
+drawn for a new one).
 
-The gate for shipping one is strict: **if the fact cannot be read out of
-committed data at player-season grain, the constraint does not exist.** Nothing
-is inferred, estimated, or approximated. A grid is only fun if "that answer
-should have counted" is never true.
+Two gates, and the second is new in v5. **If the fact cannot be read out of
+committed data at the right grain, the constraint does not exist** — nothing is
+inferred, estimated or approximated, because a grid is only fun if "that answer
+should have counted" is never true. And **a fan has to understand the axis in
+about two seconds**, which is what moved the taxonomy from PEAK3's vocabulary
+to basketball's.
 
-| Category | Count | Examples |
+| Category | Active | Examples |
 |---|---|---|
 | `team` | 30 | Boston Celtics, Chicago Bulls — relocations folded in |
-| `award` | 12 | MVP, Top-5 MVP, DPOY, DPOY Votes, Finals MVP, All-NBA (+1st), All-Defense (+1st), All-Star, Scoring Champion, Led the League in a Major Category |
+| `award` | 20 | MVP, Top-5 MVP, DPOY, Finals MVP, All-NBA (+1st), All-Defense (+1st), All-Star, 6MOY, MIP, Rookie of the Year, and the six league-leader titles |
 | `era` | 5 | 1980s … 2020s |
 | `position` | 3 | Guard, Forward, Center — per **season**, not per career |
-| `context` | 3 | 30+ MPG, 36+ MPG, Played 70+ Games — real `mpg`/`g` columns, per season |
-| `outcome` | 5 | NBA Champion, Reached the Finals, Reached the Conference Finals, Made the Playoffs, Missed the Playoffs |
-| `peak` | 5 | 60+ / 70+ / 75+ / 80+ / 85+ PEAK Season — **rationed**, see above |
-| `component` | 5 | Top 10% Statistical Impact / Traditional Production / Individual Recognition / Postseason Value / Team Achievement — **rationed**, see above |
+| `context` | 3 | 30+ MPG, 36+ MPG, Played 70+ Games |
+| `outcome` | 5 | NBA Champion, Reached the Finals, Conference Finals, Made / Missed the Playoffs |
+| `career` | 3 | Age 23 & under, 30+, 34+ — the age on that season's roster row |
+| `production` | 6 | 20+ / 25+ PPG, 10+ RPG, 7+ APG, 2+ SPG, 2+ BPG — per **game** |
+| `shooting` | 2 | Elite Efficiency (TS+ ≥ 110), 200+ Threes Made |
+| `usage` | 2 | 25%+ and 28%+ usage rate |
+| `draft` | 4 | No. 1 Overall, Top-10 Pick, Second-Round Pick, Undrafted |
+| `origin` | 1 | International Player — born outside the United States |
+| `size` | 3 | 7'0"+, 6'10"+, 6'3" & under — listed height |
+| `journey` | 3 | 5+ Franchises, One-Franchise Career, 15+ Season Career |
 
 Franchise continuity is how fans think about team history, so Sonics seasons
 answer "Oklahoma City Thunder" and Bullets seasons answer "Washington Wizards".
+
+**Season facts and career facts.** Most categories ask about the season in the
+square. `draft`, `origin`, `size` and `journey` ask about the *player*, so they
+hold for every one of his seasons: "Lakers × Top-10 Pick" means a Lakers season
+played by a top-10 pick. Each such description says so explicitly.
+
+**Definitions on the board.** A constraint whose rule cannot be read off its
+label carries `needs_definition`, and the board header shows a small info
+marker for it — Elite Efficiency, Undrafted, Second-Round Pick, International
+Player and the three career-journey axes. Self-explanatory axes (Lakers,
+All-Star, 7'0"+, 25+ PPG) carry none. The full sentence is on the cell panel
+for every axis either way.
 
 ### Deliberately not shipped
 
@@ -226,12 +270,16 @@ answer "Oklahoma City Thunder" and Bullets seasons answer "Washington Wizards".
 - **A "1970s" era.** The data window opens at 1979-80, so it would be one
   season pretending to be a decade. Those seasons match no era constraint and
   remain valid answers for everything else.
-- **Per-game statistical thresholds** ("25+ PPG", "10+ APG"). The per-75 and
-  per-100 rates on the scored table are pace/possession-adjusted, so a
-  threshold on them would not mean what a fan reads it to mean; the raw
-  per-game columns a fan *does* mean are not all present at this grain. The
-  league-leader flags cover the same "who was the best at X" intent from data
-  that is exactly what it says.
+- **Per-game statistical thresholds** — *shipped in v5*. This was previously
+  listed here as not shippable, because the scored table carries only
+  pace-adjusted per-75 and per-100 rates. `data/reference/player_season_box.v1.parquet`
+  now supplies the real per-game line at the same (player, season, team) grain,
+  so "25+ PPG" means what a fan reads it to mean. The per-75 bands that stood
+  in for it are retired.
+- **50-40-90 seasons, 30+ PPG, 10+ APG, lottery picks, prep-to-pro, Wing/Big**
+  — each investigated for v5 and left out, several of them for gameplay rather
+  than data reasons. `docs/model/DAILY_GRID_TAXONOMY.md` §6 records every one
+  with its measurement and its verdict.
 
 ---
 

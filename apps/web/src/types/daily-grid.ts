@@ -34,7 +34,15 @@ export type ConstraintCategory =
   /** Era-relative shooting efficiency (TS+) and three-point volume. */
   | "shooting"
   /** Share of the team's possessions the player used. */
-  | "usage";
+  | "usage"
+  /** How the player entered the league: first overall, top-10, second round, undrafted. */
+  | "draft"
+  /** Born outside the United States. */
+  | "origin"
+  /** Listed height. */
+  | "size"
+  /** Career shape: franchises played for, seasons played, one-franchise careers. */
+  | "journey";
 
 export type RarityBucket =
   | "very_rare"
@@ -63,6 +71,20 @@ export interface GridConstraint {
   category: ConstraintCategory;
   /** Full sentence explaining exactly what qualifies. Shown in the cell panel. */
   description: string;
+  /**
+   * Does this axis need its rule spelled out before a player can use it?
+   *
+   * True for the categories whose eligibility rule cannot be read off the
+   * label -- "Elite Efficiency", "Undrafted", "One-Franchise Career" -- and
+   * false for the ones where the label IS the rule ("All-Star", "Lakers",
+   * "7'0\" or Taller"). The board header shows a small info marker when this
+   * is set; `description` is shown in full on the cell panel either way, so
+   * the marker adds an affordance rather than being the only route to the rule.
+   *
+   * Optional on the client because a board cached before this field shipped
+   * will not carry it, and a missing marker is the correct degradation.
+   */
+  needs_definition?: boolean;
 }
 
 /** One square's public facts. No answers, no answer count. */
