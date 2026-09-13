@@ -35,7 +35,8 @@ def test_a_full_match_is_nine_rounds_each_with_an_observable_reveal():
     assert final["phase"] == C.PHASE_COMPLETE and final["ended_by"] == "completed"
     assert [p for p in phases if p[0] == C.PHASE_REVEAL] == [(C.PHASE_REVEAL, r) for r in range(9)]
     assert len(final["round_results"]) == 9
-    assert phases[0] == (C.PHASE_INTRO, 0)
+    # The match opens waiting for its table, then runs the intro, then round one.
+    assert phases[:3] == [(C.PHASE_ARRIVAL, 0), (C.PHASE_INTRO, 0), (C.PHASE_DECIDE, 0)]
 
 
 def test_the_last_rounds_reveal_happens_before_completion():
@@ -191,3 +192,58 @@ def test_the_reveal_publishes_the_ridge_every_seats_window_and_the_best():
     assert all("prime_score" in w for w in reveal["windows"])
     assert reveal["best_window_id"] == S.current_round(revealed)["best_window_id"]
     assert {row["seat_index"] for row in reveal["seats"]} == {0, 1, 2, 3}
+
+
+# ---------------------------------------------------------------------------
+# Arrival: the intro's clock waits for the table
+# ---------------------------------------------------------------------------
+
+
+def test_a_match_opens_waiting_for_its_humans_and_only_their_arrival_starts_the_intro():
+    state = _fresh()
+    assert state["phase"] == C.PHASE_ARRIVAL
+    public, private, legal = S.project(state, 0)
+    assert public["prompt"] is None and private["staged_start"] is None
+    assert set(legal) == {C.COMMAND_INTRO_SEEN, C.COMMAND_FORFEIT}
+    assert {s["seat_index"]: s["arrived"] for s in public["seats"]} == {0: False, 1: True, 2: True, 3: True}
+    # No gameplay while the table is arriving: nothing to stage or lock.
+    for command in (S.stage, S.lock):
+        with pytest.raises(S.RuleError) as err:
+            command(state, 0, {"round_index": 0, "start_season_end": S.legal_starts(S.current_round(state))[0]})
+        assert err.value.code == S.REJECT_NOT_DECIDING
+    started = S.intro_seen(state, 0)
+    assert started["phase"] == C.PHASE_INTRO and started["round_index"] == 0
+    assert S.legal_commands(started, 0) == (C.COMMAND_FORFEIT,)
+
+
+def test_the_intro_waits_for_every_human_seat_and_cannot_be_reported_twice():
+    state = _fresh([(0, False), (1, False), (2, True), (3, True)])
+    one = S.intro_seen(state, 0)
+    assert one["phase"] == C.PHASE_ARRIVAL
+    with pytest.raises(S.RuleError) as again:
+        S.intro_seen(one, 0)
+    assert again.value.code == S.REJECT_INTRO_ALREADY_SEEN
+    with pytest.raises(S.RuleError) as bot:
+        S.intro_seen(one, 2)
+    assert bot.value.code == S.REJECT_INTRO_ALREADY_SEEN
+    both = S.intro_seen(one, 1)
+    assert both["phase"] == C.PHASE_INTRO
+    with pytest.raises(S.RuleError) as late:
+        S.intro_seen(both, 1)
+    assert late.value.code == S.REJECT_INTRO_STARTED
+
+
+def test_the_arrival_backstop_opens_the_intro_never_the_first_round():
+    state = _fresh([(0, False), (1, False), (2, True), (3, True)])
+    state = S.intro_seen(state, 0)
+    backstop = S.timeout(state)
+    assert backstop["phase"] == C.PHASE_INTRO and backstop["round_results"] == []
+    assert S.timeout(backstop)["phase"] == C.PHASE_DECIDE
+
+
+def test_the_absent_seat_conceding_starts_the_intro_for_the_seat_that_arrived():
+    state = S.intro_seen(_fresh([(0, False), (1, False), (2, True), (3, True)]), 0)
+    conceded = S.forfeit(state, 1)
+    assert conceded["phase"] == C.PHASE_INTRO
+    alone = S.forfeit(_fresh(), 0)
+    assert alone["phase"] == C.PHASE_COMPLETE and alone["ended_by"] == "forfeit"

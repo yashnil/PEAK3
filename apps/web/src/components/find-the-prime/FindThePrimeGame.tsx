@@ -20,10 +20,11 @@ import { useRouter } from "next/navigation";
 
 import { createPracticeMatch } from "@/lib/arena-api";
 import { modeMeta } from "@/lib/arena-modes";
-import { useArenaRoom } from "@/lib/prime-arena/useArenaRoom";
+import { useArenaRoom, useReportIntroSeen } from "@/lib/prime-arena/useArenaRoom";
 import { primeTelemetry } from "@/lib/prime-arena/telemetry";
 import {
   FIND_THE_PRIME_COMMAND_FORFEIT,
+  FIND_THE_PRIME_COMMAND_INTRO_SEEN,
   FIND_THE_PRIME_COMMAND_LOCK,
   FIND_THE_PRIME_COMMAND_STAGE,
   FIND_THE_PRIME_DECIDE_SECONDS,
@@ -62,6 +63,7 @@ export function findThePrimeCadence(view: FindThePrimeMatchView): number | null 
 
 export function findThePrimeStillValid(view: FindThePrimeMatchView, command: string, payload: Record<string, unknown>): boolean {
   const state = view.public_state;
+  if (command === FIND_THE_PRIME_COMMAND_INTRO_SEEN) return view.legal_commands.includes(command) && state.phase === "arrival";
   return view.legal_commands.includes(command) && state.phase === "decide" && state.round_index === payload.round_index;
 }
 
@@ -81,6 +83,7 @@ function FindThePrimeRoom({ matchId }: { matchId: string }) {
   const view = room.view;
   const previous = useRef<FindThePrimeMatchView | null>(null);
   const resumedComplete = useRef<boolean | null>(null);
+  useReportIntroSeen(room, FIND_THE_PRIME_COMMAND_INTRO_SEEN, view?.status === "active" && view.public_state.phase === "arrival");
 
   // Local selection for the CURRENT round. Seeded from the server's staged or
   // locked window whenever a new round opens (or the page reloads mid-round).
@@ -156,7 +159,7 @@ function FindThePrimeRoom({ matchId }: { matchId: string }) {
     if (!prev) {
       openedAt.current = Date.now();
       primeTelemetry.opened(FIND_THE_PRIME_MODE);
-      if (state.phase === "intro") primeTelemetry.matchStarted(FIND_THE_PRIME_MODE, view.entry_path, state.ruleset_version);
+      if (state.phase === "arrival" || state.phase === "intro") primeTelemetry.matchStarted(FIND_THE_PRIME_MODE, view.entry_path, state.ruleset_version);
       return;
     }
     const before = prev.public_state;
@@ -274,6 +277,7 @@ function FindThePrimeRoom({ matchId }: { matchId: string }) {
   const shown = lockedStart ?? current;
   const canLock = phase === "decide" && lockedStart === null && shown !== null && view.legal_commands.includes(FIND_THE_PRIME_COMMAND_LOCK);
   const waitingOn = state.seats.filter((s) => !s.locked && !s.forfeited).length;
+  const arriving = state.seats.filter((s) => s.arrived === false && s.seat_index !== view.your_seat_index).length;
   const reveal = phase === "reveal" ? state.round_results[state.round_results.length - 1] : null;
 
   return (
@@ -295,9 +299,9 @@ function FindThePrimeRoom({ matchId }: { matchId: string }) {
           ) : null}
           <div className="fprime-clock">
             <ArenaTimer
-              deadlineAt={room.deadlineAt}
+              deadlineAt={phase === "arrival" ? null : room.deadlineAt}
               totalSeconds={view.turn_total_seconds ?? FIND_THE_PRIME_DECIDE_SECONDS}
-              label={phase === "decide" ? (lockedStart !== null ? "Locked · waiting" : "Lock in") : phase === "reveal" ? "Next round" : "Starts in"}
+              label={phase === "decide" ? (lockedStart !== null ? "Locked · waiting" : "Lock in") : phase === "reveal" ? "Next round" : phase === "arrival" ? "Starting" : "Starts in"}
               yours={phase === "decide" && lockedStart === null}
               consequence={
                 phase === "decide"
@@ -321,7 +325,7 @@ function FindThePrimeRoom({ matchId }: { matchId: string }) {
           {room.commandError ? (
             <RoomErrorBanner message={room.commandError.message} onDismiss={room.dismissError} testId="fprime-error" />
           ) : null}
-          {phase === "intro" ? (
+          {phase === "arrival" || phase === "intro" ? (
             <div className="fprime-slate" data-testid="fprime-intro">
               <p className="parena-eyebrow">Find the Prime</p>
               <h2 className="fprime-slate-title">Find his best stretch.</h2>
@@ -331,6 +335,11 @@ function FindThePrimeRoom({ matchId }: { matchId: string }) {
                 <li>Lock before time expires.</li>
                 <li>The closer your window is to the player&apos;s PEAK3 prime, the more points you earn.</li>
               </ul>
+              {phase === "arrival" && arriving > 0 ? (
+                <p className="fprime-slate-body" data-testid="fprime-arrival">
+                  Waiting for {arriving} more player{arriving === 1 ? "" : "s"} to arrive.
+                </p>
+              ) : null}
             </div>
           ) : null}
 

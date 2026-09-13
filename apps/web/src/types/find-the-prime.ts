@@ -19,8 +19,11 @@ export const FIND_THE_PRIME_DECIDE_SECONDS = 20;
 export const FIND_THE_PRIME_ROUNDS = 9;
 export const FIND_THE_PRIME_MAX_TOTAL = 900;
 
-export type FindThePrimePhase = "intro" | "decide" | "reveal" | "complete";
+/** `arrival`: the intro is on screen but its clock waits for every human seat. */
+export type FindThePrimePhase = "arrival" | "intro" | "decide" | "reveal" | "complete";
 
+/** Sent once the intro is on screen; accepted only in `arrival`. */
+export const FIND_THE_PRIME_COMMAND_INTRO_SEEN = "ftp_intro_seen";
 export const FIND_THE_PRIME_COMMAND_STAGE = "ftp_stage";
 export const FIND_THE_PRIME_COMMAND_LOCK = "ftp_lock";
 export const FIND_THE_PRIME_COMMAND_FORFEIT = "ftp_forfeit";
@@ -93,6 +96,8 @@ export interface FindThePrimeSeatPublic {
   is_bot: boolean;
   bot_tier: string | null;
   locked: boolean;
+  /** This seat has had the intro on screen. Always true for a bot. */
+  arrived: boolean;
   forfeited: boolean;
 }
 

@@ -2,6 +2,7 @@
 
 PHASES, each a real server turn (the API adapter opens one per phase):
 
+    arrival --(every human seat has the intro on screen | backstop)--> intro
     intro --(clock)--> heat_open --(clock)--> card --(all decided | clock)--> card ...
                                          \\--> card_forced --(clock)--> card ...
     ... 8th card resolves --> heat_reveal --(clock)--> heat_open (next heat)
@@ -11,6 +12,10 @@ WHY EVERY BEAT IS A PHASE. A visually meaningful state resolved inside the same
 call that created it is a state no client can ever observe -- the phantom-lot
 defect `twenty_dollar/mode.py` documents. So a card nobody can choose on still
 gets `card_forced`, and a heat's scores get `heat_reveal`, each with a deadline.
+The same holds for the intro itself: its clock starts only when every human
+seat has reported it on screen (`intro_seen`), or at the arrival backstop --
+never at match creation, which a slow client could miss entirely. See
+`config.ARRIVAL_BACKSTOP_SECONDS`.
 
 DECISIONS. A seat decides once per card and the decision is final. When a
 seat's KEEP quota is full every remaining card is a forced CUT (and vice
@@ -48,6 +53,8 @@ REJECT_SEAT_FORFEITED = "seat_forfeited"
 REJECT_NO_SUCH_SEAT = "no_such_seat"
 REJECT_MATCH_COMPLETE = "match_complete"
 REJECT_VERSION_MISMATCH = "ruleset_version_mismatch"
+REJECT_INTRO_STARTED = "intro_already_started"
+REJECT_INTRO_ALREADY_SEEN = "intro_already_seen"
 
 #: Card fields a human may see before the card's heat resolves.
 IDENTITY_KEYS = (
@@ -86,7 +93,7 @@ def initial_state(seed: int, seats: Sequence[tuple[int, bool]]) -> dict:
         "seed": seed,
         "seat_count": len(seats),
         "board": generate_board(seed),
-        "phase": C.PHASE_INTRO,
+        "phase": C.PHASE_ARRIVAL,
         "heat_index": 0,
         "card_index": None,
         "seats": [
@@ -96,6 +103,8 @@ def initial_state(seed: int, seats: Sequence[tuple[int, bool]]) -> dict:
                 "bot_tier": bot_tier_for(seed, index) if is_bot else None,
                 "forfeited": False,
                 "forfeit_order": None,
+                # A bot has no screen to wait for.
+                "intro_seen": bool(is_bot),
                 "decisions": [[] for _ in C.HEAT_DURATIONS],
             }
             for index, is_bot in sorted(seats)
@@ -164,6 +173,14 @@ def all_decided(state: dict) -> bool:
     return c is not None and all(decision_for(seat, h, c) is not None for seat in state["seats"])
 
 
+def _arrived(seat: dict) -> bool:
+    return seat["is_bot"] or seat["forfeited"] or bool(seat.get("intro_seen"))
+
+
+def all_arrived(state: dict) -> bool:
+    return all(_arrived(seat) for seat in state["seats"])
+
+
 def undecided_seats(state: dict) -> list[int]:
     h, c = state["heat_index"], state["card_index"]
     if c is None:
@@ -206,6 +223,30 @@ def _resolve_card(state: dict) -> dict:
     return state
 
 
+def intro_seen(state: dict, seat_index: int) -> dict:
+    """A seat's client reports that the intro is on its screen.
+
+    When every human seat has, the intro's own clock starts. It can neither
+    shorten the intro nor deal a card: the only transition it can cause is
+    `arrival` -> `intro`.
+    """
+    assert_supported(state)
+    if state["phase"] == C.PHASE_COMPLETE:
+        raise RuleError(REJECT_MATCH_COMPLETE, "The match is over.")
+    if state["phase"] != C.PHASE_ARRIVAL:
+        raise RuleError(REJECT_INTRO_STARTED, "The intro is already running.")
+    seat = _seat(state, seat_index)
+    if seat["forfeited"]:
+        raise RuleError(REJECT_SEAT_FORFEITED, "You conceded this match.")
+    if _arrived(seat):
+        raise RuleError(REJECT_INTRO_ALREADY_SEEN, "The intro is already on your screen.")
+    next_state = copy.deepcopy(state)
+    _seat(next_state, seat_index)["intro_seen"] = True
+    if all_arrived(next_state):
+        next_state["phase"] = C.PHASE_INTRO
+    return next_state
+
+
 def decide(state: dict, seat_index: int, decision: str, payload: dict) -> dict:
     """Record one seat's KEEP or CUT on the current card. Raises RuleError."""
     assert_supported(state)
@@ -245,6 +286,11 @@ def timeout(state: dict) -> dict:
     assert_supported(state)
     phase = state["phase"]
     next_state = copy.deepcopy(state)
+    if phase == C.PHASE_ARRIVAL:
+        # The backstop: stop waiting for a seat that never arrived, and run the
+        # intro in full for whoever is here. Never straight to a heat.
+        next_state["phase"] = C.PHASE_INTRO
+        return next_state
     if phase == C.PHASE_INTRO:
         next_state["phase"] = C.PHASE_HEAT_OPEN
         return next_state
@@ -286,6 +332,8 @@ def forfeit(state: dict, seat_index: int) -> dict:
         next_state["ended_by"] = "forfeit"
         return next_state
 
+    if next_state["phase"] == C.PHASE_ARRIVAL and all_arrived(next_state):
+        next_state["phase"] = C.PHASE_INTRO
     if next_state["phase"] == C.PHASE_CARD:
         h, c = next_state["heat_index"], next_state["card_index"]
         if decision_for(seat, h, c) is None:
@@ -307,6 +355,8 @@ def legal_commands(state: dict, seat_index: int) -> tuple[str, ...]:
     if seat["forfeited"]:
         return ()
     commands: list[str] = []
+    if state["phase"] == C.PHASE_ARRIVAL and not _arrived(seat):
+        commands.append(C.COMMAND_INTRO_SEEN)
     if state["phase"] == C.PHASE_CARD and decision_for(seat, state["heat_index"], state["card_index"]) is None:
         keeps, cuts = counts(seat, state["heat_index"])
         if keeps < C.KEEPS_PER_HEAT:
@@ -363,6 +413,7 @@ def project(state: dict, seat_index: int, *, is_bot: bool = False) -> tuple[dict
                 "is_bot": seat["is_bot"],
                 "bot_tier": C.BOT_TIER_LABELS[seat["bot_tier"]] if seat["bot_tier"] else None,
                 "locked": locked,
+                "arrived": _arrived(seat),
                 "forfeited": seat["forfeited"],
             }
         )

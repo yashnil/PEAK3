@@ -23,11 +23,30 @@ MAX_MATCH_SCORE = MAX_ROUND_SCORE * ROUND_COUNT  # 900
 # Phases and timing
 # ---------------------------------------------------------------------------
 
+PHASE_ARRIVAL = "arrival"    # seatless: the intro is on screen, its clock waits for every human seat
 PHASE_INTRO = "intro"        # seatless
 PHASE_DECIDE = "decide"      # simultaneous decision
 PHASE_REVEAL = "reveal"      # seatless: the career ridge, every seat's window
 PHASE_COMPLETE = "complete"
 
+#: THE INTRO'S CLOCK STARTS WHEN THE TABLE HAS ARRIVED, NOT WHEN THE MATCH WAS
+#: CREATED. A match opens in `arrival`: the intro is on every client's screen
+#: but its clock has not started. Each human seat's client reports
+#: `ftp_intro_seen` once it has rendered the intro, and the intro's own
+#: `INTRO_SECONDS` turn opens when the last human seat has done so.
+#:
+#: WHY. The intro used to be timed from match creation. CI measured the cost
+#: (PR #30, run 34772830703): a practice match was created, the match route
+#: took 5.3 s to compile, and the client's first read landed 6.6 s after
+#: creation -- the 6 s intro had already expired on the server, so the player
+#: was dropped into the first live beat without ever seeing it. A slow client
+#: must not silently lose the intro, and the match must not advance behind it.
+#:
+#: THE BACKSTOP is for a seat that never arrives (a closed tab in a private
+#: room). It opens the INTRO, never gameplay, so whoever is at the table still
+#: gets the whole intro. Several times the slowest cold route load measured,
+#: short enough that one absent seat does not hold a table for long.
+ARRIVAL_BACKSTOP_SECONDS = 20.0
 INTRO_SECONDS = 6.0
 #: Long enough to place, move and lock a window on a 10-20 season rail without
 #: hurrying; the prompt's 15-20 s region. The foundation adds its 2 s grace.
@@ -120,6 +139,8 @@ BOT_THINK_RANGE: dict[str, tuple[float, float]] = {
     "mvp": (6.0, 14.0),
 }
 
+#: A seat's client has the intro on screen. Accepted only in `arrival`.
+COMMAND_INTRO_SEEN = "ftp_intro_seen"
 COMMAND_STAGE = "ftp_stage"
 COMMAND_LOCK = "ftp_lock"
 COMMAND_FORFEIT = "ftp_forfeit"

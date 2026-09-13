@@ -200,6 +200,10 @@ def test_practice_seats_one_human_and_three_tiered_bots_with_honest_ratings():
 def test_the_intro_and_heat_opening_are_real_timed_phases_nobody_plays():
     client = _client_as("pc-user-2")
     view = _start(client)
+    assert view["turn_phase"] == C.PHASE_ARRIVAL
+    assert view["current_turn_seat_index"] is None
+    assert all(c not in view["legal_commands"] for c in (C.COMMAND_KEEP, C.COMMAND_CUT))
+    view = _command(client, view["match_id"], view, C.COMMAND_INTRO_SEEN, {})["match"]
     assert view["turn_phase"] == C.PHASE_INTRO
     assert view["current_turn_seat_index"] is None
     assert view["turn_total_seconds"] == pytest.approx(C.INTRO_SECONDS, abs=0.5)
@@ -407,3 +411,83 @@ def test_conceding_as_the_only_human_ends_the_match_with_a_loss():
     results = {r["seat_index"]: r for r in client.get(f"/api/v1/arena/matches/{match_id}/results").json()["results"]}
     assert results[you]["placement"] == 4 and results[you]["outcome"] == "loss"
     assert results[you]["detail"]["forfeited"] is True
+
+
+# ---------------------------------------------------------------------------
+# Arrival: a slow client cannot miss the intro, and the match cannot advance
+# behind it
+# ---------------------------------------------------------------------------
+
+
+def _arrive_late(match_id: str, seconds: float) -> None:
+    """Put the open turn `seconds` into the past, exactly as a client whose
+    route took that long to load and render would find it on its first read."""
+    turn = _open_turn(match_id)
+    turn.opened_at = turn.opened_at - timedelta(seconds=seconds)
+    turn.deadline_at = turn.deadline_at - timedelta(seconds=seconds)
+
+
+def test_a_client_slower_than_the_whole_intro_still_opens_on_it_and_starts_its_clock():
+    client = _client_as("pc-late")
+    created = _start(client)
+    match_id = created["match_id"]
+    assert created["turn_phase"] == C.PHASE_ARRIVAL
+    assert created["turn_total_seconds"] == pytest.approx(C.ARRIVAL_BACKSTOP_SECONDS, abs=0.5)
+    # Later than the intro plus the action grace: with the intro timed from
+    # creation, this first read landed after it had already expired.
+    _arrive_late(match_id, C.INTRO_SECONDS + clock.ACTION_GRACE_SECONDS + 3)
+    _age_for_bots(match_id)
+    view = _get(client, match_id)
+    assert view["turn_phase"] == C.PHASE_ARRIVAL
+    assert view["state_version"] == created["state_version"], "the match advanced before anyone saw the intro"
+    assert view["public_state"]["current_card"] is None and view["public_state"]["dealt_cards"] == []
+    assert C.COMMAND_INTRO_SEEN in view["legal_commands"]
+    assert not set(view["legal_commands"]) & {C.COMMAND_KEEP, C.COMMAND_CUT}
+
+    out = _command(client, match_id, view, C.COMMAND_INTRO_SEEN, {})
+    assert out["accepted"], out
+    intro = out["match"]
+    assert intro["turn_phase"] == C.PHASE_INTRO
+    # The WHOLE intro, measured from the moment it was on screen.
+    assert intro["turn_seconds_remaining"] == pytest.approx(C.INTRO_SECONDS, abs=0.5)
+    assert C.COMMAND_INTRO_SEEN not in intro["legal_commands"]
+
+    again = _command(client, match_id, intro, C.COMMAND_INTRO_SEEN, {}, key="pc-late-seen-again")
+    assert not again["accepted"] and again["rejection_code"] == rules.REJECT_INTRO_STARTED
+    assert again["match"]["turn_phase"] == C.PHASE_INTRO
+
+
+def test_the_arrival_backstop_runs_the_whole_intro_rather_than_skipping_to_play():
+    client = _client_as("pc-absent")
+    match_id = _start(client)["match_id"]
+    _expire_open_turn(match_id)
+    view = _get(client, match_id)
+    assert view["turn_phase"] == C.PHASE_INTRO
+    assert view["turn_seconds_remaining"] == pytest.approx(C.INTRO_SECONDS, abs=0.5)
+
+
+def test_with_two_humans_the_intro_clock_waits_for_both_of_them():
+    host = _client_as("pc-host")
+    room = host.post("/api/v1/arena/matches/private", json={"mode": MODE})
+    assert room.status_code == 200, room.text
+    match_id, code = room.json()["match_id"], room.json()["room_code"]
+    guest = _client_as("pc-guest")
+    joined = guest.post("/api/v1/arena/matches/private/join", json={"room_code": code})
+    assert joined.status_code == 200, joined.text
+    host = _client_as("pc-host")
+    filled = host.post(f"/api/v1/arena/matches/{match_id}/fill-bots")
+    assert filled.status_code == 200, filled.text
+
+    view = _get(host, match_id)
+    assert view["turn_phase"] == C.PHASE_ARRIVAL
+    out = _command(host, match_id, view, C.COMMAND_INTRO_SEEN, {})
+    assert out["accepted"] and out["match"]["turn_phase"] == C.PHASE_ARRIVAL
+    arrived = {s["seat_index"]: s["arrived"] for s in out["match"]["public_state"]["seats"]}
+    assert sorted(arrived.values()) == [False, True, True, True]
+
+    guest = _client_as("pc-guest")
+    view = _get(guest, match_id)
+    assert view["turn_phase"] == C.PHASE_ARRIVAL and C.COMMAND_INTRO_SEEN in view["legal_commands"]
+    out = _command(guest, match_id, view, C.COMMAND_INTRO_SEEN, {})
+    assert out["accepted"] and out["match"]["turn_phase"] == C.PHASE_INTRO
+    assert out["match"]["turn_seconds_remaining"] == pytest.approx(C.INTRO_SECONDS, abs=0.5)

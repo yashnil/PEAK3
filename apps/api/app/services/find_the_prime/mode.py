@@ -7,6 +7,9 @@ A TRANSLATION LAYER AND NOTHING ELSE. Every rule lives in
    the foundation's action grace; the intro and every REVEAL are seatless turns
    nobody plays. A stage, or a lock that does not finish the round, leaves the
    turn open.
+   A match OPENS in `arrival`, whose turn is only a backstop: the intro's own
+   timed turn is opened by the `ftp_intro_seen` that completes the table, so
+   its clock is measured from the moment the intro is on screen.
 
 2. STAGING IS PRIVATE. A staged window is written only to the seat's own
    event stream. The public log records that a seat LOCKED, never where.
@@ -52,6 +55,7 @@ REJECT_UNKNOWN_COMMAND = "unknown_command"
 REJECT_NO_SEAT = "not_your_seat"
 
 PHASE_SECONDS: dict[str, float] = {
+    C.PHASE_ARRIVAL: C.ARRIVAL_BACKSTOP_SECONDS,
     C.PHASE_INTRO: C.INTRO_SECONDS,
     C.PHASE_DECIDE: C.DECIDE_SECONDS,
     C.PHASE_REVEAL: C.REVEAL_SECONDS,
@@ -62,6 +66,7 @@ EVENT_LOCKED_PRIVATE = "ftp_window_locked"
 EVENT_SEAT_LOCKED = "ftp_seat_locked"
 EVENT_ROUND_OPENED = "ftp_round_opened"
 EVENT_ROUND_REVEALED = "ftp_round_revealed"
+EVENT_INTRO_SEEN = "ftp_intro_seen"
 EVENT_SEAT_FORFEITED = "ftp_seat_forfeited"
 EVENT_MATCH_COMPLETED = "ftp_match_completed"
 
@@ -92,7 +97,9 @@ class FindThePrimeMode:
         return C.DECIDE_SECONDS
 
     def initial_phase(self) -> str:
-        return C.PHASE_INTRO
+        # NOT the intro: its clock would start at match creation, before any
+        # client could be showing it. See `config.ARRIVAL_BACKSTOP_SECONDS`.
+        return C.PHASE_ARRIVAL
 
     def phase_seconds(self, phase: str) -> float:
         return PHASE_SECONDS.get(phase, C.DECIDE_SECONDS)
@@ -125,6 +132,12 @@ class FindThePrimeMode:
             if command.command_type == COMMAND_TYPE_TIMEOUT:
                 after = rules.timeout(before)
                 resolution = TURN_RESOLUTION_TIMEOUT
+            elif command.command_type == C.COMMAND_INTRO_SEEN:
+                if seat is None:
+                    return _reject(REJECT_NO_SEAT, "Only a seat can have the intro on screen.")
+                after = rules.intro_seen(before, seat)
+                resolution = TURN_RESOLUTION_ACTION
+                events.append(EventDraft(event_type=EVENT_INTRO_SEEN, actor_seat_index=seat, payload={"seat_index": seat}))
             elif command.command_type == C.COMMAND_STAGE:
                 if seat is None:
                     return _reject(REJECT_NO_SEAT, "A selection must come from a seat.")

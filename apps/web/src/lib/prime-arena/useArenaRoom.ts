@@ -59,6 +59,8 @@ export interface UseArenaRoomOptions<TView extends RoomViewBase> {
 export interface SendOptions {
   exclusive?: boolean;
   coalesce?: string;
+  /** Report no command error to the player (for a background report, never a press). */
+  quiet?: boolean;
 }
 
 export interface ArenaRoom<TView extends RoomViewBase> {
@@ -206,7 +208,7 @@ export function useArenaRoom<TView extends RoomViewBase>({
               response = await submitCommand(matchId, command, payload, base.state_version, key);
             } catch (err) {
               const status = err instanceof ArenaAPIError ? err.status : 0;
-              setCommandError({ code: err instanceof ArenaAPIError ? err.code ?? null : "network_error", message: transportErrorMessage(status) });
+              if (!options.quiet) setCommandError({ code: err instanceof ArenaAPIError ? err.code ?? null : "network_error", message: transportErrorMessage(status) });
               return false;
             }
             const next = response.match as unknown as TView;
@@ -219,7 +221,7 @@ export function useArenaRoom<TView extends RoomViewBase>({
               base = next;
               continue;
             }
-            setCommandError({ code: response.rejection_code, message: roomErrorMessage(response.rejection_code, response.message) });
+            if (!options.quiet) setCommandError({ code: response.rejection_code, message: roomErrorMessage(response.rejection_code, response.message) });
             return false;
           }
           return false;
@@ -244,4 +246,31 @@ export function useArenaRoom<TView extends RoomViewBase>({
     reload,
     dismissError,
   };
+}
+
+/**
+ * Tell the server this seat has the intro ON SCREEN.
+ *
+ * Both Prime modes open in `arrival`: the intro is rendered, but its clock does
+ * not start until every human seat has reported it (or the server's arrival
+ * backstop fires). An intro timed from match creation could expire while a slow
+ * client was still loading the route, and the player would land in live play
+ * never having seen it. This effect runs after the render that put the intro
+ * on screen, so the intro's whole length is measured from there.
+ *
+ * QUIET. A refusal only ever means the intro has already started (the table's
+ * last report or the backstop), and the next read shows that. A send that did
+ * not land is tried again on a later render while the command is still legal.
+ */
+export function useReportIntroSeen<TView extends RoomViewBase>(room: ArenaRoom<TView>, command: string, arriving: boolean): void {
+  const sent = useRef(false);
+  const legal = arriving && (room.view?.legal_commands.includes(command) ?? false);
+  const { send } = room;
+  useEffect(() => {
+    if (!legal || sent.current) return;
+    sent.current = true;
+    void send(command, {}, { exclusive: false, quiet: true }).then((ok) => {
+      if (!ok) sent.current = false;
+    });
+  });
 }

@@ -228,3 +228,77 @@ describe("PRIME CUT room", () => {
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/arena/prime-cut/next-match"));
   });
 });
+
+describe("PRIME CUT arrival", () => {
+  function arrivalView(overrides: Record<string, unknown> = {}) {
+    return primeCutView({
+      state_version: 2,
+      turn_phase: "arrival",
+      turn_seconds_remaining: 20,
+      turn_total_seconds: 20,
+      legal_commands: ["pc_intro_seen", "pc_forfeit"],
+      public_state: { phase: "arrival", card_index: null, current_card: null, dealt_cards: [] } as never,
+      private_state: { decisions: [] } as never,
+      ...overrides,
+    });
+  }
+  const introView = () =>
+    primeCutView({
+      state_version: 3,
+      turn_phase: "intro",
+      turn_seconds_remaining: 6,
+      turn_total_seconds: 6,
+      legal_commands: ["pc_forfeit"],
+      public_state: { phase: "intro", card_index: null, current_card: null, dealt_cards: [] } as never,
+      private_state: { decisions: [] } as never,
+    });
+
+  it("puts the intro on screen before reporting it, however slow the first read, and reports it once", async () => {
+    let finishRead: (view: unknown) => void = () => {};
+    getMatch.mockImplementationOnce(() => new Promise((resolve) => (finishRead = resolve)));
+    getMatch.mockResolvedValue(arrivalView());
+    submitCommand.mockResolvedValue({ accepted: true, replayed: false, rejection_code: null, message: null, match: introView() });
+    render(<PrimeCutGame matchId="prime_cut-match" />);
+    await act(async () => {});
+    expect(screen.getByTestId("pcut-loading")).toBeInTheDocument();
+    expect(submitCommand).not.toHaveBeenCalled();
+
+    await act(async () => finishRead(arrivalView()));
+    expect(screen.getByTestId("pcut-intro")).toBeInTheDocument();
+    await waitFor(() => expect(submitCommand).toHaveBeenCalledTimes(1));
+    expect(submitCommand).toHaveBeenCalledWith("prime_cut-match", "pc_intro_seen", {}, 2, expect.any(String));
+    await waitFor(() => expect(screen.getByTestId("pcut-room")).toHaveAttribute("data-phase", "intro"));
+    expect(screen.getByTestId("pcut-intro")).toBeInTheDocument();
+    expect(screen.queryByTestId("pcut-controls")).toBeNull();
+    expect(screen.queryByRole("button", { name: /skip|start/i })).toBeNull();
+    expect(submitCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not report again for a seat that already has, and names who the table is waiting for", async () => {
+    const seats = [0, 1, 2, 3].map((seat) => ({
+      seat_index: seat,
+      display_name: ["You", "Guest", "IsoKing", "GlassCleaner"][seat],
+      is_bot: seat > 1,
+      bot_tier: seat > 1 ? "MVP" : null,
+      locked: false,
+      arrived: seat !== 1,
+      forfeited: false,
+    }));
+    await mount(
+      arrivalView({
+        legal_commands: ["pc_forfeit"],
+        public_state: { phase: "arrival", card_index: null, current_card: null, dealt_cards: [], seats } as never,
+      }),
+    );
+    expect(await screen.findByTestId("pcut-arrival")).toHaveTextContent("Waiting for 1 more player to arrive.");
+    expect(submitCommand).not.toHaveBeenCalled();
+  });
+
+  it("shows no error when its report lands after the intro already started", async () => {
+    submitCommand.mockResolvedValue({ accepted: false, replayed: false, rejection_code: "intro_already_started", message: "The intro is already running.", match: introView() });
+    await mount(arrivalView());
+    await waitFor(() => expect(submitCommand).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId("pcut-room")).toHaveAttribute("data-phase", "intro"));
+    expect(screen.queryByTestId("pcut-error")).toBeNull();
+  });
+});

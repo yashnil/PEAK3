@@ -61,7 +61,8 @@ def test_a_weak_bot_misplaces_the_prime_by_a_plausible_stretch_not_at_random():
 
 def test_the_same_view_and_seed_make_the_same_pick():
     state = S.initial_state(99, [(i, True) for i in range(4)])
-    state = S.timeout(state)
+    while state["phase"] != C.PHASE_DECIDE:
+        state = S.timeout(state)
     public, private, legal = S.project(state, 1, is_bot=True)
     view = SimpleNamespace(public_state=public, private_state=private, legal_commands=legal)
     picks = {asyncio.run(B.FindThePrimeBot().choose(view, random.Random("seed"))).payload["start_season_end"] for _ in range(5)}

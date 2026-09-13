@@ -34,7 +34,8 @@ def test_a_full_match_is_three_heats_of_eight_cards_in_2y_3y_5y_order():
     final = play_match(SEED, [coin_policy] * 4, on_state=lambda s: phases.append((s["phase"], s["heat_index"], s["card_index"])))
     assert final["phase"] == C.PHASE_COMPLETE and final["ended_by"] == "completed"
     assert [h["duration"] for h in final["heat_results"]] == [2, 3, 5]
-    assert phases[0] == (C.PHASE_INTRO, 0, None)
+    # The match opens waiting for its table, then runs the intro, then heat one.
+    assert phases[:3] == [(C.PHASE_ARRIVAL, 0, None), (C.PHASE_INTRO, 0, None), (C.PHASE_HEAT_OPEN, 0, None)]
     assert [p for p in phases if p[0] == C.PHASE_HEAT_REVEAL] == [(C.PHASE_HEAT_REVEAL, 0, None), (C.PHASE_HEAT_REVEAL, 1, None)]
     assert [p for p in phases if p[0] == C.PHASE_HEAT_OPEN] == [(C.PHASE_HEAT_OPEN, h, None) for h in range(3)]
     for seat in final["seats"]:
@@ -260,3 +261,55 @@ def test_scores_are_revealed_only_once_their_heat_has_resolved():
     for reveal in public["heat_results"]:
         assert all("prime_score" in card for card in reveal["cards"])
         assert len(reveal["optimal_card_indexes"]) == 4
+
+
+# ---------------------------------------------------------------------------
+# Arrival: the intro's clock waits for the table
+# ---------------------------------------------------------------------------
+
+
+def test_a_match_opens_waiting_for_its_humans_and_only_their_arrival_starts_the_intro():
+    state = _fresh()
+    assert state["phase"] == C.PHASE_ARRIVAL
+    public, private, legal = S.project(state, 0)
+    assert public["current_card"] is None and public["dealt_cards"] == [] and private["decisions"] == []
+    assert set(legal) == {C.COMMAND_INTRO_SEEN, C.COMMAND_FORFEIT}
+    assert {s["seat_index"]: s["arrived"] for s in public["seats"]} == {0: False, 1: True, 2: True, 3: True}
+    with pytest.raises(S.RuleError) as err:
+        S.decide(state, 0, C.DECISION_KEEP, {"heat_index": 0, "card_index": 0})
+    assert err.value.code == S.REJECT_NOT_DECIDING
+    started = S.intro_seen(state, 0)
+    assert started["phase"] == C.PHASE_INTRO and started["card_index"] is None
+    assert S.legal_commands(started, 0) == (C.COMMAND_FORFEIT,)
+
+
+def test_the_intro_waits_for_every_human_seat_and_cannot_be_reported_twice():
+    state = _fresh([(0, False), (1, False), (2, True), (3, True)])
+    one = S.intro_seen(state, 0)
+    assert one["phase"] == C.PHASE_ARRIVAL
+    with pytest.raises(S.RuleError) as again:
+        S.intro_seen(one, 0)
+    assert again.value.code == S.REJECT_INTRO_ALREADY_SEEN
+    with pytest.raises(S.RuleError) as bot:
+        S.intro_seen(one, 2)
+    assert bot.value.code == S.REJECT_INTRO_ALREADY_SEEN
+    both = S.intro_seen(one, 1)
+    assert both["phase"] == C.PHASE_INTRO
+    with pytest.raises(S.RuleError) as late:
+        S.intro_seen(both, 1)
+    assert late.value.code == S.REJECT_INTRO_STARTED
+
+
+def test_the_arrival_backstop_opens_the_intro_never_the_first_heat():
+    state = S.intro_seen(_fresh([(0, False), (1, False), (2, True), (3, True)]), 0)
+    backstop = S.timeout(state)
+    assert backstop["phase"] == C.PHASE_INTRO and backstop["card_index"] is None
+    assert S.timeout(backstop)["phase"] == C.PHASE_HEAT_OPEN
+
+
+def test_the_absent_seat_conceding_starts_the_intro_for_the_seat_that_arrived():
+    state = S.intro_seen(_fresh([(0, False), (1, False), (2, True), (3, True)]), 0)
+    conceded = S.forfeit(state, 1)
+    assert conceded["phase"] == C.PHASE_INTRO
+    alone = S.forfeit(_fresh(), 0)
+    assert alone["phase"] == C.PHASE_COMPLETE and alone["ended_by"] == "forfeit"

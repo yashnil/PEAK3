@@ -11,6 +11,9 @@ WHAT THIS FILE MUST GET RIGHT
    length. Every turn is seatless: a card is a SIMULTANEOUS decision (every
    seat chooses at once), and the ceremonies are turns nobody plays. A decision
    that does not finish the card leaves the turn open.
+   A match OPENS in `arrival`, whose turn is only a backstop: the intro's own
+   timed turn is opened by the `pc_intro_seen` that completes the table, so
+   its clock is measured from the moment the intro is on screen.
 
 2. SIMULTANEOUS-DECISION HOOKS. `simultaneous_action_grace` gives a card the
    same 2 s action grace a seat's own turn has; `simultaneous_bot_think_seconds`
@@ -63,6 +66,7 @@ REJECT_UNKNOWN_COMMAND = "unknown_command"
 REJECT_NO_SEAT = "not_your_seat"
 
 PHASE_SECONDS: dict[str, float] = {
+    C.PHASE_ARRIVAL: C.ARRIVAL_BACKSTOP_SECONDS,
     C.PHASE_INTRO: C.INTRO_SECONDS,
     C.PHASE_HEAT_OPEN: C.HEAT_OPEN_SECONDS,
     C.PHASE_CARD: C.CARD_SECONDS,
@@ -76,6 +80,7 @@ EVENT_CARD_DEALT = "pc_card_dealt"
 EVENT_CARD_TIMEOUT = "pc_card_timeout"
 EVENT_HEAT_OPENED = "pc_heat_opened"
 EVENT_HEAT_REVEALED = "pc_heat_revealed"
+EVENT_INTRO_SEEN = "pc_intro_seen"
 EVENT_SEAT_FORFEITED = "pc_seat_forfeited"
 EVENT_MATCH_COMPLETED = "pc_match_completed"
 
@@ -108,7 +113,9 @@ class PrimeCutMode:
     # -- optional foundation hooks -------------------------------------------
 
     def initial_phase(self) -> str:
-        return C.PHASE_INTRO
+        # NOT the intro: its clock would start at match creation, before any
+        # client could be showing it. See `config.ARRIVAL_BACKSTOP_SECONDS`.
+        return C.PHASE_ARRIVAL
 
     def phase_seconds(self, phase: str) -> float:
         return PHASE_SECONDS.get(phase, C.CARD_SECONDS)
@@ -152,6 +159,13 @@ class PrimeCutMode:
                         event_type=EVENT_CARD_TIMEOUT,
                         payload={"heat_index": before["heat_index"], "card_index": before["card_index"], "seats": timed_out},
                     ))
+            elif command.command_type == C.COMMAND_INTRO_SEEN:
+                seat = command.actor_seat_index
+                if seat is None:
+                    return _reject(REJECT_NO_SEAT, "Only a seat can have the intro on screen.")
+                after = rules.intro_seen(before, seat)
+                resolution = TURN_RESOLUTION_ACTION
+                events.append(EventDraft(event_type=EVENT_INTRO_SEEN, actor_seat_index=seat, payload={"seat_index": seat}))
             elif command.command_type in (C.COMMAND_KEEP, C.COMMAND_CUT):
                 seat = command.actor_seat_index
                 if seat is None:

@@ -23,12 +23,13 @@ import { useRouter } from "next/navigation";
 
 import { createPracticeMatch } from "@/lib/arena-api";
 import { modeMeta } from "@/lib/arena-modes";
-import { useArenaRoom } from "@/lib/prime-arena/useArenaRoom";
+import { useArenaRoom, useReportIntroSeen } from "@/lib/prime-arena/useArenaRoom";
 import { primeTelemetry } from "@/lib/prime-arena/telemetry";
 import {
   PRIME_CUT_CARD_SECONDS,
   PRIME_CUT_COMMAND_CUT,
   PRIME_CUT_COMMAND_FORFEIT,
+  PRIME_CUT_COMMAND_INTRO_SEEN,
   PRIME_CUT_COMMAND_KEEP,
   PRIME_CUT_MODE,
   type PrimeCutCard as PrimeCutCardData,
@@ -66,6 +67,7 @@ export function primeCutCadence(view: PrimeCutMatchView): number | null {
 
 export function primeCutStillValid(view: PrimeCutMatchView, command: string, payload: Record<string, unknown>): boolean {
   const state = view.public_state;
+  if (command === PRIME_CUT_COMMAND_INTRO_SEEN) return view.legal_commands.includes(command) && state.phase === "arrival";
   return (
     view.legal_commands.includes(command) &&
     state.phase === "card" &&
@@ -94,6 +96,7 @@ function PrimeCutRoom({ matchId }: { matchId: string }) {
   const view = room.view;
   const previous = useRef<PrimeCutMatchView | null>(null);
   const resumedComplete = useRef<boolean | null>(null);
+  useReportIntroSeen(room, PRIME_CUT_COMMAND_INTRO_SEEN, view?.status === "active" && view.public_state.phase === "arrival");
 
   // -- announcements, derived from consecutive snapshots ------------------
   useEffect(() => {
@@ -146,7 +149,7 @@ function PrimeCutRoom({ matchId }: { matchId: string }) {
     if (!prev) {
       openedAt.current = Date.now();
       primeTelemetry.opened(PRIME_CUT_MODE);
-      if (state.phase === "intro") primeTelemetry.matchStarted(PRIME_CUT_MODE, view.entry_path, state.ruleset_version);
+      if (state.phase === "arrival" || state.phase === "intro") primeTelemetry.matchStarted(PRIME_CUT_MODE, view.entry_path, state.ruleset_version);
       return;
     }
     const before = prev.public_state;
@@ -284,8 +287,9 @@ function PrimeCutRoom({ matchId }: { matchId: string }) {
   const liveCard = state.current_card;
   const yourCall = mine.current_decision;
   const waitingOn = state.seats.filter((s) => !s.locked && !s.forfeited).length;
+  const arriving = state.seats.filter((s) => s.arrived === false && s.seat_index !== view.your_seat_index).length;
   const clockLabel =
-    phase === "card" ? (yourCall ? "Locked · waiting" : "Your call") : phase === "heat_reveal" ? "Next heat" : phase === "intro" ? "Starts in" : "Dealing";
+    phase === "card" ? (yourCall ? "Locked · waiting" : "Your call") : phase === "heat_reveal" ? "Next heat" : phase === "intro" ? "Starts in" : phase === "arrival" ? "Starting" : "Dealing";
   // ALWAYS a caption, so the clock keeps one footprint and the header never jumps.
   const clockCaption =
     phase === "card"
@@ -298,7 +302,7 @@ function PrimeCutRoom({ matchId }: { matchId: string }) {
         ? "Scores for this heat"
         : phase === "card_forced"
           ? "Every call was forced"
-          : phase === "intro"
+          : phase === "intro" || phase === "arrival"
             ? "Heat 1 deals first"
             : "First card coming";
 
@@ -328,7 +332,7 @@ function PrimeCutRoom({ matchId }: { matchId: string }) {
           </dl>
           <div className="pcut-clock">
             <ArenaTimer
-              deadlineAt={room.deadlineAt}
+              deadlineAt={phase === "arrival" ? null : room.deadlineAt}
               totalSeconds={view.turn_total_seconds ?? PRIME_CUT_CARD_SECONDS}
               label={clockLabel}
               yours={phase === "card" && !yourCall}
@@ -342,7 +346,9 @@ function PrimeCutRoom({ matchId }: { matchId: string }) {
           {room.commandError ? (
             <RoomErrorBanner message={room.commandError.message} onDismiss={room.dismissError} testId="pcut-error" />
           ) : null}
-          {phase === "intro" ? <PrimeCutIntro seats={state.seats} yourSeat={view.your_seat_index} /> : null}
+          {phase === "arrival" || phase === "intro" ? (
+            <PrimeCutIntro seats={state.seats} yourSeat={view.your_seat_index} waitingFor={phase === "arrival" ? arriving : 0} />
+          ) : null}
           {phase === "heat_open" ? <PrimeCutHeatOpen heatIndex={state.heat_index} duration={duration} /> : null}
           {(phase === "card" || phase === "card_forced") && liveCard ? (
             <PrimeCutCard

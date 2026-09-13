@@ -24,6 +24,7 @@ CUTS_PER_HEAT = 4
 # Phases and timing (seconds). Every visible beat is a real server turn.
 # ---------------------------------------------------------------------------
 
+PHASE_ARRIVAL = "arrival"        # seatless: the intro is on screen, its clock waits for every human seat
 PHASE_INTRO = "intro"            # seatless: who is at the table, what a heat is
 PHASE_HEAT_OPEN = "heat_open"    # seatless: "HEAT 2 . 3-YEAR PEAKS"
 PHASE_CARD = "card"              # simultaneous decision
@@ -33,6 +34,24 @@ PHASE_COMPLETE = "complete"
 
 #: Long enough to read four lines; server-timed, no skip (the Arena convention
 #: since the game-feel passes: a ceremony every seat shares ends on its clock).
+#: THE INTRO'S CLOCK STARTS WHEN THE TABLE HAS ARRIVED, NOT WHEN THE MATCH WAS
+#: CREATED. A match opens in `arrival`: the intro is on every client's screen
+#: but its clock has not started. Each human seat's client reports
+#: `pc_intro_seen` once it has rendered the intro, and the intro's own
+#: `INTRO_SECONDS` turn opens when the last human seat has done so.
+#:
+#: WHY. The intro used to be timed from match creation. CI measured the cost
+#: (PR #30, run 34772830703): a practice match was created, the match route
+#: took 5.3 s to compile, and the client's first read landed 6.6 s after
+#: creation -- the 6 s intro had already expired on the server, so the player
+#: was dropped into the first live beat without ever seeing it. A slow client
+#: must not silently lose the intro, and the match must not advance behind it.
+#:
+#: THE BACKSTOP is for a seat that never arrives (a closed tab in a private
+#: room). It opens the INTRO, never gameplay, so whoever is at the table still
+#: gets the whole intro. Several times the slowest cold route load measured,
+#: short enough that one absent seat does not hold a table for long.
+ARRIVAL_BACKSTOP_SECONDS = 20.0
 INTRO_SECONDS = 6.0
 HEAT_OPEN_SECONDS = 3.5
 #: The decision window for one card. The prompt's 8-12 s region; 12 s because a
@@ -144,6 +163,8 @@ BOT_THINK_RANGE: dict[str, tuple[float, float]] = {
     "mvp": (3.0, 8.0),
 }
 
+#: A seat's client has the intro on screen. Accepted only in `arrival`.
+COMMAND_INTRO_SEEN = "pc_intro_seen"
 COMMAND_KEEP = "pc_keep"
 COMMAND_CUT = "pc_cut"
 COMMAND_FORFEIT = "pc_forfeit"

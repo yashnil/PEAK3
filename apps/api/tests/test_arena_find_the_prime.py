@@ -126,7 +126,7 @@ def test_the_mode_satisfies_the_contract_and_bots_carry_tier_ratings():
     for seat in seats:
         if seat.is_bot:
             assert seat.bot_rating == C.BOT_TIER_RATINGS[rules.bot_tier_for(SEED, seat.seat_index)]
-    assert view["turn_phase"] == C.PHASE_INTRO and view["current_turn_seat_index"] is None
+    assert view["turn_phase"] == C.PHASE_ARRIVAL and view["current_turn_seat_index"] is None
 
 
 def test_a_decision_is_a_timed_simultaneous_turn_with_the_career_rail_and_no_scores():
@@ -274,3 +274,83 @@ def test_bot_picks_replay_identically_for_the_same_seed():
         return [[(a["round_index"], a["start_season_end"]) for a in s["answers"]] for s in snapshot["seats"] if s["is_bot"]]
 
     assert run("ftp-replay-a") == run("ftp-replay-b")
+
+
+# ---------------------------------------------------------------------------
+# Arrival: a slow client cannot miss the intro, and the match cannot advance
+# behind it
+# ---------------------------------------------------------------------------
+
+
+def _arrive_late(match_id: str, seconds: float) -> None:
+    """Put the open turn `seconds` into the past, exactly as a client whose
+    route took that long to load and render would find it on its first read."""
+    turn = _open_turn(match_id)
+    turn.opened_at = turn.opened_at - timedelta(seconds=seconds)
+    turn.deadline_at = turn.deadline_at - timedelta(seconds=seconds)
+
+
+def test_a_client_slower_than_the_whole_intro_still_opens_on_it_and_starts_its_clock():
+    client = _client_as("ftp-late")
+    created = _start(client)
+    match_id = created["match_id"]
+    assert created["turn_phase"] == C.PHASE_ARRIVAL
+    assert created["turn_total_seconds"] == pytest.approx(C.ARRIVAL_BACKSTOP_SECONDS, abs=0.5)
+    # Later than the intro plus the action grace: with the intro timed from
+    # creation, this first read landed after it had already expired.
+    _arrive_late(match_id, C.INTRO_SECONDS + clock.ACTION_GRACE_SECONDS + 3)
+    _age_for_bots(match_id)
+    view = _get(client, match_id)
+    assert view["turn_phase"] == C.PHASE_ARRIVAL
+    assert view["state_version"] == created["state_version"], "the match advanced before anyone saw the intro"
+    assert view["public_state"]["prompt"] is None and view["public_state"]["round_results"] == []
+    assert C.COMMAND_INTRO_SEEN in view["legal_commands"]
+    assert not set(view["legal_commands"]) & {C.COMMAND_STAGE, C.COMMAND_LOCK}
+
+    out = _command(client, match_id, view, C.COMMAND_INTRO_SEEN, {})
+    assert out["accepted"], out
+    intro = out["match"]
+    assert intro["turn_phase"] == C.PHASE_INTRO
+    # The WHOLE intro, measured from the moment it was on screen.
+    assert intro["turn_seconds_remaining"] == pytest.approx(C.INTRO_SECONDS, abs=0.5)
+    assert C.COMMAND_INTRO_SEEN not in intro["legal_commands"]
+
+    again = _command(client, match_id, intro, C.COMMAND_INTRO_SEEN, {}, key="ftp-late-seen-again")
+    assert not again["accepted"] and again["rejection_code"] == rules.REJECT_INTRO_STARTED
+    assert again["match"]["turn_phase"] == C.PHASE_INTRO
+
+
+def test_the_arrival_backstop_runs_the_whole_intro_rather_than_skipping_to_play():
+    client = _client_as("ftp-absent")
+    match_id = _start(client)["match_id"]
+    _expire(match_id)
+    view = _get(client, match_id)
+    assert view["turn_phase"] == C.PHASE_INTRO
+    assert view["turn_seconds_remaining"] == pytest.approx(C.INTRO_SECONDS, abs=0.5)
+
+
+def test_with_two_humans_the_intro_clock_waits_for_both_of_them():
+    host = _client_as("ftp-host")
+    room = host.post("/api/v1/arena/matches/private", json={"mode": MODE})
+    assert room.status_code == 200, room.text
+    match_id, code = room.json()["match_id"], room.json()["room_code"]
+    guest = _client_as("ftp-guest")
+    joined = guest.post("/api/v1/arena/matches/private/join", json={"room_code": code})
+    assert joined.status_code == 200, joined.text
+    host = _client_as("ftp-host")
+    filled = host.post(f"/api/v1/arena/matches/{match_id}/fill-bots")
+    assert filled.status_code == 200, filled.text
+
+    view = _get(host, match_id)
+    assert view["turn_phase"] == C.PHASE_ARRIVAL
+    out = _command(host, match_id, view, C.COMMAND_INTRO_SEEN, {})
+    assert out["accepted"] and out["match"]["turn_phase"] == C.PHASE_ARRIVAL
+    arrived = {s["seat_index"]: s["arrived"] for s in out["match"]["public_state"]["seats"]}
+    assert sorted(arrived.values()) == [False, True, True, True]
+
+    guest = _client_as("ftp-guest")
+    view = _get(guest, match_id)
+    assert view["turn_phase"] == C.PHASE_ARRIVAL and C.COMMAND_INTRO_SEEN in view["legal_commands"]
+    out = _command(guest, match_id, view, C.COMMAND_INTRO_SEEN, {})
+    assert out["accepted"] and out["match"]["turn_phase"] == C.PHASE_INTRO
+    assert out["match"]["turn_seconds_remaining"] == pytest.approx(C.INTRO_SECONDS, abs=0.5)

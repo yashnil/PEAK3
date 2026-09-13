@@ -2,6 +2,7 @@
 
 PHASES, each a real server turn:
 
+    arrival --(every human seat has the intro on screen | backstop)--> intro
     intro --(clock)--> decide(r) --(all locked | clock)--> reveal(r) --(clock)--> decide(r+1)
     ... reveal(8) --(clock)--> complete
 
@@ -9,6 +10,12 @@ The last round gets its reveal too. The ridge is the teaching moment of the
 mode, and completing the match inside the call that resolved round nine would
 skip straight past it -- the phantom-state defect this repository has fixed
 before.
+
+ARRIVAL. The intro's clock does not start at match creation: it starts when
+every human seat has reported the intro on screen (`intro_seen`), or at the
+arrival backstop. Nothing in `arrival` is gameplay, so a slow client can be
+late to the table without the match moving underneath it. See
+`config.ARRIVAL_BACKSTOP_SECONDS`.
 
 ANSWERING. A seat may STAGE a start season as often as it likes (the bracket on
 the rail), and LOCK once. Both carry the round index and must name the start of
@@ -45,6 +52,8 @@ REJECT_SEAT_FORFEITED = "seat_forfeited"
 REJECT_NO_SUCH_SEAT = "no_such_seat"
 REJECT_MATCH_COMPLETE = "match_complete"
 REJECT_VERSION_MISMATCH = "ruleset_version_mismatch"
+REJECT_INTRO_STARTED = "intro_already_started"
+REJECT_INTRO_ALREADY_SEEN = "intro_already_seen"
 
 
 class RuleError(Exception):
@@ -69,7 +78,7 @@ def initial_state(seed: int, seats: Sequence[tuple[int, bool]]) -> dict:
         "seed": seed,
         "seat_count": len(seats),
         "board": generate_board(seed),
-        "phase": C.PHASE_INTRO,
+        "phase": C.PHASE_ARRIVAL,
         "round_index": 0,
         "seats": [
             {
@@ -78,6 +87,8 @@ def initial_state(seed: int, seats: Sequence[tuple[int, bool]]) -> dict:
                 "bot_tier": bot_tier_for(seed, index) if is_bot else None,
                 "forfeited": False,
                 "forfeit_order": None,
+                # A bot has no screen to wait for.
+                "intro_seen": bool(is_bot),
                 "staged": None,
                 "locked": None,
                 "answers": [],
@@ -116,6 +127,38 @@ def _done(seat: dict) -> bool:
 
 def all_locked(state: dict) -> bool:
     return all(_done(seat) for seat in state["seats"])
+
+
+def _arrived(seat: dict) -> bool:
+    return seat["is_bot"] or seat["forfeited"] or bool(seat.get("intro_seen"))
+
+
+def all_arrived(state: dict) -> bool:
+    return all(_arrived(seat) for seat in state["seats"])
+
+
+def intro_seen(state: dict, seat_index: int) -> dict:
+    """A seat's client reports that the intro is on its screen.
+
+    When every human seat has, the intro's own clock starts. It can neither
+    shorten the intro nor start a round: the only transition it can cause is
+    `arrival` -> `intro`.
+    """
+    assert_supported(state)
+    if state["phase"] == C.PHASE_COMPLETE:
+        raise RuleError(REJECT_MATCH_COMPLETE, "The match is over.")
+    if state["phase"] != C.PHASE_ARRIVAL:
+        raise RuleError(REJECT_INTRO_STARTED, "The intro is already running.")
+    seat = _seat(state, seat_index)
+    if seat["forfeited"]:
+        raise RuleError(REJECT_SEAT_FORFEITED, "You conceded this match.")
+    if _arrived(seat):
+        raise RuleError(REJECT_INTRO_ALREADY_SEEN, "The intro is already on your screen.")
+    next_state = copy.deepcopy(state)
+    _seat(next_state, seat_index)["intro_seen"] = True
+    if all_arrived(next_state):
+        next_state["phase"] = C.PHASE_INTRO
+    return next_state
 
 
 def _parse(state: dict, payload: dict) -> int:
@@ -195,6 +238,11 @@ def timeout(state: dict) -> dict:
     assert_supported(state)
     phase = state["phase"]
     next_state = copy.deepcopy(state)
+    if phase == C.PHASE_ARRIVAL:
+        # The backstop: stop waiting for a seat that never arrived, and run the
+        # intro in full for whoever is here. Never straight to a round.
+        next_state["phase"] = C.PHASE_INTRO
+        return next_state
     if phase == C.PHASE_INTRO:
         next_state["phase"] = C.PHASE_DECIDE
         return next_state
@@ -233,6 +281,8 @@ def forfeit(state: dict, seat_index: int) -> dict:
         next_state["phase"] = C.PHASE_COMPLETE
         next_state["ended_by"] = "forfeit"
         return next_state
+    if next_state["phase"] == C.PHASE_ARRIVAL and all_arrived(next_state):
+        next_state["phase"] = C.PHASE_INTRO
     if next_state["phase"] == C.PHASE_DECIDE and all_locked(next_state):
         _reveal(next_state)
     return next_state
@@ -250,6 +300,8 @@ def legal_commands(state: dict, seat_index: int) -> tuple[str, ...]:
     if seat["forfeited"]:
         return ()
     commands: list[str] = []
+    if state["phase"] == C.PHASE_ARRIVAL and not _arrived(seat):
+        commands.append(C.COMMAND_INTRO_SEEN)
     if state["phase"] == C.PHASE_DECIDE and seat["locked"] is None:
         commands += [C.COMMAND_STAGE, C.COMMAND_LOCK]
     commands.append(C.COMMAND_FORFEIT)
@@ -299,6 +351,7 @@ def project(state: dict, seat_index: int, *, is_bot: bool = False) -> tuple[dict
             "is_bot": s["is_bot"],
             "bot_tier": C.BOT_TIER_LABELS[s["bot_tier"]] if s["bot_tier"] else None,
             "locked": phase == C.PHASE_DECIDE and s["locked"] is not None,
+            "arrived": _arrived(s),
             "forfeited": s["forfeited"],
         }
         for s in state["seats"]

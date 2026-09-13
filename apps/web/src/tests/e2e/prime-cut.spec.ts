@@ -17,6 +17,8 @@ import AxeBuilder from "@axe-core/playwright";
 import { mintTestAccessToken } from "./helpers/test-jwt";
 
 const MATCH_URL = /\/arena\/prime-cut\/[0-9a-f-]{36}$/;
+/** The room's authoritative read of one match (not its commands). */
+const MATCH_READ = /\/api\/v1\/arena\/matches\/[0-9a-f-]{36}(\?.*)?$/;
 
 function uniqueSub(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
@@ -209,6 +211,35 @@ test.describe("PRIME CUT", () => {
       await hostContext.close();
       await guestContext.close();
     }
+  });
+
+  test("a client slower than the whole intro still sees all of it, because its clock waits for the table", async ({ page }) => {
+    test.setTimeout(120_000);
+    await signInAs(page, uniqueSub("pc-slow"));
+    // SIMULATED SLOW ARRIVAL: no read of the match reaches the server until
+    // longer than the intro (6 s) plus the server's action grace (2 s) after the
+    // room first asked -- what a cold compile of this route did in CI run
+    // 34772830703. With the intro timed from match creation, that read found the
+    // match already past it. EVERY read is held, not just the first: the dev
+    // server mounts the room twice (StrictMode), so it issues two at once.
+    const arrivalDelayMs = 9_000;
+    let releaseAt: number | null = null;
+    await page.route(MATCH_READ, async (route) => {
+      if (route.request().method() === "GET") {
+        releaseAt ??= Date.now() + arrivalDelayMs;
+        const wait = releaseAt - Date.now();
+        if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      }
+      await route.continue();
+    });
+    await startPractice(page);
+    await expect(page.getByTestId("pcut-intro")).toBeVisible();
+    expect(releaseAt).not.toBeNull();
+    const introOnScreen = Date.now();
+    await expect.poll(() => phaseOf(page), { timeout: 30_000 }).toBe("heat_open");
+    // The intro's whole length ran from the moment it was on screen.
+    expect(Date.now() - introOnScreen).toBeGreaterThanOrEqual(4_500);
+    await expect(page.getByTestId("pcut-heat-open")).toBeVisible();
   });
 
   test("phone: the card, keep slots and thumb controls fit with no horizontal overflow @mobile", async ({ page }) => {

@@ -37,13 +37,22 @@ Architecture: [ADR-006](../architecture/ADR-006-prime-modes-additive.md).
 
 ```mermaid
 stateDiagram-v2
-  [*] --> intro
+  [*] --> arrival
+  arrival --> intro: every human seat has the intro on screen / backstop (20 s)
   intro --> decide: clock (6 s)
   decide --> reveal: every seat locked / clock (20 s + 2 s)
   reveal --> decide: clock (9 s), rounds 1-8
   reveal --> complete: clock (9 s), round 9
   complete --> [*]
 ```
+
+`arrival` is the intro on screen with its clock not yet running. Each client
+reports `ftp_intro_seen` as soon as it has rendered the intro, and the intro's
+6 s turn opens at the last human seat's report. A clock started at match
+creation could expire before a slow client rendered anything: in PR #30's CI
+the first read landed 6.6 s after creation, and the player never saw the intro.
+The 20 s backstop, for a seat that never arrives, opens the intro, never
+a round.
 
 ## Scoring
 
@@ -141,7 +150,7 @@ MVP 6–14 s, seeded per (seat, turn).
 
 ## Duration
 
-The intro is 6 s and each of the nine reveals is 9 s. A round resolves when the
+The intro is 6 s from the moment every human seat has it on screen, and each of the nine reveals is 9 s. A round resolves when the
 slowest seat locks: against bots that is typically 8–14 s, and 22 s at most.
 Expected match length is about 3–4 minutes, and at most about 4¾ minutes.
 
@@ -162,8 +171,8 @@ Expected match length is about 3–4 minutes, and at most about 4¾ minutes.
 |---|---|---|
 | Rules | `tests/find_the_prime/test_pool_and_board.py` | eligibility, excluded near-flat and truncated careers, pinned scale bounds, derived equivalence band, 9 rounds as 3/3/3 with no repeats, seeded order, self-contained rounds |
 | Rules | `tests/find_the_prime/test_scoring.py` | exact 100, tied band, mistimed window, clearly wrong window, monotone with no cliffs, degeneracy, no-answer regret, tie-breaks, /900 |
-| Rules | `tests/find_the_prime/test_state.py` | nine observable reveals, final reveal before completion, legal windows only, lock finality, staged-at-timeout, silent seat scores 0, staging reset, forfeit, purity, replay, leak tests |
+| Rules | `tests/find_the_prime/test_state.py` | arrival waits for every human seat and its backstop opens the intro, nine observable reveals, final reveal before completion, legal windows only, lock finality, staged-at-timeout, silent seat scores 0, staging reset, forfeit, purity, replay, leak tests |
 | Rules | `tests/find_the_prime/test_bot.py` | tier ordering, beatable MVP, plausible misses, determinism, future blindness, ratings |
-| API | `apps/api/tests/test_arena_find_the_prime.py` | contract and ratings, timed simultaneous decide with no scores, private staging and timeout lock, no-selection zero, grace, rejection codes, reconnect, full match with versioned /900 results, bot replay |
-| Web | `apps/web/src/tests/unit/find-the-prime-room.test.tsx` | tap mapping, gaps, arrows, buttons, locked rail, no ridge pre-reveal, debounced stage plus lock payload, reload restore, reveal receipt, result |
-| E2E | `apps/web/src/tests/e2e/find-the-prime.spec.ts` | full match with nine reveals and all lengths, rematch, reload restore, silent round, phone rail and ridge, axe |
+| API | `apps/api/tests/test_arena_find_the_prime.py` | contract and ratings, a client slower than the whole intro still opens on it, arrival backstop, two humans, timed simultaneous decide with no scores, private staging and timeout lock, no-selection zero, grace, rejection codes, reconnect, full match with versioned /900 results, bot replay |
+| Web | `apps/web/src/tests/unit/find-the-prime-room.test.tsx` | intro on screen before it is reported seen (once, quietly), tap mapping, gaps, arrows, buttons, locked rail, no ridge pre-reveal, debounced stage plus lock payload, reload restore, reveal receipt, result |
+| E2E | `apps/web/src/tests/e2e/find-the-prime.spec.ts` | a slow first read still sees the whole intro, full match with nine reveals and all lengths, rematch, reload restore, silent round, phone rail and ridge, axe |

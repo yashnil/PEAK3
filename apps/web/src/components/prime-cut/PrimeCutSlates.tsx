@@ -4,11 +4,22 @@
  * The two ceremonies: the match intro and a heat's opening slate. Both render a
  * SERVER phase that ends on its own clock -- there is no skip and no Start
  * button, the Arena convention for a shared beat every seat watches together.
+ * The intro is also shown during `arrival`, before its clock starts, while the
+ * server waits for every human seat to have it on screen.
  */
 
 import type { PrimeCutSeatPublic } from "@/types/prime-cut";
 
-export function PrimeCutIntro({ seats, yourSeat }: { seats: PrimeCutSeatPublic[]; yourSeat: number | null }) {
+export function PrimeCutIntro({
+  seats,
+  yourSeat,
+  waitingFor = 0,
+}: {
+  seats: PrimeCutSeatPublic[];
+  yourSeat: number | null;
+  /** Other human seats the intro's clock is still waiting on. */
+  waitingFor?: number;
+}) {
   return (
     <div className="pcut-slate" data-testid="pcut-intro">
       <p className="parena-eyebrow">Prime Cut</p>
@@ -31,6 +42,11 @@ export function PrimeCutIntro({ seats, yourSeat }: { seats: PrimeCutSeatPublic[]
           </span>
         ))}
       </p>
+      {waitingFor > 0 ? (
+        <p className="pcut-slate-body" data-testid="pcut-arrival">
+          Waiting for {waitingFor} more player{waitingFor === 1 ? "" : "s"} to arrive.
+        </p>
+      ) : null}
     </div>
   );
 }

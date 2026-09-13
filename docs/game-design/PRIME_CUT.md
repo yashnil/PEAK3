@@ -34,7 +34,8 @@ Architecture: [ADR-006](../architecture/ADR-006-prime-modes-additive.md).
 
 ```mermaid
 stateDiagram-v2
-  [*] --> intro
+  [*] --> arrival
+  arrival --> intro: every human seat has the intro on screen / backstop (20 s)
   intro --> heat_open: clock (6 s)
   heat_open --> card: clock (3.5 s)
   card --> card: every seat decided / clock (12 s + 2 s)
@@ -47,6 +48,14 @@ stateDiagram-v2
   card_forced --> complete
   complete --> [*]
 ```
+
+`arrival` is the intro on screen with its clock not yet running. Each client
+reports `pc_intro_seen` as soon as it has rendered the intro, and the intro's
+6 s turn opens at the last human seat's report. A clock started at match
+creation could expire before a slow client rendered anything: in PR #30's CI
+the first read landed 6.6 s after creation, and the player never saw the intro.
+The 20 s backstop, for a seat that never arrives, opens the intro, never
+a heat.
 
 Every node is a real server turn (`apps/api/app/services/prime_cut/mode.py`).
 Nothing a player should see is created and resolved inside one reducer call.
@@ -141,7 +150,7 @@ MVP 3.0–8.0 s, seeded per (seat, turn).
 
 ## Duration
 
-Ceremonies total about 45 s (intro 6 s, three slates of 3.5 s, two reveals of
+Ceremonies total about 45 s (intro 6 s once every human seat has it on screen, three slates of 3.5 s, two reveals of
 12 s). A card resolves when the slowest seat decides: against bots that is
 typically 4–8 s, and 14 s at most. Expected match length is about 3½–4½
 minutes, and at most about 6½ minutes. Measured timings are in the PEAK3 QA
@@ -178,9 +187,9 @@ match already in progress keeps working. The direct route
 |---|---|---|
 | Rules | `tests/prime_cut/test_board.py` | determinism, quality gate on 1,500 seeds, derived thresholds, canonical parity, deal-order independence, impossible-constraint failure |
 | Rules | `tests/prime_cut/test_scoring.py` | capture formula, mean of heats, tie-break order, forfeits, draws |
-| Rules | `tests/prime_cut/test_state.py` | phase sequence, observable reveal, quotas, forced and all-forced cards, rejection codes, timeout rule, forfeit, purity, replay, value-level leak tests for human and bot projections |
+| Rules | `tests/prime_cut/test_state.py` | phase sequence, arrival waits for every human seat and its backstop opens the intro, observable reveal, quotas, forced and all-forced cards, rejection codes, timeout rule, forfeit, purity, replay, value-level leak tests for human and bot projections |
 | Rules | `tests/prime_cut/test_bot.py` | tier ordering, not perfect, determinism, future blindness, forced cards, seeded tiers, rating order |
-| API | `apps/api/tests/test_arena_prime_cut.py` | contract, tiered seats and ratings, timed ceremonies, HTTP and event leak search, locked-not-chosen, irreversibility and bad commands, grace plus timeout rule, reconnect, full match with versioned results, bot replay, concede |
+| API | `apps/api/tests/test_arena_prime_cut.py` | contract, a client slower than the whole intro still opens on it, arrival backstop, two humans, tiered seats and ratings, timed ceremonies, HTTP and event leak search, locked-not-chosen, irreversibility and bad commands, grace plus timeout rule, reconnect, full match with versioned results, bot replay, concede |
 | API | `apps/api/tests/test_arena_prime_hooks.py` | foundation hooks and rollout flags |
-| Web | `apps/web/src/tests/unit/prime-cut-room.test.tsx` | card without score, one command per press, stale retry only on the same card, quotas, K/C, forced stamp, intro without skip, cut line, result bands and podium, rematch |
-| E2E | `apps/web/src/tests/e2e/prime-cut.spec.ts` | full match with forced calls, reveals and rematch; reload mid-heat; two humans in a private room; phone layout and axe |
+| Web | `apps/web/src/tests/unit/prime-cut-room.test.tsx` | card without score, one command per press, stale retry only on the same card, quotas, K/C, forced stamp, intro without skip, intro on screen before it is reported seen (once, quietly), cut line, result bands and podium, rematch |
+| E2E | `apps/web/src/tests/e2e/prime-cut.spec.ts` | a slow first read still sees the whole intro; full match with forced calls, reveals and rematch; reload mid-heat; two humans in a private room; phone layout and axe |

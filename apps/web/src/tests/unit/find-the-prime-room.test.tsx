@@ -201,3 +201,73 @@ describe("FIND THE PRIME room", () => {
     await act(async () => {});
   });
 });
+
+describe("FIND THE PRIME arrival", () => {
+  function arrivalView(overrides: Record<string, unknown> = {}) {
+    return findThePrimeView({
+      state_version: 2,
+      turn_phase: "arrival",
+      turn_seconds_remaining: 20,
+      turn_total_seconds: 20,
+      legal_commands: ["ftp_intro_seen", "ftp_forfeit"],
+      public_state: { phase: "arrival", prompt: null },
+      ...overrides,
+    });
+  }
+  const introView = () =>
+    findThePrimeView({
+      state_version: 3,
+      turn_phase: "intro",
+      turn_seconds_remaining: 6,
+      turn_total_seconds: 6,
+      legal_commands: ["ftp_forfeit"],
+      public_state: { phase: "intro", prompt: null },
+    });
+
+  it("puts the intro on screen before reporting it, however slow the first read, and reports it once", async () => {
+    let finishRead: (view: unknown) => void = () => {};
+    getMatch.mockImplementationOnce(() => new Promise((resolve) => (finishRead = resolve)));
+    getMatch.mockResolvedValue(arrivalView());
+    submitCommand.mockResolvedValue({ accepted: true, replayed: false, rejection_code: null, message: null, match: introView() });
+    render(<FindThePrimeGame matchId="find_the_prime-match" />);
+    await act(async () => {});
+    expect(screen.getByTestId("fprime-loading")).toBeInTheDocument();
+    expect(submitCommand).not.toHaveBeenCalled();
+
+    await act(async () => finishRead(arrivalView()));
+    expect(screen.getByTestId("fprime-intro")).toBeInTheDocument();
+    await waitFor(() => expect(submitCommand).toHaveBeenCalledTimes(1));
+    expect(submitCommand).toHaveBeenCalledWith("find_the_prime-match", "ftp_intro_seen", {}, 2, expect.any(String));
+    await waitFor(() => expect(screen.getByTestId("fprime-room")).toHaveAttribute("data-phase", "intro"));
+    expect(screen.getByTestId("fprime-intro")).toBeInTheDocument();
+    expect(screen.queryByTestId("fprime-lock")).toBeNull();
+    expect(screen.queryByRole("button", { name: /skip|start/i })).toBeNull();
+    expect(submitCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not report again for a seat that already has, and names who the table is waiting for", async () => {
+    const seats = [0, 1, 2, 3].map((seat) => ({
+      seat_index: seat,
+      display_name: ["You", "Guest", "IsoKing", "GlassCleaner"][seat],
+      is_bot: seat > 1,
+      bot_tier: seat > 1 ? "MVP" : null,
+      locked: false,
+      arrived: seat !== 1,
+      forfeited: false,
+    }));
+    getMatch.mockResolvedValue(arrivalView({ legal_commands: ["ftp_forfeit"], public_state: { phase: "arrival", prompt: null, seats } }));
+    render(<FindThePrimeGame matchId="find_the_prime-match" />);
+    expect(await screen.findByTestId("fprime-arrival")).toHaveTextContent("Waiting for 1 more player to arrive.");
+    await act(async () => {});
+    expect(submitCommand).not.toHaveBeenCalled();
+  });
+
+  it("shows no error when its report lands after the intro already started", async () => {
+    getMatch.mockResolvedValue(arrivalView());
+    submitCommand.mockResolvedValue({ accepted: false, replayed: false, rejection_code: "intro_already_started", message: "The intro is already running.", match: introView() });
+    render(<FindThePrimeGame matchId="find_the_prime-match" />);
+    await waitFor(() => expect(submitCommand).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId("fprime-room")).toHaveAttribute("data-phase", "intro"));
+    expect(screen.queryByTestId("fprime-error")).toBeNull();
+  });
+});

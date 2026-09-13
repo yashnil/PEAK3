@@ -22,10 +22,13 @@ export const PRIME_CUT_CARDS_PER_HEAT = 8;
 export const PRIME_CUT_KEEPS = 4;
 export const PRIME_CUT_CUTS = 4;
 
-export type PrimeCutPhase = "intro" | "heat_open" | "card" | "card_forced" | "heat_reveal" | "complete";
+/** `arrival`: the intro is on screen but its clock waits for every human seat. */
+export type PrimeCutPhase = "arrival" | "intro" | "heat_open" | "card" | "card_forced" | "heat_reveal" | "complete";
 export type PrimeCutDecision = "keep" | "cut";
 export type PrimeCutAuto = "forced" | "timeout" | "forfeit" | null;
 
+/** Sent once the intro is on screen; accepted only in `arrival`. */
+export const PRIME_CUT_COMMAND_INTRO_SEEN = "pc_intro_seen";
 export const PRIME_CUT_COMMAND_KEEP = "pc_keep";
 export const PRIME_CUT_COMMAND_CUT = "pc_cut";
 export const PRIME_CUT_COMMAND_FORFEIT = "pc_forfeit";
@@ -105,6 +108,8 @@ export interface PrimeCutSeatPublic {
   bot_tier: string | null;
   /** This seat has decided the current card. Never WHAT it decided. */
   locked: boolean;
+  /** This seat has had the intro on screen. Always true for a bot. */
+  arrived: boolean;
   forfeited: boolean;
 }
 
