@@ -397,3 +397,19 @@
     gap: 2px;
   }
 }
+
+.parena-room-code {
+  margin: 0;
+  font-family: var(--v2-font-mono);
+  font-size: 0.875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-secondary);
+}
+
+.parena-room-code .pk-numeral {
+  margin-left: 6px;
+  font-size: 1.25rem;
+  letter-spacing: 0.2em;
+  color: var(--v2-text-primary);
+}

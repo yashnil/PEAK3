@@ -116,9 +116,15 @@ export default function FindThePrimeResult({
                   {facts.miss ? (
                     <div>
                       <dt>Largest miss</dt>
-                      <dd>
-                        {facts.miss.reveal.player_name} ({facts.miss.reveal.duration}Y) —{" "}
-                        {answerSentence(facts.miss.answer, facts.miss.reveal)}
+                      <dd data-testid="fprime-largest-miss">
+                        {facts.miss.answer.found_prime ? (
+                          "None — every window was PEAK3's best or effectively tied with it"
+                        ) : (
+                          <>
+                            {facts.miss.reveal.player_name} ({facts.miss.reveal.duration}Y) —{" "}
+                            {answerSentence(facts.miss.answer, facts.miss.reveal)}
+                          </>
+                        )}
                       </dd>
                     </div>
                   ) : null}

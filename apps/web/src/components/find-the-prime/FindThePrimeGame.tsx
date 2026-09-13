@@ -38,6 +38,7 @@ import {
   ConcedeControl,
   LiveRegion,
   RoomErrorBanner,
+  RoomForming,
   RoomLoadFailure,
   RoomLoading,
   useLiveAnnouncer,
@@ -247,6 +248,17 @@ function FindThePrimeRoom({ matchId }: { matchId: string }) {
     return <RoomLoadFailure error={room.loadError} gameName="Find the Prime" lobbyHref={LOBBY_HREF} testId="fprime-load-error" />;
   }
   if (!view) return <RoomLoading label="Pulling the career files…" testId="fprime-loading" />;
+  if (view.status === "forming") {
+    return (
+      <RoomForming
+        gameName="Find the Prime"
+        seatsTaken={view.seats.length}
+        seatCount={view.seat_count}
+        roomCode={view.room_code}
+        testId="fprime-forming"
+      />
+    );
+  }
 
   const state = view.public_state;
   const mine = view.private_state;

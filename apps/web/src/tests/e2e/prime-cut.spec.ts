@@ -168,12 +168,17 @@ test.describe("PRIME CUT", () => {
       await guest.getByTestId("lobby-prime_cut-private_room").click();
       await guest.getByTestId("lobby-prime_cut-join-code").fill(code);
       await guest.getByTestId("lobby-prime_cut-join-submit").click();
-      await expect(guest.getByTestId("lobby-room")).toBeVisible({ timeout: 20_000 });
+      // Joining takes the guest straight to the match page, which says plainly
+      // that the table is still filling -- no intro, no clock, nothing dealt.
+      await guest.waitForURL(MATCH_URL, { timeout: 20_000 });
+      await expect(guest.getByTestId("pcut-forming")).toContainText("2 of 4 seats taken", { timeout: 20_000 });
+      await expect(guest.getByTestId("pcut-room")).toHaveCount(0);
 
       // Two humans in a four-seat room: the host decides to fill the rest.
       await expect(host.getByTestId("lobby-room")).toContainText("2 of 4", { timeout: 20_000 });
       await host.getByTestId("lobby-room-fill-bots").click();
-      await Promise.all([host.waitForURL(MATCH_URL, { timeout: 30_000 }), guest.waitForURL(MATCH_URL, { timeout: 30_000 })]);
+      await host.waitForURL(MATCH_URL, { timeout: 30_000 });
+      await expect(guest.getByTestId("pcut-room")).toBeVisible({ timeout: 20_000 });
       expect(new URL(host.url()).pathname).toBe(new URL(guest.url()).pathname);
 
       await expect.poll(() => phaseOf(host), { timeout: 40_000 }).toBe("card");

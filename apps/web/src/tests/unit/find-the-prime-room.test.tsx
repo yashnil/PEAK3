@@ -62,8 +62,9 @@ describe("career rail", () => {
     const { rerender } = render(
       <CareerRail seasons={FTP_SEASONS} legalStarts={FTP_LEGAL_STARTS} duration={2} selectedStart={2005} locked={false} onSelect={onSelect} />,
     );
-    const rail = screen.getByRole("slider");
-    expect(rail).toHaveAttribute("aria-valuetext", "2004-05 to 2005-06");
+    const rail = screen.getByTestId("fprime-rail");
+    expect(rail).toHaveAttribute("role", "group");
+    expect(rail).toHaveAttribute("aria-label", expect.stringContaining("2004-05 to 2005-06"));
     fireEvent.keyDown(rail, { key: "ArrowRight" });
     expect(onSelect).toHaveBeenLastCalledWith(2008); // skips the gap-spanning start
     fireEvent.keyDown(rail, { key: "Home" });
@@ -80,7 +81,7 @@ describe("career rail", () => {
   it("is inert once locked", () => {
     const onSelect = vi.fn();
     render(<CareerRail seasons={FTP_SEASONS} legalStarts={FTP_LEGAL_STARTS} duration={2} selectedStart={2008} locked onSelect={onSelect} />);
-    fireEvent.keyDown(screen.getByRole("slider"), { key: "ArrowLeft" });
+    fireEvent.keyDown(screen.getByTestId("fprime-rail"), { key: "ArrowLeft" });
     fireEvent.click(screen.getByTestId("fprime-season-2004"));
     expect(onSelect).not.toHaveBeenCalled();
   });
@@ -143,6 +144,32 @@ describe("FIND THE PRIME room", () => {
     expect(within(reveal).getByTestId("fprime-your-answer")).toHaveTextContent("1.50 behind PEAK3's best");
     expect(within(reveal).getByTestId("fprime-round-points")).toHaveTextContent("93 pts");
     expect(within(reveal).getByTestId("fprime-round-table")).toHaveTextContent("No window placed — 0 points");
+  });
+
+  it("says there was no miss when every window was PEAK3's best or effectively tied", async () => {
+    const perfect = ftpReveal();
+    perfect.seats = perfect.seats.map((seat) =>
+      seat.seat_index === 0 ? { ...seat, window_id: "steve-nash-2yr-from-2005", start_season_end: 2005, prime_score: 88.4, points: 100, regret: 0, found_prime: true } : seat,
+    );
+    getMatch.mockResolvedValue(
+      findThePrimeView({
+        status: "completed",
+        turn_phase: null,
+        turn_seconds_remaining: null,
+        legal_commands: [],
+        public_state: {
+          phase: "complete",
+          prompt: null,
+          round_results: [perfect],
+          ended_by: "completed",
+          standings: [0, 1, 2, 3].map((seat) => ({ seat_index: seat, total: 100, found_primes: 1, total_regret: 0, rounds_scored: 1, rounds_answered: 1, average_regret: 0, position: 1, forfeited: false })),
+          placements: [0, 1, 2, 3].map((seat) => ({ seat_index: seat, placement: 1, outcome: "draw" })),
+        },
+      }),
+    );
+    render(<FindThePrimeGame matchId="find_the_prime-match" />);
+    expect(await screen.findByTestId("fprime-largest-miss")).toHaveTextContent("None — every window was PEAK3's best");
+    await act(async () => {});
   });
 
   it("finishes with a total out of 900 and says so when the record cannot load", async () => {

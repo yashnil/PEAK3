@@ -8,7 +8,10 @@
  *   * tap or click a season (it becomes the window's first season when it can
  *     start one; otherwise the latest legal window that contains it is used);
  *   * the Earlier / Later buttons;
- *   * the rail's own slider semantics: Arrow keys, Home/End, PageUp/PageDown.
+ *   * keyboard on the focused timeline: Arrow keys, Home/End, PageUp/PageDown.
+ *     The timeline is a labelled GROUP (its name announces the current
+ *     window), not a slider: a slider may not contain the tappable season
+ *     buttons (axe `nested-interactive`).
  * The bracket only ever lands on a legal start, so an invalid-length or
  * missing-season window cannot be selected, let alone submitted.
  *
@@ -133,13 +136,9 @@ export default function CareerRail({
         <div
           ref={railRef}
           className="fprime-rail"
-          role="slider"
+          role="group"
           tabIndex={locked ? -1 : 0}
-          aria-label={`${duration}-year window`}
-          aria-valuemin={0}
-          aria-valuemax={Math.max(0, starts.length - 1)}
-          aria-valuenow={index === -1 ? 0 : index}
-          aria-valuetext={valueText}
+          aria-label={`Career timeline, ${duration}-year window: ${valueText}.${locked ? " Locked." : " Arrow keys move the window."}`}
           aria-disabled={locked}
           onKeyDown={onKeyDown}
           data-testid="fprime-rail"

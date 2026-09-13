@@ -171,6 +171,23 @@ describe("PRIME CUT room", () => {
     expect(screen.getByTestId("pcut-cut")).toBeDisabled();
   });
 
+  it("shows a room that is still filling as a waiting table, not as a started match", async () => {
+    const forming = primeCutView({
+      status: "forming",
+      turn_phase: null,
+      turn_seconds_remaining: null,
+      legal_commands: [],
+      room_code: "ABC234",
+      public_state: { phase: "intro", card_index: null, current_card: null, dealt_cards: [] } as never,
+    });
+    await mount({ ...forming, seats: forming.seats.slice(0, 2) });
+    const waiting = await screen.findByTestId("pcut-forming");
+    expect(waiting).toHaveTextContent("2 of 4 seats taken");
+    expect(waiting).toHaveTextContent("ABC234");
+    expect(screen.queryByTestId("pcut-room")).toBeNull();
+    expect(screen.queryByTestId("pcut-intro")).toBeNull();
+  });
+
   it("renders the intro as a timed ceremony with nothing to skip", async () => {
     await mount(primeCutView({ turn_phase: "intro", legal_commands: ["pc_forfeit"], public_state: { phase: "intro", card_index: null, current_card: null, dealt_cards: [] } as never }));
     expect(await screen.findByTestId("pcut-intro")).toHaveTextContent("Keep four. Cut four.");

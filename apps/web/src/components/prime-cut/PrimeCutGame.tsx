@@ -42,6 +42,7 @@ import {
   ConcedeControl,
   LiveRegion,
   RoomErrorBanner,
+  RoomForming,
   RoomLoadFailure,
   RoomLoading,
   useLiveAnnouncer,
@@ -251,6 +252,17 @@ function PrimeCutRoom({ matchId }: { matchId: string }) {
     return <RoomLoadFailure error={room.loadError} gameName="Prime Cut" lobbyHref={LOBBY_HREF} testId="pcut-load-error" />;
   }
   if (!view) return <RoomLoading label="Dealing the board…" testId="pcut-loading" />;
+  if (view.status === "forming") {
+    return (
+      <RoomForming
+        gameName="Prime Cut"
+        seatsTaken={view.seats.length}
+        seatCount={view.seat_count}
+        roomCode={view.room_code}
+        testId="pcut-forming"
+      />
+    );
+  }
 
   const state = view.public_state;
   const mine = view.private_state;

@@ -74,6 +74,42 @@ export function RoomLoadFailure({
   );
 }
 
+/** A private room that is still filling. Not the match: nothing has been dealt,
+ *  no clock is running, and the page says so rather than showing an intro for a
+ *  match that has not started. It keeps polling (the room hook) and gives way to
+ *  the match the moment the server opens it. */
+export function RoomForming({
+  gameName,
+  seatsTaken,
+  seatCount,
+  roomCode,
+  testId,
+}: {
+  gameName: string;
+  seatsTaken: number;
+  seatCount: number;
+  roomCode: string | null;
+  testId: string;
+}) {
+  return (
+    <PeakV2Shell width="live">
+      <div className="parena-gate" role="status" data-arena="quiet" data-testid={testId}>
+        <p className="parena-eyebrow">{gameName} · Private room</p>
+        <h1 className="parena-gate-title">Waiting for the table</h1>
+        <p className="parena-gate-body">
+          {seatsTaken} of {seatCount} seats taken. The match starts by itself when the last seat fills, or when the
+          host fills the empty seats with bots.
+        </p>
+        {roomCode ? (
+          <p className="parena-room-code">
+            Room code <span className="pk-numeral">{roomCode}</span>
+          </p>
+        ) : null}
+      </div>
+    </PeakV2Shell>
+  );
+}
+
 export function RoomErrorBanner({
   message,
   onDismiss,
