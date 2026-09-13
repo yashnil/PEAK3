@@ -123,7 +123,7 @@ export const ARENA_MODES: readonly ArenaModeMeta[] = [
     tagline: "Four players · three heats",
     description:
       "Eight multi-year peaks arrive one at a time. Keep the four you think were greatest and cut the rest — every call is final, and you never see what is coming next.",
-    duration: "4–6 min",
+    duration: "3–6 min",
     kindBadge: "Multiplayer",
     matchPath: (matchId) => `/arena/prime-cut/${matchId}`,
     rules: [
@@ -141,7 +141,7 @@ export const ARENA_MODES: readonly ArenaModeMeta[] = [
     tagline: "Four players · nine careers",
     description:
       "One player, one peak length, one career timeline. Pick the stretch PEAK3 rates highest — the closer your window, the more points you earn.",
-    duration: "4–6 min",
+    duration: "3–5 min",
     kindBadge: "Multiplayer",
     matchPath: (matchId) => `/arena/find-the-prime/${matchId}`,
     rules: [
