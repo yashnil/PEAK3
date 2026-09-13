@@ -35,11 +35,30 @@ Branch `feature/prime-modes` from `main` @ `0f41077`. Plan:
 - Web: typecheck clean, lint 0 warnings, vitest 2503/2503.
 - migration-validate: chain valid, inventory in sync (no migration in this pass).
 
-## In flight / next
-- Playwright: prime-cut + find-the-prime specs on chromium-multiplayer + mobile-chrome.
-- Then: full model suite, full API unit, frontend-verify (build), existing-mode e2e
-  smoke, visual QA screenshots (1440 + 390x844), FTP result "Largest miss" copy when
-  every answer was best/tied, CURRENT_PROJECT_STATE + memory notes, final report.
+## Verification after `bdfbdc5`
+- Existing-mode e2e smoke: 71/72; the one failure is `showdown-two-tab.spec.ts:331`,
+  a BASELINE flake: 1 fail in 6 on `main@0f41077` (same working copy, same local
+  servers), 6/6 on this branch.
+- Visual pass 1 (evaluator findings 1-12) + pass 2 (desktop FTP strip clipped "You" ->
+  `.parena-strip-name-text` + `@container (max-width: 22rem)` puts lock state under the
+  name; PC keep slots wrap the window; FTP rail centres the whole bracket via
+  `rail.scrollTo`; FTP mobile head order title/clock/length). Shots:
+  scratchpad `v3/shots`, 0 horizontal overflow at 1440 and 390x844.
+- e2e specs now assert that axe checks inside the retrying loop actually ran (they
+  were swallowed by `catch`), and PRIME CUT adds an axe check on the heat reveal.
+- frontend-verify: 128 files / 2506 tests + production build (before pass 2);
+  after pass 2: prime unit 29/29, typecheck, lint 0 warnings.
+- Practice match length measured 180-204 s with instant decisions.
+- Final gates: model 2089 passed / 2 skipped / 1 xfailed / 1 failed ->
+  `test_the_image_build_runs_the_same_generators_as_the_ci_build` (my `--check` was in
+  build-web-data.sh but not the Dockerfile; fixed by adding it + `COPY data/reference/`,
+  file now 24/24, test unchanged). API unit 1897 passed / 2 skipped (both baseline:
+  live JWKS; perfect-season postgres conformance has no marker on main). Prime e2e 8/8
+  after pass 2.
+- Remaining low visual items (not fixed): result pages tight under the court frame on
+  desktop, clock box top ~5px above the frame line, "How to play" strip border
+  artefact (shared shell), mobile PC result stat cards wrap, some desktop hint text
+  may be under 12px, empty space around the desktop PC card.
 
 # Final pre-deploy polish pass — progress (2026-09-07)
 
