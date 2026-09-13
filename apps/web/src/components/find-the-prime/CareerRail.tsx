@@ -106,16 +106,21 @@ export default function CareerRail({
     }
   };
 
-  // Keep the bracket in view on a narrow rail.
+  // Centre the whole bracket on a narrow rail. Scrolling only the first cell
+  // into view left a 5-year window four-fifths off screen. The rail scrolls
+  // itself rather than calling `scrollIntoView`, which would also scroll the page.
   useEffect(() => {
-    if (selectedStart === null) return;
-    const cell = railRef.current?.querySelector<HTMLElement>(`[data-season-end="${selectedStart}"]`);
+    const rail = railRef.current;
+    if (selectedStart === null || !rail) return;
+    const first = rail.querySelector<HTMLElement>(`[data-season-end="${selectedStart}"]`);
+    const last = rail.querySelector<HTMLElement>(`[data-season-end="${selectedStart + duration - 1}"]`) ?? first;
     // Not every environment implements it (jsdom does not); a missing scroll is
     // cosmetic, a thrown error is not.
-    if (cell && typeof cell.scrollIntoView === "function") {
-      cell.scrollIntoView({ block: "nearest", inline: "nearest", behavior: reduced ? "auto" : "smooth" });
-    }
-  }, [selectedStart, reduced]);
+    if (!first || !last || typeof rail.scrollTo !== "function") return;
+    const box = rail.getBoundingClientRect();
+    const middle = (first.getBoundingClientRect().left + last.getBoundingClientRect().right) / 2;
+    rail.scrollTo({ left: rail.scrollLeft + middle - (box.left + box.width / 2), behavior: reduced ? "auto" : "smooth" });
+  }, [selectedStart, duration, reduced]);
 
   const valueText = selectedStart === null ? "No window placed" : windowLabel(seasons, selectedStart, duration);
 
@@ -172,7 +177,7 @@ export default function CareerRail({
                     aria-label={`${season.season}, ${season.team}${inside ? ", in your window" : ""}`}
                     onClick={() => target !== null && onSelect(target)}
                   >
-                    <span className="fprime-cell-season pk-numeral">{season.season.slice(0, 4)}</span>
+                    <span className="fprime-cell-season pk-numeral">{season.season.slice(2)}</span>
                     <span className="fprime-cell-team">{teamShort(season.team)}</span>
                   </button>
                 </li>

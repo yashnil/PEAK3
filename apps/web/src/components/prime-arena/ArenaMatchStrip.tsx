@@ -33,6 +33,9 @@ export interface ArenaMatchStripProps {
   title: string;
   progress: string;
   scoreLabel: string;
+  /** False until a heat or round has been scored: then every seat is "—",
+   *  never four seats all reading "1st". */
+  ranked?: boolean;
   testId?: string;
 }
 
@@ -58,6 +61,7 @@ export default function ArenaMatchStrip({
   title,
   progress,
   scoreLabel,
+  ranked = true,
   testId = "parena-strip",
 }: ArenaMatchStripProps) {
   const ordered = [...seats].sort((a, b) => a.position - b.position || a.seatIndex - b.seatIndex);
@@ -79,12 +83,15 @@ export default function ArenaMatchStrip({
               data-locked={seat.locked ? "true" : "false"}
               data-testid={`parena-seat-${seat.seatIndex}`}
             >
-              <span className="parena-strip-pos pk-numeral" aria-label={`Position ${seat.position}`}>
-                {ordinal(seat.position)}
+              <span
+                className="parena-strip-pos pk-numeral"
+                aria-label={ranked ? `Position ${seat.position}` : "Not ranked yet"}
+              >
+                {ranked ? ordinal(seat.position) : "—"}
               </span>
               <span className="parena-strip-who">
                 <span className="parena-strip-name">
-                  {seat.name}
+                  <span className="parena-strip-name-text">{seat.name}</span>
                   {you ? <span className="parena-strip-you"> · You</span> : null}
                 </span>
                 {seat.isBot ? (

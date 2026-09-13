@@ -22,6 +22,7 @@
 /* -- match strip --------------------------------------------------------- */
 
 .parena-strip {
+  container-type: inline-size;
   border: 1px solid var(--v2-border-subtle);
   border-radius: var(--v2-radius-instrument);
   background: color-mix(in srgb, var(--v2-bg-plane) 86%, transparent);
@@ -88,23 +89,35 @@
 }
 
 .parena-strip-name {
-  overflow: hidden;
+  display: flex;
+  min-width: 0;
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--v2-text-primary);
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* Only the name truncates: "You" is how a player finds their own row. */
+.parena-strip-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .parena-strip-you {
+  flex: none;
   color: var(--v2-color-accent-text);
   font-weight: 600;
+  white-space: pre;
 }
 
 .parena-strip-bot {
+  overflow: hidden;
   font-family: var(--v2-font-mono);
-  font-size: 0.625rem;
-  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   text-transform: uppercase;
   color: var(--v2-text-muted);
 }
@@ -127,6 +140,34 @@
   font-weight: 700;
   text-align: right;
   color: var(--v2-text-primary);
+}
+
+/* In a side column there is no room for name, tier, lock state and score on
+   one line: the lock state drops under the name instead of squeezing it. */
+@container (max-width: 22rem) {
+  .parena-strip-seat:has(> .parena-strip-lock) {
+    grid-template-columns: 2rem minmax(0, 1fr) auto;
+    grid-template-areas:
+      "pos who score"
+      "pos lock score";
+    row-gap: 2px;
+  }
+
+  .parena-strip-seat:has(> .parena-strip-lock) .parena-strip-pos {
+    grid-area: pos;
+  }
+
+  .parena-strip-seat:has(> .parena-strip-lock) .parena-strip-who {
+    grid-area: who;
+  }
+
+  .parena-strip-seat:has(> .parena-strip-lock) .parena-strip-lock {
+    grid-area: lock;
+  }
+
+  .parena-strip-seat:has(> .parena-strip-lock) .parena-strip-score {
+    grid-area: score;
+  }
 }
 
 /* -- podium -------------------------------------------------------------- */
@@ -278,6 +319,8 @@
   min-height: 44px;
   display: flex;
   align-items: center;
+  gap: 8px;
+  list-style: none;
   cursor: pointer;
   font-weight: 600;
   color: var(--v2-text-primary);
@@ -412,4 +455,19 @@
   font-size: 1.25rem;
   letter-spacing: 0.2em;
   color: var(--v2-text-primary);
+}
+
+/* `display: flex` removes the native disclosure marker; draw one, so a closed
+   <details> reads as something to open rather than an empty heading. */
+.parena-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.parena-details > summary::before {
+  content: "▸";
+  color: var(--v2-color-accent-text);
+}
+
+.parena-details[open] > summary::before {
+  content: "▾";
 }

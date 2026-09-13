@@ -35,6 +35,12 @@ describe("ArenaMatchStrip", () => {
     expect(screen.queryByText("Locked")).toBeNull();
   });
 
+  it("shows no ranking before anything has been scored", () => {
+    render(<ArenaMatchStrip seats={seats} yourSeat={0} showLocks title="Standings" progress="Card 1 / 8" scoreLabel="Match score" ranked={false} />);
+    expect(screen.queryByText("1st")).toBeNull();
+    expect(screen.getAllByLabelText("Not ranked yet")).toHaveLength(2);
+  });
+
   it("uses English ordinals", () => {
     expect([1, 2, 3, 4, 11, 12, 13, 21].map(ordinal)).toEqual(["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st"]);
   });

@@ -13,6 +13,11 @@ import { Check, Lock, Scissors } from "lucide-react";
 import { CardArrival } from "@/components/game-feel";
 import type { PrimeCutCard as PrimeCutCardData, PrimeCutDecision, PrimeCutDecisionRecord } from "@/types/prime-cut";
 
+/** The one way PRIME CUT writes a window: "2004-05 → 2005-06". */
+export function windowRange(start: string, end: string): string {
+  return `${start} → ${end}`;
+}
+
 export function teamShort(team: string): string {
   return team === "Multiple teams" ? "2+ teams" : team;
 }

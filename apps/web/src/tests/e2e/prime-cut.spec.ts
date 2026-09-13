@@ -80,6 +80,7 @@ test.describe("PRIME CUT", () => {
     const reveals = new Set<string>();
     let sawForced = false;
     let sawCardAxe = false;
+    let sawRevealAxe = false;
     const deadline = Date.now() + 440_000;
     while (Date.now() < deadline) {
       if ((await page.getByTestId("pcut-result").count()) > 0) break;
@@ -91,6 +92,10 @@ test.describe("PRIME CUT", () => {
           const reveal = page.getByTestId("pcut-heat-reveal");
           await expect(reveal.getByTestId("pcut-reveal-cutline-line")).toBeVisible();
           reveals.add(await reveal.locator(".parena-eyebrow").innerText());
+          if (!sawRevealAxe) {
+            await expectNoSeriousAxe(page, "heat reveal");
+            sawRevealAxe = true;
+          }
         } else if (phase === "card" || phase === "card_forced") {
           if (!sawCardAxe) {
             await expectNoSeriousAxe(page, "live card");
@@ -118,6 +123,10 @@ test.describe("PRIME CUT", () => {
     expect([...slates].some((s) => s.includes("5-year"))).toBe(true);
     expect(reveals.size).toBe(2);
     expect(sawForced).toBe(true);
+    // The axe checks run inside the retrying loop, so a check that never
+    // passed must fail here rather than vanish into the catch.
+    expect(sawCardAxe).toBe(true);
+    expect(sawRevealAxe).toBe(true);
 
     await expect(page.getByTestId("pcut-result-reveal")).toHaveAttribute("data-complete", "true", { timeout: 10_000 });
     for (const duration of ["2y", "3y", "5y"]) {

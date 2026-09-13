@@ -123,6 +123,11 @@ test.describe("FIND THE PRIME", () => {
     }
 
     await expect(page.getByTestId("fprime-result")).toBeVisible();
+    // Checks inside the retrying loop must fail here if they never passed,
+    // rather than vanish into the catch.
+    expect(movedOnce).toBe(true);
+    expect(axedDecide).toBe(true);
+    expect(axedReveal).toBe(true);
     expect(revealed.size).toBe(9);
     expect([...lengths].map((l) => l.toLowerCase()).sort()).toEqual(["2-year window", "3-year window", "5-year window"]);
     await expect(page.getByTestId("fprime-result-reveal")).toHaveAttribute("data-complete", "true", { timeout: 10_000 });

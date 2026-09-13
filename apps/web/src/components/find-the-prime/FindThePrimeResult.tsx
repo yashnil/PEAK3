@@ -20,8 +20,8 @@ import { answerSentence } from "./FindThePrimeReveal";
 
 const STEPS = [
   { name: "headline", at: 0 },
-  { name: "stats", at: 450 },
-  { name: "podium", at: 1000 },
+  { name: "podium", at: 450 },
+  { name: "stats", at: 1000 },
   { name: "rounds", at: 1400 },
   { name: "actions", at: 1700 },
 ] as const;
@@ -96,6 +96,10 @@ export default function FindThePrimeResult({
                 </header>
               </RevealStep>
 
+              <RevealStep name="podium" revealed={revealed}>
+                <ArenaFinalPodium rows={podiumRows} yourSeat={you} scoreLabel="Points" testId="fprime-podium" />
+              </RevealStep>
+
               <RevealStep name="stats" revealed={revealed}>
                 <dl className="parena-receipt" data-testid="fprime-receipt">
                   <div>
@@ -144,9 +148,6 @@ export default function FindThePrimeResult({
                 </dl>
               </RevealStep>
 
-              <RevealStep name="podium" revealed={revealed}>
-                <ArenaFinalPodium rows={podiumRows} yourSeat={you} scoreLabel="Points" testId="fprime-podium" />
-              </RevealStep>
 
               <RevealStep name="rounds" revealed={revealed}>
                 <details className="parena-details" data-testid="fprime-round-details">

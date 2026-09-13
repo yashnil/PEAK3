@@ -14,6 +14,7 @@ import { Scissors } from "lucide-react";
 
 import type { PrimeCutCard, PrimeCutMatchView } from "@/types/prime-cut";
 import { RosterSlotLock } from "@/components/game-feel";
+import { windowRange } from "./PrimeCutCard";
 
 export default function PrimeCutLedger({ view, heatCards }: { view: PrimeCutMatchView; heatCards: PrimeCutCard[] }) {
   const state = view.public_state;
@@ -50,7 +51,7 @@ export default function PrimeCutLedger({ view, heatCards }: { view: PrimeCutMatc
                   <span className="pcut-slot-body">
                     <span className="pcut-slot-name">{card.player_name}</span>
                     <span className="pcut-slot-window pk-numeral">
-                      {card.start_season.slice(0, 4)}–{card.end_season.slice(-2)}
+                      {windowRange(card.start_season, card.end_season)}
                     </span>
                     {record?.auto ? <span className="pcut-slot-auto">{record.auto}</span> : null}
                   </span>

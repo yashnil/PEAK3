@@ -285,7 +285,7 @@ function FindThePrimeRoom({ matchId }: { matchId: string }) {
               Find the Prime · {view.rated ? "Rated" : view.entry_path === "private_room" ? "Private room" : "Practice"}
             </p>
             <h1 className="fprime-heading">
-              {phase === "intro" ? "Find his best stretch." : `Round ${state.round_index + 1} of ${state.round_count}`}
+              {`Round ${state.round_index + 1} of ${state.round_count}`}
             </h1>
           </div>
           {prompt ? (
@@ -300,11 +300,17 @@ function FindThePrimeRoom({ matchId }: { matchId: string }) {
               label={phase === "decide" ? (lockedStart !== null ? "Locked · waiting" : "Lock in") : phase === "reveal" ? "Next round" : "Starts in"}
               yours={phase === "decide" && lockedStart === null}
               consequence={
-                phase === "decide" && lockedStart === null
-                  ? shown !== null
-                    ? "Runs out: your placed window locks"
-                    : "Runs out: no window, 0 points"
-                  : null
+                phase === "decide"
+                  ? lockedStart !== null
+                    ? "Reveal when the table is in"
+                    : shown !== null
+                      ? "Runs out: this window locks"
+                      : "Runs out: 0 points"
+                  : phase === "reveal"
+                    ? state.round_index + 1 >= state.round_count
+                      ? "Final results next"
+                      : "Next player coming"
+                    : "Round 1 next"
               }
               testId="fprime-clock"
             />
@@ -390,6 +396,7 @@ function FindThePrimeRoom({ matchId }: { matchId: string }) {
             title="Standings"
             progress={`${state.round_results.length} of ${state.round_count} rounds scored`}
             scoreLabel="Points"
+            ranked={state.round_results.length > 0}
             testId="fprime-strip"
           />
         </div>

@@ -286,6 +286,21 @@ function PrimeCutRoom({ matchId }: { matchId: string }) {
   const waitingOn = state.seats.filter((s) => !s.locked && !s.forfeited).length;
   const clockLabel =
     phase === "card" ? (yourCall ? "Locked · waiting" : "Your call") : phase === "heat_reveal" ? "Next heat" : phase === "intro" ? "Starts in" : "Dealing";
+  // ALWAYS a caption, so the clock keeps one footprint and the header never jumps.
+  const clockCaption =
+    phase === "card"
+      ? yourCall
+        ? "Next card when the table is in"
+        : mine.cuts_left > 0
+          ? "Runs out: cut"
+          : "Runs out: keep"
+      : phase === "heat_reveal"
+        ? "Scores for this heat"
+        : phase === "card_forced"
+          ? "Every call was forced"
+          : phase === "intro"
+            ? "Heat 1 deals first"
+            : "First card coming";
 
   return (
     <PeakV2Shell width="live-wide">
@@ -296,7 +311,7 @@ function PrimeCutRoom({ matchId }: { matchId: string }) {
               Prime Cut · {view.rated ? "Rated" : view.entry_path === "private_room" ? "Private room" : "Practice"}
             </p>
             <h1 className="pcut-heading">
-              {phase === "intro" ? "Keep four. Cut four." : `Heat ${state.heat_index + 1} of 3 · ${duration}-year peaks`}
+              {`Heat ${state.heat_index + 1} of 3 · ${duration}-year peaks`}
             </h1>
           </div>
           <dl className="pcut-quota" aria-label="Your calls left this heat" data-testid="pcut-quota">
@@ -317,7 +332,7 @@ function PrimeCutRoom({ matchId }: { matchId: string }) {
               totalSeconds={view.turn_total_seconds ?? PRIME_CUT_CARD_SECONDS}
               label={clockLabel}
               yours={phase === "card" && !yourCall}
-              consequence={phase === "card" && !yourCall ? (mine.cuts_left > 0 ? "Runs out: cut" : "Runs out: keep") : null}
+              consequence={clockCaption}
               testId="pcut-clock"
             />
           </div>
@@ -370,6 +385,7 @@ function PrimeCutRoom({ matchId }: { matchId: string }) {
                 : `${state.heat_results.length} of 3 heats scored`
             }
             scoreLabel="Match score"
+            ranked={state.heat_results.length > 0}
             testId="pcut-strip"
           />
         </div>

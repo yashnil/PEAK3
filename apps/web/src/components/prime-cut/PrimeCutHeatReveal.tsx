@@ -13,7 +13,7 @@ import { Check, Scissors } from "lucide-react";
 
 import type { PrimeCutHeatResult, PrimeCutMatchView } from "@/types/prime-cut";
 import { ordinal } from "@/components/prime-arena/ArenaMatchStrip";
-import { teamShort } from "./PrimeCutCard";
+import { teamShort, windowRange } from "./PrimeCutCard";
 
 export function CutLineList({
   result,
@@ -45,7 +45,8 @@ export function CutLineList({
             <span className="pcut-cutline-who">
               <span className="pcut-cutline-name">{card.player_name}</span>
               <span className="pcut-cutline-window pk-numeral">
-                {card.start_season}–{card.end_season} · {card.seasons.map((s) => teamShort(s.team)).filter((t, i, a) => a.indexOf(t) === i).join(", ")}
+                {windowRange(card.start_season, card.end_season)} ·{" "}
+                {card.seasons.map((s) => teamShort(s.team)).filter((t, i, a) => a.indexOf(t) === i).join(", ")}
               </span>
             </span>
             <span className="pcut-cutline-score pk-numeral">{card.prime_score.toFixed(2)}</span>
