@@ -1,3 +1,46 @@
+# PRIME CUT + FIND THE PRIME — progress (2026-09-13)
+
+Branch `feature/prime-modes` from `main` @ `0f41077`. Plan:
+`.claude-private/PRIME_MODES_IMPLEMENTATION_PLAN.md`. ADR-006. Rules:
+`docs/game-design/PRIME_CUT.md`, `docs/game-design/FIND_THE_PRIME.md`.
+
+## Commits
+- `9ed0411` career-window artifact (`data/game/prime_modes/career_windows.v1.json`,
+  `scripts/build_prime_windows.py --check` in build-web-data.sh; CSV parity 0
+  mismatches) + additive Arena hooks (`simultaneous_action_grace`,
+  `simultaneous_bot_think_seconds` w/ fresh match + version-scoped bot key,
+  `bot_seat_rating`) + per-mode flags `ARENA_PRIME_CUT_ENABLED` /
+  `ARENA_FIND_THE_PRIME_ENABLED` (readiness + entry paths; live matches keep working).
+- `cbbb894` both server-authoritative modes (`nba_peak/prime_cut`,
+  `nba_peak/find_the_prime`, `app/services/{prime_cut,find_the_prime}/mode.py`).
+- `5b2de38` rooms (`components/prime-cut`, `components/find-the-prime`,
+  `components/prime-arena`, `lib/prime-arena/useArenaRoom.ts`), personal records
+  (`GET /arena/modes/{mode}/me`, `list_results_for_sub` memory+postgres), telemetry
+  (9 `arena_*` events), unit + e2e specs, CI wiring.
+
+## Calibration facts (do not re-derive)
+- Prime Cut boards: 1000 seeds 0 failures; cut gap >= 1.0 (> p90 adjacent board gap);
+  bots capture 70.1/75.4/78.9/82.6 (coin 49.6); ratings 1059/1200/1303/1388.
+- Find the Prime: scale clamp P10/P75 of eligible spreads (2Y 20.47-38.56, 3Y
+  13.42-31.67, 5Y 9.59-26.41), equivalence 0.65; first bot noise draft (1.5-9) was far
+  too strong (MVP 99.3/round) -> 30/18/12/8 gives 69.8/77.3/83.4/89.2; ratings
+  1030/1200/1356/1570.
+
+## Gates so far
+- Model: `tests/prime_modes` 9, `tests/prime_cut` 43, `tests/find_the_prime` 36 pass.
+- API memory: all arena/TMW/Showdown/telemetry/conformance suites 450+ pass.
+- Postgres (local Supabase, 127.0.0.1:54422): arena conformance 9 passed (0 skipped);
+  `api-integration-tests.sh` 285 passed, 1 skipped. Supabase CLI is NOT installed in
+  node_modules any more: use `npx --yes supabase@2.117.0 status -o json` for keys.
+- Web: typecheck clean, lint 0 warnings, vitest 2503/2503.
+- migration-validate: chain valid, inventory in sync (no migration in this pass).
+
+## In flight / next
+- Playwright: prime-cut + find-the-prime specs on chromium-multiplayer + mobile-chrome.
+- Then: full model suite, full API unit, frontend-verify (build), existing-mode e2e
+  smoke, visual QA screenshots (1440 + 390x844), FTP result "Largest miss" copy when
+  every answer was best/tied, CURRENT_PROJECT_STATE + memory notes, final report.
+
 # Final pre-deploy polish pass — progress (2026-09-07)
 
 Branch `feature/game-feel-reconstruction` (pass 3 checkpoint `1cd0bbd`).
