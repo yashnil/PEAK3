@@ -119,7 +119,7 @@ BROAD_MARKER_PATTERN='^(requirements(-build)?\.txt|Makefile|apps/api/requirement
 #     `arena/daily` (all chromium-core surfaces) into the 9.5-minute multiplayer
 #     shard for nothing.
 COURTBUILDER_PATTERN='(courtbuilder|perfect[-_]season|^apps/web/src/app/\(main\)/arena/court/|^apps/web/src/components/(v2/)?court/|^apps/web/src/styles/v2/court\.css|^nba_peak/perfect_season/|^apps/api/app/(services|models)/perfect_season)'
-MULTIPLAYER_PATTERN='(showdown|multiplayer|matchmaking|three[-_ ]?man[-_ ]?weave|twenty[-_]dollar|tmw|weave|^apps/web/src/app/\(main\)/arena/(lobby|three-man-weave|twenty-dollar)/|^apps/web/src/app/\(main\)/arena/page\.|^apps/web/src/components/(arena|three-man-weave|twenty-dollar)/|^apps/web/src/components/v2/(tmw|showdown)/|^apps/web/src/styles/v2/arena-lobby\.css|^nba_peak/(three_man_weave|twenty_dollar)/|^apps/api/app/services/arena/|^apps/api/app/api/v1/arena\.py)'
+MULTIPLAYER_PATTERN='(showdown|multiplayer|matchmaking|three[-_ ]?man[-_ ]?weave|twenty[-_]dollar|tmw|weave|prime[-_]cut|find[-_]the[-_]prime|prime[-_]arena|prime[-_]modes|^apps/web/src/app/\(main\)/arena/(lobby|three-man-weave|twenty-dollar)/|^apps/web/src/app/\(main\)/arena/page\.|^apps/web/src/components/(arena|three-man-weave|twenty-dollar)/|^apps/web/src/components/v2/(tmw|showdown)/|^apps/web/src/styles/v2/arena-lobby\.css|^nba_peak/(three_man_weave|twenty_dollar)/|^apps/api/app/services/arena/|^apps/api/app/api/v1/arena\.py)'
 
 # ── Frontend paths PROVEN not to reach either narrow shard ──────────────────
 #

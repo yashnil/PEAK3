@@ -59,7 +59,7 @@ fails: the server rejects the batch (dev) or the client drops the field (prod).
 
 ---
 
-## 2. The event allowlist (21 events, closed)
+## 2. The event allowlist (30 events, closed)
 
 Enforced server-side; an unknown name is a `422 unknown_event` and stores
 nothing. `apps/api/tests/test_telemetry.py` asserts the set literally, so
@@ -72,10 +72,23 @@ adding an event cannot happen without a human reading the diff.
 | RUN THE TABLE | `run_started`, `run_ended`, `second_run_started`, `run_replayed`, `perk_selected`, `node_selected`, `card_bought`, `trade_completed`, `boss_won`, `boss_lost`, `table_cleared` |
 | Social | `challenge_created`, `challenge_completed` |
 | Daily | `daily_opened`, `daily_completed` |
+| Arena: PRIME CUT, FIND THE PRIME | `arena_match_started`, `arena_round_started`, `arena_prompt_shown`, `arena_decision`, `arena_timeout`, `arena_round_completed`, `arena_match_completed`, `arena_rematch`, `arena_match_abandoned` |
 
-Property keys are a second closed allowlist (31 keys: `mode`, `outcome`,
-`perk`, `boss`, `act`, `duration_seconds`, `daily_key`, `run_ref`, …). Values
-must be a boolean, a finite number, `null`, or a ≤64-character slug.
+Property keys are a second closed allowlist (38 keys: `mode`, `outcome`,
+`perk`, `boss`, `act`, `duration_seconds`, `daily_key`, `run_ref`, `stage`,
+`card_index`, `duration_years`, `decision`, `forced`, `placement`, `score`,
+`bots`, …). Values must be a boolean, a finite number, `null`, or a
+≤64-character slug.
+
+**The Arena prime-mode events never carry hidden answer data.** Emitted from
+`apps/web/src/lib/prime-arena/telemetry.ts`: a KEEP/CUT or window
+stage/move/lock is sent after the decision is made, `score` only on
+`arena_round_completed` (after the heat or round is revealed) and
+`arena_match_completed`, and no player name, card, window or other seat's
+choice is ever a property. The "game opened" and "match started" moments reuse
+`game_opened` (`surface: arena_match`) and `arena_match_started`; entering the
+shared Arena lobby is not instrumented, so the lobby -- which every multiplayer
+mode shares -- behaves exactly as before.
 
 **Bounds.** 20 events per batch · 12 properties per event · 64 characters per
 string value · 1 KB serialised properties per event · 64 KB request body.

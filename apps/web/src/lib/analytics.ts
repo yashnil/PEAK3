@@ -98,7 +98,18 @@ export type AnalyticsEvent =
   | { type: "boss_lost"; boss: string | number; run_ref?: string; lanes_won?: number }
   | { type: "table_cleared"; run_ref?: string; duration_seconds?: number }
   | { type: "daily_opened"; mode?: string; daily_key?: string }
-  | { type: "daily_completed"; mode?: string; daily_key?: string; outcome?: string; streak?: number };
+  | { type: "daily_completed"; mode?: string; daily_key?: string; outcome?: string; streak?: number }
+  // Arena prime modes (PRIME CUT / FIND THE PRIME). Never a hidden score:
+  // decisions are reported after they are made, round scores after the reveal.
+  | { type: "arena_match_started"; mode: string; source?: string; ruleset?: string }
+  | { type: "arena_round_started"; mode: string; stage: number; duration_years?: number }
+  | { type: "arena_prompt_shown"; mode: string; stage: number; card_index?: number }
+  | { type: "arena_decision"; mode: string; stage: number; card_index?: number; decision: string; forced?: boolean }
+  | { type: "arena_timeout"; mode: string; stage: number; card_index?: number; decision?: string }
+  | { type: "arena_round_completed"; mode: string; stage: number; duration_years?: number; score?: number }
+  | { type: "arena_match_completed"; mode: string; outcome?: string; placement?: number; score?: number; duration_seconds?: number; bots?: number }
+  | { type: "arena_rematch"; mode: string }
+  | { type: "arena_match_abandoned"; mode: string; stage?: number };
 
 // DO NOT include: raw tokens, email, IP, future offers, secrets, player selections,
 // opponent identity/picks, raw integrity signals, service-role details, exact
@@ -174,6 +185,15 @@ const COLLECTED_EVENTS: ReadonlySet<string> = new Set([
   "daily_opened",
   "daily_completed",
   "second_run_started",
+  "arena_match_started",
+  "arena_round_started",
+  "arena_prompt_shown",
+  "arena_decision",
+  "arena_timeout",
+  "arena_round_completed",
+  "arena_match_completed",
+  "arena_rematch",
+  "arena_match_abandoned",
 ]);
 
 /**
@@ -215,6 +235,13 @@ const ALLOWED_PROPERTIES: ReadonlySet<string> = new Set([
   "streak",
   "is_first_run",
   "is_second_run",
+  "card_index",
+  "duration_years",
+  "decision",
+  "forced",
+  "placement",
+  "score",
+  "bots",
 ]);
 
 const MAX_STRING_VALUE_LENGTH = 64;

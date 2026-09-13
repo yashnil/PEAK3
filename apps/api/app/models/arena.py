@@ -305,3 +305,30 @@ class MatchSummary(BaseModel):
 
 class MatchHistoryResponse(BaseModel):
     matches: list[MatchSummary] = Field(default_factory=list)
+
+
+class PersonalRecordResponse(BaseModel):
+    """The caller's OWN record in one mode. Derived from persisted results on
+    every read (`services/arena/personal.py`); never another player's."""
+
+    mode: str
+    matches_played: int = 0
+    rated_matches: int = 0
+    wins: int = 0
+    podiums: int = 0
+    current_win_streak: int = 0
+    longest_win_streak: int = 0
+    best_score: Optional[float] = None
+    bests: dict[str, float] = Field(default_factory=dict)
+    #: About the match named by `?match_id=`, when it is one of the caller's.
+    match_found: bool = False
+    match_score: Optional[float] = None
+    match_placement: Optional[int] = None
+    previous_best_score: Optional[float] = None
+    is_personal_best: bool = False
+    streak_after_match: Optional[int] = None
+    #: Rating facts are present only while ratings are being written.
+    ratings_enabled: bool = False
+    rating: Optional[float] = None
+    rating_provisional: Optional[bool] = None
+    match_rating_change: Optional[float] = None

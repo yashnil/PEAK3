@@ -1,0 +1,719 @@
+/* ================================================================
+   PEAK3 — PRIME CUT
+   ================================================================
+   Scouting board x cut day x broadcast decision room.
+
+   THE COMPOSITION, PHONE FIRST (390 px):
+     head      heat, KEEP/CUT left, the card clock
+     slots     four KEEP slots, one compact row
+     stage     the incoming peak (dominant)
+     controls  CUT | KEEP, sticky to the bottom of the viewport
+     strip     standings
+     ledger    cuts
+   From 1024 px the support column moves beside the stage.
+
+   KEEP and CUT are never colour alone: KEEP is a solid border + check,
+   CUT a dashed border + scissors, and both print their word and count.
+
+   Mode accent: the existing `--prime-gold` (warm Prime Gold); archival
+   cream is a low-alpha gold wash on the card face. No new global token.
+   ================================================================ */
+
+.pcut-room {
+  --pcut-accent: var(--prime-gold);
+  --pcut-accent-text: var(--v2-color-accent-text);
+  --pcut-keep: var(--v2-color-positive);
+  --pcut-cut: var(--v2-color-negative);
+
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "head"
+    "slots"
+    "stage"
+    "controls"
+    "strip"
+    "ledger"
+    "foot";
+  gap: var(--v2-space-4);
+  padding-block: var(--v2-space-6) var(--v2-space-10);
+}
+
+.pcut-head {
+  grid-area: head;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "title clock"
+    "quota quota";
+  align-items: end;
+  gap: var(--v2-space-3);
+  padding-bottom: var(--v2-space-3);
+  border-bottom: 1px solid var(--v2-border-subtle);
+}
+
+.pcut-head-title {
+  grid-area: title;
+  min-width: 0;
+}
+
+.pcut-heading {
+  margin: 4px 0 0;
+  font-family: var(--v2-font-display);
+  font-size: var(--v2-display-size-line);
+  font-weight: 400;
+  line-height: var(--v2-display-leading);
+  letter-spacing: var(--v2-display-track);
+  color: var(--v2-text-primary);
+}
+
+.pcut-clock {
+  grid-area: clock;
+}
+
+.pcut-quota {
+  grid-area: quota;
+  display: flex;
+  gap: var(--v2-space-2);
+  margin: 0;
+}
+
+.pcut-quota-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 1px solid var(--v2-border);
+  border-radius: var(--v2-radius-instrument);
+}
+
+.pcut-quota-item[data-kind="keep"] {
+  border-color: color-mix(in srgb, var(--pcut-keep) 55%, var(--v2-border));
+}
+
+.pcut-quota-item[data-kind="cut"] {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--pcut-cut) 55%, var(--v2-border));
+}
+
+.pcut-quota-item dt {
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-secondary);
+}
+
+.pcut-quota-item dd {
+  margin: 0;
+}
+
+.pcut-quota-item dd.pk-numeral {
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--v2-text-primary);
+}
+
+.pcut-quota-unit {
+  font-size: 0.75rem;
+  color: var(--v2-text-muted);
+}
+
+/* -- stage and card ------------------------------------------------------ */
+
+.pcut-stage {
+  grid-area: stage;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 300px;
+  min-width: 0;
+}
+
+.pcut-card {
+  position: relative;
+  padding: var(--v2-space-5);
+  border: 1px solid color-mix(in srgb, var(--pcut-accent) 35%, var(--v2-border));
+  border-radius: var(--v2-radius-control);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--pcut-accent) 7%, var(--v2-bg-plane)), var(--v2-bg-plane) 70%);
+  box-shadow: var(--v2-elev-plane);
+}
+
+.pcut-card[data-decision="keep"] {
+  border-color: var(--pcut-keep);
+}
+
+.pcut-card[data-decision="cut"] {
+  border-style: dashed;
+  border-color: var(--pcut-cut);
+}
+
+.pcut-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v2-space-2);
+}
+
+.pcut-duration {
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--pcut-accent) 45%, var(--v2-border));
+  border-radius: var(--v2-radius-instrument);
+  font-family: var(--v2-font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--pcut-accent-text);
+}
+
+.pcut-card-count {
+  font-size: 0.75rem;
+  color: var(--v2-text-muted);
+}
+
+.pcut-card-name {
+  margin: var(--v2-space-4) 0 var(--v2-space-2);
+  font-family: var(--v2-font-display);
+  font-size: var(--v2-display-size-moment);
+  font-weight: 400;
+  line-height: var(--v2-display-leading);
+  letter-spacing: var(--v2-display-track);
+  color: var(--v2-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.pcut-card-window {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--v2-text-primary);
+}
+
+.pcut-card-arrow {
+  color: var(--v2-text-muted);
+}
+
+.pcut-card-seasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: var(--v2-space-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pcut-card-season {
+  display: flex;
+  flex-direction: column;
+  min-width: 68px;
+  padding: 4px 8px;
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-instrument);
+  font-size: 0.75rem;
+  color: var(--v2-text-primary);
+}
+
+.pcut-card-team {
+  color: var(--v2-text-secondary);
+}
+
+.pcut-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: var(--v2-space-4) 0 0;
+  padding: 6px 12px;
+  border: 2px solid;
+  border-radius: var(--v2-radius-instrument);
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.pcut-stamp[data-decision="keep"] {
+  color: var(--pcut-keep);
+}
+
+.pcut-stamp[data-decision="cut"] {
+  border-style: dashed;
+  color: var(--pcut-cut);
+}
+
+.pcut-forced {
+  margin: var(--v2-space-3) 0 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--pcut-accent);
+  font-size: 0.875rem;
+  color: var(--v2-text-secondary);
+}
+
+/* -- controls ------------------------------------------------------------ */
+
+.pcut-controls {
+  grid-area: controls;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding-block: var(--v2-space-2) var(--v2-space-3);
+  background: linear-gradient(to top, var(--v2-bg-page) 72%, transparent);
+}
+
+.pcut-controls-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--v2-space-3);
+}
+
+.pcut-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-height: 64px;
+  padding: 8px 12px;
+  border: 2px solid;
+  border-radius: var(--v2-radius-control);
+  background: var(--v2-bg-plane);
+  color: var(--v2-text-primary);
+  font-family: var(--v2-font-ui);
+  font-size: 1.0625rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    transform var(--v2-dur-ack) var(--v2-ease-out),
+    background-color var(--v2-dur-control) var(--v2-ease-standard);
+}
+
+.pcut-action[data-action="keep"] {
+  border-color: var(--pcut-keep);
+}
+
+.pcut-action[data-action="cut"] {
+  border-style: dashed;
+  border-color: var(--pcut-cut);
+}
+
+.pcut-action[data-action="keep"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pcut-keep) 14%, var(--v2-bg-plane));
+}
+
+.pcut-action[data-action="cut"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pcut-cut) 14%, var(--v2-bg-plane));
+}
+
+.pcut-action:active:not(:disabled) {
+  transform: translateY(1px) scale(0.99);
+}
+
+.pcut-action:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.pcut-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.pcut-action-count {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--v2-text-secondary);
+}
+
+.pcut-controls-status {
+  margin: 6px 0 0;
+  font-size: 0.8125rem;
+  text-align: center;
+  color: var(--v2-text-secondary);
+}
+
+/* -- support: slots, ledger, strip -------------------------------------- */
+
+.pcut-side-title {
+  margin: 0 0 6px;
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-secondary);
+}
+
+.pcut-slots {
+  grid-area: slots;
+  min-width: 0;
+}
+
+.pcut-slots-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pcut-slot {
+  min-height: 56px;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-instrument);
+  font-size: 0.75rem;
+}
+
+.pcut-slot[data-filled="true"] {
+  border-color: color-mix(in srgb, var(--pcut-keep) 60%, var(--v2-border));
+  background: color-mix(in srgb, var(--pcut-keep) 6%, transparent);
+}
+
+.pcut-slot-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pcut-slot-name {
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--v2-text-primary);
+}
+
+.pcut-slot-window {
+  color: var(--v2-text-secondary);
+}
+
+.pcut-slot-empty {
+  color: var(--v2-text-muted);
+}
+
+.pcut-slot-auto {
+  font-family: var(--v2-font-mono);
+  font-size: 0.5625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+
+.pcut-ledger {
+  grid-area: ledger;
+  min-width: 0;
+}
+
+.pcut-ledger-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+  color: var(--v2-text-secondary);
+}
+
+.pcut-ledger-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pcut-ledger-empty {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--v2-text-muted);
+}
+
+.pcut-strip {
+  grid-area: strip;
+  min-width: 0;
+}
+
+.pcut-foot {
+  grid-area: foot;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v2-space-3);
+}
+
+/* -- slates and the heat reveal ----------------------------------------- */
+
+.pcut-slate {
+  padding: var(--v2-space-6) 0;
+}
+
+.pcut-slate-title {
+  margin: var(--v2-space-2) 0;
+  font-family: var(--v2-font-display);
+  font-size: var(--v2-display-size-moment);
+  font-weight: 400;
+  line-height: var(--v2-display-leading);
+  color: var(--v2-text-primary);
+}
+
+.pcut-slate-body,
+.pcut-slate-table {
+  max-width: 40rem;
+  margin: 0 0 var(--v2-space-3);
+  color: var(--v2-text-secondary);
+}
+
+.pcut-slate-rules {
+  margin: 0 0 var(--v2-space-4);
+  padding-left: 1.1rem;
+  color: var(--v2-text-primary);
+}
+
+.pcut-slate-rules li + li {
+  margin-top: 4px;
+}
+
+.pcut-reveal-score {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--v2-space-3);
+  margin-top: var(--v2-space-3);
+}
+
+.pcut-reveal-numeral {
+  font-size: var(--v2-display-size-moment);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--pcut-accent-text);
+}
+
+.pcut-reveal-caption {
+  max-width: 28rem;
+  font-size: 0.875rem;
+  color: var(--v2-text-secondary);
+}
+
+.pcut-cutline {
+  display: grid;
+  gap: 2px;
+  margin: var(--v2-space-4) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pcut-cutline-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr) auto;
+  grid-template-areas:
+    "rank who score"
+    "rank call call";
+  align-items: center;
+  gap: 2px 8px;
+  padding: 8px;
+  border-radius: var(--v2-radius-instrument);
+  background: color-mix(in srgb, var(--v2-bg-plane) 72%, transparent);
+}
+
+.pcut-cutline-row[data-side="above"] {
+  box-shadow: inset 2px 0 0 var(--pcut-accent);
+}
+
+.pcut-cutline-row:nth-child(4) {
+  margin-bottom: 22px;
+}
+
+.pcut-cutline-rank {
+  grid-area: rank;
+  font-size: 0.8125rem;
+  color: var(--v2-text-muted);
+}
+
+.pcut-cutline-who {
+  grid-area: who;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pcut-cutline-name {
+  font-weight: 600;
+  color: var(--v2-text-primary);
+}
+
+.pcut-cutline-window {
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary);
+}
+
+.pcut-cutline-score {
+  grid-area: score;
+  font-weight: 700;
+}
+
+.pcut-cutline-call {
+  grid-area: call;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary);
+}
+
+.pcut-cutline-verdict {
+  margin-left: 6px;
+  font-weight: 700;
+}
+
+.pcut-cutline-row[data-right="true"] .pcut-cutline-verdict {
+  color: var(--v2-color-positive);
+}
+
+.pcut-cutline-row[data-right="false"] .pcut-cutline-verdict {
+  color: var(--v2-color-negative);
+}
+
+.pcut-cutline-divider {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--v2-font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--pcut-accent-text);
+}
+
+.pcut-cutline-divider::before,
+.pcut-cutline-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 2px dashed var(--pcut-accent);
+}
+
+/* -- result ------------------------------------------------------------- */
+
+.pcut-result {
+  padding-block: var(--v2-space-8) var(--v2-space-12);
+}
+
+.pcut-result-title {
+  margin: var(--v2-space-2) 0;
+  font-family: var(--v2-font-display);
+  font-size: var(--v2-display-size-hero);
+  font-weight: 400;
+  line-height: var(--v2-display-leading);
+  color: var(--v2-text-primary);
+}
+
+.pcut-result-score {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--v2-space-3);
+  margin: 0;
+}
+
+.pcut-result-numeral {
+  font-size: var(--v2-display-size-moment);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--v2-color-accent-text);
+}
+
+.pcut-result-caption {
+  font-size: 0.875rem;
+  color: var(--v2-text-secondary);
+}
+
+.pcut-bands {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--v2-space-2);
+  margin: var(--v2-space-6) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pcut-band {
+  padding: var(--v2-space-3);
+  border: 1px solid var(--v2-border-subtle);
+  border-top: 3px solid var(--pcut-accent);
+  border-radius: var(--v2-radius-instrument);
+}
+
+.pcut-band-label {
+  margin: 0;
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-secondary);
+}
+
+.pcut-band-score {
+  margin: 6px 0 2px;
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.pcut-band-detail {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary);
+}
+
+/* -- wide screens ------------------------------------------------------- */
+
+@media (min-width: 1024px) {
+  .pcut-room {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+    grid-template-areas:
+      "head head"
+      "stage slots"
+      "stage strip"
+      "controls ledger"
+      "foot foot";
+    column-gap: var(--v2-space-8);
+  }
+
+  .pcut-head {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas: "title quota clock";
+  }
+
+  .pcut-slots-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pcut-controls {
+    position: static;
+    background: none;
+  }
+
+  .pcut-card {
+    padding: var(--v2-space-8);
+  }
+
+  .pcut-cutline-row {
+    grid-template-columns: 1.75rem minmax(0, 1fr) auto 12rem;
+    grid-template-areas: "rank who score call";
+  }
+}

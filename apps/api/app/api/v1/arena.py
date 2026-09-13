@@ -80,6 +80,7 @@ from app.models.arena import (
     JoinRoomRequest,
     MatchHistoryResponse,
     MatchSummary,
+    PersonalRecordResponse,
     QueueStatusResponse,
     SeatPublic,
     SubmitCommandRequest,
@@ -98,6 +99,7 @@ from app.repositories.arena_protocols import (
 from app.services.arena import bots as bot_service
 from app.services.arena import rating as arena_rating
 from app.services.arena import clock
+from app.services.arena import personal as arena_personal
 from app.services.arena import matchmaking as mm
 from app.services.arena.modes import ModeNotRegistered, registry as mode_registry
 
@@ -779,6 +781,72 @@ async def leaderboard(
         )
     return ArenaLeaderboardResponse(
         leaderboard_enabled=True, mode=mode, entries=entries
+    )
+
+
+@router.get(f"{BASE}/modes/{{mode}}/me", response_model=PersonalRecordResponse)
+async def personal_record(
+    mode: str,
+    identity: ArenaAuth,
+    repo: ArenaRepoDep,
+    rating_repo: ArenaRatingRepoDep,
+    match_id: Optional[str] = Query(None, max_length=64),
+) -> PersonalRecordResponse:
+    """The caller's own record in one mode: played, wins, streaks, bests, and
+    whether `match_id` was a personal best.
+
+    THE SUBJECT IS THE TOKEN'S, never a parameter, so this can only ever read
+    the caller's own results. Practice access suffices for the same reason the
+    poll's does: nothing here reaches another person's data.
+
+    A RATING IS REPORTED ONLY WHILE RATINGS ARE WRITTEN. With the flag off there
+    is no number to show, and the response says so rather than inventing one.
+    """
+    _require_practice_access(identity)
+    mode_impl = _mode_or_404(mode)
+    rows = await repo.list_results_for_sub(mode_impl.mode, identity.sub)
+    record = arena_personal.compute_record(
+        [
+            arena_personal.PersonalResultRow(
+                match_id=r.match_id, placement=r.placement, outcome=r.outcome, score=r.score,
+                rated=r.rated, seat_count=r.seat_count, detail=r.detail,
+            )
+            for r in rows
+        ],
+        detail_keys=_MODE_DETAIL_KEYS.get(mode_impl.mode, ()),
+        match_id=match_id,
+    )
+    rating = provisional = change = None
+    if settings.ARENA_RATINGS_ENABLED:
+        current = (await rating_repo.get_ratings_for_subs([identity.sub], mode_impl.mode)).get(identity.sub)
+        if current is not None:
+            rating = round(current.rating, 2)
+            provisional = current.rated_matches < _PROVISIONAL_UNTIL
+        if match_id and record.match_found:
+            for entry in await rating_repo.list_history(identity.sub, mode_impl.mode, limit=200):
+                if entry.match_id == match_id:
+                    change = round(entry.post_rating - entry.pre_rating, 2)
+                    break
+    return PersonalRecordResponse(
+        mode=mode_impl.mode,
+        matches_played=record.matches_played,
+        rated_matches=record.rated_matches,
+        wins=record.wins,
+        podiums=record.podiums,
+        current_win_streak=record.current_win_streak,
+        longest_win_streak=record.longest_win_streak,
+        best_score=record.best_score,
+        bests=record.bests,
+        match_found=record.match_found,
+        match_score=record.match_score,
+        match_placement=record.match_placement,
+        previous_best_score=record.previous_best_score,
+        is_personal_best=record.is_personal_best,
+        streak_after_match=record.streak_after_match,
+        ratings_enabled=settings.ARENA_RATINGS_ENABLED,
+        rating=rating,
+        rating_provisional=provisional,
+        match_rating_change=change,
     )
 
 

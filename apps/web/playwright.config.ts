@@ -51,7 +51,7 @@ export default defineConfig({
       name: "chromium-multiplayer",
       use: { ...devices["Desktop Chrome"] },
       grepInvert: /@mobile/,
-      testMatch: /(arena-multiplayer|showdown-two-tab)\.spec\.ts/,
+      testMatch: /(arena-multiplayer|showdown-two-tab|prime-cut|find-the-prime)\.spec\.ts/,
     },
     {
       // CourtBuilder is ~16 minutes on its own and is independent of the rest.
@@ -65,7 +65,7 @@ export default defineConfig({
       name: "chromium-core",
       use: { ...devices["Desktop Chrome"] },
       grepInvert: /@mobile/,
-      testIgnore: /(arena-multiplayer|showdown-two-tab|courtbuilder)\.spec\.ts/,
+      testIgnore: /(arena-multiplayer|showdown-two-tab|prime-cut|find-the-prime|courtbuilder)\.spec\.ts/,
     },
     {
       // Mobile Chrome: runs ONLY tests tagged @mobile

@@ -532,6 +532,84 @@ async def test_postgres_arena_repo_conforms(pg_pool):
     await _assert_arena_repo_conforms(PostgresArenaRepository(pg_pool))
 
 
+async def _assert_arena_subject_results_conform(repo) -> None:
+    """`list_results_for_sub`: a subject's own completed results in one mode,
+    oldest first, never a bot row, never another mode's or another subject's,
+    and `limit` keeps the MOST RECENT rows. Backs the personal-record route."""
+    from app.repositories.arena_protocols import (
+        MATCH_STATUS_COMPLETED,
+        ArenaSeat,
+        CommandRequest,
+        ReducerOutput,
+        ResultDraft,
+    )
+
+    base = datetime.now(timezone.utc)
+    player = f"user-{uuid.uuid4()}"
+    stranger = f"user-{uuid.uuid4()}"
+
+    async def completed(mode: str, sub: str, outcome: str, score: float, at: datetime) -> str:
+        match = _arena_match(seat_count=2, entry_path="practice")
+        match.mode = mode
+        seats = [
+            ArenaSeat(match_id=match.match_id, seat_index=0, occupant_kind="human",
+                      occupant_sub=sub, display_name="P0"),
+            ArenaSeat(match_id=match.match_id, seat_index=1, occupant_kind="bot",
+                      bot_id="conformance_bot", bot_rating=1200.0, display_name="B1"),
+        ]
+        await repo.create_match(match, seats)
+        won = outcome == "win"
+
+        def finish(data):
+            return ReducerOutput(
+                accepted=True,
+                snapshot={"n": 1},
+                status=MATCH_STATUS_COMPLETED,
+                results=(
+                    ResultDraft(seat_index=0, placement=1 if won else 2, score=score,
+                                outcome=outcome, detail={"heat_2y": score}),
+                    ResultDraft(seat_index=1, placement=2 if won else 1, score=1.0,
+                                outcome="loss" if won else "win"),
+                ),
+            )
+
+        out = await repo.apply_command(
+            CommandRequest(match_id=match.match_id, idempotency_key=f"finish-{match.match_id}",
+                           command_type="__finish__", actor_sub=None, issued_at=at),
+            finish, at,
+        )
+        assert out.accepted
+        return match.match_id
+
+    first = await completed("conformance_results", player, "win", 70.0, base - timedelta(minutes=2))
+    second = await completed("conformance_results", player, "loss", 80.0, base - timedelta(minutes=1))
+    await completed("conformance_other", player, "win", 99.0, base)
+    await completed("conformance_results", stranger, "win", 50.0, base)
+
+    rows = await repo.list_results_for_sub("conformance_results", player)
+    assert [r.match_id for r in rows] == [first, second]
+    assert [r.outcome for r in rows] == ["win", "loss"]
+    assert rows[0].score == 70.0 and rows[0].placement == 1 and rows[0].seat_index == 0
+    assert rows[0].seat_count == 2 and rows[0].entry_path == "practice" and rows[0].rated is False
+    assert rows[0].detail == {"heat_2y": 70.0}
+    latest = await repo.list_results_for_sub("conformance_results", player, limit=1)
+    assert [r.match_id for r in latest] == [second]
+    assert await repo.list_results_for_sub("conformance_results", f"user-{uuid.uuid4()}") == []
+
+
+@pytest.mark.asyncio
+async def test_memory_arena_subject_results_conform():
+    from app.repositories.arena_memory import MemoryArenaRepository
+    await _assert_arena_subject_results_conform(MemoryArenaRepository())
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_arena_subject_results_conform(pg_pool):
+    from app.repositories.arena_postgres import PostgresArenaRepository
+    await _assert_arena_subject_results_conform(PostgresArenaRepository(pg_pool))
+
+
 async def _assert_arena_queue_conforms(repo) -> None:
     from app.repositories.arena_protocols import (
         ActiveQueueEntryExists,

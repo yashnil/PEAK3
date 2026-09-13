@@ -305,6 +305,24 @@ class ArenaResult:
     created_at: datetime = field(default_factory=_now)
 
 
+@dataclass(frozen=True)
+class ArenaSubjectResult:
+    """One completed match's result for ONE human subject, as a personal record
+    needs it: the seat's own outcome plus the two match facts (arity, entry
+    path) and the completion instant that orders a streak."""
+
+    match_id: str
+    seat_index: int
+    placement: int
+    outcome: str
+    score: float
+    rated: bool
+    seat_count: int
+    entry_path: str
+    completed_at: datetime
+    detail: dict = field(default_factory=dict)
+
+
 @dataclass
 class ArenaQueueEntry:
     """One durable waiting-room entry."""
@@ -884,6 +902,19 @@ class ArenaRepository(Protocol):
     async def get_results(self, match_id: str) -> list[ArenaResult]:
         """Every seat's final result, ordered by placement then seat index.
         Empty until the match completes."""
+        ...
+
+    async def list_results_for_sub(
+        self, mode: str, owner_sub: str, limit: int = 1000
+    ) -> list["ArenaSubjectResult"]:
+        """This subject's own completed results in one mode, OLDEST FIRST.
+
+        EVERY ENTRY PATH, unlike `get_player_stats`: a personal best or a win
+        streak is the player's own history, and each row carries `rated` so a
+        caller can tell which ones could have moved a rating. Bot seats never
+        appear (a bot has no subject). Bounded to the most recent `limit`
+        results, returned in completion order so a streak reads naturally.
+        """
         ...
 
     async def get_player_stats(

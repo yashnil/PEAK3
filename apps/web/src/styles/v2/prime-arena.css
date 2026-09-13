@@ -1,0 +1,399 @@
+/* ================================================================
+   PEAK3 — PRIME MODES, SHARED
+   ================================================================
+   Styles shared by PRIME CUT and FIND THE PRIME only (ADR-006): the match
+   strip, the podium, receipts, tables, gates and banners. Every value is a
+   v2 token; nothing here restyles an existing mode.
+
+   Numerals use `pk-numeral` (tabular, mono). Meaning is never carried by
+   colour alone -- a lock state prints a word, an outcome prints a word.
+   ================================================================ */
+
+.parena-eyebrow {
+  margin: 0;
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+
+/* -- match strip --------------------------------------------------------- */
+
+.parena-strip {
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-instrument);
+  background: color-mix(in srgb, var(--v2-bg-plane) 86%, transparent);
+  padding: var(--v2-space-3);
+}
+
+.parena-strip-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--v2-space-2);
+  margin-bottom: var(--v2-space-2);
+}
+
+.parena-strip-title {
+  margin: 0;
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-secondary);
+}
+
+.parena-strip-progress {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--v2-text-muted);
+}
+
+.parena-strip-seats {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.parena-strip-seat {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--v2-space-2);
+  min-height: 44px;
+  padding: 4px 8px;
+  border-left: 2px solid transparent;
+  border-radius: 2px;
+}
+
+.parena-strip-seat[data-you="true"] {
+  border-left-color: var(--v2-color-accent);
+  background: color-mix(in srgb, var(--v2-color-accent) 7%, transparent);
+}
+
+.parena-strip-pos {
+  font-size: 0.8125rem;
+  color: var(--v2-text-secondary);
+}
+
+.parena-strip-who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.parena-strip-name {
+  overflow: hidden;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--v2-text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.parena-strip-you {
+  color: var(--v2-color-accent-text);
+  font-weight: 600;
+}
+
+.parena-strip-bot {
+  font-family: var(--v2-font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+
+.parena-strip-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.6875rem;
+  color: var(--v2-text-muted);
+}
+
+.parena-strip-seat[data-locked="true"] .parena-strip-lock {
+  color: var(--v2-text-primary);
+}
+
+.parena-strip-score {
+  min-width: 3.5ch;
+  font-size: 1rem;
+  font-weight: 700;
+  text-align: right;
+  color: var(--v2-text-primary);
+}
+
+/* -- podium -------------------------------------------------------------- */
+
+.parena-podium {
+  display: grid;
+  gap: 4px;
+  margin: var(--v2-space-6) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.parena-podium-row {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--v2-space-3);
+  min-height: 52px;
+  padding: 8px 12px;
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-instrument);
+  background: color-mix(in srgb, var(--v2-bg-plane) 80%, transparent);
+}
+
+.parena-podium-row[data-placement="1"] {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 55%, var(--v2-border));
+}
+
+.parena-podium-row[data-you="true"] {
+  box-shadow: inset 3px 0 0 var(--v2-color-accent);
+}
+
+.parena-podium-place {
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.parena-podium-row[data-placement="1"] .parena-podium-place {
+  color: var(--v2-color-accent-text);
+}
+
+.parena-podium-who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.parena-podium-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.parena-podium-meta {
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary);
+}
+
+.parena-podium-score {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+/* -- receipts, tables, details ------------------------------------------ */
+
+.parena-receipt {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  margin: var(--v2-space-6) 0 0;
+  border-top: 1px solid var(--v2-border-subtle);
+}
+
+.parena-receipt > div {
+  display: grid;
+  grid-template-columns: minmax(0, 11rem) minmax(0, 1fr);
+  gap: var(--v2-space-3);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--v2-border-subtle);
+}
+
+.parena-receipt dt {
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+
+.parena-receipt dd {
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--v2-text-primary);
+}
+
+@media (max-width: 639px) {
+  .parena-receipt > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}
+
+.parena-table {
+  width: 100%;
+  margin-top: var(--v2-space-4);
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.parena-table th,
+.parena-table td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--v2-border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+
+.parena-table thead th {
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+
+.parena-table tbody th {
+  font-weight: 600;
+}
+
+.parena-table td.pk-numeral {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.parena-table tr[data-you="true"] th {
+  color: var(--v2-color-accent-text);
+}
+
+.parena-details {
+  margin-top: var(--v2-space-6);
+  border-top: 1px solid var(--v2-border-subtle);
+  padding-top: var(--v2-space-3);
+}
+
+.parena-details > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--v2-text-primary);
+}
+
+.parena-details > summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.parena-footnote {
+  margin-top: var(--v2-space-4);
+  font-size: 0.75rem;
+  color: var(--v2-text-muted);
+}
+
+.parena-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--v2-space-3);
+  margin-top: var(--v2-space-8);
+}
+
+/* -- gates, banners, concede -------------------------------------------- */
+
+.parena-gate {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--v2-space-3);
+  max-width: 36rem;
+  margin: var(--v2-space-16) auto;
+  padding: var(--v2-space-8);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+}
+
+.parena-gate-title {
+  margin: 0;
+  font-family: var(--v2-font-display);
+  font-size: var(--v2-display-size-line);
+  font-weight: 400;
+  color: var(--v2-text-primary);
+}
+
+.parena-gate-body {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--v2-text-secondary);
+}
+
+.parena-gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--v2-space-2);
+}
+
+.parena-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v2-space-2);
+  margin-bottom: var(--v2-space-3);
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--v2-color-negative) 50%, var(--v2-border));
+  border-left-width: 3px;
+  border-radius: var(--v2-radius-instrument);
+  font-size: 0.875rem;
+  color: var(--v2-text-primary);
+}
+
+.parena-error p {
+  margin: 0;
+}
+
+.parena-link-button {
+  min-height: 44px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--v2-text-secondary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.parena-link-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.parena-concede {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--v2-space-2);
+}
+
+.parena-concede p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--v2-text-secondary);
+}
+
+.parena-personal {
+  display: grid;
+  grid-template-columns: minmax(0, 11rem) minmax(0, 1fr);
+  gap: var(--v2-space-3);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--v2-border-subtle);
+}
+
+@media (max-width: 639px) {
+  .parena-personal {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}
