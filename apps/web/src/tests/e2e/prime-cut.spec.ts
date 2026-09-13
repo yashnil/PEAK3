@@ -71,6 +71,39 @@ async function expectNoHorizontalOverflow(page: Page): Promise<void> {
 test.describe("PRIME CUT", () => {
   test("a full match: intro, three heats, forced calls, reveals, podium and rematch", async ({ page }) => {
     test.setTimeout(480_000);
+    // A heat's opening slate is a 3.5 s server beat, shorter than one pass of
+    // the loop below (an axe check alone can settle for 5 s), so the loop cannot
+    // be the thing that sees it -- nor a reveal, when a read in the loop waits on
+    // a control the phase change just removed. The page records every slate and
+    // every cut-line reveal it renders, and the room's own reads record every
+    // heat the server completed.
+    await page.addInitScript(() => {
+      const seen = { slates: [] as string[], reveals: [] as string[] };
+      (window as unknown as { __pcutSeen: typeof seen }).__pcutSeen = seen;
+      const note = (list: string[], text: string) => {
+        if (text && !list.includes(text)) list.push(text);
+      };
+      new MutationObserver(() => {
+        document.querySelectorAll('[data-testid="pcut-heat-open"]').forEach((slate) => {
+          note(seen.slates, (slate.textContent ?? "").toLowerCase());
+        });
+        document.querySelectorAll('[data-testid="pcut-heat-reveal"]').forEach((reveal) => {
+          if (!reveal.querySelector('[data-testid="pcut-reveal-cutline-line"]')) return;
+          note(seen.reveals, (reveal.querySelector(".parena-eyebrow")?.textContent ?? "").replace(/\s+/g, " ").trim());
+        });
+      }).observe(document, { childList: true, subtree: true, characterData: true });
+    });
+    let heatsCompleted: Array<[number, number]> = [];
+    page.on("response", (response) => {
+      if (response.request().method() !== "GET" || !MATCH_READ.test(response.url())) return;
+      response
+        .json()
+        .then((view: { public_state?: { heat_results?: Array<{ heat_index: number; duration: number }> } }) => {
+          const results = view.public_state?.heat_results ?? [];
+          if (results.length > heatsCompleted.length) heatsCompleted = results.map((h) => [h.heat_index, h.duration]);
+        })
+        .catch(() => undefined);
+    });
     await signInAs(page, uniqueSub("pc-full"));
     const firstMatch = await startPractice(page);
 
@@ -78,8 +111,6 @@ test.describe("PRIME CUT", () => {
     await expect(page.getByRole("button", { name: /skip/i })).toHaveCount(0);
     await expect(page.getByTestId("pcut-strip").getByText(/^Bot/)).toHaveCount(3);
 
-    const slates = new Set<string>();
-    const reveals = new Set<string>();
     let sawForced = false;
     let sawCardAxe = false;
     let sawRevealAxe = false;
@@ -88,12 +119,8 @@ test.describe("PRIME CUT", () => {
       if ((await page.getByTestId("pcut-result").count()) > 0) break;
       const phase = await phaseOf(page);
       try {
-        if (phase === "heat_open") {
-          slates.add((await page.getByTestId("pcut-heat-open").innerText()).toLowerCase());
-        } else if (phase === "heat_reveal") {
-          const reveal = page.getByTestId("pcut-heat-reveal");
-          await expect(reveal.getByTestId("pcut-reveal-cutline-line")).toBeVisible();
-          reveals.add(await reveal.locator(".parena-eyebrow").innerText());
+        if (phase === "heat_reveal") {
+          await expect(page.getByTestId("pcut-heat-reveal").getByTestId("pcut-reveal-cutline-line")).toBeVisible();
           if (!sawRevealAxe) {
             await expectNoSeriousAxe(page, "heat reveal");
             sawRevealAxe = true;
@@ -104,12 +131,14 @@ test.describe("PRIME CUT", () => {
             sawCardAxe = true;
           }
           const stamp = page.getByTestId("pcut-stamp");
-          if ((await stamp.count()) > 0 && /forced/i.test(await stamp.innerText())) sawForced = true;
+          // Every read is bounded like `phaseOf`: with no action timeout, a read
+          // of a control the next phase removed would wait for the next heat.
+          if ((await stamp.count()) > 0 && /forced/i.test(await stamp.innerText({ timeout: 1_000 }))) sawForced = true;
           const keep = page.getByTestId("pcut-keep");
           const cut = page.getByTestId("pcut-cut");
           // Always KEEP while a keep is left: the rest of the heat is forced.
-          if ((await keep.count()) > 0 && (await keep.isEnabled())) await keep.click({ timeout: 2_000 });
-          else if ((await cut.count()) > 0 && (await cut.isEnabled())) await cut.click({ timeout: 2_000 });
+          if ((await keep.count()) > 0 && (await keep.isEnabled({ timeout: 1_000 }))) await keep.click({ timeout: 2_000 });
+          else if ((await cut.count()) > 0 && (await cut.isEnabled({ timeout: 1_000 }))) await cut.click({ timeout: 2_000 });
         }
       } catch {
         // The board moved between reading the phase and acting on it; the next
@@ -120,10 +149,17 @@ test.describe("PRIME CUT", () => {
 
     const result = page.getByTestId("pcut-result");
     await expect(result).toBeVisible();
-    expect([...slates].some((s) => s.includes("2-year"))).toBe(true);
-    expect([...slates].some((s) => s.includes("3-year"))).toBe(true);
-    expect([...slates].some((s) => s.includes("5-year"))).toBe(true);
-    expect(reveals.size).toBe(2);
+    // The server completed three heats, in order, at 2, 3 and 5 years...
+    await expect.poll(() => heatsCompleted).toEqual([[0, 2], [1, 3], [2, 5]]);
+    // ...and this player was shown each one's opening slate, and a cut-line
+    // reveal after heats one and two.
+    const { slates, reveals } = await page.evaluate(
+      () => (window as unknown as { __pcutSeen: { slates: string[]; reveals: string[] } }).__pcutSeen,
+    );
+    expect(slates.some((s) => s.includes("2-year"))).toBe(true);
+    expect(slates.some((s) => s.includes("3-year"))).toBe(true);
+    expect(slates.some((s) => s.includes("5-year"))).toBe(true);
+    expect(reveals).toEqual(["Heat 1 results · 2-year peaks", "Heat 2 results · 3-year peaks"]);
     expect(sawForced).toBe(true);
     // The axe checks run inside the retrying loop, so a check that never
     // passed must fail here rather than vanish into the catch.
