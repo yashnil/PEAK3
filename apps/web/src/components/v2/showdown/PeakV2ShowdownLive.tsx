@@ -81,7 +81,7 @@ type LotStatusKind = "leading" | "bid" | "out" | "waiting" | "idle";
 export function lotStatusOf(
   seat: SeatPublic,
   publicState: TwentyDollarPublicState,
-  { idle, isActive, idleLabel }: { idle: boolean; isActive: boolean; idleLabel: string },
+  { idle, idleLabel }: { idle: boolean; isActive: boolean; idleLabel: string },
 ): { kind: LotStatusKind; label: string } {
   if (idle || !publicState.candidate) return { kind: "idle", label: idleLabel };
   if (publicState.current_bid > 0 && publicState.high_bidder === seat.seat_index) {
@@ -98,7 +98,9 @@ export function lotStatusOf(
   if (seat.roster_full) return { kind: "out", label: "Roster complete" };
   if (!seat.in_lot) return { kind: "out", label: "Out of this lot" };
   if (seat.lot_bid > 0) return { kind: "bid", label: `Outbid at ${formatDollars(seat.lot_bid)}` };
-  return { kind: "waiting", label: isActive ? "Deciding" : "Yet to act" };
+  // Not "Deciding" for the seat on the clock: its rail and the stage clock
+  // already say whose move it is.
+  return { kind: "waiting", label: "No action yet" };
 }
 
 /**
@@ -126,6 +128,15 @@ export function benchFlagsOf(
   }
   if (seat.market_skips === 0) flags.push("No skips left");
   return flags;
+}
+
+const NAME_SUFFIXES = new Set(["jr", "jr.", "sr", "sr.", "ii", "iii", "iv", "v"]);
+
+/** The surname, for the five-across slot strip on a phone, where a full name
+ *  cannot fit a fifth of 358px. The full name stays in the DOM beside it. */
+export function slotShortName(name: string): string {
+  const parts = name.trim().split(/\s+/).filter((part) => !NAME_SUFFIXES.has(part.toLowerCase()));
+  return parts.length > 1 ? parts[parts.length - 1] : name;
 }
 
 function Pips({ total, on }: { total: number; on: number }) {
@@ -228,15 +239,18 @@ function Lineup({
           <span className="sd-bench-role">{isYou ? "Your bench" : owner === "bot" ? "Bot opponent" : "Opponent"}</span>
           <span className="sd-bench-name">{label}</span>
         </div>
-        <span className="sd-bench-status">
-          {isActive ? (
-            <span data-testid={`td-seat-live-${seat.seat_index}`}>
-              <PeakV2GameStatus label="On the clock" state="active" />
-            </span>
-          ) : (
-            <span className="sd-bench-waiting">{complete ? "Roster set" : idle ? idleLabel : "Waiting"}</span>
-          )}
-        </span>
+        {/* NO SECOND TURN LABEL. The rail directly below already prints
+            "Your move" / "Thinking" / "Waiting" with the seconds; a status
+            here repeated it ("WAITING" twice on the idle bench). The seat's
+            on-the-clock marker stays for assistive tech and the lit frame
+            carries it visually. */}
+        {isActive ? (
+          <span className="sr-only" data-testid={`td-seat-live-${seat.seat_index}`}>
+            On the clock
+          </span>
+        ) : complete ? (
+          <span className="sd-bench-waiting">Roster set</span>
+        ) : null}
       </div>
 
       {/* THE SEAT'S OWN TURN RAIL, immediately under its name. The bar is the
@@ -337,7 +351,12 @@ function Lineup({
               {entry ? (
                 <span className="sd-slot-player">
                   <PlayerAvatar name={entry.player_name} size={20} imageUrl={entry.headshot_url} />
-                  <span className="sd-slot-name">{entry.player_name}</span>
+                  <span className="sd-slot-name">
+                    <span className="sd-slot-name-full">{entry.player_name}</span>
+                    <span className="sd-slot-name-short" aria-hidden="true">
+                      {slotShortName(entry.player_name)}
+                    </span>
+                  </span>
                 </span>
               ) : null}
             </RosterSlotLock>
@@ -537,6 +556,7 @@ export default function PeakV2ShowdownLive({
       : `${seatNames[holder ?? -1] ?? "Opponent"} leads`;
   const lastEvent = lastActionLabel(publicState, yourSeat, seatNames);
   const contested = opened && publicState.lot_actions.filter((a) => a.action === "bid").length >= 3;
+  const momentShown = moment !== null && !reveal && phase !== "pending";
 
   // THE STAKES OF THIS PRESS, on your own turn only, from published fields.
   const yourOpen = publicState.slots.length - yourSeatPublic.filled_slots;
@@ -745,25 +765,6 @@ export default function PeakV2ShowdownLive({
                   ) : null}
 
                   <div className="sd-bid" data-testid="td-standing-bid" data-contested={contested ? "true" : "false"} data-holder={bidHolder}>
-                    {/* THE OPPONENT'S ACTION lands right under the figure it
-                        changed, never over the player's identity. Hidden from
-                        assistive tech: the turn line above already says it. */}
-                    {/* AND NOT OVER YOUR OWN DECISION. The moment is the
-                        OPPONENT's last action; while this client's command is
-                        in flight the same zone is carrying the player's own
-                        committed figure ("Your bid · $2 · Confirming"), and a
-                        capture caught the moment card sitting on top of it.
-                        The turn line above already restates the opponent's
-                        action, so nothing is lost by holding it for the length
-                        of one request. */}
-                    <div className="sd-bid-moment" aria-hidden="true">
-                      <EventMoment
-                        moment={reveal || phase === "pending" ? null : moment}
-                        onDone={onDismissMoment}
-                        testId="td-moment"
-                        className="sd-moment"
-                      />
-                    </div>
                     <span className="sd-bid-label">{contested ? "Bidding war · standing bid" : "Standing bid"}</span>
                     <BidTransition
                       value={opened ? publicState.current_bid : 0}
@@ -776,6 +777,33 @@ export default function PeakV2ShowdownLive({
                       valueTestId="td-standing-amount"
                       captionTestId="td-standing-holder"
                     />
+                  </div>
+
+                  {/* THE NEWS ROW — one reserved line under the standing bid.
+                      It carries the last action on the lot; the opponent's
+                      moment ("raises to $2 · You are outbid") takes the same
+                      line for its beat. It used to hang BELOW the bid as an
+                      overlay, where it covered "To act", the timer bar and the
+                      sealed line at the exact moment a player needs the clock.
+                      The row's height is always reserved, so nothing under it
+                      moves when a moment arrives or leaves. The moment is held
+                      off while this client's own command is in flight (the
+                      clock zone is carrying the committed figure) and while a
+                      SOLD banner plays. */}
+                  <div className="sd-bid-news" data-moment={momentShown ? "true" : "false"}>
+                    {lastEvent ? (
+                      <p className="sd-ticker" data-testid="td-lot-ticker">
+                        {lastEvent}
+                      </p>
+                    ) : null}
+                    <div className="sd-bid-moment" aria-hidden="true">
+                      <EventMoment
+                        moment={reveal || phase === "pending" ? null : moment}
+                        onDone={onDismissMoment}
+                        testId="td-moment"
+                        className="sd-moment"
+                      />
+                    </div>
                   </div>
                 </CardArrival>
 
@@ -826,11 +854,6 @@ export default function PeakV2ShowdownLive({
                   ) : null}
                 </div>
 
-                {lastEvent ? (
-                  <p className="sd-ticker" data-testid="td-lot-ticker">
-                    {lastEvent}
-                  </p>
-                ) : null}
               </div>
             ) : null}
           </div>

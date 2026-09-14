@@ -2394,7 +2394,24 @@
 
 /* --- the scorebug (below 1024px: both benches, above the stage) --- */
 /* Scoped to narrow screens so it can never out-rank the desktop rule by source order. */
-@media (max-width: 1023px) { .sd-scorebug { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; } }
+/* STICKY UNDER THE SITE HEADER (h-14, 3.5rem) for as long as the table is on
+   screen, so both budgets, open spots and skips stay in view while bidding.
+   Opaque page ground, so nothing scrolls visibly through it; no nested
+   scroll area. */
+@media (max-width: 1023px) {
+  .sd-scorebug {
+    position: sticky;
+    top: 3.5rem;
+    z-index: 30;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin-inline: -0.25rem;
+    padding: 0.4rem 0.25rem;
+    background: var(--v2-bg-page);
+    box-shadow: 0 10px 14px -12px color-mix(in srgb, black 70%, transparent);
+  }
+}
 .sd-bug {
   display: flex;
   flex-direction: column;
@@ -2541,12 +2558,42 @@
 .sd-bid[data-holder="you"] { border-bottom-color: color-mix(in srgb, var(--v2-color-accent) 75%, transparent); }
 .sd-bid[data-holder="bot"], .sd-bid[data-holder="rival"] { border-bottom-color: color-mix(in srgb, var(--v2-text-secondary) 70%, transparent); }
 .sd-bid .gf-bid-caption { font-weight: 600; }
-.sd-bid-moment { position: absolute; left: 0; right: 0; top: calc(100% + 0.3rem); height: 0; z-index: 21; pointer-events: none; }
-.sd-bid-moment .gf-moment { top: 0; transform: translate(-50%, 0); padding: 0.45rem 0.9rem; }
-.sd-bid-moment .gf-moment[data-reduced-motion="false"] { animation-name: sd-moment-in; }
-@keyframes sd-moment-in {
-  0%   { opacity: 0; transform: translate(-50%, 0) translateY(-6px) scale(0.96); }
-  100% { opacity: 1; transform: translate(-50%, 0) translateY(0) scale(1); }
+/* ONE FIGURE AT A TIME. `BidTransition` swaps by sliding the old figure out
+   while the new one rises from 0.55em below; at this stage's figure size the
+   two values shared the box and the incoming one landed on the caption
+   ("$0" over "$1" under "You lead"). Here the outgoing figure is not drawn
+   and the new one settles in place, inside its own box. */
+.sd-bid .gf-bid-outgoing { display: none; }
+.sd-bid .gf-bid[data-reduced-motion="false"][data-swapping="true"] .gf-bid-value { animation: sd-bid-settle 260ms var(--gf-ease-emphasized) both; }
+@keyframes sd-bid-settle {
+  0%   { opacity: 0.25; transform: scale(0.94); }
+  100% { opacity: 1; transform: scale(1); }
+}
+/* THE PENDING FIGURE IS LABELLED, and beside the standing bid, never in its
+   place: a dashed "YOUR BID -> $2" tag until the server answers. */
+.sd-bid .gf-bid-pending {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  top: 50%;
+  margin-left: 0.6rem;
+  padding: 0.2rem 0.45rem 0.25rem;
+  border: 1px dashed color-mix(in srgb, var(--v2-color-accent) 65%, transparent);
+  border-radius: var(--v2-radius-instrument);
+  background: var(--v2-bg-plane);
+  font-size: 1.125rem;
+  line-height: 1.1;
+  color: var(--v2-color-accent);
+  transform: translateY(-50%);
+  animation: none;
+}
+.sd-bid .gf-bid-pending::before {
+  content: "Your bid";
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-secondary);
 }
 .sd-bid-label {
   font-family: var(--v2-font-mono);
@@ -2678,11 +2725,45 @@
 .sd-hint[data-tone="negative"] { color: var(--v2-color-negative); }
 .sd-projection { margin-top: 0.35rem; font-family: var(--v2-font-mono); font-size: 0.75rem; color: var(--v2-text-secondary); text-align: center; }
 .sd-ticker {
-  margin-top: 0.9rem;
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--v2-font-mono);
   font-size: 0.6875rem;
   letter-spacing: 0.04em;
   color: var(--v2-text-secondary);
+}
+/* The news row: a reserved line under the standing bid for the last action,
+   which the opponent's moment takes over for its beat. Always this tall, so
+   the clock and controls below never move. */
+.sd-bid-news {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 2.25rem;
+  margin-top: 0.35rem;
+}
+.sd-bid-news[data-moment="true"] .sd-ticker { visibility: hidden; }
+.sd-bid-moment { position: absolute; inset: 0; z-index: 21; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.sd-bid-moment .gf-moment {
+  position: static;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.55rem;
+  max-width: 100%;
+  padding: 0.3rem 0.8rem;
+  transform: none;
+  white-space: nowrap;
+}
+.sd-bid-moment .gf-moment-title { overflow: hidden; text-overflow: ellipsis; font-size: 1.0625rem; }
+.sd-bid-moment .gf-moment[data-reduced-motion="false"] { animation-name: sd-moment-in; }
+@keyframes sd-moment-in {
+  0%   { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* TENSION FLAGS — one chip family for the bench flags and the stakes of the
@@ -2812,8 +2893,7 @@
 .sd-bench-role { font-family: var(--v2-font-mono); font-size: 0.625rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--v2-text-secondary); }
 .sd-bench-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--v2-font-ui); font-size: 1.25rem; font-weight: 800; line-height: 1.15; color: var(--v2-text-primary); }
 .sd-lineup[data-gf-seat="receded"] .sd-bench-name { color: var(--v2-text-secondary); }
-.sd-bench-status { flex-shrink: 0; padding-top: 0.2rem; }
-.sd-bench-waiting { font-family: var(--v2-font-mono); font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--v2-text-secondary); }
+.sd-bench-waiting { flex-shrink: 0; padding-top: 0.2rem; font-family: var(--v2-font-mono); font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--v2-text-secondary); }
 
 .sd-bench-lot {
   display: flex;
@@ -2853,14 +2933,24 @@
 .sd-lineup-slots { display: grid; grid-template-columns: 1fr; gap: 0.35rem; list-style: none; margin: 0; padding: 0; }
 .sd-slot-player { display: inline-flex; align-items: center; gap: 0.4rem; min-width: 0; }
 .sd-slot-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.sd-slot-name-short { display: none; }
 @media (max-width: 1023px) {
   .sd-lineup { padding: 0.6rem; }
   .sd-lineup-slots { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.3rem; }
-  .sd-lineup-slots .gf-slot { grid-template-columns: 1fr; grid-template-rows: auto auto auto; justify-items: center; text-align: center; min-height: 3.6rem; padding: 0.25rem 0.2rem; }
+  /* `[data-align]` lifts this above game-feel's `.gf-slot[data-align="end"]`
+     (equal specificity, and it loads later), whose three-column desktop grid
+     otherwise collapsed the opponent's name column to nothing. */
+  .sd-lineup-slots .gf-slot[data-align] { position: relative; grid-template-columns: 1fr; grid-template-rows: auto auto auto; align-content: start; justify-items: center; text-align: center; min-height: 4.1rem; padding: 0.3rem 0.2rem; }
   .sd-lineup-slots .gf-slot[data-align="end"] .gf-slot-position,
   .sd-lineup-slots .gf-slot[data-align="end"] .gf-slot-body,
   .sd-lineup-slots .gf-slot[data-align="end"] .gf-slot-figure { order: initial; }
-  .sd-lineup-slots .gf-slot-body { font-size: 0.6875rem; max-width: 100%; }
+  .sd-lineup-slots .gf-slot-body { width: 100%; max-width: 100%; font-size: 0.625rem; white-space: normal; }
+  /* A fifth of a phone is too narrow for a full name: show the surname on up
+     to two lines (breaking at a hyphen first), keep the full name in the DOM
+     for assistive tech, visually hidden. */
+  .sd-slot-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow-wrap: break-word; letter-spacing: -0.01em; line-height: 1.15; }
+  .sd-slot-name-full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .sd-slot-name-short { display: inline; }
   .sd-slot-player .pk-avatar, .sd-slot-player > :first-child { display: none; }
 }
 
@@ -2898,7 +2988,7 @@
 .sd-final-side[data-align="end"] .sd-final-name { flex-direction: row-reverse; }
 .sd-final-side[data-winner="true"] .sd-final-name { color: var(--v2-text-primary); }
 .sd-final-total { font-family: var(--v2-font-mono); font-feature-settings: var(--v2-mono-feature); font-size: clamp(2rem, 5vw, 3.25rem); font-weight: 700; line-height: 1; color: var(--v2-text-primary); transition: color var(--gf-dur-event) var(--gf-ease); }
-.sd-final-side[data-winner="true"] .sd-final-total { color: var(--v2-color-positive); }
+.sd-final-side[data-score-wins="true"] .sd-final-total { color: var(--v2-color-positive); }
 .sd-final-money { font-family: var(--v2-font-mono); font-size: 0.8125rem; color: var(--v2-text-secondary); opacity: 0; transition: opacity var(--gf-dur-event) var(--gf-ease); }
 .sd-final-money[data-revealed="true"] { opacity: 1; }
 .sd-result-winner-tag { flex-shrink: 0; padding: 0.1rem 0.4rem; border-radius: var(--v2-radius-instrument); border: 1px solid color-mix(in srgb, var(--v2-color-positive) 55%, transparent); font-family: var(--v2-font-mono); font-size: 0.625rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--v2-color-positive); }
@@ -2946,7 +3036,7 @@
 .sd-result-score { flex-shrink: 0; min-width: 44px; text-align: right; font-family: var(--v2-font-mono); font-size: 0.8125rem; font-weight: 700; color: var(--v2-text-primary); }
 .sd-result-roster-total { display: flex; align-items: baseline; justify-content: space-between; padding-top: 0.45rem; font-family: var(--v2-font-mono); font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--v2-text-secondary); }
 .sd-result-roster-total span:last-child { font-size: 1rem; letter-spacing: 0; color: var(--v2-text-primary); }
-.sd-result-roster[data-winner="true"] .sd-result-roster-total span:last-child { color: var(--v2-color-positive); }
+.sd-result-roster[data-score-wins="true"] .sd-result-roster-total span:last-child { color: var(--v2-color-positive); }
 
 /* --- result: where it was decided --------------------------------------- */
 .sd-result-section-title { margin-bottom: 0.25rem; font-family: var(--v2-font-mono); font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--v2-text-secondary); }
@@ -2958,7 +3048,6 @@
 .sd-reason-body { font-family: var(--v2-font-ui); font-size: 0.875rem; line-height: 1.45; color: var(--v2-text-secondary); }
 .sd-reason-figure { flex-shrink: 0; text-align: right; font-family: var(--v2-font-mono); font-size: 1.25rem; font-weight: 700; color: var(--v2-text-primary); }
 .sd-reason-sub { font-size: 0.6875rem; font-weight: 600; color: var(--v2-text-secondary); }
-.sd-reason-none { padding: 0.8rem 0; font-family: var(--v2-font-ui); font-size: 0.875rem; color: var(--v2-text-secondary); }
 
 .sd-result-history { list-style: none; margin: 1rem 0 0; padding: 0; display: flex; flex-direction: column; }
 .sd-result-history-row { display: grid; grid-template-columns: 4rem minmax(0, 1fr) auto 3rem; align-items: center; gap: 0.75rem; padding: 0.4rem 0; border-bottom: 1px solid var(--v2-border-subtle); }

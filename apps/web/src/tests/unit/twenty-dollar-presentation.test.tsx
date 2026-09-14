@@ -11,7 +11,7 @@ import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-import { benchFlagsOf, lotStatusOf } from "@/components/v2/showdown/PeakV2ShowdownLive";
+import { benchFlagsOf, lotStatusOf, slotShortName } from "@/components/v2/showdown/PeakV2ShowdownLive";
 import PeakV2ShowdownResult from "@/components/v2/showdown/PeakV2ShowdownResult";
 import type { TwentyDollarReceiptData } from "@/components/twenty-dollar/TwentyDollarReceipt";
 import type { SeatPublic, TwentyDollarPrivateState, TwentyDollarPublicState } from "@/lib/twenty-dollar-api";
@@ -111,6 +111,15 @@ describe("a bench says what its seat did on this lot", () => {
   });
 });
 
+describe("the phone slot strip shows a surname that fits", () => {
+  it("takes the last name, skipping generational suffixes", () => {
+    expect(slotShortName("Jalen Brunson")).toBe("Brunson");
+    expect(slotShortName("Shai Gilgeous-Alexander")).toBe("Gilgeous-Alexander");
+    expect(slotShortName("Gary Payton II")).toBe("Payton");
+    expect(slotShortName("Nenê")).toBe("Nenê");
+  });
+});
+
 describe("tension flags come only from published state", () => {
   it("flags the final open spot and an empty skip allowance for either bench", () => {
     const flags = benchFlagsOf(seat(1, { filled_slots: 4, market_skips: 0 }), 5, publicState(), null);
@@ -180,6 +189,14 @@ describe("a conceded match is never a draw", () => {
     renderResult(r, 1);
     expect(screen.getByTestId("td-result-headline")).toHaveTextContent("WON");
     expect(screen.getByTestId("td-result")).toHaveAttribute("data-outcome", "win");
+  });
+
+  it("does not colour a 0.00 total as a win, and draws no split for 0 to 0", () => {
+    renderResult(receipt(), 0);
+    expect(document.querySelectorAll('[data-score-wins="true"]')).toHaveLength(0);
+    expect(screen.getByTestId("td-result-bar")).toHaveAttribute("data-empty", "true");
+    expect(screen.getByTestId("td-result-bar").children).toHaveLength(0);
+    expect(screen.getByTestId("td-callout-forfeit")).toHaveTextContent("before any lot settled");
   });
 
   it("still reads DREW for a genuine level finish, and says money left over scores nothing", () => {
