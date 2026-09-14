@@ -189,6 +189,14 @@
   position: fixed;
 }
 
+/* A pick announcement lands just under the sticky strip it belongs to, not
+   38% down the screen where it sat over another seat's court header (or the
+   seat tabs on a phone) for the second it was visible. */
+.tmw-room .gf-moment {
+  top: calc(var(--tmw-below-strip) + 0.5rem);
+  transform: translate(-50%, 0);
+}
+
 /* The pick panel: inline, no inner scrolling, no clipping ancestor (an
    `overflow: hidden` here would silently disable the sticky column). */
 .tmw-overlay-scrim {
