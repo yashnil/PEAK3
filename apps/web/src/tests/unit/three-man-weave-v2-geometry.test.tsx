@@ -321,72 +321,77 @@ describe("PeakV2TMWCourts — header timer during a seatless phase (task §5)", 
 // scrollable region exists, is capped relative to the published variable,
 // and the header/round/timer content is NOT inside it (so it can never
 // scroll out of reach), while the court/roster content IS.
-describe("PeakV2TMWCourts — viewport containment (follow-up closure pass)", () => {
-  function findScrollRegion(container: HTMLElement): HTMLElement {
-    const candidates = Array.from(container.querySelectorAll<HTMLElement>("div")).filter((el) =>
-      el.className.includes("overflow-y-auto"),
+// Game-feel pass 5 REPLACES the containment above. The cap existed to keep
+// the header in reach by giving the courts their own scrollbar, which made the
+// match read as an app embedded in the Arena page with a nested scroll. The
+// strip is now `position: sticky` and the PAGE scrolls; these pin that
+// structure: no inner scroll region (and so no axe-driven focusable region),
+// the constraint and the turn together in one strip, and the decision surface
+// between the strip and the courts. (jsdom has no layout, so stickiness itself
+// is verified in the browser: see the TMW pass-5 capture notes.)
+describe("PeakV2TMWCourts — one scroll, and it is the page's (game-feel pass 5)", () => {
+  const FOLLOWING = 4; // Node.DOCUMENT_POSITION_FOLLOWING
+
+  function renderCourts(overrides: Partial<React.ComponentProps<typeof PeakV2TMWCourts>> = {}) {
+    return render(
+      <PeakV2TMWCourts
+        state={baseTmwState()}
+        seats={SEATS}
+        yourSeatIndex={0}
+        currentTurnSeatIndex={1}
+        deadlineAt={null}
+        picksMade={0}
+        totalPicks={18}
+        {...overrides}
+      />,
     );
-    expect(candidates.length).toBe(1);
-    return candidates[0];
   }
 
-  it("caps the scrollable court region to the published --tmw-viewport-cap variable, not an unbounded height", () => {
-    const { container } = render(
-      <PeakV2TMWCourts
-        state={baseTmwState()}
-        seats={SEATS}
-        yourSeatIndex={0}
-        currentTurnSeatIndex={1}
-        deadlineAt={null}
-        picksMade={0}
-        totalPicks={18}
-      />,
+  it("renders no inner scroll region, no viewport cap and no focusable scroll container", () => {
+    const { container } = renderCourts();
+    const scrollers = Array.from(container.querySelectorAll<HTMLElement>("*")).filter(
+      (el) =>
+        /\boverflow(-[xy])?-(auto|scroll)\b/.test(String(el.className)) ||
+        /overflow(-[xy])?\s*:\s*(auto|scroll)/.test(el.getAttribute("style") ?? ""),
     );
-    const scrollRegion = findScrollRegion(container);
-    expect(scrollRegion.style.maxHeight).toContain("--tmw-viewport-cap");
+    expect(scrollers).toHaveLength(0);
+    expect(container.innerHTML).not.toContain("--tmw-viewport-cap");
+    expect(container.querySelector('[role="region"][tabindex]')).toBeNull();
   });
 
-  it("keeps the header (title, round/pick status, on-the-clock line) OUTSIDE the scrollable region", () => {
-    const { container } = render(
-      <PeakV2TMWCourts
-        state={baseTmwState()}
-        seats={SEATS}
-        yourSeatIndex={0}
-        currentTurnSeatIndex={1}
-        deadlineAt={null}
-        picksMade={0}
-        totalPicks={18}
-      />,
-    );
-    const scrollRegion = findScrollRegion(container);
-    const title = screen.getByText("Three-Man Weave");
-    // `PeakV2TMWCourt` also names the on-the-clock seat on its own card (a
-    // different, court-scoped "On the clock" instance) -- this test cares
-    // specifically about the shared instrument row's copy, which is always
-    // the first "On the clock" text in document order (it precedes every
-    // court component).
-    const onClockLine = screen.getAllByText(/On the clock/)[0];
-    expect(scrollRegion.contains(title)).toBe(false);
-    expect(scrollRegion.contains(onClockLine)).toBe(false);
+  it("keeps the constraint and the turn together in ONE strip, ahead of the courts", () => {
+    renderCourts();
+    const strip = screen.getByTestId("tmw-turnbar");
+    expect(strip).toHaveClass("tmw-strip");
+    expect(strip).toContainElement(screen.getByTestId("tmw-turnbar-round"));
+    expect(strip).toContainElement(screen.getByTestId("tmw-turnbar-roll"));
+    expect(strip).toContainElement(screen.getByTestId("tmw-on-the-clock"));
+    expect(screen.getByTestId("tmw-turnbar-roll")).toHaveTextContent("Denver Nuggets");
+    const courts = screen.getByTestId("tmw-courts");
+    expect(strip).not.toContainElement(courts);
+    expect(strip.compareDocumentPosition(courts) & FOLLOWING).toBeTruthy();
   });
 
-  it("keeps the court/roster content INSIDE the scrollable region", () => {
-    const { container } = render(
-      <PeakV2TMWCourts
-        state={baseTmwState()}
-        seats={SEATS}
-        yourSeatIndex={0}
-        currentTurnSeatIndex={1}
-        deadlineAt={null}
-        picksMade={0}
-        totalPicks={18}
-      />,
-    );
-    const scrollRegion = findScrollRegion(container);
-    // "Open" slot labels only render inside the roster/court cards.
-    const openSlots = screen.getAllByText("Open");
-    expect(openSlots.length).toBeGreaterThan(0);
-    openSlots.forEach((slot) => expect(scrollRegion.contains(slot)).toBe(true));
+  it("places the decision surface between the strip and the courts", () => {
+    renderCourts({ decision: <div data-testid="decision-probe">pick</div> });
+    const probe = screen.getByTestId("decision-probe");
+    expect(screen.getByTestId("tmw-turnbar").compareDocumentPosition(probe) & FOLLOWING).toBeTruthy();
+    expect(probe.compareDocumentPosition(screen.getByTestId("tmw-courts")) & FOLLOWING).toBeTruthy();
+  });
+
+  it("names a Franchise Draft's one constraint for the whole draft, not a per-round pair", () => {
+    renderCourts({
+      state: baseTmwState({
+        variant: "franchise",
+        constraint: { kind: "franchise", value: "DEN", label: "Denver Nuggets" },
+        current_roll: { ...ROLL, variant: "franchise", decade: "All decades" },
+      }),
+    });
+    const roll = screen.getByTestId("tmw-turnbar-roll");
+    expect(roll).toHaveTextContent("Franchise Draft");
+    expect(roll).toHaveTextContent("Denver Nuggets");
+    expect(roll).toHaveTextContent("all 18 picks");
+    expect(roll).not.toHaveTextContent("All decades");
   });
 });
 

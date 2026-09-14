@@ -1,0 +1,678 @@
+{
+ "_about": "Three-Man Weave states captured from real practice matches (naive human, real bot policy) one pick before a later drafter in the same round was left with no selectable candidate on the roll. Under tmw_ruleset_v2 both matches hung: the stranded seat's timeout found no legal auto-pick and was refused on every read. `strand_payload` is the pick that stranded them.",
+ "seeds": {
+  "2037": {
+   "round": 6,
+   "snapshot_before_strand": {
+    "current_roll": {
+     "decade": "1980s",
+     "eligible_slugs": [
+      "pooh-richardson",
+      "randy-breuer",
+      "sam-mitchell",
+      "tod-murphy",
+      "tony-campbell",
+      "tyrone-corbin"
+     ],
+     "franchise_display_name": "Minnesota Timberwolves",
+     "franchise_id": "MIN",
+     "roll_id": "min-1980s",
+     "round_number": 6
+    },
+    "current_round": 6,
+    "current_seat": 2,
+    "drafted_identities": [
+     "aaron-gordon",
+     "aaron-mckie",
+     "adonal-foyle",
+     "alex-english",
+     "allen-iverson",
+     "alonzo-mourning",
+     "anthony-mason",
+     "bill-hanzlik",
+     "chris-mullin",
+     "dikembe-mutombo",
+     "dwight-howard",
+     "eddie-jones",
+     "fat-lever",
+     "ryan-anderson",
+     "tim-hardaway"
+    ],
+    "eligibility_index_version": "tmw_eligibility_index_v2",
+    "formula_version": "peak3_v1",
+    "is_complete": false,
+    "match_seed": 2037,
+    "picks": [
+     {
+      "decade": "2000s",
+      "franchise_id": "PHI",
+      "player_slug": "allen-iverson",
+      "resolution": "action",
+      "round_number": 1,
+      "seat_index": 0,
+      "slot_type": "PG"
+     },
+     {
+      "decade": "2000s",
+      "franchise_id": "PHI",
+      "player_slug": "aaron-mckie",
+      "resolution": "action",
+      "round_number": 1,
+      "seat_index": 1,
+      "slot_type": "SG"
+     },
+     {
+      "decade": "2000s",
+      "franchise_id": "PHI",
+      "player_slug": "dikembe-mutombo",
+      "resolution": "action",
+      "round_number": 1,
+      "seat_index": 2,
+      "slot_type": "C"
+     },
+     {
+      "decade": "1980s",
+      "franchise_id": "DEN",
+      "player_slug": "alex-english",
+      "resolution": "action",
+      "round_number": 2,
+      "seat_index": 2,
+      "slot_type": "SF"
+     },
+     {
+      "decade": "1980s",
+      "franchise_id": "DEN",
+      "player_slug": "bill-hanzlik",
+      "resolution": "action",
+      "round_number": 2,
+      "seat_index": 1,
+      "slot_type": "SF"
+     },
+     {
+      "decade": "1980s",
+      "franchise_id": "DEN",
+      "player_slug": "fat-lever",
+      "resolution": "action",
+      "round_number": 2,
+      "seat_index": 0,
+      "slot_type": "SG"
+     },
+     {
+      "decade": "1990s",
+      "franchise_id": "GSW",
+      "player_slug": "chris-mullin",
+      "resolution": "action",
+      "round_number": 3,
+      "seat_index": 0,
+      "slot_type": "SF"
+     },
+     {
+      "decade": "1990s",
+      "franchise_id": "GSW",
+      "player_slug": "adonal-foyle",
+      "resolution": "action",
+      "round_number": 3,
+      "seat_index": 1,
+      "slot_type": "C"
+     },
+     {
+      "decade": "1990s",
+      "franchise_id": "GSW",
+      "player_slug": "tim-hardaway",
+      "resolution": "action",
+      "round_number": 3,
+      "seat_index": 2,
+      "slot_type": "PG"
+     },
+     {
+      "decade": "1990s",
+      "franchise_id": "CHA",
+      "player_slug": "eddie-jones",
+      "resolution": "action",
+      "round_number": 4,
+      "seat_index": 2,
+      "slot_type": "SG"
+     },
+     {
+      "decade": "1990s",
+      "franchise_id": "CHA",
+      "player_slug": "alonzo-mourning",
+      "resolution": "action",
+      "round_number": 4,
+      "seat_index": 1,
+      "slot_type": "bench_1"
+     },
+     {
+      "decade": "1990s",
+      "franchise_id": "CHA",
+      "player_slug": "anthony-mason",
+      "resolution": "action",
+      "round_number": 4,
+      "seat_index": 0,
+      "slot_type": "C"
+     },
+     {
+      "decade": "2010s",
+      "franchise_id": "ORL",
+      "player_slug": "dwight-howard",
+      "resolution": "action",
+      "round_number": 5,
+      "seat_index": 0,
+      "slot_type": "PF"
+     },
+     {
+      "decade": "2010s",
+      "franchise_id": "ORL",
+      "player_slug": "aaron-gordon",
+      "resolution": "action",
+      "round_number": 5,
+      "seat_index": 1,
+      "slot_type": "PF"
+     },
+     {
+      "decade": "2010s",
+      "franchise_id": "ORL",
+      "player_slug": "ryan-anderson",
+      "resolution": "action",
+      "round_number": 5,
+      "seat_index": 2,
+      "slot_type": "PF"
+     }
+    ],
+    "rosters": [
+     {
+      "complete": false,
+      "seat_index": 0,
+      "slots": {
+       "C": {
+        "decade": "1990s",
+        "franchise_id": "CHA",
+        "player_slug": "anthony-mason",
+        "resolution": "action",
+        "round_number": 4,
+        "seat_index": 0,
+        "slot_type": "C"
+       },
+       "PF": {
+        "decade": "2010s",
+        "franchise_id": "ORL",
+        "player_slug": "dwight-howard",
+        "resolution": "action",
+        "round_number": 5,
+        "seat_index": 0,
+        "slot_type": "PF"
+       },
+       "PG": {
+        "decade": "2000s",
+        "franchise_id": "PHI",
+        "player_slug": "allen-iverson",
+        "resolution": "action",
+        "round_number": 1,
+        "seat_index": 0,
+        "slot_type": "PG"
+       },
+       "SF": {
+        "decade": "1990s",
+        "franchise_id": "GSW",
+        "player_slug": "chris-mullin",
+        "resolution": "action",
+        "round_number": 3,
+        "seat_index": 0,
+        "slot_type": "SF"
+       },
+       "SG": {
+        "decade": "1980s",
+        "franchise_id": "DEN",
+        "player_slug": "fat-lever",
+        "resolution": "action",
+        "round_number": 2,
+        "seat_index": 0,
+        "slot_type": "SG"
+       },
+       "bench_1": null
+      }
+     },
+     {
+      "complete": false,
+      "seat_index": 1,
+      "slots": {
+       "C": {
+        "decade": "1990s",
+        "franchise_id": "GSW",
+        "player_slug": "adonal-foyle",
+        "resolution": "action",
+        "round_number": 3,
+        "seat_index": 1,
+        "slot_type": "C"
+       },
+       "PF": {
+        "decade": "2010s",
+        "franchise_id": "ORL",
+        "player_slug": "aaron-gordon",
+        "resolution": "action",
+        "round_number": 5,
+        "seat_index": 1,
+        "slot_type": "PF"
+       },
+       "PG": null,
+       "SF": {
+        "decade": "1980s",
+        "franchise_id": "DEN",
+        "player_slug": "bill-hanzlik",
+        "resolution": "action",
+        "round_number": 2,
+        "seat_index": 1,
+        "slot_type": "SF"
+       },
+       "SG": {
+        "decade": "2000s",
+        "franchise_id": "PHI",
+        "player_slug": "aaron-mckie",
+        "resolution": "action",
+        "round_number": 1,
+        "seat_index": 1,
+        "slot_type": "SG"
+       },
+       "bench_1": {
+        "decade": "1990s",
+        "franchise_id": "CHA",
+        "player_slug": "alonzo-mourning",
+        "resolution": "action",
+        "round_number": 4,
+        "seat_index": 1,
+        "slot_type": "bench_1"
+       }
+      }
+     },
+     {
+      "complete": false,
+      "seat_index": 2,
+      "slots": {
+       "C": {
+        "decade": "2000s",
+        "franchise_id": "PHI",
+        "player_slug": "dikembe-mutombo",
+        "resolution": "action",
+        "round_number": 1,
+        "seat_index": 2,
+        "slot_type": "C"
+       },
+       "PF": {
+        "decade": "2010s",
+        "franchise_id": "ORL",
+        "player_slug": "ryan-anderson",
+        "resolution": "action",
+        "round_number": 5,
+        "seat_index": 2,
+        "slot_type": "PF"
+       },
+       "PG": {
+        "decade": "1990s",
+        "franchise_id": "GSW",
+        "player_slug": "tim-hardaway",
+        "resolution": "action",
+        "round_number": 3,
+        "seat_index": 2,
+        "slot_type": "PG"
+       },
+       "SF": {
+        "decade": "1980s",
+        "franchise_id": "DEN",
+        "player_slug": "alex-english",
+        "resolution": "action",
+        "round_number": 2,
+        "seat_index": 2,
+        "slot_type": "SF"
+       },
+       "SG": {
+        "decade": "1990s",
+        "franchise_id": "CHA",
+        "player_slug": "eddie-jones",
+        "resolution": "action",
+        "round_number": 4,
+        "seat_index": 2,
+        "slot_type": "SG"
+       },
+       "bench_1": null
+      }
+     }
+    ],
+    "ruleset_version": "tmw_ruleset_v2",
+    "staged_pick": null,
+    "turn_index": 15,
+    "used_roll_ids": [
+     "phi-2000s",
+     "den-1980s",
+     "gsw-1990s",
+     "cha-1990s",
+     "orl-2010s",
+     "min-1980s"
+    ]
+   },
+   "strand_payload": {
+    "player_slug": "pooh-richardson",
+    "slot_type": "bench_1"
+   },
+   "strand_seat": 2,
+   "stuck_seat": 1
+  },
+  "666": {
+   "round": 5,
+   "snapshot_before_strand": {
+    "current_roll": {
+     "decade": "1980s",
+     "eligible_slugs": [
+      "pooh-richardson",
+      "randy-breuer",
+      "sam-mitchell",
+      "tod-murphy",
+      "tony-campbell",
+      "tyrone-corbin"
+     ],
+     "franchise_display_name": "Minnesota Timberwolves",
+     "franchise_id": "MIN",
+     "roll_id": "min-1980s",
+     "round_number": 5
+    },
+    "current_round": 5,
+    "current_seat": 1,
+    "drafted_identities": [
+     "adrian-dantley",
+     "allan-bristow",
+     "amar-e-stoudemire",
+     "billy-thompson",
+     "bryn-forbes",
+     "demar-derozan",
+     "karl-malone",
+     "pooh-richardson",
+     "rony-seikaly",
+     "shawn-marion",
+     "sherman-douglas",
+     "steve-nash",
+     "victor-wembanyama"
+    ],
+    "eligibility_index_version": "tmw_eligibility_index_v2",
+    "formula_version": "peak3_v1",
+    "is_complete": false,
+    "match_seed": 666,
+    "picks": [
+     {
+      "decade": "2000s",
+      "franchise_id": "PHO",
+      "player_slug": "amar-e-stoudemire",
+      "resolution": "action",
+      "round_number": 1,
+      "seat_index": 0,
+      "slot_type": "PF"
+     },
+     {
+      "decade": "2000s",
+      "franchise_id": "PHO",
+      "player_slug": "steve-nash",
+      "resolution": "action",
+      "round_number": 1,
+      "seat_index": 1,
+      "slot_type": "PG"
+     },
+     {
+      "decade": "2000s",
+      "franchise_id": "PHO",
+      "player_slug": "shawn-marion",
+      "resolution": "action",
+      "round_number": 1,
+      "seat_index": 2,
+      "slot_type": "SF"
+     },
+     {
+      "decade": "2020s",
+      "franchise_id": "SAS",
+      "player_slug": "victor-wembanyama",
+      "resolution": "action",
+      "round_number": 2,
+      "seat_index": 2,
+      "slot_type": "bench_1"
+     },
+     {
+      "decade": "2020s",
+      "franchise_id": "SAS",
+      "player_slug": "demar-derozan",
+      "resolution": "action",
+      "round_number": 2,
+      "seat_index": 1,
+      "slot_type": "PF"
+     },
+     {
+      "decade": "2020s",
+      "franchise_id": "SAS",
+      "player_slug": "bryn-forbes",
+      "resolution": "action",
+      "round_number": 2,
+      "seat_index": 0,
+      "slot_type": "SG"
+     },
+     {
+      "decade": "1980s",
+      "franchise_id": "MIA",
+      "player_slug": "billy-thompson",
+      "resolution": "action",
+      "round_number": 3,
+      "seat_index": 0,
+      "slot_type": "SF"
+     },
+     {
+      "decade": "1980s",
+      "franchise_id": "MIA",
+      "player_slug": "sherman-douglas",
+      "resolution": "action",
+      "round_number": 3,
+      "seat_index": 1,
+      "slot_type": "bench_1"
+     },
+     {
+      "decade": "1980s",
+      "franchise_id": "MIA",
+      "player_slug": "rony-seikaly",
+      "resolution": "action",
+      "round_number": 3,
+      "seat_index": 2,
+      "slot_type": "C"
+     },
+     {
+      "decade": "1980s",
+      "franchise_id": "UTA",
+      "player_slug": "karl-malone",
+      "resolution": "action",
+      "round_number": 4,
+      "seat_index": 2,
+      "slot_type": "PF"
+     },
+     {
+      "decade": "1980s",
+      "franchise_id": "UTA",
+      "player_slug": "adrian-dantley",
+      "resolution": "action",
+      "round_number": 4,
+      "seat_index": 1,
+      "slot_type": "SF"
+     },
+     {
+      "decade": "1980s",
+      "franchise_id": "UTA",
+      "player_slug": "allan-bristow",
+      "resolution": "action",
+      "round_number": 4,
+      "seat_index": 0,
+      "slot_type": "bench_1"
+     },
+     {
+      "decade": "1980s",
+      "franchise_id": "MIN",
+      "player_slug": "pooh-richardson",
+      "resolution": "action",
+      "round_number": 5,
+      "seat_index": 0,
+      "slot_type": "PG"
+     }
+    ],
+    "rosters": [
+     {
+      "complete": false,
+      "seat_index": 0,
+      "slots": {
+       "C": null,
+       "PF": {
+        "decade": "2000s",
+        "franchise_id": "PHO",
+        "player_slug": "amar-e-stoudemire",
+        "resolution": "action",
+        "round_number": 1,
+        "seat_index": 0,
+        "slot_type": "PF"
+       },
+       "PG": {
+        "decade": "1980s",
+        "franchise_id": "MIN",
+        "player_slug": "pooh-richardson",
+        "resolution": "action",
+        "round_number": 5,
+        "seat_index": 0,
+        "slot_type": "PG"
+       },
+       "SF": {
+        "decade": "1980s",
+        "franchise_id": "MIA",
+        "player_slug": "billy-thompson",
+        "resolution": "action",
+        "round_number": 3,
+        "seat_index": 0,
+        "slot_type": "SF"
+       },
+       "SG": {
+        "decade": "2020s",
+        "franchise_id": "SAS",
+        "player_slug": "bryn-forbes",
+        "resolution": "action",
+        "round_number": 2,
+        "seat_index": 0,
+        "slot_type": "SG"
+       },
+       "bench_1": {
+        "decade": "1980s",
+        "franchise_id": "UTA",
+        "player_slug": "allan-bristow",
+        "resolution": "action",
+        "round_number": 4,
+        "seat_index": 0,
+        "slot_type": "bench_1"
+       }
+      }
+     },
+     {
+      "complete": false,
+      "seat_index": 1,
+      "slots": {
+       "C": null,
+       "PF": {
+        "decade": "2020s",
+        "franchise_id": "SAS",
+        "player_slug": "demar-derozan",
+        "resolution": "action",
+        "round_number": 2,
+        "seat_index": 1,
+        "slot_type": "PF"
+       },
+       "PG": {
+        "decade": "2000s",
+        "franchise_id": "PHO",
+        "player_slug": "steve-nash",
+        "resolution": "action",
+        "round_number": 1,
+        "seat_index": 1,
+        "slot_type": "PG"
+       },
+       "SF": {
+        "decade": "1980s",
+        "franchise_id": "UTA",
+        "player_slug": "adrian-dantley",
+        "resolution": "action",
+        "round_number": 4,
+        "seat_index": 1,
+        "slot_type": "SF"
+       },
+       "SG": null,
+       "bench_1": {
+        "decade": "1980s",
+        "franchise_id": "MIA",
+        "player_slug": "sherman-douglas",
+        "resolution": "action",
+        "round_number": 3,
+        "seat_index": 1,
+        "slot_type": "bench_1"
+       }
+      }
+     },
+     {
+      "complete": false,
+      "seat_index": 2,
+      "slots": {
+       "C": {
+        "decade": "1980s",
+        "franchise_id": "MIA",
+        "player_slug": "rony-seikaly",
+        "resolution": "action",
+        "round_number": 3,
+        "seat_index": 2,
+        "slot_type": "C"
+       },
+       "PF": {
+        "decade": "1980s",
+        "franchise_id": "UTA",
+        "player_slug": "karl-malone",
+        "resolution": "action",
+        "round_number": 4,
+        "seat_index": 2,
+        "slot_type": "PF"
+       },
+       "PG": null,
+       "SF": {
+        "decade": "2000s",
+        "franchise_id": "PHO",
+        "player_slug": "shawn-marion",
+        "resolution": "action",
+        "round_number": 1,
+        "seat_index": 2,
+        "slot_type": "SF"
+       },
+       "SG": null,
+       "bench_1": {
+        "decade": "2020s",
+        "franchise_id": "SAS",
+        "player_slug": "victor-wembanyama",
+        "resolution": "action",
+        "round_number": 2,
+        "seat_index": 2,
+        "slot_type": "bench_1"
+       }
+      }
+     }
+    ],
+    "ruleset_version": "tmw_ruleset_v2",
+    "staged_pick": null,
+    "turn_index": 13,
+    "used_roll_ids": [
+     "pho-2000s",
+     "sas-2020s",
+     "mia-1980s",
+     "uta-1980s",
+     "min-1980s"
+    ]
+   },
+   "strand_payload": {
+    "player_slug": "tony-campbell",
+    "slot_type": "SG"
+   },
+   "strand_seat": 1,
+   "stuck_seat": 2
+  }
+ }
+}

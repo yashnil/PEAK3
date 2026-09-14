@@ -46,6 +46,8 @@ waiting on.
 """
 from __future__ import annotations
 
+import functools
+from collections import OrderedDict
 from datetime import timedelta
 from typing import Optional
 
@@ -70,9 +72,10 @@ from nba_peak.perfect_season.career_positions import career_positions
 from nba_peak.perfect_season.exact_season import TEAM_ID_TO_NAME
 from nba_peak.three_man_weave import draft as D
 from nba_peak.three_man_weave import feasibility as F
-from nba_peak.three_man_weave.autopick import auto_pick
+from nba_peak.three_man_weave.autopick import auto_pick_options
 from nba_peak.three_man_weave.bot import ThreeManWeaveBot, archetype_names
 from nba_peak.three_man_weave.config import (
+    COMPATIBLE_RULESET_VERSIONS,
     ELIGIBILITY_INDEX_VERSION,
     FORMULA_VERSION,
     PARTICIPANT_COUNT,
@@ -91,8 +94,28 @@ from nba_peak.three_man_weave.evaluation import (
     placements,
 )
 from nba_peak.three_man_weave.positions import card_starter_positions
+from nba_peak.three_man_weave.variants import (
+    VARIANT_DECADE,
+    VARIANT_FRANCHISE,
+    VARIANT_STANDARD,
+    Constraint,
+    choose_constraint,
+    constraint_roll,
+    viable_constraints,
+)
 
 MODE_NAME = "three_man_weave"
+#: FRANCHISE DRAFT and DECADE DRAFT: the same game under one constraint for all
+#: eighteen picks (`nba_peak.three_man_weave.variants`). Registered as their own
+#: mode ids so a queue never pairs players who chose different rules and each
+#: ruleset keeps its own rating ladder; the implementation is this one class.
+MODE_FRANCHISE = "three_man_weave_franchise"
+MODE_DECADE = "three_man_weave_decade"
+VARIANT_MODE_IDS: dict[str, str] = {
+    VARIANT_STANDARD: MODE_NAME,
+    VARIANT_FRANCHISE: MODE_FRANCHISE,
+    VARIANT_DECADE: MODE_DECADE,
+}
 
 #: How long one pick gets. Six rounds x three seats = 18 turns, so this sets
 #: the worst-case match length at about 13 minutes of pure thinking time.
@@ -147,7 +170,37 @@ PHASE_REVEAL = "reveal"
 #: as: ROUND card ~1.5 s, an armed beat, the reels, a 0.4 s lock, then a hold
 #: on the pair until this deadline opens the pick turn (`PeakV2TMWReveal`).
 #: Still one shared server window for every seat; nothing per-seat changed.
-REVEAL_SECONDS = 4.0
+#:
+#: 1.5, FROM 4.0 (game-feel pass 4). The reveal is information, not a pause:
+#: four seconds between every round of an 18-pick draft was dead air in front
+#: of the pick. The ceremony is now one slate -- round, franchise x decade, the
+#: round's pick order -- with reels that lock by 0.86 s and resolve at 1.0 s,
+#: and half a second of the settled pair before this deadline opens the pick
+#: (`PeakV2TMWReveal`, `TMW_REVEAL_SECONDS`, which mirrors this value).
+#:
+#: 3.8, FROM 1.5 (game-feel pass 5). Pass 4 fixed the LATENCY, and the reveal
+#: was shortened alongside it; played end to end, a 1.5 s roll read as a flash
+#: rather than a draw -- "blink and it's gone" -- and the one moment of
+#: anticipation a round has was lost. Latency stays fixed (nothing here waits
+#: on a round trip, and the pick window still opens with its full 45 s once
+#: the reveal ends). The client spends the window as: slate ~0.45 s, an armed
+#: beat, a franchise reel that lands first, a decade reel that keeps turning
+#: ~0.65 s longer, a lock, and half a second of the settled pair
+#: (`PeakV2TMWReveal`).
+REVEAL_SECONDS = 3.8
+
+#: THE BREATHING BEAT BEFORE A ROUND'S ROLL, in seconds (game-feel pass 5).
+#: The last pick of a round used to open the next reveal in the same response,
+#: so the ceremony scrim covered the board in the frame that landed the pick
+#: and nobody at the table saw where it went. A reveal opened BY A PICK now
+#: carries this lead ahead of the ceremony: the client shows the board with
+#: the drafted card locking in for `PICK_SETTLE_SECONDS`, then rolls. Part of
+#: the same server turn, so every seat sees the same beat and a reconnect lands
+#: on it correctly; the opening reveal (no pick before it) carries none.
+PICK_SETTLE_SECONDS = 1.4
+
+#: The whole window a pick-opened reveal turn runs for.
+ROUND_REVEAL_SECONDS = PICK_SETTLE_SECONDS + REVEAL_SECONDS
 
 #: Round one's ceremony window. It used to carry the matchup card as well and
 #: so ran longer; the matchup card is now the briefing phase's own
@@ -191,6 +244,34 @@ PHASE_INTRO = "intro"
 #: actually legible.
 INTRO_SECONDS = 4.0
 
+#: THE ARRIVAL PHASE -- the ONLY phase a match opens on (game-feel pass 4).
+#:
+#: THE DEFECT. The briefing's clock used to start at match creation. A client
+#: that reached the match late -- a cold route compile, a slow network, a queue
+#: handoff -- found the 4-second briefing partly or wholly spent on the server,
+#: and was dropped into the round-one ceremony or the draft without ever seeing
+#: who it was playing. The browser latency run reproduced it on an ordinary
+#: 750 ms connection: the first read landed 2.3 s into the 4 s briefing.
+#:
+#: THE FIX is the one PRIME CUT and FIND THE PRIME proved. A match opens in a
+#: seatless `arrival` turn: the briefing is on every client's screen but its
+#: clock has not started. Each HUMAN seat's client sends `tmw_intro_seen` once
+#: it has rendered the briefing (bots count as already arrived), and the
+#: briefing's own `INTRO_SECONDS` turn opens when the last human has done so --
+#: measured from that instant. Nothing can be drafted during arrival.
+#:
+#: THE BACKSTOP is for a human who never arrives (a closed tab in a private
+#: room). It opens the BRIEFING, never gameplay, so whoever is at the table
+#: still gets all of it.
+PHASE_ARRIVAL = "arrival"
+ARRIVAL_BACKSTOP_SECONDS = 20.0
+#: A human seat's client has the briefing on screen. Accepted only in arrival,
+#: once per seat; a repeat or a late report is refused by name (replay-safe).
+COMMAND_INTRO_SEEN = "tmw_intro_seen"
+EVENT_INTRO_SEEN = "tmw_intro_seen"
+REJECT_INTRO_STARTED = "intro_already_started"
+REJECT_INTRO_ALREADY_SEEN = "intro_already_seen"
+
 #: FORMER client commands, kept as names so a stale client is refused with a
 #: specific reason rather than "unknown command". Neither is accepted from
 #: any seat any more -- see `REJECT_SHARED_TIMELINE` and `reduce`.
@@ -228,13 +309,19 @@ REJECT_SHARED_TIMELINE = "shared_timeline"
 
 
 class ThreeManWeaveMode:
-    """The `ArenaMode` implementation. Stateless -- one instance is registered
-    process-wide and every method is a pure function of its arguments."""
+    """The `ArenaMode` implementation. Stateless -- one instance per ruleset is
+    registered process-wide and every method is a pure function of its
+    arguments. `variant` selects the standard game or a one-constraint draft."""
+
+    def __init__(self, variant: str = VARIANT_STANDARD) -> None:
+        if variant not in VARIANT_MODE_IDS:
+            raise ValueError(f"unknown Three-Man Weave variant {variant!r}")
+        self.variant = variant
 
     # -- identity ---------------------------------------------------------
     @property
     def mode(self) -> str:
-        return MODE_NAME
+        return VARIANT_MODE_IDS[self.variant]
 
     @property
     def mode_version(self) -> str:
@@ -249,11 +336,11 @@ class ThreeManWeaveMode:
         return TURN_SECONDS
 
     def initial_phase(self) -> str:
-        # EVERY match opens on the pre-match briefing, never directly on the
-        # ceremony -- see `PHASE_INTRO`. Its own timeout is what opens round
-        # one's `PHASE_REVEAL`, exactly the way the ceremony's own end opens
-        # the pick turn.
-        return PHASE_INTRO
+        # EVERY match opens on ARRIVAL: the briefing is on screen but its clock
+        # waits for the table -- see `PHASE_ARRIVAL`. Arrival opens the
+        # briefing (`PHASE_INTRO`), whose own timeout opens round one's
+        # `PHASE_REVEAL`, exactly the way the ceremony's own end opens the pick.
+        return PHASE_ARRIVAL
 
     def phase_seconds(self, phase: str) -> float:
         """How long a turn in this phase lasts.
@@ -272,6 +359,8 @@ class ThreeManWeaveMode:
         `_commit` (a round boundary) or by the intro's own timeout
         (`_open_ceremony_turn`) with their own constant.
         """
+        if phase == PHASE_ARRIVAL:
+            return ARRIVAL_BACKSTOP_SECONDS
         if phase == PHASE_INTRO:
             return INTRO_SECONDS
         if phase == PHASE_REVEAL:
@@ -286,7 +375,7 @@ class ThreeManWeaveMode:
         would draft underneath the briefing or the ceremony and either would
         be over before anybody saw it.
         """
-        return phase not in (PHASE_INTRO, PHASE_REVEAL)
+        return phase not in (PHASE_ARRIVAL, PHASE_INTRO, PHASE_REVEAL)
 
     def initial_turn_seat(self, snapshot: dict) -> Optional[int]:
         """Neither the briefing nor the ceremony belongs to a seat, so the
@@ -310,8 +399,18 @@ class ThreeManWeaveMode:
         """
         return human_seat_index(seed, PARTICIPANT_COUNT)
 
-    def bot_think_seconds(self, seed: int, seat_index: int, turn_seq: int) -> float:
-        """How long a bot seat appears to deliberate. Seeded, 4-10 seconds.
+    def bot_think_seconds(
+        self, seed: int, seat_index: int, turn_seq: int, snapshot: Optional[dict] = None
+    ) -> float:
+        """How long a bot seat appears to deliberate, SHAPED BY THE DECISION.
+
+        Game-feel pass 5: `snapshot` is the match's stored state, passed by the
+        foundation's driver (`bots.bot_think_seconds_for`) because this hook
+        accepts it. From it the bot seat's own board is rebuilt and scored by
+        `ThreeManWeaveBot.deliberation` -- a lone star lands in ~2-3 s, a real
+        toss-up takes ~8-11 s (`config.bot_think_seconds`). Without a snapshot
+        a typical pick's timing applies. Memoized per (variant, seed, seat,
+        turn, board), because the foundation asks on every read of a bot turn.
 
         Presentation only, and the foundation enforces it against the turn's
         stored `opened_at`. Never the human turn clock: three seats at 45
@@ -324,7 +423,8 @@ class ThreeManWeaveMode:
         without ever rendering the seat on the clock -- the deliberation the
         turn-status surface is built around was, in practice, unobservable.
         """
-        return bot_think_seconds(seed, seat_index, turn_seq)
+        deliberation = _bot_deliberation(self, snapshot, seat_index) if snapshot else None
+        return bot_think_seconds(seed, seat_index, turn_seq, deliberation)
 
     def bot_display_names(self, seed: int, count: int) -> tuple[str, ...]:
         """Distinct, human-facing names for this match's bot seats.
@@ -344,9 +444,19 @@ class ThreeManWeaveMode:
         recorded in the snapshot so a match built against a different index
         is detectable rather than silently reinterpreted.
         """
-        state = D.create_match(seed, participants=len(seats) or PARTICIPANT_COUNT)
+        participants = len(seats) or PARTICIPANT_COUNT
+        # THE ONE CONSTRAINT, drawn once from the seed (a variant only).
+        constraint: Optional[Constraint] = (
+            None if self.variant == VARIANT_STANDARD else choose_constraint(self.variant, seed, participants)
+        )
+        state = D.create_match(seed, participants=participants, constraint=constraint)
         state = self._open_round(state)
-        return self._to_snapshot(state)
+        snapshot = self._to_snapshot(state)
+        # ARRIVAL BOOKKEEPING, carried only until the briefing opens: every
+        # later snapshot is rebuilt by `_to_snapshot`, which does not carry it.
+        snapshot["arrival_open"] = True
+        snapshot["arrived_seats"] = []
+        return snapshot
 
     # -- rules ------------------------------------------------------------
     def reduce(self, data: ReducerInput) -> ReducerOutput:
@@ -359,7 +469,7 @@ class ThreeManWeaveMode:
         snapshot = data.match.snapshot or {}
 
         stored_version = snapshot.get("ruleset_version")
-        if stored_version and stored_version != RULESET_VERSION:
+        if stored_version and stored_version not in COMPATIBLE_RULESET_VERSIONS:
             # Refused rather than reinterpreted -- the same call
             # `run_the_table.state.assert_version_compatible` makes.
             return _reject(
@@ -376,6 +486,14 @@ class ThreeManWeaveMode:
             return _reject(REJECT_MATCH_COMPLETE, "The match is already complete")
 
         in_intro = data.open_turn is not None and data.open_turn.phase == PHASE_INTRO
+        in_arrival = data.open_turn is not None and data.open_turn.phase == PHASE_ARRIVAL
+
+        if command.command_type == COMMAND_TYPE_TIMEOUT and in_arrival:
+            # THE BACKSTOP: a human never reported. Open the BRIEFING for
+            # whoever is here -- never a ceremony, never a pick.
+            return self._open_intro_turn(data, state, TURN_RESOLUTION_TIMEOUT, events=())
+        if command.command_type == COMMAND_INTRO_SEEN:
+            return self._reduce_intro_seen(data, snapshot, state, in_arrival)
 
         if command.command_type == COMMAND_TYPE_TIMEOUT:
             # A TIMEOUT ON THE BRIEFING IS THE BRIEFING ENDING: it opens round
@@ -409,7 +527,7 @@ class ThreeManWeaveMode:
         # type: the briefing is exactly as blocking as the ceremony is for
         # `tmw_pick` below, and a future command must not have to remember to
         # add this check itself.
-        if in_intro:
+        if in_intro or in_arrival:
             return _reject(
                 REJECT_NOT_YOUR_TURN,
                 "The pre-match briefing has not been dismissed yet.",
@@ -567,19 +685,32 @@ class ThreeManWeaveMode:
 
         staged = state.staged_pick
         if staged is not None and D.staged_pick_is_still_legal(state, get_index(), staged):
-            return self._commit(
+            committed = self._commit(
                 data, state, seat_index, staged.player_slug, staged.slot_type, timed_out=True
             )
+            if committed.accepted:
+                return committed
 
-        choice = auto_pick(state, get_index())
-        if choice is None:
-            return _reject(
-                REJECT_NO_LEGAL_PICK,
-                f"seat {seat_index} has no legal selection -- roll feasibility should "
-                "have made this unreachable",
+        # EVERY FALLBACK, IN ORDER, UNTIL THE RULES ACCEPT ONE. A timeout that
+        # tried a single choice and was refused (the last pick of a round must
+        # leave the next round a feasible roll) was refused again on every
+        # read, and the match never moved again. The first accepted choice is
+        # still the deterministic v1-shaped auto-pick whenever that one is legal.
+        refused: Optional[ReducerOutput] = None
+        for choice in auto_pick_options(state, get_index()):
+            committed = self._commit(
+                data, state, seat_index, choice.player_slug, choice.slot_type,
+                timed_out=True, placements=choice.placements,
             )
-        return self._commit(
-            data, state, seat_index, choice.player_slug, choice.slot_type, timed_out=True
+            if committed.accepted:
+                return committed
+            refused = refused or committed
+        if refused is not None:
+            return refused
+        return _reject(
+            REJECT_NO_LEGAL_PICK,
+            f"seat {seat_index} has no legal selection -- roll feasibility and the "
+            "round-keeper rule should have made this unreachable",
         )
 
     def _reduce_stage_pick(self, data: ReducerInput, state: D.DraftState) -> ReducerOutput:
@@ -725,7 +856,10 @@ class ThreeManWeaveMode:
         # `opened_round` is true exactly when this command drew a new roll, so
         # the reveal fires once per round and mid-round picks hand straight to
         # the next seat.
-        if opened_round:
+        # A VARIANT'S CONSTRAINT WAS SPUN ONCE, before round one; its later
+        # rounds hand straight to the next seat. The standard game spins
+        # every round.
+        if opened_round and state.constraint is None:
             return ReducerOutput(
                 accepted=True,
                 snapshot=self._to_snapshot(state),
@@ -734,7 +868,8 @@ class ThreeManWeaveMode:
                 open_turn=TurnDraft(
                     phase=PHASE_REVEAL,
                     seat_index=None,
-                    deadline_at=data.now + timedelta(seconds=REVEAL_SECONDS),
+                    # The settle beat leads the ceremony (`PICK_SETTLE_SECONDS`).
+                    deadline_at=data.now + timedelta(seconds=ROUND_REVEAL_SECONDS),
                 ),
                 status=MATCH_STATUS_ACTIVE,
             )
@@ -748,6 +883,66 @@ class ThreeManWeaveMode:
                 phase=PHASE_PICK,
                 seat_index=state.current_seat,
                 deadline_at=data.now + timedelta(seconds=TURN_SECONDS),
+            ),
+            status=MATCH_STATUS_ACTIVE,
+        )
+
+    def _reduce_intro_seen(
+        self, data: ReducerInput, snapshot: dict, state: D.DraftState, in_arrival: bool
+    ) -> ReducerOutput:
+        """A human seat's client has the briefing on screen.
+
+        Records the seat; when every HUMAN seat has reported, opens the
+        briefing's own timed turn from THIS instant. Bots never report: they
+        are at the table by construction. Refused by name when the briefing is
+        already running or this seat already reported, so a retried or
+        duplicated report changes nothing.
+        """
+        seat_index = data.command.actor_seat_index
+        seat = next((s for s in data.seats if s.seat_index == seat_index), None)
+        if seat is None or seat.is_bot:
+            return _reject(REJECT_NOT_YOUR_ROSTER, "Only a player's own client can report arriving.")
+        if not in_arrival or not snapshot.get("arrival_open"):
+            return _reject(REJECT_INTRO_STARTED, "The briefing is already running.")
+        arrived = set(snapshot.get("arrived_seats") or [])
+        if seat_index in arrived:
+            return _reject(REJECT_INTRO_ALREADY_SEEN, "The briefing is already on your screen.")
+        arrived.add(seat_index)
+        event = EventDraft(
+            event_type=EVENT_INTRO_SEEN,
+            actor_seat_index=seat_index,
+            visibility=VISIBILITY_PUBLIC,
+            payload={"seat_index": seat_index},
+        )
+        humans = {s.seat_index for s in data.seats if not s.is_bot}
+        if humans <= arrived:
+            return self._open_intro_turn(data, state, TURN_RESOLUTION_ACTION, events=(event,))
+        waiting = dict(snapshot)
+        waiting["arrived_seats"] = sorted(arrived)
+        return ReducerOutput(
+            accepted=True,
+            snapshot=waiting,
+            events=(event,),
+            resolve_turn=None,
+            open_turn=None,
+            status=None,
+        )
+
+    def _open_intro_turn(
+        self, data: ReducerInput, state: D.DraftState, resolution: str, events: tuple
+    ) -> ReducerOutput:
+        """Arrival is over: open the briefing with its FULL `INTRO_SECONDS`,
+        measured from now. The snapshot drops the arrival bookkeeping and is
+        otherwise unchanged -- no pick, no redraw."""
+        return ReducerOutput(
+            accepted=True,
+            snapshot=self._to_snapshot(state),
+            events=events,
+            resolve_turn=resolution,
+            open_turn=TurnDraft(
+                phase=PHASE_INTRO,
+                seat_index=None,
+                deadline_at=data.now + timedelta(seconds=INTRO_SECONDS),
             ),
             status=MATCH_STATUS_ACTIVE,
         )
@@ -957,6 +1152,20 @@ class ThreeManWeaveMode:
             "current_roll": (
                 {
                     **current_roll.as_dict(),
+                    # A variant's open dimension, named for people rather than
+                    # as the placeholder key the snapshot stores.
+                    **(
+                        {
+                            "variant": state.constraint.kind,
+                            **(
+                                {"decade": "All decades"}
+                                if state.constraint.kind == VARIANT_FRANCHISE
+                                else {}
+                            ),
+                        }
+                        if state.constraint is not None
+                        else {}
+                    ),
                     # THE FULL ELIGIBLE POOL, in the roll's own sorted order --
                     # never narrowed to whichever players suit the asking
                     # seat's open slots, and never ordered by a score. Already
@@ -972,7 +1181,7 @@ class ThreeManWeaveMode:
                     # the number back whether or not it was printed.
                     "candidates": [
                         self._candidate_public(
-                            slug, current_roll.franchise_id, current_roll.decade
+                            slug, *state.card_key(slug), constraint=state.constraint
                         )
                         for slug in current_roll.eligible_slugs
                         if slug not in drafted
@@ -982,14 +1191,32 @@ class ThreeManWeaveMode:
                 else None
             ),
         }
+        public_state["variant"] = self.variant
+        if state.constraint is not None:
+            # The constraint, never its resolved cards: which season (and so
+            # which decade or franchise) a candidate is scored on stays on the
+            # server until the pick is made, exactly as in the standard game.
+            public_state["constraint"] = state.constraint.public_dict()
         if state.is_complete and snapshot.get("results"):
             public_state["results"] = snapshot["results"]
+        if snapshot.get("arrival_open"):
+            # Who is already at the table, so a room can say who it waits on.
+            public_state["arrival"] = {"arrived_seats": list(snapshot.get("arrived_seats") or [])}
 
         # `private_state` holds only THIS seat's own derivations. There is no
         # per-seat secret in a draft, so nothing here is denied to anyone --
         # it is a convenience, not a confidence.
         private_state: dict = {"seat_index": seat_index}
         legal_commands: tuple[str, ...] = ()
+        seat_row = next((s for s in seats if s.seat_index == seat_index), None)
+        if (
+            match.is_live()
+            and snapshot.get("arrival_open")
+            and seat_row is not None
+            and not seat_row.is_bot
+            and seat_index not in (snapshot.get("arrived_seats") or [])
+        ):
+            return public_state, private_state, (COMMAND_INTRO_SEEN,)
         if 0 <= seat_index < len(state.rosters):
             roster = state.roster(seat_index)
             private_state["open_slots"] = list(roster.open_slots())
@@ -1059,7 +1286,36 @@ class ThreeManWeaveMode:
             roster.seat_index: list(roster.picks()) for roster in state.rosters
         }
         depth = min((len(picks) for picks in picks_by_seat.values()), default=0)
-        bands = current_edges(picks_by_seat, get_index(), state.match_seed)
+        # MEMOIZED ON THE PICKS (game-feel pass 4). The bands are a pure
+        # function of the seed and every seat's picks, but computing them runs
+        # the lineup evaluator over each roster -- 97% of a 24-45 ms projection
+        # -- and a projection runs on every poll, every command response and
+        # every bot's view, while the picks change a few times a minute.
+        key = (
+            state.match_seed,
+            tuple(
+                sorted(
+                    (
+                        roster.seat_index,
+                        tuple(
+                            sorted(
+                                (p.round_number, p.slot_type, p.player_slug, p.franchise_id, p.decade)
+                                for p in roster.picks()
+                            )
+                        ),
+                    )
+                    for roster in state.rosters
+                )
+            ),
+        )
+        bands = _EDGE_CACHE.get(key)
+        if bands is None:
+            bands = current_edges(picks_by_seat, get_index(), state.match_seed)
+            _EDGE_CACHE[key] = bands
+            while len(_EDGE_CACHE) > _EDGE_CACHE_SIZE:
+                _EDGE_CACHE.popitem(last=False)
+        else:
+            _EDGE_CACHE.move_to_end(key)
         return {
             "is_live": True,
             "compared_after_picks": depth,
@@ -1173,7 +1429,9 @@ class ThreeManWeaveMode:
             ],
         }
 
-    def _candidate_public(self, player_slug: str, franchise_id: str, decade: str) -> dict:
+    def _candidate_public(
+        self, player_slug: str, franchise_id: str, decade: str, constraint: Optional[Constraint] = None
+    ) -> dict:
         """An UNDRAFTED candidate: everything except what they are worth.
 
         Deliberately a different function from `_player_public` rather than the
@@ -1185,7 +1443,11 @@ class ThreeManWeaveMode:
         return {
             "player_slug": player_slug,
             "player_name": index.player_name(player_slug) or player_slug,
-            "eligibility": self._eligibility_public(player_slug, franchise_id, decade),
+            "eligibility": (
+                _constraint_eligibility(player_slug, constraint.kind, constraint.value, constraint.label)
+                if constraint is not None
+                else self._eligibility_public(player_slug, franchise_id, decade)
+            ),
             # The positions they may legally start at ON THIS CARD -- a rule
             # of the game and the thing a drafter reasons about, carrying no
             # valuation. Season-grain, not career-grain: the card is what the
@@ -1240,6 +1502,12 @@ class ThreeManWeaveMode:
         round_number = state.current_round
         if round_number is None:  # pragma: no cover - callers check is_complete
             return state
+        if state.constraint is not None:
+            # A variant's pool is the constraint itself; completability is kept
+            # pick by pick (`draft.round_keepers`), so there is nothing to draw.
+            return D.set_roll(
+                state, constraint_roll(state.constraint, round_number, state.drafted_identities())
+            )
         roll = F.roll_next(
             get_index(),
             state.rosters,
@@ -1262,6 +1530,108 @@ class ThreeManWeaveMode:
         return snapshot
 
 
+#: `_bot_deliberation`'s memo. Bounded LRU of floats.
+_DELIBERATION_CACHE: "OrderedDict[tuple, Optional[float]]" = OrderedDict()
+_DELIBERATION_CACHE_SIZE = 1024
+
+
+def _bot_deliberation(mode_obj: "ThreeManWeaveMode", snapshot: dict, seat_index: int) -> Optional[float]:
+    """How hard the board in `snapshot` looks to the bot seat on the clock.
+
+    Rebuilds exactly the fields `ThreeManWeaveBot.options` reads from `project`
+    (the roll and its undrafted candidates, the constraint, this seat's open
+    slots, assignment and candidate fits) straight from the draft state --
+    `project` itself needs the match row and seats, which this hook is not
+    given. None when the seat is not the one on the clock or nothing can be
+    read; the think time then falls back to a typical pick.
+    """
+    try:
+        state = D.DraftState.from_dict(snapshot)
+    except (KeyError, TypeError, ValueError):
+        return None
+    roll = state.current_roll
+    if roll is None or state.is_complete or state.current_seat != seat_index:
+        return None
+    roster = state.roster(seat_index)
+    key = (
+        mode_obj.variant,
+        state.match_seed,
+        seat_index,
+        state.turn_index,
+        roll.roll_id,
+        # WHO HOLDS WHICH SLOT, per seat -- not merely who is drafted. Two
+        # boards with the same drafted set but different owners or slots have
+        # different candidate fits, so they must not share a think time.
+        tuple(
+            (r.seat_index, tuple(sorted((slot, pick.player_slug) for slot, pick in r.slots.items() if pick)))
+            for r in state.rosters
+        ),
+    )
+    if key in _DELIBERATION_CACHE:
+        _DELIBERATION_CACHE.move_to_end(key)
+        return _DELIBERATION_CACHE[key]
+    try:
+        drafted = state.drafted_identities()
+        fits = D.candidate_fits(state, get_index(), seat_index)
+        public = {
+            "current_roll": {
+                **roll.as_dict(),
+                "candidates": [{"player_slug": slug} for slug in roll.eligible_slugs if slug not in drafted],
+            },
+            "constraint": state.constraint.public_dict() if state.constraint is not None else None,
+        }
+        private = {
+            "seat_index": seat_index,
+            "open_slots": list(roster.open_slots()),
+            "assignment": {slot: (pick.player_slug if pick else None) for slot, pick in roster.slots.items()},
+            "candidate_fits": {slug: fit.as_dict() for slug, fit in sorted(fits.items())},
+        }
+        value: Optional[float] = bot.deliberation(public, private)
+    except Exception:  # pragma: no cover - presentation must never wedge a turn
+        value = None
+    _DELIBERATION_CACHE[key] = value
+    while len(_DELIBERATION_CACHE) > _DELIBERATION_CACHE_SIZE:
+        _DELIBERATION_CACHE.popitem(last=False)
+    return value
+
+
+#: `ThreeManWeaveMode._current_edge`'s memo: (seed, picks) -> bands. Bounded
+#: LRU; an entry is a handful of short strings.
+_EDGE_CACHE: "OrderedDict[tuple, dict]" = OrderedDict()
+_EDGE_CACHE_SIZE = 2048
+
+
+@functools.lru_cache(maxsize=4096)
+def _constraint_eligibility(player_slug: str, kind: str, value: str, label: str) -> dict:
+    """A variant candidate's eligibility evidence: every season with the
+    franchise (Franchise Draft) or in the decade (Decade Draft). Public facts
+    about where a player played -- deliberately NOT narrowed to the season the
+    card resolves to, which would reveal where their best PEAK3 season sits."""
+    index = get_index()
+    seasons: list[dict] = []
+    for franchise_id, decade in index.rolls():
+        if kind == VARIANT_FRANCHISE and franchise_id != value:
+            continue
+        if kind == VARIANT_DECADE and decade != value:
+            continue
+        for appearance in index.evidence(player_slug, franchise_id, decade):
+            seasons.append(
+                {
+                    "season": appearance.season,
+                    "team_code": appearance.team_code,
+                    "games_played": appearance.games_played,
+                    "via": appearance.via,
+                }
+            )
+    seasons.sort(key=lambda row: (row["season"], row["team_code"]))
+    return {
+        "franchise_id": value if kind == VARIANT_FRANCHISE else "ANY",
+        "franchise_display_name": label if kind == VARIANT_FRANCHISE else "All franchises",
+        "decade": value if kind == VARIANT_DECADE else "any",
+        "seasons": seasons,
+    }
+
+
 class _NoFeasibleRoll(RuntimeError):
     """Raised internally when the validated roll space is exhausted."""
 
@@ -1282,8 +1652,10 @@ def _reject(code: str, message: str) -> ReducerOutput:
     return ReducerOutput(accepted=False, rejection_code=code, rejection_message=message)
 
 
-#: The single registered instance.
+#: The registered instances: the standard game and its two one-constraint drafts.
 mode = ThreeManWeaveMode()
+franchise_mode = ThreeManWeaveMode(VARIANT_FRANCHISE)
+decade_mode = ThreeManWeaveMode(VARIANT_DECADE)
 
 #: The mode's own bot policy. Registered beside the mode below.
 bot = ThreeManWeaveBot()
@@ -1306,6 +1678,8 @@ def register(registry_obj: Optional[object] = None) -> ThreeManWeaveMode:
 
         registry_obj = default_registry
     registry_obj.register(mode)  # type: ignore[attr-defined]
+    registry_obj.register(franchise_mode)  # type: ignore[attr-defined]
+    registry_obj.register(decade_mode)  # type: ignore[attr-defined]
     return mode
 
 
@@ -1321,7 +1695,7 @@ def register_bot() -> ThreeManWeaveBot:
     """
     from app.services.arena import bots as bot_service
 
-    bot_service.registry.register(bot, for_modes=(MODE_NAME,))
+    bot_service.registry.register(bot, for_modes=(MODE_NAME, MODE_FRANCHISE, MODE_DECADE))
     return bot
 
 
@@ -1351,6 +1725,11 @@ def warm_caches() -> None:
     safe at API startup with no services available.
     """
     get_index()
+    # The one-constraint drafts' viable constraints (a pool resolution and a
+    # completability matching per franchise and decade) -- once, here, not on
+    # the first match's creation.
+    viable_constraints(VARIANT_FRANCHISE)
+    viable_constraints(VARIANT_DECADE)
     # A real lookup, not a private cache poke -- this goes through
     # `career_positions()`'s own build path, so it warms whatever that
     # function actually populates rather than whatever it populated when this
@@ -1366,6 +1745,13 @@ register()
 register_bot()
 
 __all__ = [
+    "MODE_DECADE",
+    "MODE_FRANCHISE",
+    "decade_mode",
+    "franchise_mode",
+    "ARRIVAL_BACKSTOP_SECONDS",
+    "COMMAND_INTRO_SEEN",
+    "PHASE_ARRIVAL",
     "COMMAND_PICK",
     "COMMAND_STAGE_PICK",
     "COMMAND_SKIP_INTRO",

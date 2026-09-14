@@ -30,6 +30,7 @@ import {
   ModeId,
   RUN_THE_TABLE_DAILY_HREF,
 } from "@/lib/modes";
+import { familyRulesets, variantLabelOf } from "@/lib/arena-modes";
 
 /* ------------------------------------------------------------------ */
 /* Constants                                                           */
@@ -97,6 +98,13 @@ export interface NavItem {
    * current page at once, which is worse than neither being highlighted.
    */
   absentQuery?: readonly string[];
+  /**
+   * Rulesets of this game, listed indented beneath it (Three-Man Weave's
+   * Classic, Franchise Draft and Decade Draft). Destinations in their own
+   * right: they are checked by `navModelIssues` and counted by the href
+   * inventories exactly like top-level items.
+   */
+  children?: NavItem[];
 }
 
 export interface NavGroup {
@@ -311,8 +319,30 @@ export function navGroups(availability: NavAvailability = {}): NavGroup[] {
   // are the only modes in the product where somebody else is at the table, and
   // "play against a person" is a different decision from "compare my score to
   // a board".
+  //
+  // A game with several rulesets is ONE row with its rulesets nested beneath
+  // it, never three sibling rows: Franchise Draft and Decade Draft are ways to
+  // play Three-Man Weave, not further games. Derived from the Arena
+  // catalogue's `variantOf`, so no mode is named here.
   const multiplayer: NavItem[] = flags.multiplayer
-    ? MULTIPLAYER_MODE_IDS.map((id) => fromMode(id, { activePrefix: "/arena/lobby" }))
+    ? MULTIPLAYER_MODE_IDS.map((id) => {
+        const item = fromMode(id, { activePrefix: "/arena/lobby" });
+        const rulesets = familyRulesets(id.replace(/-/g, "_"));
+        if (rulesets.length > 1) {
+          item.children = rulesets.map((ruleset) =>
+            link({
+              id: `variant-${ruleset.id.replace(/_/g, "-")}`,
+              label: variantLabelOf(ruleset),
+              href: `/arena/lobby?game=${ruleset.id}`,
+              kind: "game",
+              blurb: ruleset.variantSummary ?? ruleset.tagline,
+              iconKey: item.iconKey,
+              activePrefix: "/arena/lobby",
+            }),
+          );
+        }
+        return item;
+      })
     : [];
 
   const competitive: NavItem[] = [];
@@ -549,11 +579,18 @@ export function isActive(
 /* Invariants                                                          */
 /* ------------------------------------------------------------------ */
 
+/** A group's items with each item's nested rulesets following it, in menu
+ *  order. Every inventory and invariant below reads through this, so a nested
+ *  row is never a destination the checks cannot see. */
+export function flattenNavItems(items: readonly NavItem[]): NavItem[] {
+  return items.flatMap((item) => [item, ...(item.children ?? [])]);
+}
+
 /** Every playable href the launcher exposes, in menu order, deduplicated. */
 export function allGameHrefs(availability: NavAvailability = {}): string[] {
   const seen = new Set<string>();
   for (const group of navGroups(availability)) {
-    for (const item of group.items) {
+    for (const item of flattenNavItems(group.items)) {
       if (item.kind === "game") seen.add(item.href);
     }
   }
@@ -570,7 +607,7 @@ export function allGameHrefs(availability: NavAvailability = {}): string[] {
 export function allNavHrefs(availability: NavAvailability = {}): string[] {
   const seen = new Set<string>();
   for (const group of navGroups(availability)) {
-    for (const item of group.items) seen.add(item.href);
+    for (const item of flattenNavItems(group.items)) seen.add(item.href);
   }
   for (const item of topLevelLinks) seen.add(item.href);
   for (const href of accountNavHrefs()) seen.add(href);
@@ -595,7 +632,7 @@ export function allNavHrefs(availability: NavAvailability = {}): string[] {
 export function navModelIssues(availability: NavAvailability = {}): string[] {
   const issues: string[] = [];
   const groups = navGroups(availability);
-  const items = groups.flatMap((group) => group.items);
+  const items = groups.flatMap((group) => flattenNavItems(group.items));
 
   const ids = new Map<string, number>();
   const hrefs = new Map<string, number>();

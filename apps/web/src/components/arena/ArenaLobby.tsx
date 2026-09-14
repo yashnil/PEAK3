@@ -1,13 +1,17 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { reportMatchmakingWait } from "@/lib/game-feel/action-timing";
+import { primeMatchView } from "@/lib/game-feel/match-handoff";
 
 import {
   arenaLobbyApi,
   ArenaAPIError,
   normaliseRoomCode,
   searchLabel,
+  skillBandLabel,
   type ArenaMatchStub,
   type ArenaReadiness,
   type QueueStatus,
@@ -16,8 +20,11 @@ import {
   BOT_PRACTICE_LABEL,
   HUMAN_PREFERENCE_SECONDS,
   entryPath,
+  groupModeFamilies,
   seatLabel,
+  variantLabelOf,
   type EntryPathId,
+  type ModeFamily,
   type OfferableMode,
 } from "@/lib/arena-modes";
 import {
@@ -104,6 +111,8 @@ export default function ArenaLobby() {
   // poll that resolves while `router.push` is already navigating fires a second
   // push, and the player lands on the match twice in their history.
   const navigated = useRef(false);
+  // When the current public search was pressed, for the wait telemetry.
+  const queueJoinedAt = useRef<number | null>(null);
 
   useEffect(() => {
     arenaLobbyApi
@@ -133,6 +142,18 @@ export default function ArenaLobby() {
     [router],
   );
 
+  // A public-queue match: report the search's length once, then go.
+  const matchedFromQueue = useCallback(
+    (target: OfferableMode, matchId: string) => {
+      if (queueJoinedAt.current !== null && !navigated.current) {
+        reportMatchmakingWait(target.id, queueJoinedAt.current);
+        queueJoinedAt.current = null;
+      }
+      go(target, matchId);
+    },
+    [go],
+  );
+
   const handle = useCallback((err: unknown) => {
     const apiError = err as ArenaAPIError;
     setError(apiError.status === 0 ? "Could not reach the PEAK3 API." : apiError.message);
@@ -149,14 +170,14 @@ export default function ArenaLobby() {
         setQueue(status);
         if (status.status === "matched" && status.match_id) {
           clearInterval(id);
-          go(queueMode, status.match_id);
+          matchedFromQueue(queueMode, status.match_id);
         }
       } catch (err) {
         handle(err);
       }
     }, POLL_MS);
     return () => clearInterval(id);
-  }, [queueMode, go, handle]);
+  }, [queueMode, matchedFromQueue, handle]);
 
   // Poll a private room until it fills. It starts itself the moment the last
   // seat is taken -- there is no "start" button because the server needs no
@@ -186,15 +207,18 @@ export default function ArenaLobby() {
       try {
         if (path === "practice") {
           const match = await arenaLobbyApi.startPractice(mode.id);
+          // The room mounts on this authoritative view instead of reading it again.
+          primeMatchView(match);
           go(mode, match.match_id);
         } else if (path === "private_room") {
           const match = await arenaLobbyApi.createPrivate(mode.id);
           setRoomMode(mode);
           setRoom(match);
         } else {
+          queueJoinedAt.current = performance.now();
           const status = await arenaLobbyApi.joinQueue(mode.id);
           if (status.status === "matched" && status.match_id) {
-            go(mode, status.match_id);
+            matchedFromQueue(mode, status.match_id);
           } else {
             setQueueMode(mode);
             setQueue(status);
@@ -206,7 +230,7 @@ export default function ArenaLobby() {
         setPending(null);
       }
     },
-    [pending, go, handle],
+    [pending, go, matchedFromQueue, handle],
   );
 
   const cancelSearch = useCallback(async () => {
@@ -216,6 +240,7 @@ export default function ArenaLobby() {
     } catch (err) {
       handle(err);
     }
+    queueJoinedAt.current = null;
     setQueue(null);
     setQueueMode(null);
   }, [queueMode, handle]);
@@ -224,11 +249,11 @@ export default function ArenaLobby() {
     if (!queueMode) return;
     try {
       const status = await arenaLobbyApi.fillWithBotsNow(queueMode.id);
-      if (status.status === "matched" && status.match_id) go(queueMode, status.match_id);
+      if (status.status === "matched" && status.match_id) matchedFromQueue(queueMode, status.match_id);
     } catch (err) {
       handle(err);
     }
-  }, [queueMode, go, handle]);
+  }, [queueMode, matchedFromQueue, handle]);
 
   const fillRoom = useCallback(async () => {
     if (!room || !roomMode) return;
@@ -299,6 +324,9 @@ export default function ArenaLobby() {
   }
 
   const highlighted = params?.get("game") ?? null;
+  // `?family=` names a whole game (the Play menu's Three-Man Weave row) rather
+  // than one of its rulesets.
+  const highlightedFamily = params?.get("family") ?? null;
 
   // ---- the queue takeover -------------------------------------------------
 
@@ -346,25 +374,46 @@ export default function ArenaLobby() {
         </p>
       ) : null}
 
+      {/* ONE CARD PER GAME, NOT PER RULESET. Franchise Draft and Decade Draft
+          are ways to play Three-Man Weave, so they render as that family's
+          formats inside one card rather than as further games beside it.
+          Grouped from `variantOf` alone; nothing here names a mode. */}
       <ul className="ar-grid" data-testid="lobby-mode-grid">
-        {capability.modes.map((mode) => (
-          <li key={mode.id}>
-            <GameCard
-              mode={mode}
-              highlighted={highlighted === mode.id}
-              capability={capability}
-              pending={pending}
-              onStart={(path) => void start(mode, path)}
-              joinOpen={joinOpenFor === mode.id}
-              onToggleJoin={() =>
-                setJoinOpenFor((current) => (current === mode.id ? null : mode.id))
-              }
-              joinCode={joinCode}
-              onJoinCode={setJoinCode}
-              onJoinSubmit={() => void joinByCode()}
-            />
-          </li>
-        ))}
+        {withRowSpans(groupModeFamilies(capability.modes)).map(({ family, spanRow }) => {
+          const actions: EntryActionsShared = {
+            capability,
+            pending,
+            onStart: (mode, path) => void start(mode, path),
+            joinOpenFor,
+            onToggleJoin: (modeId) =>
+              setJoinOpenFor((current) => (current === modeId ? null : modeId)),
+            joinCode,
+            onJoinCode: setJoinCode,
+            onJoinSubmit: () => void joinByCode(),
+          };
+          if (family.variants.length > 1) {
+            return (
+              <li
+                key={family.id}
+                className="ar-grid-family"
+                style={{ "--ar-variant-count": family.variants.length } as CSSProperties}
+              >
+                <FamilyCard
+                  family={family}
+                  highlightedModeId={highlighted}
+                  familyHighlighted={highlightedFamily === family.id}
+                  {...actions}
+                />
+              </li>
+            );
+          }
+          const mode = family.variants[0];
+          return (
+            <li key={mode.id} data-span={spanRow ? "row" : undefined}>
+              <GameCard mode={mode} highlighted={highlighted === mode.id} {...actions} />
+            </li>
+          );
+        })}
       </ul>
 
       {/* WHAT IS HELD BACK, SAID ONCE. It used to be said on every card, as a
@@ -406,7 +455,7 @@ function LobbyShell({
           `PeakV2Shell` supplies the page-width/centering this element used
           to hand-mimic via a CSS override. */}
       <div
-        className="pb-14 pt-9"
+        className="ar-lobby-page pb-14 pt-9"
         data-testid="arena-lobby"
         data-posture={capability?.posture ?? "loading"}
         style={{ "--pk-court-grid-size": "96px" } as CSSProperties}
@@ -439,6 +488,27 @@ function LobbyShell({
               {headline.intro}
             </p>
           ) : null}
+          <p className="mt-1 flex flex-wrap gap-x-5 gap-y-1 text-sm">
+            <Link
+              href="/arena/leaderboard"
+              data-testid="lobby-leaderboard-link"
+              className="font-semibold underline-offset-4 hover:underline"
+              style={{ color: "var(--v2-color-accent)" }}
+            >
+              Rated leaderboards →
+            </Link>
+            {/* A game the lobby does not have yet is exactly the note the
+                homepage's feedback form exists for; it opens with that kind
+                chosen. */}
+            <Link
+              href="/?feedback=game_idea#feedback"
+              data-testid="lobby-suggest-mode"
+              className="font-semibold underline-offset-4 hover:underline"
+              style={{ color: "var(--v2-text-secondary)" }}
+            >
+              Suggest a game mode →
+            </Link>
+          </p>
         </header>
         <PeakV2Rule spacing="md" />
         {children}
@@ -539,29 +609,296 @@ function ComingLater() {
 /* One game                                                            */
 /* ------------------------------------------------------------------ */
 
-function GameCard({
-  mode,
-  highlighted,
-  capability,
-  pending,
-  onStart,
-  joinOpen,
-  onToggleJoin,
-  joinCode,
-  onJoinCode,
-  onJoinSubmit,
-}: {
-  mode: OfferableMode;
-  highlighted: boolean;
+/**
+ * Which single-ruleset cards would sit alone in a row of the two-up grid.
+ *
+ * A family card takes a whole row (see `arena-lobby.css`), so a lone card
+ * before it -- or at the end of the list -- would leave half a row empty. Those
+ * cards are marked to take the row instead. On a one-column phone the mark
+ * changes nothing.
+ */
+function withRowSpans<T extends OfferableMode>(families: ModeFamily<T>[]) {
+  const out = families.map((family) => ({ family, spanRow: false }));
+  let open: number | null = null; // a single card waiting for a partner
+  out.forEach((entry, index) => {
+    if (entry.family.variants.length > 1) {
+      if (open !== null) out[open].spanRow = true;
+      open = null;
+    } else {
+      open = open === null ? index : null;
+    }
+  });
+  if (open !== null) out[open].spanRow = true;
+  return out;
+}
+
+/** What every card's actions need from the lobby, for any mode on it. */
+interface EntryActionsShared {
   capability: ArenaCapability;
   pending: Pending;
-  onStart: (path: EntryPathId) => void;
-  joinOpen: boolean;
-  onToggleJoin: () => void;
+  onStart: (mode: OfferableMode, path: EntryPathId) => void;
+  /** The mode whose Play With Friends control is open, if any. */
+  joinOpenFor: string | null;
+  onToggleJoin: (modeId: string) => void;
   joinCode: string;
   onJoinCode: (value: string) => void;
   onJoinSubmit: () => void;
+}
+
+function GameCard({
+  mode,
+  highlighted,
+  ...shared
+}: EntryActionsShared & {
+  mode: OfferableMode;
+  highlighted: boolean;
 }) {
+  const alpha = shared.capability.posture === "practice_only";
+
+  return (
+    <article
+      // A mode card is the object you pick a match from. `.pk-lift` gives it
+      // the product's one hover behaviour -- the same two pixels and the same
+      // shadow tier every other card in the app uses -- and `.pk-crown` the
+      // lit top edge. No `.pk-press`: the card itself is not the control, the
+      // buttons inside it are, and a card that depresses under a click that
+      // lands on a button would be claiming the press.
+      className="ar-card pk-lift pk-crown"
+      data-testid={`lobby-mode-${mode.id}`}
+      data-highlighted={highlighted ? "true" : "false"}
+    >
+      <span className="ar-card-rail" aria-hidden="true" />
+
+      <CardHead
+        testIdBase={mode.id}
+        kindBadge={mode.kindBadge}
+        alpha={alpha}
+        title={mode.name}
+        tagline={mode.tagline}
+      />
+
+      <p className="ar-card-body">{mode.description}</p>
+
+      <ul className="ar-facts">
+        <li>{seatLabel(mode.seatCount)}</li>
+        <li>{mode.duration}</li>
+        <li>Unrated in alpha</li>
+      </ul>
+
+      <EntryActions mode={mode} {...shared} />
+
+      {alpha ? (
+        <p className="ar-card-later" data-testid={`lobby-${mode.id}-matchmaking-note`}>
+          Live matchmaking against another player comes later in the alpha.
+        </p>
+      ) : null}
+
+      <PrivateJoin mode={mode} {...shared} />
+
+      <HowToPlay title={mode.name} rules={mode.rules} testId={`lobby-rules-${mode.id}`} />
+    </article>
+  );
+}
+
+/**
+ * ONE GAME PLAYED UNDER SEVERAL RULESETS: one card, its formats as rows.
+ *
+ * THE DEFECT THIS REPLACES. Franchise Draft and Decade Draft rendered as two
+ * more cards beside Three-Man Weave, each repeating the Weave's badges, seat
+ * count and snake-draft pitch, so the lobby read as three unrelated games and
+ * the relationship between them was left for the visitor to work out. The
+ * family is now the card and each ruleset a row inside it -- its own name,
+ * one line on how it differs, its own length, its own actions and rules. All
+ * rows are on screen at once: choosing a format is one press, not a tab
+ * switch followed by a press, and every ruleset's actions keep their own
+ * `lobby-<modeId>-<path>` testids.
+ */
+function FamilyCard({
+  family,
+  highlightedModeId,
+  familyHighlighted,
+  ...shared
+}: EntryActionsShared & {
+  family: ModeFamily<OfferableMode>;
+  /** `?game=`: a ruleset the visitor was sent to. */
+  highlightedModeId: string | null;
+  /** `?family=`: the whole game. */
+  familyHighlighted: boolean;
+}) {
+  const alpha = shared.capability.posture === "practice_only";
+  const lead = family.variants[0];
+  const intro = family.parent?.family;
+  const rowHighlighted = family.variants.some((variant) => variant.id === highlightedModeId);
+  const headingId = `lobby-family-${family.id}-formats`;
+
+  return (
+    <article
+      className="ar-card ar-family pk-lift pk-crown"
+      data-testid={`lobby-mode-${family.id}`}
+      data-family={family.id}
+      data-highlighted={familyHighlighted || rowHighlighted ? "true" : "false"}
+    >
+      <span className="ar-card-rail" aria-hidden="true" />
+
+      <CardHead
+        testIdBase={family.id}
+        kindBadge={(family.parent ?? lead).kindBadge}
+        alpha={alpha}
+        title={family.name}
+        tagline={intro?.tagline ?? lead.tagline}
+      />
+
+      <p className="ar-card-body">{intro?.description ?? lead.description}</p>
+
+      <ul className="ar-facts">
+        <li>{seatLabel(lead.seatCount)}</li>
+        <li>{family.variants.length} formats</li>
+        <li>Unrated in alpha</li>
+      </ul>
+
+      <p className="ar-variants-label" id={headingId}>
+        Choose a format
+      </p>
+      <ol className="ar-variants" aria-labelledby={headingId} data-testid={`lobby-family-${family.id}`}>
+        {family.variants.map((variant) => {
+          const highlighted = variant.id === highlightedModeId;
+          return (
+            <li
+              key={variant.id}
+              className="ar-variant"
+              data-testid={`lobby-variant-${variant.id}`}
+              data-highlighted={highlighted ? "true" : "false"}
+              aria-current={highlighted ? "true" : undefined}
+            >
+              <div className="ar-variant-head">
+                <h3 className="ar-variant-title">{variantLabelOf(variant)}</h3>
+                <span className="ar-variant-duration">{variant.duration}</span>
+              </div>
+              <p className="ar-variant-summary">{variant.variantSummary ?? variant.tagline}</p>
+              <EntryActions mode={variant} compact {...shared} />
+              <PrivateJoin mode={variant} {...shared} />
+              <HowToPlay
+                title={variant.name}
+                rules={variant.rules}
+                testId={`lobby-rules-${variant.id}`}
+                summary={`How ${variantLabelOf(variant)} works`}
+              />
+            </li>
+          );
+        })}
+      </ol>
+
+      {alpha ? (
+        <p className="ar-card-later" data-testid={`lobby-${family.id}-matchmaking-note`}>
+          Live matchmaking against another player comes later in the alpha.
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
+/** The badges, title and tagline every lobby card opens with. */
+function CardHead({
+  testIdBase,
+  kindBadge,
+  alpha,
+  title,
+  tagline,
+}: {
+  testIdBase: string;
+  kindBadge: string;
+  alpha: boolean;
+  title: string;
+  tagline: string;
+}) {
+  return (
+    <div className="ar-card-head">
+      <div className="ar-card-badges flex flex-wrap items-center gap-1.5">
+        <StatusChip tone="neutral">{kindBadge}</StatusChip>
+        {alpha ? (
+          // PLAYABLE, and the badge says so. "Closed alpha" on a card whose
+          // primary button starts a match reads as "you cannot play this",
+          // which was the single most misleading thing on the page.
+          <StatusChip tone="positive" data-testid={`lobby-${testIdBase}-playable`}>
+            Playable vs bots
+          </StatusChip>
+        ) : (
+          <StatusChip tone="accent">Closed alpha</StatusChip>
+        )}
+      </div>
+      <h2 className="ar-card-title">{title}</h2>
+      <p className="ar-card-tagline">{tagline}</p>
+    </div>
+  );
+}
+
+/** ONE compact create/join interaction for `mode`, opened from its Play With
+ *  Friends button rather than living permanently on the card. */
+function PrivateJoin({
+  mode,
+  pending,
+  onStart,
+  joinOpenFor,
+  joinCode,
+  onJoinCode,
+  onJoinSubmit,
+}: EntryActionsShared & { mode: OfferableMode }) {
+  if (joinOpenFor !== mode.id) return null;
+  const busy = pending?.modeId === mode.id;
+  return (
+    <div className="ar-private" data-testid={`lobby-${mode.id}-private`}>
+      <PeakV2PrimaryAction
+        type="button"
+        size="sm"
+        data-testid={`lobby-${mode.id}-create-room`}
+        disabled={busy}
+        onClick={() => onStart(mode, "private_room")}
+      >
+        Create room
+      </PeakV2PrimaryAction>
+      <span className="ar-private-or">or</span>
+      <label className="ar-sr-only" htmlFor={`join-${mode.id}`}>
+        Six-character room code
+      </label>
+      <input
+        id={`join-${mode.id}`}
+        data-testid={`lobby-${mode.id}-join-code`}
+        className="ar-code-input"
+        value={joinCode}
+        inputMode="text"
+        autoCapitalize="characters"
+        autoComplete="off"
+        spellCheck={false}
+        placeholder="ABC123"
+        maxLength={6}
+        onChange={(e) => onJoinCode(normaliseRoomCode(e.target.value))}
+      />
+      <PeakV2SecondaryAction
+        type="button"
+        size="sm"
+        data-testid={`lobby-${mode.id}-join-submit`}
+        disabled={busy || joinCode.length !== 6}
+        onClick={onJoinSubmit}
+      >
+        Join
+      </PeakV2SecondaryAction>
+    </div>
+  );
+}
+
+/** The entry paths `mode` offers, as buttons. `compact` (a ruleset row inside
+ *  a family card) swaps each path's sentence for its rated/unrated word: the
+ *  card above already says what each path is, and the rated state is the one
+ *  fact that must still be visible before committing. */
+function EntryActions({
+  mode,
+  capability,
+  pending,
+  onStart,
+  joinOpenFor,
+  onToggleJoin,
+  compact = false,
+}: EntryActionsShared & { mode: OfferableMode; compact?: boolean }) {
   const busyFor = pending?.modeId === mode.id ? pending.path : null;
   const alpha = capability.posture === "practice_only";
 
@@ -600,124 +937,35 @@ function GameCard({
   }
 
   return (
-    <article
-      // A mode card is the object you pick a match from. `.pk-lift` gives it
-      // the product's one hover behaviour -- the same two pixels and the same
-      // shadow tier every other card in the app uses -- and `.pk-crown` the
-      // lit top edge. No `.pk-press`: the card itself is not the control, the
-      // buttons inside it are, and a card that depresses under a click that
-      // lands on a button would be claiming the press.
-      className="ar-card pk-lift pk-crown"
-      data-testid={`lobby-mode-${mode.id}`}
-      data-highlighted={highlighted ? "true" : "false"}
-    >
-      <span className="ar-card-rail" aria-hidden="true" />
-
-      <div className="ar-card-head">
-        <div className="ar-card-badges flex flex-wrap items-center gap-1.5">
-          <StatusChip tone="neutral">{mode.kindBadge}</StatusChip>
-          {alpha ? (
-            // PLAYABLE, and the badge says so. "Closed alpha" on a card whose
-            // primary button starts a match reads as "you cannot play this",
-            // which was the single most misleading thing on the page.
-            <StatusChip tone="positive" data-testid={`lobby-${mode.id}-playable`}>
-              Playable vs bots
-            </StatusChip>
-          ) : (
-            <StatusChip tone="accent">Closed alpha</StatusChip>
-          )}
-        </div>
-        <h2 className="ar-card-title">{mode.name}</h2>
-        <p className="ar-card-tagline">{mode.tagline}</p>
-      </div>
-
-      <p className="ar-card-body">{mode.description}</p>
-
-      <ul className="ar-facts">
-        <li>{seatLabel(mode.seatCount)}</li>
-        <li>{mode.duration}</li>
-        <li>Unrated in alpha</li>
-      </ul>
-
-      <div className="ar-actions">
-        {paths.map(({ id, primary, reason }) => {
-          const meta = entryPath(id);
-          // "Play vs bots" rather than "Play bots" on the card whose whole job
-          // is to say what a reviewer can do right now.
-          const label = id === "practice" && alpha ? "Play vs bots" : meta.name;
-          const Action = primary ? PeakV2PrimaryAction : PeakV2SecondaryAction;
-          return (
-            <div className="ar-action" key={id}>
-              <Action
-                type="button"
-                size="sm"
-                className="w-full"
-                data-testid={`lobby-${mode.id}-${id}`}
-                disabled={Boolean(reason) || busyFor !== null}
-                onClick={() => (id === "private_room" ? onToggleJoin() : onStart(id))}
-                aria-describedby={`${mode.id}-${id}-note`}
-                aria-expanded={id === "private_room" ? joinOpen : undefined}
-              >
-                {busyFor === id ? "Starting…" : label}
-              </Action>
-              <span className="ar-action-note" id={`${mode.id}-${id}-note`}>
-                {reason ?? meta.description}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-
-      {alpha ? (
-        <p className="ar-card-later" data-testid={`lobby-${mode.id}-matchmaking-note`}>
-          Live matchmaking against another player comes later in the alpha.
-        </p>
-      ) : null}
-
-      {/* ONE compact create/join interaction, opened from the Play With Friends
-          button rather than living permanently on the card. */}
-      {joinOpen ? (
-        <div className="ar-private" data-testid={`lobby-${mode.id}-private`}>
-          <PeakV2PrimaryAction
-            type="button"
-            size="sm"
-            data-testid={`lobby-${mode.id}-create-room`}
-            disabled={busyFor !== null}
-            onClick={() => onStart("private_room")}
-          >
-            Create room
-          </PeakV2PrimaryAction>
-          <span className="ar-private-or">or</span>
-          <label className="ar-sr-only" htmlFor={`join-${mode.id}`}>
-            Six-character room code
-          </label>
-          <input
-            id={`join-${mode.id}`}
-            data-testid={`lobby-${mode.id}-join-code`}
-            className="ar-code-input"
-            value={joinCode}
-            inputMode="text"
-            autoCapitalize="characters"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="ABC123"
-            maxLength={6}
-            onChange={(e) => onJoinCode(normaliseRoomCode(e.target.value))}
-          />
-          <PeakV2SecondaryAction
-            type="button"
-            size="sm"
-            data-testid={`lobby-${mode.id}-join-submit`}
-            disabled={busyFor !== null || joinCode.length !== 6}
-            onClick={onJoinSubmit}
-          >
-            Join
-          </PeakV2SecondaryAction>
-        </div>
-      ) : null}
-
-      <HowToPlay title={mode.name} rules={mode.rules} testId={`lobby-rules-${mode.id}`} />
-    </article>
+    <div className="ar-actions">
+      {paths.map(({ id, primary, reason }) => {
+        const meta = entryPath(id);
+        // "Play vs bots" rather than "Play bots" on the card whose whole job
+        // is to say what a reviewer can do right now.
+        const label = id === "practice" && alpha ? "Play vs bots" : meta.name;
+        const Action = primary ? PeakV2PrimaryAction : PeakV2SecondaryAction;
+        const note = reason ?? (compact ? (meta.rated ? "Rated" : "Unrated") : meta.description);
+        return (
+          <div className="ar-action" key={id}>
+            <Action
+              type="button"
+              size="sm"
+              className="w-full"
+              data-testid={`lobby-${mode.id}-${id}`}
+              disabled={Boolean(reason) || busyFor !== null}
+              onClick={() => (id === "private_room" ? onToggleJoin(mode.id) : onStart(mode, id))}
+              aria-describedby={`${mode.id}-${id}-note`}
+              aria-expanded={id === "private_room" ? joinOpenFor === mode.id : undefined}
+            >
+              {busyFor === id ? "Starting…" : label}
+            </Action>
+            <span className="ar-action-note" id={`${mode.id}-${id}-note`}>
+              {note}
+            </span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -770,6 +1018,12 @@ function QueuePanel({
           <dt>Status</dt>
           <dd data-testid="lobby-search-label">{searchLabel(status)}</dd>
         </div>
+        {skillBandLabel(status) ? (
+          <div>
+            <dt>Skill range</dt>
+            <dd data-testid="lobby-queue-band">{skillBandLabel(status)}</dd>
+          </div>
+        ) : null}
         <div>
           <dt>Bots fill in</dt>
           <dd data-testid="lobby-queue-countdown">

@@ -19,8 +19,40 @@ import PeakV2LiveHeader from "./PeakV2LiveHeader";
 import PeakV2GameStatus from "./PeakV2GameStatus";
 import ArenaV2ResumeHero from "./ArenaV2ResumeHero";
 import type { ReactNode } from "react";
-import type { ArenaCatalogue } from "@/lib/arena-readiness-server";
+import type { ArenaCatalogue, ArenaCatalogueMode } from "@/lib/arena-readiness-server";
 import { MODE_COPY, RUN_THE_TABLE_RUNS_HREF } from "@/lib/modes";
+
+/**
+ * ONE GAME WITH SEVERAL RULESETS, as one cell: the game's name links to its
+ * family card in the lobby, and each ruleset the server serves (Classic,
+ * Franchise Draft, Decade Draft) is a link of its own beneath it. A
+ * `ModeSlateCell` is a single link and cannot hold these, which is why the
+ * family is not three more cells beside the $20 Showdown.
+ */
+function ModeFamilyCell({ mode }: { mode: ArenaCatalogueMode }) {
+  const titleId = `v2-arena-family-${mode.id}`;
+  return (
+    <div className="v2-arena-family" data-testid={`arena-${mode.id}-card`} role="group" aria-labelledby={titleId}>
+      <span className="v2-arena-mode-head">
+        <a id={titleId} href={mode.href} className="v2-arena-family-title">
+          {mode.name}
+        </a>
+        <span className="v2-arena-mode-live">Live</span>
+      </span>
+      <span className="v2-arena-mode-desc">{mode.description}</span>
+      <ul className="v2-arena-family-variants" aria-label={`${mode.name} formats`}>
+        {(mode.variants ?? []).map((variant) => (
+          <li key={variant.id}>
+            <a href={variant.href} className="v2-arena-family-variant" data-testid={`arena-variant-${variant.id}`}>
+              <span className="v2-arena-family-variant-label">{variant.label}</span>
+              <span className="v2-arena-family-variant-summary">{variant.summary}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 /** A small secondary text link, styled like the legacy hub's `arena-link-row`
  *  entries — a lighter-weight action beside a `ModeGroupRow`'s primary CTA. */
@@ -160,14 +192,28 @@ export default function ArenaPageV2({
             <div className="v2-arena-modes v2-arena-modes--pair" data-testid="arena-multiplayer-grid">
               {/* `live` is set from the real catalogue, not from a decorative
                   chip on every row — rule 13's "no repetitive LIVE dots". */}
-              {cellsFor(
-                arenaCatalogue.modes.map((mode) => ({
-                  mode: { id: mode.id, href: mode.href, title: mode.name, description: mode.description },
-                  testId: `arena-${mode.id}-card`,
-                  live: true,
-                  cta: "Find a game",
-                })),
+              {arenaCatalogue.modes.map((mode) =>
+                mode.variants?.length ? (
+                  <ModeFamilyCell key={mode.id} mode={mode} />
+                ) : (
+                  cellsFor([
+                    {
+                      mode: { id: mode.id, href: mode.href, title: mode.name, description: mode.description },
+                      testId: `arena-${mode.id}-card`,
+                      live: true,
+                      cta: "Find a game",
+                    },
+                  ])
+                ),
               )}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-4">
+              <InlineLink href="/arena/lobby" testId="arena-lobby-link">
+                All multiplayer games
+              </InlineLink>
+              <InlineLink href="/?feedback=game_idea#feedback" testId="arena-suggest-mode">
+                Suggest a game mode
+              </InlineLink>
             </div>
           </section>
         </>

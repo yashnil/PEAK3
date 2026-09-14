@@ -1,25 +1,37 @@
 "use client";
 
 /**
- * PeakV2ShowdownResult — the auction closes, in sequence (game-feel pass 2).
+ * PeakV2ShowdownResult — the auction closes, in sequence (game-feel pass 2;
+ * payoff pass).
  *
- * The ending resolves the tension the auction built, in the order a
- * spectator would want it:
+ * THE FINAL SCOREBOARD COMES FIRST. The previous ending printed both
+ * rosters, then a head-to-head lane, and only then the verdict -- so the
+ * one thing a player wants to know (who won, by how much) sat under ten
+ * roster rows. It now reads the way a broadcast final does:
  *
  *   AUCTION CLOSED   the eyebrow, at once
- *   the rosters      both completed lineups settle into view, totals counting
- *                    up to the server's number
- *   the money        what each side spent and left behind
- *   the comparison   the head-to-head lane assembles
- *   the verdict      WON / LOST / DREW and the margin
- *   the moments      the steal, the overpay, the decisive lot
- *   the actions      Play Again, Back to Arena, Copy result
+ *   the scoreboard   both roster totals tally up side by side; the verdict
+ *                    lands between them; the split bar shows the share
+ *   the money        what each side spent and left -- and, plainly, that
+ *                    money left over scores nothing
+ *   the rosters      both completed lineups, price and PEAK3 per slot
+ *   the reasons      where it was decided: positions won, the decisive lot,
+ *                    the best value buy, the least value per dollar
+ *   the actions      Play again, Back to Arena, Copy result
+ *
+ * A FORFEIT IS NOT A DRAW. The server scores a conceded match's rosters as
+ * they stood but overrides the outcome -- the conceding seat loses (see
+ * `_forfeit` in the API's twenty_dollar mode). The receipt's own settlement
+ * only knows the totals, so a concession at lot 0 used to read "DREW · Level
+ * on PEAK3". The outcome here is taken from `forfeited_by` whenever it is
+ * set, and no PEAK3 margin is claimed for it.
  *
  * `ResultReveal` owns the schedule (about three seconds); a click or a key
  * anywhere on the stage completes it, reduced motion completes it at once,
  * and every section is in the DOM from the first frame. EVERY NUMBER IS THE
  * SERVER'S: no PEAK3 score, margin, verdict or component value is computed
- * here.
+ * here -- the only arithmetic is the difference and share of two published
+ * totals, and counting slot winners the receipt already named.
  */
 
 import type { CSSProperties, ReactNode } from "react";
@@ -39,15 +51,19 @@ import { formatDollars, type TwentyDollarPublicState } from "@/lib/twenty-dollar
 import { RANKING_COMPONENT_LABEL, RANKING_COMPONENT_TONE } from "@/lib/v2-component-map";
 
 type SettlementLevel = NonNullable<TwentyDollarReceiptData["settlement"]>["levels"][number];
+/** `receipt.py::_most_decisive` publishes the card's `prime_score` too; the
+ *  shared type predates it, so it is read as optional rather than assumed. */
+type Decisive = NonNullable<TwentyDollarReceiptData["most_decisive"]> & { prime_score?: number };
+type PositionalRow = TwentyDollarReceiptData["positional"][number];
 
 const STEPS = [
   { name: "closed", at: 0 },
-  { name: "rosters", at: 350 },
-  { name: "money", at: 1250 },
-  { name: "compare", at: 1750 },
-  { name: "verdict", at: 2350 },
-  { name: "moments", at: 3000 },
-  { name: "actions", at: 3400 },
+  { name: "rosters", at: 300 },
+  { name: "money", at: 1150 },
+  { name: "compare", at: 1500 },
+  { name: "verdict", at: 1900 },
+  { name: "moments", at: 2500 },
+  { name: "actions", at: 2900 },
 ] as const;
 
 const LABEL_STYLE: CSSProperties = {
@@ -78,24 +94,39 @@ function levelCaptions(level: SettlementLevel, leftSeat: number, rightSeat: numb
   return [decidingSeat === leftSeat ? "Decided the match" : undefined, decidingSeat === rightSeat ? "Decided the match" : undefined];
 }
 
+/** Slots each side won, from the receipt's own per-slot `winner_seat`, and the
+ *  widest slot where both sides had a player. Counting, not scoring. */
+function positionalSummary(rows: PositionalRow[], leftSeat: number, rightSeat: number) {
+  let left = 0;
+  let right = 0;
+  let widest: PositionalRow | null = null;
+  for (const row of rows) {
+    if (row.winner_seat === leftSeat) left += 1;
+    else if (row.winner_seat === rightSeat) right += 1;
+    if (row.seats[leftSeat] && row.seats[rightSeat] && row.winner_seat !== null && (widest === null || row.margin > widest.margin)) {
+      widest = row;
+    }
+  }
+  return { left, right, widest };
+}
+
 interface RosterLiveEntry {
   player_name: string;
   anchor_season: string;
   price: number;
   prime_score: number;
   autofilled: boolean;
-  headshot_url?: string | null;
 }
 
-function RosterRow({ slot, entry, index }: { slot: string; entry: RosterLiveEntry | undefined; index: number }) {
+function RosterRow({ slot, entry, index, emptyLabel }: { slot: string; entry: RosterLiveEntry | undefined; index: number; emptyLabel: string }) {
   return (
-    <li className="sd-result-row" style={{ ["--sd-row-index" as string]: index } as CSSProperties}>
-      <span style={{ ...LABEL_STYLE, width: 26, flexShrink: 0 }}>{slot}</span>
+    <li className="sd-result-row" data-filled={entry ? "true" : "false"} style={{ ["--sd-row-index" as string]: index } as CSSProperties}>
+      <span className="sd-result-slot">{slot}</span>
       <div className="min-w-0 flex-1">
         {entry ? (
           <PeakV2PlayerIdentity name={entry.player_name} meta={`${entry.anchor_season}${entry.autofilled ? " · auto-filled" : ""}`} size="sm" />
         ) : (
-          <span style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-muted)" }}>No player</span>
+          <span className="sd-result-empty">{emptyLabel}</span>
         )}
       </div>
       <span className="sd-result-price pk-numeral">{entry ? formatDollars(entry.price) : "—"}</span>
@@ -107,57 +138,97 @@ function RosterRow({ slot, entry, index }: { slot: string; entry: RosterLiveEntr
 function RosterBlock({
   seatLabel,
   isWinner,
+  scoreWins,
   total,
-  spent,
-  unspent,
   slots,
   bySlot,
-  countUp,
-  moneyRevealed,
+  emptyLabel,
 }: {
   seatLabel: string;
   isWinner: boolean;
+  /** The TOTAL is what won (not a concession), so it may take the win colour. */
+  scoreWins: boolean;
   total: number;
-  spent: number;
-  unspent: number;
   slots: string[];
   bySlot: Map<string, RosterLiveEntry>;
-  countUp: boolean;
-  moneyRevealed: boolean;
+  emptyLabel: string;
 }) {
   return (
-    <div className="sd-result-roster" data-winner={isWinner ? "true" : "false"}>
-      <div className="flex items-baseline justify-between gap-3">
+    <div className="sd-result-roster" data-winner={isWinner ? "true" : "false"} data-score-wins={scoreWins ? "true" : "false"}>
+      <div className="sd-result-roster-head">
         <span className="sd-result-seat-label" data-winner={isWinner ? "true" : "false"}>
           {seatLabel}
-          {isWinner ? " · Winner" : ""}
+          {isWinner ? <span className="sd-result-winner-tag">Winner</span> : null}
         </span>
-        <span className="sd-result-total pk-numeral" data-winner={isWinner ? "true" : "false"}>
-          {countUp ? <ScoreTransition value={total} from={0} durationMs={900} format={(n) => n.toFixed(2)} /> : total.toFixed(2)}
+        <span className="sd-result-roster-cols" aria-hidden="true">
+          <span>Paid</span>
+          <span>PEAK3</span>
         </span>
       </div>
-      <p className="sd-result-money pk-numeral" data-revealed={moneyRevealed ? "true" : "false"}>
-        {formatDollars(spent)} spent · {formatDollars(unspent)} unspent
-      </p>
       <ul className="flex flex-col">
         {slots.map((slot, index) => (
-          <RosterRow key={slot} slot={slot} entry={bySlot.get(slot)} index={index} />
+          <RosterRow key={slot} slot={slot} entry={bySlot.get(slot)} index={index} emptyLabel={emptyLabel} />
         ))}
       </ul>
+      <div className="sd-result-roster-total">
+        <span>Roster total</span>
+        <span className="pk-numeral">{total.toFixed(2)}</span>
+      </div>
     </div>
   );
 }
 
-function CalloutRow({ tag, headline, body, testId }: { tag: string; headline: ReactNode; body: string; testId: string }) {
+function FinalSide({
+  name,
+  total,
+  spent,
+  unspent,
+  align,
+  isWinner,
+  scoreWins,
+  countUp,
+  moneyRevealed,
+}: {
+  name: string;
+  total: number;
+  spent: number;
+  unspent: number;
+  align: "start" | "end";
+  isWinner: boolean;
+  /** The TOTAL is what won (not a concession), so it may take the win colour. */
+  scoreWins: boolean;
+  countUp: boolean;
+  moneyRevealed: boolean;
+}) {
   return (
-    <li className="sd-callout" data-testid={testId}>
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span style={LABEL_STYLE}>{tag}</span>
-        <span className="truncate" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}>
-          {body}
-        </span>
+    <div className="sd-final-side" data-align={align} data-winner={isWinner ? "true" : "false"} data-score-wins={scoreWins ? "true" : "false"}>
+      <span className="sd-final-name">
+        {name}
+        {isWinner ? <span className="sd-result-winner-tag">Winner</span> : null}
+      </span>
+      <span className="sd-final-total pk-numeral">
+        {countUp ? <ScoreTransition value={total} from={0} durationMs={900} format={(n) => n.toFixed(2)} /> : total.toFixed(2)}
+      </span>
+      <span className="sd-final-money pk-numeral" data-revealed={moneyRevealed ? "true" : "false"}>
+        {formatDollars(spent)} spent · {formatDollars(unspent)} left
+      </span>
+    </div>
+  );
+}
+
+function ReasonRow({ tag, figure, figureSub, children, testId }: { tag: string; figure?: ReactNode; figureSub?: string; children: ReactNode; testId: string }) {
+  return (
+    <li className="sd-reason" data-testid={testId}>
+      <div className="sd-reason-text">
+        <span className="sd-reason-tag">{tag}</span>
+        <p className="sd-reason-body">{children}</p>
       </div>
-      <span className="sd-callout-figure pk-numeral">{headline}</span>
+      {figure !== undefined ? (
+        <span className="sd-reason-figure pk-numeral">
+          {figure}
+          {figureSub ? <span className="sd-reason-sub"> {figureSub}</span> : null}
+        </span>
+      ) : null}
     </li>
   );
 }
@@ -181,107 +252,162 @@ export default function PeakV2ShowdownResult({
   onCopy: () => void;
   copied: boolean;
 }) {
-  const winner = receipt.settlement?.winner_seat ?? null;
-  const drawn = receipt.settlement?.outcome === "draw" || winner === null;
+  const forfeited = (publicState as { forfeited_by?: number | null }).forfeited_by ?? null;
+  const leftSeat = yourSeat !== null ? yourSeat : 0;
+  const rightSeat = 1 - leftSeat;
+
+  // THE CONCEDING SEAT LOSES, whatever the totals say (server `_forfeit`).
+  const winner = forfeited !== null ? (forfeited === leftSeat ? rightSeat : leftSeat) : (receipt.settlement?.winner_seat ?? null);
+  const drawn = forfeited === null && (receipt.settlement?.outcome === "draw" || winner === null);
   const youWon = winner !== null && winner === yourSeat;
   const outcome: "win" | "loss" | "draw" = drawn ? "draw" : youWon ? "win" : "loss";
+
+  const seatOf = (index: number) => receipt.seats.find((s) => s.seat_index === index) ?? null;
   const totals = receipt.seats.map((seat) => seat.roster_total);
-  const margin = totals.length === 2 ? Math.abs(totals[0] - totals[1]) : 0;
   const sum = totals.reduce((a, b) => a + b, 0);
   const fingerprint = Math.round(sum * 100 + receipt.rounds_played);
-  const forfeited = (publicState as { forfeited_by?: number | null }).forfeited_by ?? null;
+  const yourTotal = seatOf(leftSeat)?.roster_total ?? 0;
+  const theirTotal = seatOf(rightSeat)?.roster_total ?? 0;
+  const margin = Math.abs(yourTotal - theirTotal);
+  const opponentName = seatNames[rightSeat] ?? "Opponent";
 
   function nameOf(seat: number): string {
     return seat === yourSeat ? "You" : (seatNames[seat] ?? `Seat ${seat + 1}`);
   }
-
-  const leftSeat = yourSeat !== null ? yourSeat : 0;
-  const rightSeat = 1 - leftSeat;
-  const yourTotal = totals[leftSeat] ?? 0;
-  const theirTotal = totals[rightSeat] ?? 0;
-  const opponentName = seatNames[rightSeat] ?? "Opponent";
+  function whoIn(seat: number): string {
+    return seat === yourSeat ? "you" : (seatNames[seat] ?? `seat ${seat + 1}`);
+  }
 
   const outcomeTextColor = outcome === "win" ? v2ToneVar("positive") : outcome === "loss" ? v2ToneVar("negative") : "var(--v2-text-primary)";
   const lightTone: V2Tone = outcome === "win" ? "positive" : outcome === "loss" ? "negative" : "accent";
+
+  const moneyOf = (index: number) => {
+    const seat = seatOf(index);
+    const live = publicState.seats[index];
+    const unspent = live?.budget ?? seat?.budget_remaining ?? receipt.starting_budget;
+    return { spent: receipt.starting_budget - unspent, unspent };
+  };
+
+  const share = sum > 0 ? yourTotal / sum : 0.5;
+  // THE WIN COLOUR BELONGS TO A SCORE THAT WON. A concession decides the match
+  // without the totals, and 0.00 against 0.00 is not a split of anything.
+  const scored = sum > 0;
+  const scoreDecided = forfeited === null && scored;
+  const positions = positionalSummary(receipt.positional ?? [], leftSeat, rightSeat);
+  const decisive = receipt.most_decisive as Decisive | null;
+  const bargain = receipt.best_bargain;
+  const overpay = receipt.biggest_overpay;
+  const overpayIsBargain = Boolean(bargain && overpay && bargain.player_name === overpay.player_name && bargain.seat_index === overpay.seat_index);
+  const lotsWord = receipt.rounds_played === 1 ? "lot" : "lots";
+
+  const response =
+    forfeited !== null
+      ? forfeited === yourSeat
+        ? "You conceded the match."
+        : `${seatNames[forfeited] ?? "Your opponent"} conceded — the match is yours.`
+      : responseLine(outcome, margin, fingerprint);
 
   return (
     <PeakV2Shell width="live">
       <ResultReveal steps={STEPS} sequenceKey={`${receipt.rounds_played}:${yourTotal}:${theirTotal}`} testId="td-result-reveal">
         {({ revealed, complete }) => (
-          <div className="sd-result pb-16 pt-6" data-outcome={outcome} data-testid="td-result" data-sequence-complete={complete ? "true" : "false"}>
+          <div
+            className="sd-result pb-16 pt-6"
+            data-outcome={outcome}
+            data-forfeit={forfeited !== null ? "true" : "false"}
+            data-testid="td-result"
+            data-sequence-complete={complete ? "true" : "false"}
+          >
             <Celebration active={youWon && revealed("verdict")} testId="td-celebration" />
             <PeakV2ArenaLight y="-6%" tone={revealed("verdict") ? lightTone : "accent"} intensity="focus" />
 
             <RevealStep name="closed" revealed={revealed} className="sd-result-closed">
-              <span style={LABEL_STYLE}>Auction closed</span>
+              <span style={LABEL_STYLE}>{forfeited !== null ? "Match conceded" : "Auction closed"}</span>
               <p className="sd-result-closed-line">
-                {receipt.rounds_played} lots · {formatDollars(receipt.starting_budget)} each
+                {receipt.rounds_played} {lotsWord} · {formatDollars(receipt.starting_budget)} each
                 {forfeited !== null ? ` · ${nameOf(forfeited)} conceded` : ""}
               </p>
             </RevealStep>
 
-            <RevealStep name="rosters" revealed={revealed} className="mt-6">
-              <div className="grid grid-cols-1 gap-8 sm:grid-cols-2" data-testid="td-result-seats">
-                {[leftSeat, rightSeat].map((seatIndex) => {
-                  const seat = receipt.seats.find((s) => s.seat_index === seatIndex);
-                  if (!seat) return null;
-                  const live = publicState.seats[seat.seat_index];
-                  const spent = receipt.starting_budget - (live?.budget ?? seat.budget_remaining);
-                  const bySlot = new Map<string, RosterLiveEntry>(
-                    (live?.roster ?? [])
-                      .filter((entry) => entry.slot)
-                      .map((entry) => [
-                        entry.slot as string,
-                        {
-                          player_name: entry.player_name,
-                          anchor_season: entry.anchor_season,
-                          price: entry.price,
-                          prime_score: entry.prime_score,
-                          autofilled: entry.autofilled,
-                          headshot_url: entry.headshot_url,
-                        },
-                      ]),
-                  );
-                  return (
-                    <div key={seat.seat_index} data-testid={`td-result-seat-${seat.seat_index}`}>
-                      <RosterBlock
-                        seatLabel={nameOf(seat.seat_index)}
-                        isWinner={revealed("verdict") && winner === seat.seat_index}
-                        total={seat.roster_total}
-                        spent={spent}
-                        unspent={live?.budget ?? seat.budget_remaining}
-                        slots={publicState.slots}
-                        bySlot={bySlot}
-                        countUp={revealed("rosters")}
-                        moneyRevealed={revealed("money")}
-                      />
-                      <span data-testid={`td-result-total-${seat.seat_index}`} className="sr-only">
-                        {seat.roster_total.toFixed(2)}
-                      </span>
-                      <span data-testid={`td-result-money-${seat.seat_index}`} className="sr-only">
-                        {formatDollars(spent)} spent
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </RevealStep>
-
-            <RevealStep name="compare" revealed={revealed} className="mt-8">
-              <div className="mx-auto w-full max-w-md" data-testid="td-result-bar">
-                <PeakV2DataLane
-                  label="Head-to-head"
-                  tone={revealed("verdict") ? (outcome === "win" ? "positive" : outcome === "loss" ? "negative" : "neutral") : "neutral"}
-                  leftLabel="You"
-                  leftValue={yourTotal.toFixed(2)}
-                  rightLabel={opponentName}
-                  rightValue={theirTotal.toFixed(2)}
-                  scaleMin={0}
-                  scaleMax={Math.max(sum, 1)}
+            {/* THE FINAL SCOREBOARD. Totals tally on the sides; the verdict lands
+                in the middle; the bar is the share of the combined PEAK3. */}
+            <RevealStep name="rosters" revealed={revealed} className="sd-final mt-5">
+              <div className="sd-final-board" data-outcome={revealed("verdict") ? outcome : "pending"}>
+                <FinalSide
+                  name="You"
+                  total={yourTotal}
+                  {...moneyOf(leftSeat)}
+                  align="start"
+                  isWinner={revealed("verdict") && winner === leftSeat}
+                  scoreWins={scoreDecided && revealed("verdict") && winner === leftSeat}
+                  countUp={revealed("rosters")}
+                  moneyRevealed={revealed("money")}
+                />
+                <RevealStep name="verdict" revealed={revealed} className="sd-final-verdict">
+                  <div data-testid="td-result-headline">
+                    <PeakV2ResultHeadline as="h1" scale="hero" tone="primary" style={{ color: outcomeTextColor }}>
+                      {drawn ? "DREW" : youWon ? "WON" : "LOST"}
+                    </PeakV2ResultHeadline>
+                  </div>
+                  <p className="sd-result-margin pk-numeral" data-testid="td-result-margin">
+                    {forfeited !== null ? (
+                      "by concession"
+                    ) : drawn ? (
+                      "Level on PEAK3"
+                    ) : (
+                      <>
+                        by <span style={{ color: outcomeTextColor }}>{margin.toFixed(2)}</span> PEAK3
+                      </>
+                    )}
+                  </p>
+                </RevealStep>
+                <FinalSide
+                  name={opponentName}
+                  total={theirTotal}
+                  {...moneyOf(rightSeat)}
+                  align="end"
+                  isWinner={revealed("verdict") && winner === rightSeat}
+                  scoreWins={scoreDecided && revealed("verdict") && winner === rightSeat}
+                  countUp={revealed("rosters")}
+                  moneyRevealed={revealed("money")}
                 />
               </div>
+
+              <div
+                className="sd-final-bar"
+                data-testid="td-result-bar"
+                data-revealed={revealed("compare") ? "true" : "false"}
+                data-empty={scored ? "false" : "true"}
+                role="img"
+                aria-label={
+                  scored
+                    ? `Roster PEAK3: you ${yourTotal.toFixed(2)}, ${opponentName} ${theirTotal.toFixed(2)}`
+                    : "No roster PEAK3 scored on either side"
+                }
+                style={{ ["--sd-share" as string]: share.toFixed(4) } as CSSProperties}
+              >
+                {scored ? (
+                  <>
+                    <span className="sd-final-bar-you" data-winner={scoreDecided && revealed("verdict") && winner === leftSeat ? "true" : "false"} />
+                    <span className="sd-final-bar-them" data-winner={scoreDecided && revealed("verdict") && winner === rightSeat ? "true" : "false"} />
+                  </>
+                ) : null}
+              </div>
+
+              <RevealStep name="money" revealed={revealed} className="sd-final-note">
+                {forfeited !== null
+                  ? "A concession decides the match. Totals are the rosters as they stood."
+                  : "Roster PEAK3 totals decide the match. Money left over scores nothing."}
+              </RevealStep>
+
+              <RevealStep name="verdict" revealed={revealed}>
+                <p className="sd-result-response" data-testid="td-result-response">
+                  {response}
+                </p>
+              </RevealStep>
+
               {receipt.settlement && receipt.settlement.levels.length > 1 ? (
-                <div className="mt-6 flex flex-col gap-4">
+                <RevealStep name="compare" revealed={revealed} className="mx-auto mt-6 flex max-w-md flex-col gap-4">
                   {receipt.settlement.levels.map((level) => {
                     const values = level.values;
                     const [leftCaption, rightCaption] = levelCaptions(level, leftSeat, rightSeat);
@@ -305,67 +431,101 @@ export default function PeakV2ShowdownResult({
                       </div>
                     );
                   })}
-                </div>
+                </RevealStep>
               ) : null}
             </RevealStep>
 
-            <RevealStep name="verdict" revealed={revealed} className="sd-result-verdict mt-8">
-              <div data-testid="td-result-headline">
-                <PeakV2ResultHeadline as="h1" scale="hero" tone="primary" style={{ color: outcomeTextColor }}>
-                  {drawn ? "DREW" : youWon ? "WON" : "LOST"}
-                </PeakV2ResultHeadline>
+            <RevealStep name="rosters" revealed={revealed} className="mt-10">
+              <div className="sd-result-seats" data-testid="td-result-seats">
+                {[leftSeat, rightSeat].map((seatIndex) => {
+                  const seat = seatOf(seatIndex);
+                  if (!seat) return null;
+                  const live = publicState.seats[seat.seat_index];
+                  const { spent } = moneyOf(seat.seat_index);
+                  const bySlot = new Map<string, RosterLiveEntry>(
+                    (live?.roster ?? [])
+                      .filter((entry) => entry.slot)
+                      .map((entry) => [
+                        entry.slot as string,
+                        {
+                          player_name: entry.player_name,
+                          anchor_season: entry.anchor_season,
+                          price: entry.price,
+                          prime_score: entry.prime_score,
+                          autofilled: entry.autofilled,
+                        },
+                      ]),
+                  );
+                  return (
+                    <div key={seat.seat_index} data-testid={`td-result-seat-${seat.seat_index}`}>
+                      <RosterBlock
+                        seatLabel={nameOf(seat.seat_index)}
+                        isWinner={revealed("verdict") && winner === seat.seat_index}
+                        scoreWins={scoreDecided && revealed("verdict") && winner === seat.seat_index}
+                        total={seat.roster_total}
+                        slots={publicState.slots}
+                        bySlot={bySlot}
+                        emptyLabel={forfeited !== null ? "Unfilled at concession" : "No player"}
+                      />
+                      <span data-testid={`td-result-total-${seat.seat_index}`} className="sr-only">
+                        {seat.roster_total.toFixed(2)}
+                      </span>
+                      <span data-testid={`td-result-money-${seat.seat_index}`} className="sr-only">
+                        {formatDollars(spent)} spent
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
-              <p className="sd-result-margin pk-numeral" data-testid="td-result-margin">
-                {drawn ? (
-                  "Level on PEAK3"
-                ) : (
-                  <>
-                    by <span style={{ color: outcomeTextColor }}>{margin.toFixed(2)}</span> PEAK3
-                  </>
-                )}
-              </p>
-              <p className="sd-result-response mt-3 max-w-md" data-testid="td-result-response">
-                {responseLine(outcome, margin, fingerprint)}
-              </p>
             </RevealStep>
 
             <RevealStep name="moments" revealed={revealed} className="mt-10">
-              <PeakV2Rule spacing="sm" />
-              <span style={LABEL_STYLE}>The match, in three lots</span>
-              <ul className="mt-3 flex flex-col" data-testid="td-result-facts">
-                {receipt.best_bargain ? (
-                  <CalloutRow
-                    testId="td-callout-bargain"
-                    tag="Steal of the night"
-                    headline={
-                      <>
-                        {receipt.best_bargain.prime_score.toFixed(1)}
-                        <span className="sd-callout-sub"> for {formatDollars(receipt.best_bargain.price)}</span>
-                      </>
-                    }
-                    body={`${receipt.best_bargain.player_name} — ${nameOf(receipt.best_bargain.seat_index)}`}
-                  />
+              <h2 className="sd-result-section-title">{forfeited !== null ? "How it ended" : "Where it was decided"}</h2>
+              <ul className="sd-reasons" data-testid="td-result-facts">
+                {forfeited !== null ? (
+                  <ReasonRow testId="td-callout-forfeit" tag="Concession">
+                    {receipt.rounds_played === 0
+                      ? `${nameOf(forfeited)} conceded before any lot settled.`
+                      : `${nameOf(forfeited)} conceded after ${receipt.rounds_played} settled ${lotsWord}.`}{" "}
+                    Conceding loses the match whatever the rosters would have said.
+                  </ReasonRow>
                 ) : null}
-                {receipt.biggest_overpay ? (
-                  <CalloutRow
-                    testId="td-callout-overpay"
-                    tag="Biggest overpay"
-                    headline={
-                      <>
-                        {formatDollars(receipt.biggest_overpay.price)}
-                        <span className="sd-callout-sub"> for {receipt.biggest_overpay.prime_score.toFixed(1)}</span>
-                      </>
-                    }
-                    body={`${receipt.biggest_overpay.player_name} — ${nameOf(receipt.biggest_overpay.seat_index)}`}
-                  />
+                {forfeited === null && positions.left + positions.right > 0 ? (
+                  <ReasonRow
+                    testId="td-callout-positions"
+                    tag="Head-to-head slots"
+                    figure={`${positions.left}–${positions.right}`}
+                    figureSub="slots"
+                  >
+                    {positions.left === positions.right
+                      ? `The five positions split ${positions.left}–${positions.right}.`
+                      : `${positions.left > positions.right ? "You" : opponentName} had the higher-rated player at ${Math.max(positions.left, positions.right)} of ${publicState.slots.length} positions.`}
+                    {positions.widest
+                      ? ` The widest gap was at ${positions.widest.slot}: PEAK3 rates ${positions.widest.seats[leftSeat]?.player_name} ${positions.widest.seats[leftSeat]?.prime_score.toFixed(1)} against ${positions.widest.seats[rightSeat]?.player_name} ${positions.widest.seats[rightSeat]?.prime_score.toFixed(1)}.`
+                      : ""}
+                  </ReasonRow>
                 ) : null}
-                {receipt.most_decisive ? (
-                  <CalloutRow
+                {decisive ? (
+                  <ReasonRow
                     testId="td-callout-decisive"
                     tag="Decisive lot"
-                    headline={formatDollars(receipt.most_decisive.price)}
-                    body={`${receipt.most_decisive.player_name} — to ${nameOf(receipt.most_decisive.winner_seat)}`}
-                  />
+                    figure={decisive.prime_score != null ? decisive.prime_score.toFixed(1) : formatDollars(decisive.price)}
+                    figureSub={decisive.prime_score != null ? `for ${formatDollars(decisive.price)}` : undefined}
+                  >
+                    {decisive.prime_score != null
+                      ? `PEAK3 rates ${decisive.player_name} highest of every player sold. ${whoIn(decisive.winner_seat) === "you" ? "You" : nameOf(decisive.winner_seat)} won the lot for ${formatDollars(decisive.price)}.`
+                      : `${decisive.player_name}, the highest-rated player sold — to ${whoIn(decisive.winner_seat)} for ${formatDollars(decisive.price)}.`}
+                  </ReasonRow>
+                ) : null}
+                {bargain ? (
+                  <ReasonRow testId="td-callout-bargain" tag="Best value buy" figure={bargain.prime_score.toFixed(1)} figureSub={`for ${formatDollars(bargain.price)}`}>
+                    {nameOf(bargain.seat_index)} bought {bargain.player_name} for {formatDollars(bargain.price)} — the most PEAK3 per dollar on either roster.
+                  </ReasonRow>
+                ) : null}
+                {overpay && !overpayIsBargain ? (
+                  <ReasonRow testId="td-callout-overpay" tag="Least value per dollar" figure={formatDollars(overpay.price)} figureSub={`for ${overpay.prime_score.toFixed(1)}`}>
+                    {nameOf(overpay.seat_index)} paid {formatDollars(overpay.price)} for {overpay.player_name} — the fewest PEAK3 points per dollar of any purchase.
+                  </ReasonRow>
                 ) : null}
               </ul>
             </RevealStep>
@@ -420,7 +580,7 @@ export default function PeakV2ShowdownResult({
                   {receipt.component_disclosure.note}
                 </p>
                 <p className="mt-2" style={{ ...LABEL_STYLE, textTransform: "none", letterSpacing: 0 }}>
-                  Scored under {receipt.model_version} · {receipt.rounds_played} lots
+                  Scored under {receipt.model_version} · {receipt.rounds_played} {lotsWord}
                 </p>
               </div>
 

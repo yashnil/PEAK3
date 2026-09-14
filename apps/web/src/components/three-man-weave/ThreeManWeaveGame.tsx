@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { primeMatchView } from "@/lib/game-feel/match-handoff";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
   ArenaResultView,
@@ -9,6 +10,7 @@ import type {
   TmwSlotType,
 } from "@/types/three-man-weave";
 import {
+  TMW_COMMAND_INTRO_SEEN,
   TMW_COMMAND_PICK,
   TMW_COMMAND_REARRANGE,
   TMW_COMMAND_STAGE_PICK,
@@ -17,6 +19,7 @@ import {
   TMW_RESOLUTION_TIMEOUT,
   TMW_REVEAL_SECONDS,
   TMW_SLOT_TYPES,
+  TMW_TURN_PHASE_ARRIVAL,
   TMW_TURN_PHASE_INTRO,
   TMW_TURN_PHASE_REVEAL,
   TMW_TURN_SECONDS,
@@ -36,16 +39,20 @@ import {
   changedSlots,
   connectionState,
   identityLock,
+  isArriving,
   isBriefing,
   isRevealing,
   isYourTurn,
   phaseOf,
   provisionalPick,
+  revealLeadMs,
   rosterWithPlacements,
   seatLabel,
   slotAbbrev,
 } from "@/lib/three-man-weave-state";
 import { isNewer, useCommandLane } from "@/lib/game-feel/authoritative";
+import { reportHandoff, startActionTimer } from "@/lib/game-feel/action-timing";
+import { serverTimingOf } from "@/lib/game-feel/server-timing";
 import { EventMoment, type EventMomentData } from "@/components/game-feel";
 import { usePrefersReducedMotion } from "@/lib/a11y";
 import { modeMeta } from "@/lib/arena-modes";
@@ -78,6 +85,18 @@ import { StatusChip } from "@/components/ui/StatusChip";
 const POLL_SEATLESS_MS = 400;
 const POLL_OPPONENT_MS = 1000;
 const POLL_OWN_TURN_MS = 2000;
+/** Slack after the server's own instant (a bot's reply, a seatless deadline). */
+const BOT_REPLY_SLACK_MS = 60;
+const SEATLESS_SLACK_MS = 60;
+/** When the read that should have carried a bot's move did not, read again on this ladder. */
+const BOT_RETRY_LADDER_MS = [150, 300, 600, 1000] as const;
+/** A selection is staged once it has SETTLED for this long (game-feel pass 4).
+ *  Staging exists only so a timeout drafts the player's own choice; sending it
+ *  on every press put a round trip in front of the Draft press that followed,
+ *  measured at up to 700 ms of queueing on a 750 ms connection. */
+const STAGE_SETTLE_MS = 600;
+/** ...unless the clock is nearly out, when the choice is staged at once. */
+const STAGE_URGENT_MS = 8000;
 /** How long one command may stay unanswered before the press reads as an error. */
 const COMMAND_TIMEOUT_MS = 15_000;
 /**
@@ -92,7 +111,19 @@ const COMMAND_TIMEOUT_MS = 15_000;
  * collapses it to zero -- the overlay's own "taken this roll" chips carry
  * the same fact.
  */
-export const TMW_PREVIOUS_PICK_BEAT_MS = 900;
+//
+// 200 ms, FROM 900 (game-feel pass 4): the handoff should read as a beat, not
+// as a wait. The previous pick's card and its moment still land first; the
+// surface follows inside the 120-220 ms handoff band.
+//
+// 750 ms, FROM 200 (game-feel pass 5). Played end to end, 200 ms meant the
+// opponent's card and the pick surface arrived as one event: nobody saw what
+// had just been taken before the list covered the courts. Three quarters of a
+// second lets the card lock in and the moment be read. It is still never a
+// wait on the player: a press anywhere opens the surface at once, and the
+// clock and every command are live underneath. The same beat holds the
+// surface when a round turns back to you at the end of the snake.
+export const TMW_PREVIOUS_PICK_BEAT_MS = 750;
 
 /**
  * THE ROOM'S WHOLE STATE, AS ONE OBJECT.
@@ -117,8 +148,12 @@ interface Room {
   /** What this snapshot just did, for `EventMoment`. */
   moment: EventMomentData | null;
   /** Set when this snapshot handed you the turn on the back of another
-   *  seat's pick: the id of the beat holding the pick surface shut. */
+   *  seat's pick (`beat:<v>`) or turned a round back to you (`round:<v>`):
+   *  the id of the beat holding the pick surface shut. */
   previousPickBeat: string | null;
+  /** While a pick-opened reveal is still in its SETTLE LEAD: the
+   *  `performance.now()` instant the roll begins. Null otherwise. */
+  settleUntil: number | null;
 }
 
 type Source = "initial" | "command" | "poll";
@@ -154,6 +189,8 @@ interface StagedArrangement {
 }
 
 function nominalPhaseSeconds(match: TmwMatchView): number | null {
+  // Arrival has no countdown to draw: its length is only a backstop.
+  if (match.turn_phase === TMW_TURN_PHASE_ARRIVAL) return null;
   if (match.turn_phase === TMW_TURN_PHASE_INTRO) return TMW_INTRO_SECONDS;
   if (match.turn_phase === TMW_TURN_PHASE_REVEAL) return TMW_REVEAL_SECONDS;
   if (match.turn_phase) return TMW_TURN_SECONDS;
@@ -175,6 +212,13 @@ function roomFrom(match: TmwMatchView, moment: EventMomentData | null, previousP
       : null);
   const turnStartedAt =
     elapsed !== null && typeof performance !== "undefined" ? performance.now() - elapsed * 1000 : null;
+  // THE SETTLE LEAD: a pick-opened reveal shows the board first. Converted
+  // once, here, like every other clock -- a reconnect past the lead has none.
+  const leadMs = revealLeadMs(match);
+  const settleUntil =
+    leadMs > 0 && turnStartedAt !== null && elapsed !== null && elapsed * 1000 < leadMs
+      ? turnStartedAt + leadMs
+      : null;
   return {
     match,
     deadlineAt: deadlineFromSeconds(match.seconds_remaining),
@@ -183,6 +227,7 @@ function roomFrom(match: TmwMatchView, moment: EventMomentData | null, previousP
     turnTotalSeconds: total,
     moment,
     previousPickBeat,
+    settleUntil,
   };
 }
 
@@ -275,17 +320,18 @@ function describeTransition(
   const pick = source === "command" && yours ? yours : arrivals[arrivals.length - 1];
   const who = pick.seat === you ? "You" : seatLabel(next.seats, pick.seat);
   const handsToYou = pick.seat !== you && handedToYouAfterPick(prev, next);
+  const pickAgain = pick.seat === you && roundTurnedToYou(prev, next);
   return {
     id,
     kind: pick.timedOut ? "timeout" : "pick",
     title: `${pick.name} → ${slotAbbrev(pick.slot)}`,
     detail: pick.timedOut
       ? "Time ran out · drafted for you"
-      : `${who} · Round ${pick.round}${handsToYou ? " · You're up" : ""}`,
+      : `${who} · Round ${pick.round}${handsToYou ? " · You're up" : pickAgain ? ` · Round ${next.public_state.current_round} opens with you` : ""}`,
     tone: pick.timedOut ? "negative" : pick.seat === you ? "accent" : "neutral",
     // The handoff moment stays up for the beat and a little past the
     // overlay opening (where the scrim covers it), never shorter than it.
-    durationMs: handsToYou ? TMW_PREVIOUS_PICK_BEAT_MS + 600 : undefined,
+    durationMs: handsToYou || pickAgain ? TMW_PREVIOUS_PICK_BEAT_MS + 600 : undefined,
   };
 }
 
@@ -307,6 +353,19 @@ function handedToYouAfterPick(prev: TmwMatchView, next: TmwMatchView): boolean {
     const before = prev.public_state.rosters.find((r) => r.seat_index === after.seat_index);
     return TMW_SLOT_TYPES.some((slot) => after.slots[slot] && !before?.slots[slot]);
   });
+}
+
+/**
+ * Did THIS snapshot turn a round over and hand it straight back to you? The
+ * snake's edge: the last pick of one round and the first of the next belong to
+ * the same seat. With a reveal in between (the standard game) the ceremony is
+ * the beat; without one (a Franchise or Decade Draft) the surface would
+ * otherwise re-open in the frame your own pick landed.
+ */
+function roundTurnedToYou(prev: TmwMatchView, next: TmwMatchView): boolean {
+  if (next.your_seat_index === null || !isYourTurn(next)) return false;
+  if (next.turn_phase && next.turn_phase !== "pick") return false;
+  return (next.public_state.current_round ?? 0) > (prev.public_state.current_round ?? 0);
 }
 
 function picksIn(state: TmwPublicState): number {
@@ -360,6 +419,9 @@ export default function ThreeManWeaveGame({
   /** See `StagedArrangement`. Null whenever the board is showing the server. */
   const [staged, setStaged] = useState<StagedArrangement | null>(null);
   const lane = useCommandLane();
+  /** When the read that handed this seat the pick landed; reported once the
+   *  pick surface is actually open. See `lib/game-feel/action-timing`. */
+  const handoffSince = useRef<number | null>(null);
   const match = room.match;
   const state = match.public_state;
 
@@ -383,10 +445,15 @@ export default function ThreeManWeaveGame({
         return false;
       }
       const moment = describeTransition(prev.match, next, source, kind);
+      if (source === "poll" && !isYourTurn(prev.match) && isYourTurn(next)) {
+        handoffSince.current = typeof performance !== "undefined" ? performance.now() : null;
+      }
       const beat =
         source === "poll" && moment?.kind === "pick" && handedToYouAfterPick(prev.match, next)
           ? `beat:${next.state_version}`
-          : null;
+          : source === "command" && kind === "pick" && roundTurnedToYou(prev.match, next)
+            ? `round:${next.state_version}`
+            : null;
       const nextRoom = roomFrom(next, moment, beat);
       latest.current = nextRoom;
       setRoom(nextRoom);
@@ -418,17 +485,43 @@ export default function ThreeManWeaveGame({
     };
   }, [previousPickBeat, reducedMotion, endBeat]);
 
+  // -- the settle lead: the board before the roll, on the server's clock ----
+  const settleUntil = room.settleUntil;
+  useEffect(() => {
+    if (settleUntil === null) return;
+    const clear = () => {
+      setRoom((current) => (current.settleUntil === settleUntil ? { ...current, settleUntil: null } : current));
+      if (latest.current.settleUntil === settleUntil) latest.current = { ...latest.current, settleUntil: null };
+    };
+    const timer = window.setTimeout(clear, Math.max(0, settleUntil - performance.now()));
+    return () => window.clearTimeout(timer);
+  }, [settleUntil]);
+
   const phase = phaseOf(match);
   const complete = phase === "complete";
   const briefing = isBriefing(match);
+  const arriving = isArriving(match);
   const revealing = isRevealing(match);
   const yourTurn = isYourTurn(match);
 
   // -- polling: recovery and reconciliation -------------------------------
+  //
+  // ONE READ AT A TIME (game-feel pass 4). This was a `setInterval`, which does
+  // not wait for the previous read: on a 750 ms connection reads overlapped,
+  // filled the browser's per-host connection pool, and a poll took 2.2 s at the
+  // median and 5 s at p95 -- with every command queued behind them. The next
+  // read is now armed only after the previous one settled (`pollEpoch`), and
+  // it is TIMED by what the room is waiting for: a seatless beat's own
+  // deadline, the instant the server says a bot's move is due, or the ordinary
+  // safety cadence.
+  const [pollEpoch, setPollEpoch] = useState(0);
   const refresh = useCallback(async () => {
     // Never race a command: its response is newer by construction and is
     // applied the instant it lands.
-    if (lane.busyNow()) return;
+    if (lane.busyNow()) {
+      setPollEpoch((n) => n + 1);
+      return;
+    }
     try {
       const next = (await getMatch(latest.current.match.match_id)) as TmwMatchView;
       applyView(next, "poll");
@@ -436,22 +529,68 @@ export default function ThreeManWeaveGame({
     } catch {
       // Counted, not thrown: a transport failure must not clear the board.
       setFailures((count) => count + 1);
+    } finally {
+      setPollEpoch((n) => n + 1);
     }
   }, [applyView, lane]);
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
 
-  const pollMs = complete
-    ? null
-    : briefing || revealing
-      ? POLL_SEATLESS_MS
-      : yourTurn
-        ? POLL_OWN_TURN_MS
-        : POLL_OPPONENT_MS;
+  const retryStep = useRef(0);
+  const scheduledFor = useRef("");
+  useEffect(() => {
+    if (complete) return;
+    const key = `${match.state_version}:${match.turn_seq ?? ""}:${match.turn_phase ?? ""}`;
+    if (scheduledFor.current !== key) {
+      scheduledFor.current = key;
+      retryStep.current = 0;
+    }
+    const step = retryStep.current;
+    retryStep.current += 1;
+    let delay: number;
+    if (briefing || revealing) {
+      const left = match.turn_seconds_remaining ?? match.seconds_remaining ?? null;
+      delay =
+        !arriving && step === 0 && left !== null
+          ? Math.min(POLL_SEATLESS_MS, left * 1000 + SEATLESS_SLACK_MS)
+          : POLL_SEATLESS_MS;
+    } else if (match.bot_reply_in_seconds !== null && match.bot_reply_in_seconds !== undefined) {
+      delay =
+        step === 0
+          ? match.bot_reply_in_seconds * 1000 + BOT_REPLY_SLACK_MS
+          : BOT_RETRY_LADDER_MS[Math.min(step - 1, BOT_RETRY_LADDER_MS.length - 1)];
+    } else {
+      delay = yourTurn ? POLL_OWN_TURN_MS : POLL_OPPONENT_MS;
+    }
+    const timer = window.setTimeout(() => void refreshRef.current(), Math.max(40, delay));
+    return () => window.clearTimeout(timer);
+  }, [
+    pollEpoch,
+    complete,
+    briefing,
+    revealing,
+    arriving,
+    yourTurn,
+    match.state_version,
+    match.turn_seq,
+    match.turn_phase,
+    match.bot_reply_in_seconds,
+    match.turn_seconds_remaining,
+    match.seconds_remaining,
+  ]);
 
   useEffect(() => {
-    if (pollMs === null) return;
-    const timer = window.setInterval(refresh, pollMs);
-    return () => window.clearInterval(timer);
-  }, [pollMs, refresh]);
+    // A BACKGROUNDED TAB IS THROTTLED, so the first frame back may be stale.
+    const wake = () => {
+      if (document.visibilityState === "visible") void refreshRef.current();
+    };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    return () => {
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+    };
+  }, []);
 
   useEffect(() => {
     if (!complete || results) return;
@@ -544,6 +683,14 @@ export default function ThreeManWeaveGame({
       // THE SERVER'S OWN PLAN, ECHOED BACK. When a pick needs a rearrangement
       // the arrangement committed is the one the projection said was legal.
       if (candidate.fit.plan) payload.placements = candidate.fit.plan;
+      const timer = startActionTimer(latest.current.match.mode, "pick");
+      // A DRAFT SUPERSEDES ANY STAGING NOT YET SENT: the pick carries the choice.
+      if (stageTimer.current !== null) {
+        window.clearTimeout(stageTimer.current);
+        stageTimer.current = null;
+        lastStageIntent.current = "";
+      }
+      if (lane.cancel("stage") > 0) lastStageIntent.current = "";
       // THE CARD LANDS ON THE COURT IN THE SAME FRAME AS THE PRESS, without a
       // score -- the season and the PEAK3 number are the server's to state.
       const snapshot = latest.current.match;
@@ -573,10 +720,13 @@ export default function ThreeManWeaveGame({
       try {
         const response = await lane.run("pick", () => send(TMW_COMMAND_PICK, payload, "pick"));
         if (response === null) return false;
+        timer.responded(serverTimingOf(response));
+        timer.settled(response.accepted || response.replayed ? "accepted" : "refused");
         if (response.accepted || response.replayed) return true;
         setRejection(response.message ?? "That pick was refused.");
         return false;
       } catch (error) {
+        timer.settled("failed");
         setRejection(describe(error, "your pick was not sent"));
         setFailures((count) => count + 1);
         return false;
@@ -596,6 +746,7 @@ export default function ThreeManWeaveGame({
    * path (`mode._reduce_timeout`), never the commit.
    */
   const lastStageIntent = useRef<string>("");
+  const stageTimer = useRef<number | null>(null);
   const stage = useCallback(
     async (candidate: TmwCandidate | null, slotType: TmwSlotType | null) => {
       const intent = candidate && slotType ? `${candidate.player_slug}@${slotType}` : "clear";
@@ -603,24 +754,94 @@ export default function ThreeManWeaveGame({
       lastStageIntent.current = intent;
       const payload: Record<string, unknown> =
         candidate && slotType ? { player_slug: candidate.player_slug, slot_type: slotType } : { clear: true };
-      try {
-        await lane.run(
-          "stage",
-          async () => {
-            const staged = latest.current.match.private_state.staged_pick ?? null;
-            const already = staged ? `${staged.player_slug}@${staged.slot_type}` : "clear";
-            if (already === intent) return null;
-            if (!canPick(latest.current.match)) return null;
-            return send(TMW_COMMAND_STAGE_PICK, payload, "stage");
-          },
-          { exclusive: false, coalesce: "stage" },
-        );
-      } catch {
-        // Best-effort -- see docstring above.
+      if (stageTimer.current !== null) {
+        window.clearTimeout(stageTimer.current);
+        stageTimer.current = null;
       }
+      const dispatch = () => {
+        stageTimer.current = null;
+        void lane
+          .run(
+            "stage",
+            async () => {
+              const staged = latest.current.match.private_state.staged_pick ?? null;
+              const already = staged ? `${staged.player_slug}@${staged.slot_type}` : "clear";
+              if (already === intent) return null;
+              if (!canPick(latest.current.match)) return null;
+              const timer = startActionTimer(latest.current.match.mode, "stage");
+              try {
+                const response = await send(TMW_COMMAND_STAGE_PICK, payload, "stage");
+                timer.responded(serverTimingOf(response));
+                timer.settled(response && (response.accepted || response.replayed) ? "accepted" : "refused");
+                return response;
+              } catch (error) {
+                timer.settled("failed");
+                throw error;
+              }
+            },
+            { exclusive: false, coalesce: "stage" },
+          )
+          .catch(() => {
+            // Best-effort -- see docstring above.
+          });
+      };
+      // SETTLED SELECTIONS ONLY. A player browsing the list, or pressing Draft
+      // straight after choosing, sends no staging request at all; a choice left
+      // on the board is staged after `STAGE_SETTLE_MS`, or at once when the
+      // clock is nearly out so the timeout still drafts it.
+      const deadline = latest.current.deadlineAt;
+      const urgent =
+        deadline !== null && typeof performance !== "undefined" && deadline - performance.now() < STAGE_URGENT_MS;
+      if (urgent) dispatch();
+      else stageTimer.current = window.setTimeout(dispatch, STAGE_SETTLE_MS);
     },
     [lane, send],
   );
+  useEffect(
+    () => () => {
+      if (stageTimer.current !== null) window.clearTimeout(stageTimer.current);
+    },
+    [],
+  );
+
+  /**
+   * ARRIVAL: TELL THE SERVER THE BRIEFING IS ON THIS SCREEN.
+   *
+   * The briefing's clock does not start at match creation any more; it starts
+   * when every human seat's client has reported having it on screen. This
+   * runs after the commit that rendered the briefing (effects follow paint),
+   * sends once, and re-arms only if the report did not land -- a duplicate is
+   * refused by name on the server and changes nothing.
+   */
+  const arrivalSent = useRef(false);
+  const mayReportArrival = arriving && match.legal_commands.includes(TMW_COMMAND_INTRO_SEEN);
+  useEffect(() => {
+    if (!mayReportArrival || arrivalSent.current) return;
+    arrivalSent.current = true;
+    void lane
+      .run(
+        "intro_seen",
+        async () => {
+          const timer = startActionTimer(latest.current.match.mode, "intro_seen");
+          try {
+            const response = await send(TMW_COMMAND_INTRO_SEEN, {}, "intro_seen");
+            timer.responded(serverTimingOf(response));
+            timer.settled(response && (response.accepted || response.replayed) ? "accepted" : "refused");
+            return response;
+          } catch (error) {
+            timer.settled("failed");
+            throw error;
+          }
+        },
+        { exclusive: false },
+      )
+      .then((response) => {
+        if (!response || !(response.accepted || response.replayed)) arrivalSent.current = false;
+      })
+      .catch(() => {
+        arrivalSent.current = false;
+      });
+  }, [mayReportArrival, lane, send]);
 
   // A new turn is a new decision: forget the last staged intent so the same
   // selection can be staged again next turn.
@@ -630,6 +851,7 @@ export default function ThreeManWeaveGame({
 
   const rearrange = useCallback(
     async (placements: Record<string, string>): Promise<boolean> => {
+      const timer = startActionTimer(latest.current.match.mode, "rearrange");
       setRejection(null);
       // THE BOARD MOVES ON THE PRESS. The arrangement is the one the command
       // carries, re-seating cards the server already validated; it is marked
@@ -644,10 +866,13 @@ export default function ThreeManWeaveGame({
       try {
         const response = await lane.run("rearrange", () => send(TMW_COMMAND_REARRANGE, { placements }, "rearrange"));
         if (response === null) return false;
+        timer.responded(serverTimingOf(response));
+        timer.settled(response.accepted || response.replayed ? "accepted" : "refused");
         if (response.accepted || response.replayed) return true;
         setRejection(response.message ?? "That move was refused.");
         return false;
       } catch (error) {
+        timer.settled("failed");
         setRejection(describe(error, "the move was not sent"));
         return false;
       } finally {
@@ -674,15 +899,18 @@ export default function ThreeManWeaveGame({
   const playAgain = useCallback(async (): Promise<boolean> => {
     const result = await lane.run("replay", async () => {
       if (hasBots) {
-        const created = await createPracticeMatch(TMW_MODE);
+        // The same ruleset again: a Franchise or Decade Draft rematches as one.
+        const created = await createPracticeMatch(match.mode || TMW_MODE);
+        // The rematch's room mounts on this authoritative view (see match-handoff).
+        primeMatchView(created);
         router.replace(`/arena/three-man-weave/${created.match_id}`);
         return true;
       }
-      router.push("/arena/lobby?game=three_man_weave");
+      router.push(`/arena/lobby?game=${match.mode || TMW_MODE}`);
       return true;
     });
     return result === true;
-  }, [hasBots, lane, router]);
+  }, [hasBots, lane, router, match.mode]);
 
   const connection = connectionState(failures);
   const candidates = useMemo(() => candidatesForSeat(match), [match]);
@@ -715,12 +943,23 @@ export default function ThreeManWeaveGame({
 
   // THE WHOLE RULE: the ceremony surface is open exactly while the server
   // says a seatless phase is -- the briefing or the reveal. Every seat.
-  const ceremonyOpen = (briefing || revealing) && !complete;
+  //
+  // Except during a pick-opened reveal's SETTLE LEAD: the board stays up so
+  // every seat sees the round's last pick land before the roll covers it.
+  const settling = revealing && settleUntil !== null && !complete;
+  const ceremonyOpen = (briefing || revealing) && !complete && !settling;
+  const leadMs = revealing ? revealLeadMs(match) : 0;
   // The previous-pick beat holds only the OVERLAY shut. Your turn, your
   // clock and every command are live underneath it.
   const overlayOpen = !ceremonyOpen && yourTurn && !complete && canPick(match) && previousPickBeat === null;
+  useEffect(() => {
+    if (!overlayOpen || handoffSince.current === null) return;
+    reportHandoff(match.mode, handoffSince.current);
+    handoffSince.current = null;
+  }, [overlayOpen, match.mode]);
 
-  const meta = modeMeta(TMW_MODE);
+  // A Franchise or Decade Draft shows its own rules in the same room.
+  const meta = modeMeta(match.mode) ?? modeMeta(TMW_MODE);
   const pendingKind = lane.pending;
   const busy = pendingKind === "pick" || pendingKind === "rearrange" || pendingKind === "replay";
 
@@ -734,26 +973,9 @@ export default function ThreeManWeaveGame({
         ? "You're up"
         : `${seatLabel(match.seats, upNextSeat)} is up`;
 
-  // Viewport containment: publish the real remaining height as a CSS
-  // variable the courts cap themselves to (see PeakV2TMWCourts).
-  const arenaShellRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const el = arenaShellRef.current;
-    if (!el) return;
-    const BOTTOM_SAFE_MARGIN_PX = 16;
-    function updateCap() {
-      if (!el) return;
-      const top = el.getBoundingClientRect().top;
-      el.style.setProperty("--tmw-viewport-cap", `calc(100dvh - ${top}px - ${BOTTOM_SAFE_MARGIN_PX}px)`);
-    }
-    updateCap();
-    window.addEventListener("resize", updateCap);
-    window.addEventListener("orientationchange", updateCap);
-    return () => {
-      window.removeEventListener("resize", updateCap);
-      window.removeEventListener("orientationchange", updateCap);
-    };
-  }, []);
+  // No viewport containment any more: the page scrolls and the board's turn
+  // strip is `position: sticky` (see PeakV2TMWCourts), so nothing here needs
+  // to measure or publish a height.
 
   const clearMoment = useCallback((id: string) => {
     setRoom((current) => (current.moment?.id === id ? { ...current, moment: null } : current));
@@ -769,7 +991,15 @@ export default function ThreeManWeaveGame({
       // is on screen AGAINST what the server said rather than against a timer.
       data-turn-phase={match.turn_phase ?? "none"}
       data-turn-seq={match.turn_seq ?? undefined}
-      data-beat={previousPickBeat ? "previous-pick" : undefined}
+      data-beat={
+        previousPickBeat
+          ? previousPickBeat.startsWith("round:")
+            ? "round-turn"
+            : "previous-pick"
+          : settling
+            ? "settle"
+            : undefined
+      }
     >
       <PeakV2Shell width="live-wide">
         <header
@@ -830,11 +1060,13 @@ export default function ThreeManWeaveGame({
           onPlayAgain={playAgain}
           playAgainPending={pendingKind === "replay"}
           multiplayer={!hasBots}
+          modeName={meta?.name}
+          constraintLabel={state.constraint?.label ?? null}
         />
       ) : (
         // `relative` so the ceremony overlay and every moment are anchored to
         // THIS box: the courts stay mounted and are its only size contributor.
-        <div ref={arenaShellRef} className="relative" data-testid="tmw-v2-arena-shell">
+        <div className="relative" data-testid="tmw-v2-arena-shell">
           <PeakV2TMWCourts
             state={viewState}
             pendingSlots={pendingSlots}
@@ -846,35 +1078,40 @@ export default function ThreeManWeaveGame({
             turnTotalSeconds={room.turnTotalSeconds}
             // The roll is not the board's to state until the ceremony has
             // actually shown it.
-            rollRevealed={!ceremonyOpen}
+            rollRevealed={!ceremonyOpen && !settling}
             picksMade={picksMade}
             totalPicks={state.total_rounds * match.seat_count}
             onMove={rearrange}
             busy={busy}
+            decisionOpen={overlayOpen}
+            // THE DECISION SURFACE floats over the courts, in the page's own
+            // flow (see PeakV2TMWCourts' stage and PickOverlay).
+            decision={
+              <PickOverlay
+                open={overlayOpen}
+                roll={state.current_roll}
+                roundNumber={state.current_round}
+                pickNumber={picksMade + 1}
+                totalRounds={state.total_rounds}
+                candidates={candidates}
+                roster={yourRoster}
+                seats={match.seats}
+                yourSeatIndex={match.your_seat_index}
+                lockedEntries={lockedEntries}
+                stagedPick={stagedPick}
+                deadlineAt={room.deadlineAt}
+                turnSeconds={room.turnTotalSeconds ?? TMW_TURN_SECONDS}
+                busy={busy}
+                pendingKind={pendingKind}
+                pendingSlots={pendingSlots}
+                onPick={pick}
+                onStage={stage}
+                onMove={rearrange}
+                onClose={() => setRejection(null)}
+              />
+            }
           >
             <IdentityLockPanel entries={lockedEntries} seats={match.seats} />
-            <PickOverlay
-              open={overlayOpen}
-              roll={state.current_roll}
-              roundNumber={state.current_round}
-              pickNumber={picksMade + 1}
-              totalRounds={state.total_rounds}
-              candidates={candidates}
-              roster={yourRoster}
-              seats={match.seats}
-              yourSeatIndex={match.your_seat_index}
-              lockedEntries={lockedEntries}
-              stagedPick={stagedPick}
-              deadlineAt={room.deadlineAt}
-              turnSeconds={room.turnTotalSeconds ?? TMW_TURN_SECONDS}
-              busy={busy}
-              pendingKind={pendingKind}
-              pendingSlots={pendingSlots}
-              onPick={pick}
-              onStage={stage}
-              onMove={rearrange}
-              onClose={() => setRejection(null)}
-            />
           </PeakV2TMWCourts>
           <PeakV2TMWReveal
             open={ceremonyOpen}
@@ -885,9 +1122,16 @@ export default function ThreeManWeaveGame({
             totalRounds={state.total_rounds}
             seats={match.seats}
             yourSeatIndex={match.your_seat_index}
+            seatCount={match.seat_count}
+            constraint={state.constraint ?? null}
+            upNextSeatIndex={upNextSeat === null || complete ? null : upNextSeat}
             handoffLabel={nextUp ?? undefined}
-            startedAt={room.turnStartedAt}
-            totalSeconds={room.turnTotalSeconds ?? (briefing ? TMW_INTRO_SECONDS : TMW_REVEAL_SECONDS)}
+            arriving={arriving}
+            // The roll's own timeline starts after the settle lead.
+            startedAt={room.turnStartedAt === null ? null : room.turnStartedAt + leadMs}
+            totalSeconds={
+              (room.turnTotalSeconds ?? (briefing ? TMW_INTRO_SECONDS : TMW_REVEAL_SECONDS)) - leadMs / 1000
+            }
           />
           {/* THE MOMENT THIS SNAPSHOT ANNOUNCES -- never over the ceremony,
               which has its own round card. */}
@@ -909,7 +1153,9 @@ export default function ThreeManWeaveGame({
               data-beat="previous-pick"
               onClick={() => endBeat(previousPickBeat)}
             >
-              <span className="tmw-previous-pick-beat-label">You&apos;re up</span>
+              <span className="tmw-previous-pick-beat-label">
+                {previousPickBeat.startsWith("round:") ? `Round ${state.current_round} · your pick again` : "You're up"}
+              </span>
               <span className="tmw-previous-pick-beat-hint">Opening your pick · press to open now</span>
             </button>
           ) : null}

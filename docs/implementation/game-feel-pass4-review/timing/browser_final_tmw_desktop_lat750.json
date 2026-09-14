@@ -1,0 +1,344 @@
+{
+  "label": "final",
+  "mode": "tmw",
+  "latency": 750,
+  "viewport": "desktop",
+  "samples": {
+    "tmw.intro_elapsed_at_first_read_s": [
+      0
+    ],
+    "tmw.intro_elapsed_when_intro_first_seen_s": [
+      0.007565
+    ],
+    "tmw.handoff_read_to_actionable_ms_upper": [
+      74.19999980926514,
+      220.39999961853027,
+      80.59999942779541,
+      217.89999961853027,
+      86.30000019073486,
+      207.69999980926514
+    ],
+    "tmw.select_stage": [
+      {
+        "ackMs": 4.09999942779541,
+        "confirmMs": null,
+        "dispatchMs": null,
+        "responseMs": null,
+        "accepted": null,
+        "version": null
+      },
+      {
+        "ackMs": 6.90000057220459,
+        "confirmMs": null,
+        "dispatchMs": null,
+        "responseMs": null,
+        "accepted": null,
+        "version": null
+      },
+      {
+        "ackMs": 2.3000001907348633,
+        "confirmMs": 1375,
+        "dispatchMs": 606.3000001907349,
+        "responseMs": 1373.6999998092651,
+        "accepted": true,
+        "version": 15
+      },
+      {
+        "ackMs": 4,
+        "confirmMs": 1369.3000001907349,
+        "dispatchMs": 601.6999998092651,
+        "responseMs": 1362.6000003814697,
+        "accepted": true,
+        "version": 23
+      },
+      {
+        "ackMs": 3.6999998092651367,
+        "confirmMs": 1368.8000001907349,
+        "dispatchMs": 604.3000001907349,
+        "responseMs": 1367.8000001907349,
+        "accepted": false,
+        "version": 25
+      },
+      {
+        "ackMs": 3.5,
+        "confirmMs": 1371.0999994277954,
+        "dispatchMs": 602.0999994277954,
+        "responseMs": 1361.8000001907349,
+        "accepted": true,
+        "version": 32
+      }
+    ],
+    "tmw.draft": [
+      {
+        "ackMs": 9,
+        "confirmMs": 760.8999996185303,
+        "dispatchMs": 2,
+        "responseMs": 756.5999994277954,
+        "accepted": true,
+        "version": 5
+      },
+      {
+        "ackMs": 4.100000381469727,
+        "confirmMs": 772.8000001907349,
+        "dispatchMs": 2.1000003814697266,
+        "responseMs": 767.2000007629395,
+        "accepted": true,
+        "version": 12
+      },
+      {
+        "ackMs": 9.399999618530273,
+        "confirmMs": 769.1999998092651,
+        "dispatchMs": 1.5999994277954102,
+        "responseMs": 762.5,
+        "accepted": true,
+        "version": 16
+      },
+      {
+        "ackMs": 7.700000762939453,
+        "confirmMs": 765.9000005722046,
+        "dispatchMs": 2,
+        "responseMs": 755.9000005722046,
+        "accepted": true,
+        "version": 24
+      },
+      {
+        "ackMs": 8.100000381469727,
+        "confirmMs": 772.5,
+        "dispatchMs": 1.8000001907348633,
+        "responseMs": 764.3000001907349,
+        "accepted": true,
+        "version": 26
+      },
+      {
+        "ackMs": 7,
+        "confirmMs": 763.7999992370605,
+        "dispatchMs": 2.1999998092651367,
+        "responseMs": 758,
+        "accepted": true,
+        "version": 33
+      }
+    ],
+    "tmw.after_confirm_next_turn_visible_ms": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "tmw.rearrange": [
+      {
+        "ackMs": 6.899999618530273,
+        "confirmMs": 766.1999998092651,
+        "dispatchMs": 2.3000001907348633,
+        "responseMs": 757.8999996185303,
+        "accepted": true,
+        "version": 11
+      },
+      {
+        "ackMs": 4.800000190734863,
+        "confirmMs": 769.5999994277954,
+        "dispatchMs": 2.8000001907348633,
+        "responseMs": 763.6999998092651,
+        "accepted": true,
+        "version": 14
+      },
+      {
+        "ackMs": 7.800000190734863,
+        "confirmMs": 765.6000003814697,
+        "dispatchMs": 2,
+        "responseMs": 761.8000001907349,
+        "accepted": true,
+        "version": 22
+      }
+    ],
+    "tmw.bot_due_to_client_seen_ms": [
+      829.6999998092651,
+      825.1000003814697,
+      826,
+      825.9000005722046,
+      825.3999996185303,
+      820.3000001907349,
+      819.3000001907349,
+      820.3000001907349,
+      824,
+      821.8000001907349,
+      824.6999998092651,
+      820.3000001907349
+    ],
+    "tmw.poll_request_ms": [
+      763.3999996185303,
+      759.3000001907349,
+      768.3000001907349,
+      761.5999994277954,
+      764.0999994277954,
+      761.5,
+      763.8999996185303,
+      760.7000007629395,
+      763.1000003814697,
+      761.3999996185303,
+      762.6999998092651,
+      760.8000001907349,
+      758.6000003814697,
+      764.0999994277954,
+      761.7999992370605,
+      762,
+      763.6000003814697,
+      760,
+      759.6999998092651,
+      761.6000003814697,
+      768.1000003814697,
+      759.8000001907349,
+      758.1000003814697,
+      757.6000003814697,
+      763.8999996185303,
+      755.6000003814697,
+      757.4000005722046,
+      760.1000003814697,
+      764.3000001907349,
+      752.6000003814697,
+      759.6000003814697,
+      755,
+      764.7000007629395,
+      762.3000001907349,
+      756.4000005722046
+    ]
+  },
+  "notes": [
+    {
+      "arrival": {
+        "phase": "arrival",
+        "firstRead": {
+          "phase": "arrival",
+          "elapsed": 2.305266,
+          "total": 20
+        }
+      },
+      "msFromCreateToRender": 2316
+    },
+    {
+      "firstReadPhase": "arrival"
+    },
+    {
+      "gets": 35,
+      "commands": 14,
+      "humanTurns": 6
+    }
+  ],
+  "summary": {
+    "tmw.intro_elapsed_at_first_read_s": {
+      "n": 1,
+      "p50": 0,
+      "p95": 0,
+      "max": 0
+    },
+    "tmw.intro_elapsed_when_intro_first_seen_s": {
+      "n": 1,
+      "p50": 0,
+      "p95": 0,
+      "max": 0
+    },
+    "tmw.handoff_read_to_actionable_ms_upper": {
+      "n": 6,
+      "p50": 208,
+      "p95": 220,
+      "max": 220
+    },
+    "tmw.select_stage": {
+      "ackMs": {
+        "n": 6,
+        "p50": 4,
+        "p95": 7,
+        "max": 7
+      },
+      "dispatchMs": {
+        "n": 6,
+        "p50": 604,
+        "p95": 606,
+        "max": 606
+      },
+      "responseMs": {
+        "n": 6,
+        "p50": 1368,
+        "p95": 1374,
+        "max": 1374
+      },
+      "confirmMs": {
+        "n": 6,
+        "p50": 1371,
+        "p95": 1375,
+        "max": 1375
+      }
+    },
+    "tmw.draft": {
+      "ackMs": {
+        "n": 6,
+        "p50": 8,
+        "p95": 9,
+        "max": 9
+      },
+      "dispatchMs": {
+        "n": 6,
+        "p50": 2,
+        "p95": 2,
+        "max": 2
+      },
+      "responseMs": {
+        "n": 6,
+        "p50": 763,
+        "p95": 767,
+        "max": 767
+      },
+      "confirmMs": {
+        "n": 6,
+        "p50": 769,
+        "p95": 773,
+        "max": 773
+      }
+    },
+    "tmw.after_confirm_next_turn_visible_ms": {
+      "n": 6,
+      "p50": 0,
+      "p95": 0,
+      "max": 0
+    },
+    "tmw.rearrange": {
+      "ackMs": {
+        "n": 3,
+        "p50": 7,
+        "p95": 8,
+        "max": 8
+      },
+      "dispatchMs": {
+        "n": 3,
+        "p50": 2,
+        "p95": 3,
+        "max": 3
+      },
+      "responseMs": {
+        "n": 3,
+        "p50": 762,
+        "p95": 764,
+        "max": 764
+      },
+      "confirmMs": {
+        "n": 3,
+        "p50": 766,
+        "p95": 770,
+        "max": 770
+      }
+    },
+    "tmw.bot_due_to_client_seen_ms": {
+      "n": 12,
+      "p50": 825,
+      "p95": 826,
+      "max": 830
+    },
+    "tmw.poll_request_ms": {
+      "n": 35,
+      "p50": 762,
+      "p95": 765,
+      "max": 768
+    }
+  }
+}

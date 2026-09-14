@@ -1,0 +1,374 @@
+/* ================================================================
+   Arena multiplayer leaderboard (`ArenaLeaderboardView`)
+   ================================================================
+   V2 tokens only, each with a legacy fallback so a render outside a
+   `[data-ui-version="v2"]` tree still reads. Dark, warm-gold accent,
+   instrument numerals — a publication table, not a betting slip.
+   ================================================================ */
+
+.alb {
+  max-width: var(--v2-width-live, 72rem);
+  margin: 0 auto;
+  padding: var(--v2-space-10, 2.5rem) 0 var(--v2-space-12, 3rem);
+  color: var(--v2-text-primary, var(--text-primary));
+  font-family: var(--v2-font-ui, inherit);
+}
+
+.alb-eyebrow {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--v2-color-accent, var(--peak-accent));
+}
+
+.alb-title {
+  margin-top: 0.375rem;
+  font-family: var(--v2-font-display, inherit);
+  font-weight: 400;
+  font-size: clamp(2rem, 6vw, 2.75rem);
+  line-height: 1.05;
+  letter-spacing: var(--v2-display-track, 0);
+}
+
+.alb-intro {
+  margin-top: 0.75rem;
+  max-width: 44rem;
+  font-size: 0.9375rem;
+  color: var(--v2-text-secondary, var(--text-secondary));
+}
+
+.alb-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: var(--v2-space-6, 1.5rem);
+}
+
+.alb-mode-link {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--v2-border-subtle, var(--border-subtle));
+  border-radius: var(--v2-radius-control, 0.5rem);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--v2-text-secondary, var(--text-secondary));
+  text-decoration: none;
+}
+
+.alb-mode-link:hover {
+  color: var(--v2-text-primary, var(--text-primary));
+  border-color: var(--v2-border-emphasis, var(--border-emphasis));
+}
+
+.alb-mode-link[aria-current="page"] {
+  color: var(--v2-color-accent-text, var(--peak-accent));
+  border-color: var(--v2-color-accent-dim, var(--peak-accent));
+  background: var(--v2-color-accent-bg, transparent);
+}
+
+.alb-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--v2-space-5, 1.25rem);
+  margin-top: var(--v2-space-6, 1.5rem);
+}
+
+@media (min-width: 960px) {
+  .alb-grid {
+    grid-template-columns: minmax(0, 1fr) 20rem;
+    align-items: start;
+  }
+}
+
+.alb-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--v2-space-5, 1.25rem);
+  min-width: 0;
+}
+
+.alb-panel {
+  min-width: 0;
+  padding: var(--v2-space-5, 1.25rem);
+  background: var(--v2-bg-plane, var(--bg-elevated));
+  border: 1px solid var(--v2-border-subtle, var(--border-subtle));
+  border-radius: var(--v2-radius-control, 0.5rem);
+  font-size: 0.875rem;
+  color: var(--v2-text-secondary, var(--text-secondary));
+}
+
+.alb-panel-title {
+  margin-bottom: 0.75rem;
+  font-family: var(--v2-font-display, inherit);
+  font-weight: 400;
+  font-size: 1.5rem;
+  color: var(--v2-text-primary, var(--text-primary));
+}
+
+.alb-panel p + p,
+.alb-panel p + a,
+.alb-panel p + button {
+  margin-top: 0.5rem;
+}
+
+.alb-note {
+  margin-top: 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--v2-text-secondary, var(--text-secondary));
+}
+
+.alb-state-title {
+  font-weight: 600;
+  color: var(--v2-text-primary, var(--text-primary));
+}
+
+.alb-link {
+  display: inline-block;
+  font-weight: 600;
+  color: var(--v2-color-accent-text, var(--peak-accent));
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.alb-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--v2-border-subtle, var(--border-subtle));
+  border-radius: var(--v2-radius-control, 0.5rem);
+  background: transparent;
+  font-weight: 600;
+  color: var(--v2-text-primary, var(--text-primary));
+  cursor: pointer;
+}
+
+.alb-button:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.alb-link:focus-visible,
+.alb-button:focus-visible,
+.alb-mode-link:focus-visible,
+.alb-badge:focus-visible {
+  outline: 2px solid var(--v2-color-accent, var(--peak-accent));
+  outline-offset: 2px;
+}
+
+/* ---- Top Players table ---- */
+
+.alb-scroll {
+  margin: 0 calc(-1 * var(--v2-space-5, 1.25rem));
+  overflow-x: auto;
+}
+
+.alb-table {
+  width: 100%;
+  min-width: 34rem;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.alb-table th {
+  padding: 0.5rem var(--v2-space-3, 0.75rem);
+  text-align: left;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted, var(--text-muted));
+  border-bottom: 1px solid var(--v2-border-subtle, var(--border-subtle));
+}
+
+.alb-table td {
+  padding: 0.625rem var(--v2-space-3, 0.75rem);
+  border-bottom: 1px solid var(--v2-border-subtle, var(--border-subtle));
+  color: var(--v2-text-secondary, var(--text-secondary));
+  vertical-align: middle;
+}
+
+.alb-table th:first-child,
+.alb-table td:first-child {
+  padding-left: var(--v2-space-5, 1.25rem);
+}
+
+.alb-table tr:last-child td {
+  border-bottom: none;
+}
+
+.alb-num,
+.alb-rank,
+.alb-rating {
+  font-family: var(--v2-font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+.alb-table .alb-num {
+  text-align: right;
+}
+
+.alb-rank {
+  color: var(--v2-text-muted, var(--text-muted));
+}
+
+.alb-table tr[data-rank="1"] .alb-rank {
+  color: var(--v2-color-accent-text, var(--peak-accent));
+  font-weight: 700;
+}
+
+.alb-handle {
+  font-weight: 600;
+  color: var(--v2-text-primary, var(--text-primary));
+}
+
+.alb-rating {
+  font-weight: 700;
+  color: var(--v2-text-primary, var(--text-primary));
+}
+
+.alb-player {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.alb-composition {
+  white-space: nowrap;
+  font-size: 0.8125rem;
+}
+
+.alb-muted {
+  color: var(--v2-text-muted, var(--text-muted));
+}
+
+.alb-chip {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--v2-border-subtle, var(--border-subtle));
+  border-radius: var(--v2-radius-instrument, 0.25rem);
+  font-family: var(--v2-font-mono, ui-monospace, monospace);
+  font-size: 0.6875rem;
+  color: var(--v2-text-secondary, var(--text-secondary));
+}
+
+.alb-chip-you {
+  border-color: var(--v2-color-accent-dim, var(--peak-accent));
+  color: var(--v2-color-accent-text, var(--peak-accent));
+}
+
+.alb-row-you {
+  background: var(--v2-color-accent-bg, transparent);
+}
+
+.alb-more {
+  margin-top: var(--v2-space-4, 1rem);
+}
+
+/* ---- Skill card ---- */
+
+.alb-skill-rating {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+}
+
+.alb-skill-number {
+  font-family: var(--v2-font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--v2-text-primary, var(--text-primary));
+}
+
+.alb-skill-tier {
+  font-weight: 600;
+  color: var(--v2-color-accent-text, var(--peak-accent));
+}
+
+.alb-skill-next,
+.alb-skill-empty {
+  margin-top: 0.375rem;
+  color: var(--v2-text-secondary, var(--text-secondary));
+}
+
+.alb-facts {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: var(--v2-space-4, 1rem);
+}
+
+.alb-facts > div {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.alb-facts dt {
+  font-size: 0.75rem;
+  color: var(--v2-text-muted, var(--text-muted));
+}
+
+.alb-facts dd {
+  color: var(--v2-text-primary, var(--text-primary));
+}
+
+/* ---- Around you ---- */
+
+.alb-around-list {
+  display: grid;
+  gap: 1px;
+  margin-top: 0.25rem;
+  list-style: none;
+  padding: 0;
+}
+
+.alb-around-row {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.5rem;
+  border-radius: var(--v2-radius-instrument, 0.25rem);
+}
+
+.alb-around-row .alb-handle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---- Badge (reusable) ---- */
+
+.alb-badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--v2-border-subtle, var(--border-subtle));
+  border-radius: var(--v2-radius-instrument, 0.25rem);
+  text-decoration: none;
+  color: var(--v2-text-primary, var(--text-primary));
+}
+
+.alb-badge-primary {
+  font-family: var(--v2-font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.alb-badge-secondary {
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary, var(--text-secondary));
+}
+
+.alb-badge[data-state="rated"] .alb-badge-secondary {
+  color: var(--v2-color-accent-text, var(--peak-accent));
+}

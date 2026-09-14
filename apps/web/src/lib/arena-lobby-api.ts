@@ -96,6 +96,11 @@ export interface QueueStatus {
    *  the UI can say "looking for players" and then "adding a bot" honestly,
    *  rather than showing a spinner that means nothing. */
   still_seeking_humans?: boolean | null;
+  /** How far apart in rating an opponent may be right now, or null once the
+   *  search is open to any rating (see `matchmaking` "Skill bands"). */
+  rating_band?: number | null;
+  /** Seconds until the band next widens; null once unbounded. */
+  rating_band_widens_in_seconds?: number | null;
 }
 
 /** Only the lobby-relevant fields. The per-mode screens declare the rest. */
@@ -203,6 +208,19 @@ export function searchLabel(status: QueueStatus | null): string {
     return "No human found — filling the remaining seats with bots.";
   }
   return "Looking for a human opponent…";
+}
+
+/**
+ * The skill range the search is using, as the server reports it. A band that
+ * widens with the wait, then opens to anyone -- said plainly, so a player sees
+ * why a search is still going rather than a spinner.
+ */
+export function skillBandLabel(status: QueueStatus | null): string | null {
+  if (!status || status.status !== "waiting") return null;
+  const band = status.rating_band;
+  if (band === undefined) return null; // an older server: say nothing
+  if (band === null) return "Any rating";
+  return `Within ${Math.round(band)} rating`;
 }
 
 /** Room codes are typed by hand and read aloud, so they are normalised on the

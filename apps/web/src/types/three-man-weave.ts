@@ -24,6 +24,9 @@ export interface ArenaSeatPublic {
 }
 
 export interface ArenaMatchView<TPublic = TmwPublicState, TPrivate = TmwPrivateState> {
+  /** How long until the bot on the open turn is allowed to move, or null.
+   *  The room schedules ONE read for that instant (game-feel pass 4). */
+  bot_reply_in_seconds?: number | null;
   match_id: string;
   mode: string;
   mode_version: string;
@@ -162,6 +165,8 @@ export const TMW_COMMAND_REARRANGE = "tmw_rearrange";
  * to reintroduce.
  */
 export const TMW_COMMAND_STAGE_PICK = "tmw_stage_pick";
+/** This seat's client has the briefing on screen. Sent once, during arrival. */
+export const TMW_COMMAND_INTRO_SEEN = "tmw_intro_seen";
 /**
  * FORMER commands, kept as names only. The briefing and the ceremony are
  * short, server-timed phases every seat watches on the same clock; neither
@@ -186,6 +191,9 @@ export const TMW_REJECT_SHARED_TIMELINE = "shared_timeline";
  * turn's published timeline, so a reload mid-briefing or mid-ceremony
  * resumes it from server state rather than restarting a client timer.
  */
+/** The seatless turn every match OPENS on: the briefing is on screen but its
+ *  clock waits until each human seat's client reports it (`TMW_COMMAND_INTRO_SEEN`). */
+export const TMW_TURN_PHASE_ARRIVAL = "arrival";
 export const TMW_TURN_PHASE_INTRO = "intro";
 export const TMW_TURN_PHASE_REVEAL = "reveal";
 export const TMW_TURN_PHASE_PICK = "pick";
@@ -200,8 +208,17 @@ export const TMW_TURN_PHASE_PICK = "pick";
  * always the server's, never one of these numbers.
  */
 export const TMW_INTRO_SECONDS = 4.0;
-export const TMW_REVEAL_SECONDS = 4.0;
+export const TMW_REVEAL_SECONDS = 3.8;
 export const TMW_OPENING_REVEAL_SECONDS = TMW_REVEAL_SECONDS;
+/**
+ * The breathing beat that LEADS a reveal opened by a pick, mirroring
+ * `PICK_SETTLE_SECONDS` (game-feel pass 5). Such a turn runs
+ * `TMW_PICK_SETTLE_SECONDS + TMW_REVEAL_SECONDS`; the room shows the board
+ * with the last pick locking in for the lead, then rolls. The lead is always
+ * derived from the server's own `turn_total_seconds` (see `revealLeadMs`), so
+ * a server without it simply has no lead.
+ */
+export const TMW_PICK_SETTLE_SECONDS = 1.4;
 /** The human decision window, mirroring `TURN_SECONDS`. A denominator only. */
 export const TMW_TURN_SECONDS = 45;
 
@@ -317,11 +334,21 @@ export interface TmwPick extends TmwPlayer {
 export const TMW_FITS_NOW = "fits_now";
 export const TMW_FITS_AFTER_REARRANGEMENT = "fits_after_rearrangement";
 export const TMW_NO_LEGAL_ARRANGEMENT = "no_legal_arrangement";
+/** Fits this roster, but taking them would leave a drafter still to pick this
+ *  round with no legal player on the roll. Not selectable; the server says why. */
+export const TMW_STRANDS_ROUND = "strands_round";
 
 export type TmwFitState =
   | typeof TMW_FITS_NOW
   | typeof TMW_FITS_AFTER_REARRANGEMENT
-  | typeof TMW_NO_LEGAL_ARRANGEMENT;
+  | typeof TMW_NO_LEGAL_ARRANGEMENT
+  | typeof TMW_STRANDS_ROUND;
+
+/** Can a candidate in this fit state be drafted right now? The server's two
+ *  selectable states, and nothing else -- an unknown future state is not. */
+export function isSelectableFit(state: TmwFitState | string | null | undefined): boolean {
+  return state === TMW_FITS_NOW || state === TMW_FITS_AFTER_REARRANGEMENT;
+}
 
 export interface TmwPlanMove {
   player_slug: string;
@@ -349,6 +376,8 @@ export interface TmwRoll {
   franchise_id: string;
   franchise_display_name: string;
   decade: string;
+  /** Set on a Franchise or Decade Draft's roll: which dimension is fixed. */
+  variant?: "franchise" | "decade";
   eligible_slugs: string[];
   /** THE WHOLE ELIGIBLE POOL for this roll, minus already-drafted identities,
    * in the roll's own sorted order. Never narrowed to this seat's open slots
@@ -426,6 +455,10 @@ export interface TmwCurrentEdge {
 }
 
 export interface TmwPublicState {
+  /** `standard`, `franchise` or `decade` (game-feel pass 4). */
+  variant?: "standard" | "franchise" | "decade";
+  /** A Franchise or Decade Draft's one constraint, drawn before round one. */
+  constraint?: { kind: "franchise" | "decade"; value: string; label: string } | null;
   mode_version: string;
   formula_version: string;
   slot_types: TmwSlotType[];

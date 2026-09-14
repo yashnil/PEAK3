@@ -84,6 +84,10 @@ EventName = Literal[
     "arena_match_completed",
     "arena_rematch",
     "arena_match_abandoned",
+    # Arena responsiveness (game-feel pass 4): how long an action took from
+    # press to acknowledgement, response and authoritative render, and how
+    # long a turn handoff took to become actionable. Durations only.
+    "arena_action_timing",
 ]
 
 EVENT_NAMES: frozenset[str] = frozenset(EventName.__args__)  # type: ignore[attr-defined]
@@ -149,6 +153,12 @@ PROPERTY_KEYS: frozenset[str] = frozenset(
         "placement",
         "score",
         "bots",
+        # Arena responsiveness. Whole milliseconds / seconds, nothing else.
+        "ack_ms",
+        "response_ms",
+        "server_ms",
+        "visible_ms",
+        "wait_seconds",
     }
 )
 

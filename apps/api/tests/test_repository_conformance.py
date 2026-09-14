@@ -127,6 +127,89 @@ async def test_postgres_game_repo_conforms(pg_pool):
 
 
 # ---------------------------------------------------------------------------
+# ContactRepository
+# ---------------------------------------------------------------------------
+
+#: The homepage feedback kinds. On Postgres these are exactly the values
+#: 20260914100000_contact_feedback_categories.sql added to the category CHECK
+#: (`bug` predates it), so the Postgres half fails if that migration is absent.
+_CONTACT_FEEDBACK_CATEGORIES = ("game_idea", "bug", "dislike", "weakness", "question", "general_feedback")
+
+
+def _contact_subject_hash() -> str:
+    from app.models.contact import hash_subject
+
+    return hash_subject(f"anon:conformance-{uuid.uuid4().hex}", "conformance-test-secret")
+
+
+async def _assert_contact_repo_conforms(repo, subject_hash: str) -> None:
+    from app.repositories.contact_protocols import ContactSubmission
+
+    saved_ids = []
+    for category in _CONTACT_FEEDBACK_CATEGORIES:
+        saved = await repo.record(
+            ContactSubmission(
+                subject_hash=subject_hash,
+                subject_kind="anon",
+                category=category,
+                subject=f"conformance {category}",
+                message=f"conformance note for {category}",
+            )
+        )
+        assert saved.id
+        assert saved.category == category
+        assert saved.status == "open"
+        assert saved.created_at is not None
+        assert saved.relevant_area is None and saved.reply_email is None
+        saved_ids.append(saved.id)
+
+    mine = [s for s in await repo.list_recent(1000) if s.subject_hash == subject_hash]
+    assert sorted(s.id for s in mine) == sorted(saved_ids)
+    assert {s.category for s in mine} == set(_CONTACT_FEEDBACK_CATEGORIES)
+
+
+@pytest.mark.asyncio
+async def test_memory_contact_repo_conforms():
+    from app.repositories.contact_memory import MemoryContactRepository
+
+    await _assert_contact_repo_conforms(MemoryContactRepository(), _contact_subject_hash())
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_contact_repo_conforms(pg_pool):
+    from app.repositories.contact_postgres import PostgresContactRepository
+
+    subject_hash = _contact_subject_hash()
+    try:
+        await _assert_contact_repo_conforms(PostgresContactRepository(pg_pool), subject_hash)
+    finally:
+        async with pg_pool.acquire() as conn:
+            await conn.execute("DELETE FROM contact_submissions WHERE subject_hash = $1", subject_hash)
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_contact_category_check_rejects_an_unreviewed_value(pg_pool):
+    """Defense in depth: the database CHECK refuses a category the API's
+    closed vocabulary would never send, so a direct owner-role insert can't
+    widen the vocabulary either."""
+    from app.repositories.contact_postgres import PostgresContactRepository
+    from app.repositories.contact_protocols import ContactSubmission
+
+    with pytest.raises(asyncpg.CheckViolationError):
+        await PostgresContactRepository(pg_pool).record(
+            ContactSubmission(
+                subject_hash=_contact_subject_hash(),
+                subject_kind="anon",
+                category="not_a_reviewed_category",
+                subject="conformance",
+                message="conformance",
+            )
+        )
+
+
+# ---------------------------------------------------------------------------
 # ChallengeRepository
 # ---------------------------------------------------------------------------
 
@@ -512,6 +595,57 @@ async def _assert_arena_repo_conforms(repo) -> None:
     # Event sequence numbers are dense and ordered.
     server_view = await repo.list_events(match.match_id, for_seat=None)
     assert [e.seq for e in server_view] == list(range(len(server_view)))
+
+    # THE OUTCOME REPORTS WHAT IT WROTE (game-feel pass 4): routes build the
+    # response view from it without reading back, so it must equal a read.
+    reported = await repo.apply_command(cmd("conf-key-report"), _bump_reducer, now)
+    assert reported.accepted and reported.open_turn_known
+    assert reported.open_turn == await repo.get_open_turn(match.match_id)
+    read_back = await repo.get_match(match.match_id)
+    for column in ("state_version", "snapshot", "status", "turn_deadline_at", "current_turn_seq", "completed_at"):
+        assert getattr(reported.match, column) == getattr(read_back, column), column
+
+    # THE BUNDLE IS THE SEPARATE READS, IN ONE: match, seats, open turn, and
+    # the newest event seq each seat may see.
+    bundle = await repo.get_match_bundle(match.match_id)
+    assert bundle is not None
+    assert bundle.match == read_back
+    assert list(bundle.seats) == await repo.get_seats(match.match_id)
+    assert bundle.open_turn == await repo.get_open_turn(match.match_id)
+    for seat_index in (0, 1):
+        visible = await repo.list_events(match.match_id, for_seat=seat_index)
+        assert bundle.latest_seq_for(seat_index) == max(e.seq for e in visible)
+    assert bundle.seat_for_sub(seats[1].occupant_sub).seat_index == 1
+    assert bundle.seat_for_sub("nobody") is None
+    assert await repo.get_match_bundle(str(uuid.uuid4())) is None
+
+    # A turn opened by a command is reported exactly as a read returns it, and
+    # the bundle derived from the outcome agrees with a fresh bundle.
+    def _open_turn_reducer(data):
+        from app.repositories.arena_protocols import EventDraft, ReducerOutput, TurnDraft
+
+        return ReducerOutput(
+            accepted=True,
+            snapshot={"n": data.match.snapshot.get("n", 0) + 1},
+            events=(EventDraft(event_type="opened"),),
+            resolve_turn="action" if data.open_turn is not None else None,
+            open_turn=TurnDraft(phase="pick", deadline_at=now + timedelta(seconds=30), seat_index=1),
+        )
+
+    opened = await repo.apply_command(cmd("conf-key-open1"), _open_turn_reducer, now)
+    assert opened.accepted and opened.open_turn_known
+    assert opened.open_turn == await repo.get_open_turn(match.match_id)
+    derived = bundle.after_command(opened)
+    fresh = await repo.get_match_bundle(match.match_id)
+    assert derived.match == fresh.match
+    assert derived.open_turn == fresh.open_turn
+    for seat_index in (0, 1):
+        assert derived.latest_seq_for(seat_index) == fresh.latest_seq_for(seat_index)
+
+    # A session is re-entrant and changes no result.
+    async with repo.session():
+        async with repo.session():
+            assert (await repo.get_match_bundle(match.match_id)).match == fresh.match
 
     # expire_match is first-write-wins.
     assert await repo.expire_match(match.match_id, now) is True
@@ -964,6 +1098,120 @@ async def test_memory_arena_queue_conforms():
 async def test_postgres_arena_queue_conforms(pg_pool):
     from app.repositories.arena_postgres import PostgresArenaRepository
     await _assert_arena_queue_conforms(PostgresArenaRepository(pg_pool))
+
+
+async def _assert_arena_standings_conform(standings, ratings, profiles, new_match_id) -> None:
+    """The standings read model, identical on both backends.
+
+    WRITTEN BECAUSE THE TWO ARE GENUINELY DIFFERENT: one composes the memory
+    rating and profile repositories in Python, the other is a window function
+    over `arena_ratings` joined to `profiles`. What must agree:
+
+      * rank is the GLOBAL position (rating desc, rated_matches desc, sub),
+        counting unlisted players;
+      * listing and paging are over handle holders only;
+      * neighbours are the nearest LISTED players, in board order, excluding
+        the subject, and empty on the side that has none;
+      * `players_below` counts strictly lower ratings;
+      * an unrated subject has no standing and no neighbours.
+    """
+    from app.repositories.arena_rating_protocols import ArenaRatingHistoryEntry
+
+    mode = f"smode_{uuid.uuid4().hex[:8]}"
+    tag = uuid.uuid4().hex[:8]
+
+    async def rate(sub: str, rating: float, matches: int = 1, handle: str | None = None):
+        for _ in range(matches):
+            await ratings.record_match_rating([
+                ArenaRatingHistoryEntry(
+                    owner_sub=sub, mode=mode, match_id=await new_match_id(),
+                    pre_rating=1500.0, pre_rd=350.0, pre_volatility=0.06,
+                    post_rating=rating, post_rd=80.0, post_volatility=0.06,
+                    unbounded_post_rating=rating, bound_applied=False, placement=1,
+                    had_bot_opponent=False, algorithm_version="test_v1",
+                )
+            ])
+        if handle:
+            await profiles.update_profile(sub, {"handle": handle})
+        return sub
+
+    top = await rate(f"user-{uuid.uuid4()}", 2000.0, handle=f"top{tag}")
+    unlisted = await rate(f"user-{uuid.uuid4()}", 1900.0)
+    mid = await rate(f"user-{uuid.uuid4()}", 1800.0, matches=7, handle=f"mid{tag}")
+    tie_more = await rate(f"user-{uuid.uuid4()}", 1700.0, matches=3, handle=f"tma{tag}")
+    tie_less = await rate(f"user-{uuid.uuid4()}", 1700.0, matches=2, handle=f"tle{tag}")
+    bottom = await rate(f"user-{uuid.uuid4()}", 1600.0, handle=f"bot{tag}")
+
+    population = await standings.get_population(mode, 7)
+    assert (population.rated_players, population.listed_players, population.established_players) == (6, 5, 1)
+
+    board = await standings.list_top(mode, limit=10)
+    assert [r.owner_sub for r in board] == [top, mid, tie_more, tie_less, bottom]
+    assert [r.rank for r in board] == [1, 3, 4, 5, 6], "rank counts the unlisted player"
+    assert board[1].handle == f"mid{tag}" and board[1].rated_matches == 7
+    paged = await standings.list_top(mode, limit=2, offset=1)
+    assert [r.owner_sub for r in paged] == [mid, tie_more]
+
+    hidden = await standings.get_standing(mode, unlisted)
+    assert hidden is not None and hidden.row.rank == 2 and hidden.row.handle is None
+    assert hidden.players_below == 4
+    tied = await standings.get_standing(mode, tie_less)
+    assert tied.row.rank == 5 and tied.players_below == 1, "ties are not below each other"
+    assert await standings.get_standing(mode, f"user-{uuid.uuid4()}") is None
+
+    above, below = await standings.list_neighbours(mode, mid, 2, 2)
+    assert [r.owner_sub for r in above] == [top]
+    assert [r.owner_sub for r in below] == [tie_more, tie_less]
+    above, below = await standings.list_neighbours(mode, top, 2, 2)
+    assert above == [] and [r.owner_sub for r in below] == [mid, tie_more]
+    above, below = await standings.list_neighbours(mode, bottom, 2, 2)
+    assert [r.owner_sub for r in above] == [tie_more, tie_less] and below == []
+    above, below = await standings.list_neighbours(mode, unlisted, 1, 1)
+    assert [r.owner_sub for r in above] == [top] and [r.owner_sub for r in below] == [mid]
+    assert await standings.list_neighbours(mode, f"user-{uuid.uuid4()}", 3, 3) == ([], [])
+
+    empty_mode = f"smode_{uuid.uuid4().hex[:8]}"
+    assert await standings.get_population(empty_mode, 7) == type(population)(0, 0, 0)
+    assert await standings.list_top(empty_mode) == []
+
+
+@pytest.mark.asyncio
+async def test_memory_arena_standings_conform():
+    from app.repositories.arena_rating_memory import MemoryArenaRatingRepository
+    from app.repositories.arena_standings_memory import MemoryArenaStandingsRepository
+
+    ratings, profiles = MemoryArenaRatingRepository(), MemoryProfileRepository()
+
+    async def new_match_id():
+        return str(uuid.uuid4())
+
+    await _assert_arena_standings_conform(
+        MemoryArenaStandingsRepository(ratings, profiles), ratings, profiles, new_match_id
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_arena_standings_conform(pg_pool):
+    from app.repositories.arena_postgres import PostgresArenaRepository
+    from app.repositories.arena_rating_postgres import PostgresArenaRatingRepository
+    from app.repositories.arena_standings_postgres import PostgresArenaStandingsRepository
+    from app.repositories.postgres_profile import PostgresProfileRepository
+
+    arena = PostgresArenaRepository(pg_pool)
+
+    async def new_match_id():
+        # arena_rating_history.match_id is a FOREIGN KEY into arena_matches.
+        match = _arena_match()
+        await arena.create_match(match, _arena_seats(match.match_id, 2))
+        return match.match_id
+
+    await _assert_arena_standings_conform(
+        PostgresArenaStandingsRepository(pg_pool),
+        PostgresArenaRatingRepository(pg_pool),
+        PostgresProfileRepository(pg_pool),
+        new_match_id,
+    )
 
 
 # ---------------------------------------------------------------------------

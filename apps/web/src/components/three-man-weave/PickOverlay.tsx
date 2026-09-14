@@ -10,7 +10,6 @@ import type {
 } from "@/types/three-man-weave";
 import {
   TMW_FITS_AFTER_REARRANGEMENT,
-  TMW_NO_LEGAL_ARRANGEMENT,
   TMW_SLOT_LABELS,
   TMW_SLOT_TYPES,
 } from "@/types/three-man-weave";
@@ -34,6 +33,7 @@ import {
   seatLabel,
   slotAbbrev,
   takenThisRoll,
+  rollScopeLine,
 } from "@/lib/three-man-weave-state";
 import ArenaTimer from "@/components/shared/ArenaTimer";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
@@ -240,13 +240,30 @@ export default function PickOverlay({
   // turn (cleared on any turn change, see `draft.py`'s `apply_pick`), so by
   // construction it can never belong to a different turn than the one this
   // effect just opened on.
+  const panelRef = useRef<HTMLElement | null>(null);
+  /** The roster column's heading: the phone's "Choose slot" jump target. */
+  const placeHeadRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!open) return;
     reset(stagedPick);
-    // Focus the search rather than the dialog: the first thing a drafter does
-    // is look for a name, and landing on the input skips a tab for everyone
-    // while still putting focus inside the dialog for a screen reader.
-    const timer = window.setTimeout(() => searchRef.current?.focus(), 30);
+    // Focus the search: the first thing a drafter does is look for a name.
+    //
+    // The panel is in the page now, not over it, so a turn can open while the
+    // player is scrolled down the courts. Bring the PANEL's top into view
+    // (it carries `scroll-margin-top`, so it lands below the sticky strip)
+    // and focus without letting the browser pick its own scroll position --
+    // which would park the input at the viewport edge, under the strip, with
+    // the roll and the clock above it cut off.
+    const timer = window.setTimeout(() => {
+      const panel = panelRef.current;
+      if (panel && typeof panel.scrollIntoView === "function") {
+        const top = panel.getBoundingClientRect().top;
+        if (top < 0 || top > window.innerHeight * 0.55) {
+          panel.scrollIntoView({ block: "start" });
+        }
+      }
+      searchRef.current?.focus({ preventScroll: true });
+    }, 30);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, roll?.roll_id, pickNumber, reset]);
@@ -493,10 +510,18 @@ export default function PickOverlay({
   const canCommitMove = mode === "moving" && !!movingPick && !!slot && !expired;
 
   return (
+    // IN THE PAGE, NOT OVER IT (game-feel pass 5). This was a fixed,
+    // full-viewport modal with two independently scrolling panes inside it --
+    // a scroll box inside a scroll box, over a board that scrolled on its
+    // own. It is now the decision surface in the board's flow: the candidate
+    // list is as long as the pool and the PAGE scrolls it, while the roster
+    // column sticks beside it on desktop and the actions dock at the bottom
+    // of the viewport on a phone, so "Draft X at Y" is never a hunt. It is a
+    // labelled region rather than a modal dialog because the board around it
+    // stays live and reachable.
     <div className="tmw-overlay-scrim" data-testid="tmw-pick-overlay-scrim">
-      <div
-        role="dialog"
-        aria-modal="true"
+      <section
+        ref={panelRef}
         aria-labelledby={headingId}
         data-testid="tmw-pick-overlay"
         data-mode={mode}
@@ -665,8 +690,7 @@ export default function PickOverlay({
 
             <ul className="tmw-overlay-list" data-testid="tmw-candidate-list">
               {shown.map((candidate) => {
-                const disabled =
-                  expired || candidate.fit.state === TMW_NO_LEGAL_ARRANGEMENT;
+                const disabled = expired || !candidate.selectable;
                 const isSelected = selected === candidate.player_slug;
                 return (
                   <li key={candidate.player_slug}>
@@ -727,8 +751,7 @@ export default function PickOverlay({
                             {fitLabel(candidate)}
                           </span>
                         </span>
-                        {candidate.fit.state === TMW_NO_LEGAL_ARRANGEMENT &&
-                        candidate.fit.reason ? (
+                        {!candidate.selectable && candidate.fit.reason ? (
                           <span className="tmw-candidate-reason">
                             {candidate.fit.reason}
                           </span>
@@ -757,7 +780,7 @@ export default function PickOverlay({
 
           {/* RIGHT: your roster, and it is the control. */}
           <div className="tmw-overlay-place">
-            <div className="tmw-overlay-place-head">
+            <div className="tmw-overlay-place-head" ref={placeHeadRef}>
               <h3 className="tmw-overlay-subhead">Your roster</h3>
               <p className="tmw-place-instruction" data-testid="tmw-place-instruction">
                 {mode === "placing"
@@ -892,6 +915,21 @@ export default function PickOverlay({
                       ? `Draft ${chosen?.player_name ?? "this player"} at ${TMW_SLOT_LABELS[slot]}`
                       : `Choose a slot for ${chosen?.player_name ?? "this player"}`}
                   </GameActionButton>
+                  {/* PHONE ONLY (CSS): the roster board sits below the list
+                      there, so a multi-slot pick docked at the bottom of the
+                      viewport offers the way to it rather than a hunt. */}
+                  {!slot && placementSlots.length > 1 ? (
+                    <PeakV2SecondaryAction
+                      type="button"
+                      className="tmw-slot-jump"
+                      data-testid="tmw-slot-jump"
+                      onClick={() =>
+                        placeHeadRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" })
+                      }
+                    >
+                      Choose slot
+                    </PeakV2SecondaryAction>
+                  ) : null}
                   <PeakV2SecondaryAction
                     type="button"
                     data-testid="tmw-cancel-pick"
@@ -912,7 +950,7 @@ export default function PickOverlay({
             </div>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }
@@ -981,7 +1019,7 @@ function EmptyPool({
       <span data-testid="tmw-pool-empty-ineligible" className="tmw-overlay-empty-body">
         <strong>Not eligible for this roll.</strong> No undrafted player matching “
         {reason.query}” recorded a season for{" "}
-        {roll ? `the ${roll.franchise_display_name} in the ${roll.decade}` : "this roll"}.
+        {rollScopeLine(roll)}.
       </span>
     );
   }

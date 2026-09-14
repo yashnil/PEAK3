@@ -30,6 +30,7 @@ export default function PeakV2ShowdownIntro({
   slots,
   marketSkips,
   rated,
+  arriving = false,
   elapsedSeconds = null,
   totalSeconds = null,
   turnSeq = null,
@@ -39,6 +40,8 @@ export default function PeakV2ShowdownIntro({
   slots: number;
   marketSkips: number;
   rated: boolean;
+  /** On screen, clock not started: waiting for both bidders to arrive. */
+  arriving?: boolean;
   elapsedSeconds?: number | null;
   totalSeconds?: number | null;
   turnSeq?: number | null;
@@ -111,8 +114,14 @@ export default function PeakV2ShowdownIntro({
               same beat and lot 1's clock opens for both when the server's
               turn ends (`showdown_skip_intro` is refused with
               `shared_timeline`). The bar and the countdown say when. */}
-          <span className="sd-intro-countdown" data-testid="td-intro-countdown" role="status" aria-live="polite">
-            Lot 1 opens in {secondsLeft}s
+          <span
+            className="sd-intro-countdown"
+            data-testid="td-intro-countdown"
+            data-arriving={arriving ? "true" : "false"}
+            role="status"
+            aria-live="polite"
+          >
+            {arriving || secondsLeft === null ? "Taking seats" : `Lot 1 opens in ${secondsLeft}s`}
           </span>
           {totalSeconds !== null ? (
             <span className="sd-intro-track" aria-hidden="true" data-testid="td-intro-track">

@@ -72,6 +72,8 @@ from app.repositories.arena_memory import MemoryArenaRepository
 from app.repositories.arena_protocols import ArenaRepository
 from app.repositories.arena_rating_memory import MemoryArenaRatingRepository
 from app.repositories.arena_rating_protocols import ArenaRatingRepository
+from app.repositories.arena_standings_memory import MemoryArenaStandingsRepository
+from app.repositories.arena_standings_protocols import ArenaStandingsRepository
 
 # ---------------------------------------------------------------------------
 # Singleton in-memory stores (only used when DATABASE_URL is unset in dev)
@@ -392,6 +394,24 @@ def get_arena_rating_repo(request: Request) -> ArenaRatingRepository:
     return _memory_arena_rating_repo
 
 
+def get_arena_standings_repo(request: Request) -> ArenaStandingsRepository:
+    """Return the active ArenaStandingsRepository (Postgres or in-memory).
+
+    A read-only projection over `arena_ratings` and `profiles.handle`; it owns
+    no table. Switched by the same single pool flag as every domain here, so it
+    can never read a different backend than the ratings it ranks.
+    """
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is not None:
+        from app.repositories.arena_standings_postgres import PostgresArenaStandingsRepository
+        return PostgresArenaStandingsRepository(pool)
+    _warn_memory_repo("ArenaStandingsRepository")
+    # Built per request, not held as a `_memory_*` singleton: it stores nothing,
+    # it only reads the two singletons that do, so there is no state for the
+    # test suite's reset to clear and no stale copy to go out of step.
+    return MemoryArenaStandingsRepository(_memory_arena_rating_repo, _memory_profile_repo)
+
+
 def _warn_memory_repo(name: str) -> None:
     if not settings.DEBUG:
         raise RuntimeError(
@@ -441,3 +461,6 @@ PeakDuelDailyResultRepoDep = Annotated[
 HeadToHeadRepoDep = Annotated[HeadToHeadRepository, Depends(get_head_to_head_repo)]
 ArenaRepoDep = Annotated[ArenaRepository, Depends(get_arena_repo)]
 ArenaRatingRepoDep = Annotated[ArenaRatingRepository, Depends(get_arena_rating_repo)]
+ArenaStandingsRepoDep = Annotated[
+    ArenaStandingsRepository, Depends(get_arena_standings_repo)
+]

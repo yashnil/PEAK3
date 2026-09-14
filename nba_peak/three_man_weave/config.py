@@ -34,7 +34,18 @@ ENGINE_VERSION: Final[str] = "three_man_weave_v1"
 # franchise as well as the rolled decade, which also narrows who is eligible
 # for a roll at all. An in-flight v1 snapshot is refused rather than replayed
 # under rules its players never agreed to.
-RULESET_VERSION: Final[str] = "tmw_ruleset_v2"
+#
+# v3 (game-feel pass 4): A PICK MUST LEAVE EVERY LATER DRAFTER THIS ROUND A
+# SELECTABLE PLAYER ON THE ROLL (`draft.round_keepers`). v2 checked that only
+# when a roll was revealed, so an earlier pick could strand a later seat and
+# hang the match. v2 snapshots are still ACCEPTED (see
+# COMPATIBLE_RULESET_VERSIONS): v3 only refuses the picks that could not have
+# finished under v2, so a v2 match in flight at deploy continues correctly.
+RULESET_VERSION: Final[str] = "tmw_ruleset_v3"
+
+#: Snapshot ruleset versions this build will continue. A version NOT listed is
+#: refused rather than reinterpreted.
+COMPATIBLE_RULESET_VERSIONS: Final[tuple[str, ...]] = ("tmw_ruleset_v2", RULESET_VERSION)
 
 # Bumped whenever the franchise x decade eligibility index changes in a way
 # that could change WHO is eligible for a given roll: a different source file,
@@ -64,52 +75,86 @@ TMW_ADAPTER_VERSION: Final[str] = "tmw_six_player_adapter_v2"
 # an unchanged (state, seed). Separate constant because a change here silently
 # alters recorded match history, which is exactly the kind of change that must
 # be greppable.
-AUTOPICK_VERSION: Final[str] = "tmw_autopick_v1"
+#
+# v2: excludes picks that strand a later drafter this round, falls back to
+# rearrangement fits when nothing fits directly, and publishes an ordered list
+# so a timeout refused by the reducer tries the next choice (autopick.py).
+AUTOPICK_VERSION: Final[str] = "tmw_autopick_v2"
 
 #: The bot policy shipped with this mode. Pinned onto a seat so a later
 #: recalibration cannot retroactively change what a settled rated match was
 #: played against -- the same discipline the mode's own version strings use.
 #: v2 replaced "always take the highest-scoring legal candidate" with a
 #: probabilistic draw over five weighted factors. See `bot.py`.
-BOT_POLICY_VERSION: Final[str] = "tmw_bot_v2"
+#: v3 (game-feel pass 5): a Franchise or Decade Draft bot also weighs roster
+#: construction (it avoids stacking a third big on a close call) and a mild
+#: star-recognition lean, and samples its near-equivalent bands a little more
+#: often. The standard game's utility and bands are unchanged.
+BOT_POLICY_VERSION: Final[str] = "tmw_bot_v3"
 
-#: How long a bot seat appears to "think" before its pick lands, in seconds.
-#: A seeded draw inside this window, per (match, seat, turn).
+#: HOW LONG A BOT SEAT APPEARS TO DELIBERATE, in seconds -- SHAPED BY THE
+#: DECISION, not drawn flat.
 #:
-#: WHY 4-10 AND NOT 1-5. At 1-5 seconds a bot frequently moved inside the same
-#: two-second poll that opened its turn, so the board rendered the RESULT and
-#: never the deliberation -- the seat went from empty to filled between two
-#: frames and the "X is on the clock" state was, in practice, unobservable. The
-#: floor is now longer than the client's poll interval, which is what makes the
-#: bot's own clock a thing a player can actually watch rather than a state the
-#: transport quietly skips over.
+#: CALCULATE FIRST, PRESENT SECOND. The pick is a pure function of the board
+#: and the seed; nothing about it waits. What waits is the moment it is allowed
+#: to LAND, enforced against the turn's stored `opened_at` by the platform's bot
+#: driver, so every poller agrees on when it lands and a fast client cannot
+#: hurry it.
 #:
-#: THE CEILING IS THE FOUNDATION'S. `bots.bot_think_seconds_for` clamps any
-#: mode hook to 10.0 seconds so a mode cannot park a bot past the human clock,
-#: so 10.0 is the largest value this range can usefully name.
+#: WHY NOT A FLAT RANGE ANY MORE. Pass 4 cut the flat draw to 1.2-3.0 s to kill
+#: dead air, and the room now reads the move the instant it is due
+#: (`bot_reply_in_seconds`), so the latency is gone -- but a flat, short draw
+#: made every bot answer an obvious pick and an agonising one in the same two
+#: seconds, which reads as a function call, not an opponent. The draft lost the
+#: one beat of suspense it has between a human's picks.
 #:
-#: PRESENTATION ONLY. This never touches bot decision quality: the pick is
-#: computed by the same policy either way and the delay is enforced against the
-#: turn's stored `opened_at`, so a fast-polling client cannot hurry it.
-BOT_THINK_SECONDS_MIN: Final[float] = 4.0
-BOT_THINK_SECONDS_MAX: Final[float] = 10.0
+#: THE MODEL. `ThreeManWeaveBot.deliberation` scores how hard THIS decision is
+#: in [0, 1] from the board alone: forced by the quality gate (a lone star) is
+#: near 0; a clear best option is low; several near-equivalent players, or the
+#: best options spread across different slots, is high. Seconds grow with it on
+#: a gentle curve from `BOT_THINK_OBVIOUS_SECONDS` to
+#: `BOT_THINK_AGONISING_SECONDS`, times a seeded noise factor so two equally
+#: hard picks never take the same time. Roughly: a lone star lands in ~2-3 s, a
+#: typical pick in ~4-6 s, a genuine toss-up in ~8-11 s.
+#:
+#: PRESENTATION ONLY. The decision is computed by the same policy either way.
+BOT_THINK_OBVIOUS_SECONDS: Final[float] = 2.6
+BOT_THINK_AGONISING_SECONDS: Final[float] = 10.0
+#: The curve's exponent: >1 keeps ordinary decisions nearer the quick end, so
+#: only genuinely close calls reach the long tail.
+BOT_THINK_CURVE: Final[float] = 1.3
+#: Seeded per-turn noise, as a multiplier on the curve.
+BOT_THINK_NOISE: Final[tuple[float, float]] = (0.85, 1.15)
+#: Used when no board is available to classify (an older caller).
+BOT_THINK_DEFAULT_DELIBERATION: Final[float] = 0.35
+#: Hard bounds on any draw. The ceiling stays inside the foundation's clamp
+#: (`bots.bot_think_seconds_for`, 12 s) and far inside the 45 s human clock.
+BOT_THINK_SECONDS_MIN: Final[float] = 2.0
+BOT_THINK_SECONDS_MAX: Final[float] = 11.5
 
 
-def bot_think_seconds(seed: int | str, seat_index: int, turn_seq: int) -> float:
+def bot_think_seconds(
+    seed: int | str,
+    seat_index: int,
+    turn_seq: int,
+    deliberation: float | None = None,
+) -> float:
     """How long THIS bot takes on THIS turn. Deterministic, never a sleep.
 
-    Presentation only, and enforced against the turn's stored `opened_at` by
-    the platform's bot driver -- so two clients polling at different rates
-    agree on when the move lands, and a fast poller cannot hurry a bot along.
-
-    Keyed by turn as well as seat so successive picks feel variable rather
-    than metronomic, and derived from the match seed so a replay of the same
-    match produces the same rhythm.
+    `deliberation` is `ThreeManWeaveBot.deliberation` for the board the bot is
+    deciding on (0 obvious .. 1 agonising); None falls back to a typical pick.
+    Keyed by seat and turn as well as seed so successive picks never run on a
+    metronome, and derived from the match seed so a replay has the same rhythm.
     """
-    draw = stream_rng(seed, f"bot-think:{seat_index}:{turn_seq}").random()
-    return round(
-        BOT_THINK_SECONDS_MIN + draw * (BOT_THINK_SECONDS_MAX - BOT_THINK_SECONDS_MIN), 2
-    )
+    rng = stream_rng(seed, f"bot-think:{seat_index}:{turn_seq}")
+    difficulty = BOT_THINK_DEFAULT_DELIBERATION if deliberation is None else deliberation
+    difficulty = min(1.0, max(0.0, float(difficulty)))
+    base = BOT_THINK_OBVIOUS_SECONDS + (
+        BOT_THINK_AGONISING_SECONDS - BOT_THINK_OBVIOUS_SECONDS
+    ) * difficulty**BOT_THINK_CURVE
+    low, high = BOT_THINK_NOISE
+    seconds = base * (low + (high - low) * rng.random())
+    return round(min(BOT_THINK_SECONDS_MAX, max(BOT_THINK_SECONDS_MIN, seconds)), 2)
 
 # The canonical PEAK3 formula this game speaks. peak3_v1 is the version
 # `cache/processed/scored_1980_2026.parquet` carries and the version
@@ -271,8 +316,11 @@ def human_seat_index(seed: int | str, seat_count: int = PARTICIPANT_COUNT) -> in
 __all__ = [
     "AUTOPICK_VERSION",
     "BOT_POLICY_VERSION",
+    "BOT_THINK_AGONISING_SECONDS",
+    "BOT_THINK_OBVIOUS_SECONDS",
     "BOT_THINK_SECONDS_MAX",
     "BOT_THINK_SECONDS_MIN",
+    "COMPATIBLE_RULESET_VERSIONS",
     "bot_think_seconds",
     "human_seat_index",
     "BENCH_SLOT_TYPES",

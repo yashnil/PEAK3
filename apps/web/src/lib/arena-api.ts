@@ -20,6 +20,7 @@ import type {
 } from "@/types/three-man-weave";
 
 import { getAccessToken } from "@/lib/auth";
+import { attachServerTiming } from "@/lib/game-feel/server-timing";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -88,7 +89,8 @@ async function arenaFetch<T>(path: string, options: RequestInit = {}): Promise<T
     }
     throw new ArenaAPIError(res.status, message, code);
   }
-  return (await res.json()) as T;
+  // The server's stage durations ride along, invisible to renderers.
+  return attachServerTiming((await res.json()) as T, res.headers?.get?.("server-timing"));
 }
 
 export async function getArenaReadiness(): Promise<ArenaReadiness> {

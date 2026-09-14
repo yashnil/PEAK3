@@ -64,8 +64,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from nba_peak.three_man_weave.arrangement import FITS_AFTER_REARRANGEMENT
 from nba_peak.three_man_weave.config import AUTOPICK_VERSION, SLOT_TYPES, stream_rng
-from nba_peak.three_man_weave.draft import DraftState, legal_picks, undrafted_pool
+from nba_peak.three_man_weave.draft import DraftState, candidate_fits, legal_picks, undrafted_pool
 from nba_peak.three_man_weave.eligibility import EligibilityIndex
 from nba_peak.three_man_weave.feasibility import can_fill_open_slots
 
@@ -81,6 +82,10 @@ class AutoPick:
     slot_type: str
     scoring_score: Optional[float]
     preserved_completability: bool
+    #: A COMPLETE arrangement when the pick only fits after the seat's own
+    #: roster is rearranged (the server's own plan from `candidate_fits`), or
+    #: None for a direct pick.
+    placements: Optional[dict[str, str]] = None
 
     def as_dict(self) -> dict:
         return {
@@ -91,6 +96,7 @@ class AutoPick:
             "slot_type": self.slot_type,
             "scoring_score": self.scoring_score,
             "preserved_completability": self.preserved_completability,
+            "placements": dict(self.placements) if self.placements else None,
         }
 
 
@@ -100,8 +106,12 @@ def _still_completable(
     seat_index: int,
     player_slug: str,
     slot_type: str,
+    open_after: Optional[tuple[str, ...]] = None,
 ) -> bool:
-    """Would every seat still be able to finish, if this pick were made?"""
+    """Would every seat still be able to finish, if this pick were made?
+
+    `open_after` is the seat's open slots after a REARRANGING pick, which is
+    not simply "the same open slots minus one"."""
     open_slots = {
         roster.seat_index: tuple(
             slot
@@ -110,40 +120,56 @@ def _still_completable(
         )
         for roster in state.rosters
     }
+    if open_after is not None:
+        open_slots[seat_index] = open_after
     pool = [slug for slug in undrafted_pool(state, index) if slug != player_slug]
     return can_fill_open_slots(open_slots, pool, state.slot_rights(index, include_pool=True))
 
 
-def auto_pick(
+def auto_pick_options(
     state: DraftState,
     index: EligibilityIndex,
     seed: Optional[int] = None,
-) -> Optional[AutoPick]:
-    """The pick a timeout should commit for the current seat, or None.
+) -> tuple[AutoPick, ...]:
+    """Every pick a timeout may commit for the current seat, in the order it
+    should try them. The first is `auto_pick`'s answer.
 
-    None means there is genuinely nothing legal to take -- the platform layer
-    must treat that as an error condition in its own right, never as "skip
-    the turn silently", because roll feasibility is supposed to have made it
-    impossible.
+    WHY AN ORDER AND NOT ONE ANSWER (tmw_autopick_v2). A committed pick can
+    still be refused by the reducer -- the last pick of a round must leave a
+    feasible roll for the next one -- and a timeout that tried exactly one
+    choice and was refused was refused again on every read, forever. The
+    reducer walks this list and commits the first choice the rules accept.
+
+    WHY REARRANGEMENT FITS ARE INCLUDED. When no candidate fits an open slot
+    directly, the seat can still legally take someone by rearranging its own
+    roster; `draft.round_keepers` may guarantee a seat exactly that and nothing
+    more. v1 only ever looked at direct fits and returned None there.
+
+    The ranking, the lower-value half and the seeded draw are v1's, unchanged.
     """
     seat = state.current_seat
     round_number = state.current_round
     if seat is None or round_number is None or state.current_roll is None:
-        return None
+        return ()
 
-    options = legal_picks(state, index, seat)
-    if not options:
-        return None
+    direct = legal_picks(state, index, seat)
+    plans: dict[str, dict[str, str]] = {}
+    if not direct:
+        for slug, fit in candidate_fits(state, index, seat).items():
+            if fit.state == FITS_AFTER_REARRANGEMENT and fit.plan:
+                plans[slug] = dict(fit.plan)
+        if not plans:
+            return ()
+    options = direct or plans
 
     match_seed = state.match_seed if seed is None else seed
     rng = stream_rng(match_seed, f"autopick:{state.turn_index}")
-    decade = state.current_roll.decade
-    franchise_id = state.current_roll.franchise_id
-
     def score_of(slug: str) -> float:
-        # The card for THIS roll's franchise and decade -- the same card the
-        # roster will actually be graded on. Ranking on a decade-wide best
-        # would rank a candidate on a season they will never be scored for.
+        # The card this candidate would be scored on -- the rolled cell in the
+        # standard game, the constraint's resolved card in a variant
+        # (`DraftState.card_key`). Ranking on any other season would rank a
+        # candidate on a card they will never be scored for.
+        franchise_id, decade = state.card_key(slug)
         card = index.scoring_card(slug, franchise_id, decade)
         return card.prime_score if card is not None else float("-inf")
 
@@ -156,15 +182,22 @@ def auto_pick(
     # seeded jitter and then by slug.
     ranked = sorted(options, key=lambda slug: (score_of(slug), jitter[slug], slug))
 
-    # Which options keep every roster completable, and at which slot. Computed
-    # once here rather than inside the ranking, because it is the expensive
-    # part and the ranking has to see the whole pool either way.
+    def landing(slug: str) -> str:
+        return next(slot for slot, placed in plans[slug].items() if placed == slug)
+
+    # Which options keep every roster completable, and at which slot.
     preserving: list[tuple[str, str]] = []
     for slug in ranked:
-        for slot in sorted(options[slug], key=SLOT_TYPES.index):
-            if _still_completable(state, index, seat, slug, slot):
+        if direct:
+            for slot in sorted(direct[slug], key=SLOT_TYPES.index):
+                if _still_completable(state, index, seat, slug, slot):
+                    preserving.append((slug, slot))
+                    break
+        else:
+            open_after = tuple(slot for slot in SLOT_TYPES if slot not in plans[slug])
+            slot = landing(slug)
+            if _still_completable(state, index, seat, slug, slot, open_after=open_after):
                 preserving.append((slug, slot))
-                break
 
     def built(slug: str, slot: str, preserved: bool) -> AutoPick:
         return AutoPick(
@@ -175,24 +208,45 @@ def auto_pick(
             slot_type=slot,
             scoring_score=score_of(slug),
             preserved_completability=preserved,
+            placements=None if direct else plans[slug],
         )
 
+    ordered: list[AutoPick] = []
     if preserving:
         # THE LOWER-VALUE HALF, rounded UP so a pool of one or two still has
         # something to draw from. `preserving` is already ascending, so this is
         # a prefix rather than a re-sort.
         half = max(1, (len(preserving) + 1) // 2)
-        slug, slot = preserving[rng.randrange(half)]
-        return built(slug, slot, True)
+        chosen = preserving[rng.randrange(half)]
+        ordered.append(built(*chosen, True))
+        ordered.extend(built(slug, slot, True) for slug, slot in preserving if (slug, slot) != chosen)
 
-    # Nothing preserves completability: the match is already cornered. Take the
-    # LOWEST legal option so a seat that stopped playing still gains nothing,
-    # and let the match advance rather than stall.
+    # Nothing (else) preserves completability: the match is already cornered.
+    # The LOWEST legal options follow, so a seat that stopped playing still
+    # gains nothing, and the match advances rather than stalls.
+    taken = {pick.player_slug for pick in ordered}
     for slug in ranked:
-        slots = sorted(options[slug], key=SLOT_TYPES.index)
-        if slots:
-            return built(slug, slots[0], False)
-    return None
+        if slug in taken:
+            continue
+        slot = sorted(direct[slug], key=SLOT_TYPES.index)[0] if direct else landing(slug)
+        ordered.append(built(slug, slot, False))
+    return tuple(ordered)
 
 
-__all__ = ["AutoPick", "auto_pick"]
+def auto_pick(
+    state: DraftState,
+    index: EligibilityIndex,
+    seed: Optional[int] = None,
+) -> Optional[AutoPick]:
+    """The pick a timeout should commit for the current seat, or None.
+
+    None means there is genuinely nothing legal to take -- the platform layer
+    must treat that as an error condition in its own right, never as "skip
+    the turn silently", because roll feasibility and `draft.round_keepers`
+    together make it unreachable.
+    """
+    options = auto_pick_options(state, index, seed)
+    return options[0] if options else None
+
+
+__all__ = ["AutoPick", "auto_pick", "auto_pick_options"]

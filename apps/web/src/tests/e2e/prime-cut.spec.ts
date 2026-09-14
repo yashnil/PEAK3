@@ -30,6 +30,16 @@ async function signInAs(page: Page, sub: string): Promise<void> {
   const token = mintTestAccessToken(sub, `${sub}@e2e.test`);
   await page.evaluate(
     ([t, s]) => {
+      // A FRESH TEST ACCOUNT HAS NO HANDLE, so the handle-onboarding prompt
+      // (fixed, bottom-right, deliberately still shown on the lobby) comes up
+      // on every lobby visit. Record the same session dismissal "Skip for now"
+      // records (`DISMISS_KEY` in HandleOnboardingPrompt.tsx), before any lobby
+      // page loads: once the lobby put Prime Cut's card in the right-hand
+      // column, the prompt sat over the private room's Join button and the
+      // click was intercepted until the test timed out. Set up front rather
+      // than clicked away, because the prompt appears only after an async
+      // profile read and a click-if-present check races it.
+      sessionStorage.setItem("peak3_handle_prompt_dismissed", "1");
       window.__peak3TestAuth!.setSession(t as string, { id: s as string, email: `${s}@e2e.test`, isAnonymous: false });
     },
     [token, sub],

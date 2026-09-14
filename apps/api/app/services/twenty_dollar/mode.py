@@ -117,6 +117,22 @@ INTRO_SECONDS = 4.5
 #: End the intro early. See `_open_first_lot`.
 COMMAND_SKIP_INTRO = "showdown_skip_intro"
 
+#: THE ARRIVAL PHASE -- the ONLY phase a match opens on (game-feel pass 4).
+#:
+#: The intro's 4.5 s clock used to start at match creation, so a client that
+#: reached the match late watched the intro partly spent, or never saw it. As
+#: in Three-Man Weave and the Prime modes, a match now opens in a seatless
+#: `arrival` turn: the intro is on screen, its clock waits, each HUMAN seat's
+#: client reports `showdown_intro_seen` after rendering it (a bot seat is
+#: already there), and the intro's own turn opens when the last human has --
+#: from that instant. The backstop opens the INTRO, never a lot.
+PHASE_ARRIVAL = "arrival"
+ARRIVAL_BACKSTOP_SECONDS = 20.0
+COMMAND_INTRO_SEEN = "showdown_intro_seen"
+EVENT_INTRO_SEEN = "showdown_intro_seen"
+REJECT_INTRO_STARTED = "intro_already_started"
+REJECT_INTRO_ALREADY_SEEN = "intro_already_seen"
+
 #: THE "NOBODY CAN USE THIS CANDIDATE" BEAT, AS A REAL SERVER TURN.
 #:
 #: THE BUG THIS FIXES (phantom settled lots). The market draws from all 500
@@ -203,8 +219,9 @@ class TwentyDollarMode:
         return TURN_SECONDS
 
     def initial_phase(self) -> str:
-        """A match opens on the INTRO, not on a live lot. See `PHASE_INTRO`."""
-        return PHASE_INTRO
+        """A match opens on ARRIVAL, then the intro, never a live lot. See
+        `PHASE_ARRIVAL` and `PHASE_INTRO`."""
+        return PHASE_ARRIVAL
 
     def phase_seconds(self, phase: str) -> float:
         """How long a turn in this phase lasts.
@@ -213,6 +230,8 @@ class TwentyDollarMode:
         Matchmaking opens the first turn and reads this hook; every later turn
         is opened by `_finish` with `turn_seconds`.
         """
+        if phase == PHASE_ARRIVAL:
+            return ARRIVAL_BACKSTOP_SECONDS
         return INTRO_SECONDS if phase == PHASE_INTRO else self.turn_seconds
 
     def bot_think_seconds(
@@ -229,9 +248,9 @@ class TwentyDollarMode:
         waits to LAND, so it reads as another bidder and not as a function
         call. The wait is a function of the KIND of decision (see
         `TwentyDollarBot.decision_kind` and `config.BOT_THINK_RANGES`): an
-        uninterested pass lands almost at once, an ordinary raise takes a
-        short beat, a call right at the bot's ceiling occasionally takes a
-        long one, and a bidding war accelerates.
+        obvious raise lands after a short beat, a pass is considered rather
+        than snapped, a call right at the bot's ceiling often takes a long
+        one, and a bidding war accelerates the longer it runs.
 
         `snapshot` is the match's stored state, passed by the foundation's
         driver (`bots.bot_think_seconds_for`) when the hook accepts it. From it
@@ -244,14 +263,16 @@ class TwentyDollarMode:
         lands and a fast client cannot hurry it along.
         """
         kind = BOT_THINK_KIND_ORDINARY
+        war_depth = 0
         if snapshot:
             try:
                 public, private, _ = rules_state.project(snapshot, seat_index)
                 private = self._bot_private(snapshot, private)
                 kind = bot.decision_kind(public, private)
+                war_depth = bot.war_depth(public)
             except Exception:  # pragma: no cover - presentation must not wedge a turn
-                kind = BOT_THINK_KIND_ORDINARY
-        return bot_think_seconds(seed, seat_index, turn_seq, kind)
+                kind, war_depth = BOT_THINK_KIND_ORDINARY, 0
+        return bot_think_seconds(seed, seat_index, turn_seq, kind, war_depth=war_depth)
 
     @staticmethod
     def _bot_private(snapshot: dict, private: dict) -> dict:
@@ -275,7 +296,7 @@ class TwentyDollarMode:
         the same reason: both belong to no seat, and a bot must not "act" on
         a beat where nobody -- bot or human -- has anything to decide.
         """
-        return phase not in (PHASE_INTRO, PHASE_LOT_UNWINNABLE, PHASE_LOT_FORCED_FILL)
+        return phase not in (PHASE_ARRIVAL, PHASE_INTRO, PHASE_LOT_UNWINNABLE, PHASE_LOT_FORCED_FILL)
 
     # -- opening state ------------------------------------------------------
 
@@ -287,7 +308,11 @@ class TwentyDollarMode:
         would not be reproducible from its seed, which is the property the
         whole foundation is built on.
         """
-        return rules_state.initial_state(int(seed), len(seats) or SEAT_COUNT)
+        state = rules_state.initial_state(int(seed), len(seats) or SEAT_COUNT)
+        # ARRIVAL BOOKKEEPING, removed when the intro opens (`_open_intro`).
+        state["arrival_open"] = True
+        state["arrived_seats"] = []
+        return state
 
     def initial_turn_seat(self, snapshot: dict) -> Optional[int]:
         """Which seat the FIRST turn belongs to: NOBODY.
@@ -336,12 +361,17 @@ class TwentyDollarMode:
         command = data.command
         before = len(snapshot.get("history") or [])
         in_intro = data.open_turn is not None and data.open_turn.phase == PHASE_INTRO
+        in_arrival = data.open_turn is not None and data.open_turn.phase == PHASE_ARRIVAL
         in_unwinnable_beat = (
             data.open_turn is not None and data.open_turn.phase == PHASE_LOT_UNWINNABLE
         )
         in_forced_fill_beat = (
             data.open_turn is not None and data.open_turn.phase == PHASE_LOT_FORCED_FILL
         )
+
+        if command.command_type == COMMAND_TYPE_TIMEOUT and in_arrival:
+            # THE BACKSTOP: a human never reported. The INTRO opens, in full.
+            return self._open_intro(snapshot, data, TURN_RESOLUTION_TIMEOUT, ())
 
         if command.command_type == COMMAND_TYPE_TIMEOUT:
             # A TIMEOUT ON THE INTRO IS NOT A PASS -- it is the intro ending.
@@ -380,6 +410,9 @@ class TwentyDollarMode:
                 rejection_message="You do not hold a seat in this match.",
             )
 
+        if command.command_type == COMMAND_INTRO_SEEN:
+            return self._intro_seen(snapshot, data, seat_index, in_arrival)
+
         if command.command_type == COMMAND_SKIP_INTRO:
             # THE INTRO IS A SHARED TIMELINE (final polish pass). Both seats
             # watch the same pre-match beat and the first lot's clock opens for
@@ -405,7 +438,7 @@ class TwentyDollarMode:
         # by `phase_accepts_action`; this is the rule itself, so a command
         # arriving by any other route is refused rather than relying on the
         # driver having been polite.
-        if in_intro:
+        if in_intro or in_arrival:
             return ReducerOutput(
                 accepted=False,
                 rejection_code=REJECT_NOT_YOUR_TURN,
@@ -457,6 +490,62 @@ class TwentyDollarMode:
             ]
 
         return self._finish(snapshot, data, events, before, timed_out=False)
+
+    # -- arrival --------------------------------------------------------------
+
+    def _intro_seen(
+        self, snapshot: dict, data: ReducerInput, seat_index: int, in_arrival: bool
+    ) -> ReducerOutput:
+        """A human seat's client has the intro on screen. When every human
+        seat has, the intro's own clock starts now. Refused by name when the
+        intro already runs or this seat already reported (replay-safe)."""
+        seat = next((s for s in data.seats if s.seat_index == seat_index), None)
+        if seat is None or seat.is_bot:
+            return ReducerOutput(
+                accepted=False, rejection_code=REJECT_NO_SEAT,
+                rejection_message="Only a player's own client can report arriving.",
+            )
+        if not in_arrival or not snapshot.get("arrival_open"):
+            return ReducerOutput(
+                accepted=False, rejection_code=REJECT_INTRO_STARTED,
+                rejection_message="The intro is already running.",
+            )
+        arrived = set(snapshot.get("arrived_seats") or [])
+        if seat_index in arrived:
+            return ReducerOutput(
+                accepted=False, rejection_code=REJECT_INTRO_ALREADY_SEEN,
+                rejection_message="The intro is already on your screen.",
+            )
+        arrived.add(seat_index)
+        event = EventDraft(
+            event_type=EVENT_INTRO_SEEN,
+            payload={"seat_index": seat_index},
+            actor_seat_index=seat_index,
+            visibility=VISIBILITY_PUBLIC,
+        )
+        snapshot["arrived_seats"] = sorted(arrived)
+        if {s.seat_index for s in data.seats if not s.is_bot} <= arrived:
+            return self._open_intro(snapshot, data, TURN_RESOLUTION_ACTION, (event,))
+        return ReducerOutput(accepted=True, snapshot=snapshot, events=(event,))
+
+    def _open_intro(
+        self, snapshot: dict, data: ReducerInput, resolution: str, events: tuple
+    ) -> ReducerOutput:
+        """Arrival is over: the intro opens with its full `INTRO_SECONDS` from
+        now. No lot moves, no seat is charged anything."""
+        snapshot.pop("arrival_open", None)
+        snapshot.pop("arrived_seats", None)
+        return ReducerOutput(
+            accepted=True,
+            snapshot=snapshot,
+            events=events,
+            resolve_turn=resolution,
+            open_turn=TurnDraft(
+                phase=PHASE_INTRO,
+                seat_index=None,
+                deadline_at=data.now + timedelta(seconds=INTRO_SECONDS),
+            ),
+        )
 
     # -- intro --------------------------------------------------------------
 
@@ -873,6 +962,14 @@ class TwentyDollarMode:
         # foundation boundary because the rules package knows nothing about
         # match status; `_forfeit` re-checks it, so this is a hint to the
         # client and not the gate.
+        seat_row = next((s for s in seats if s.seat_index == seat_index), None)
+        if snapshot.get("arrival_open") and match.is_live():
+            # During arrival a human seat's only move is reporting it has the
+            # intro on screen (and conceding, below). No bid, no pass.
+            commands = ()
+            if seat_row is not None and not seat_row.is_bot and seat_index not in (snapshot.get("arrived_seats") or []):
+                commands = (COMMAND_INTRO_SEEN,)
+            public["arrival"] = {"arrived_seats": list(snapshot.get("arrived_seats") or [])}
         if snapshot.get("phase") != rules_state.PHASE_COMPLETE:
             commands = tuple(commands) + (COMMAND_FORFEIT,)
         # Named so a surface can say the match ended by concession rather than
@@ -923,4 +1020,11 @@ registry.register(mode)
 #: `test_arena_twenty_dollar.py` asserts the resolved policy is this object.
 bot_service.registry.register(bot, for_modes=(MODE_ID,))
 
-__all__ = ["TwentyDollarMode", "mode", "bot"]
+__all__ = [
+    "ARRIVAL_BACKSTOP_SECONDS",
+    "COMMAND_INTRO_SEEN",
+    "PHASE_ARRIVAL",
+    "TwentyDollarMode",
+    "mode",
+    "bot",
+]

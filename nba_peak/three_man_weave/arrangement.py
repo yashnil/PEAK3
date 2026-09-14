@@ -62,6 +62,9 @@ from nba_peak.three_man_weave.positions import (
 FITS_NOW = "fits_now"
 FITS_AFTER_REARRANGEMENT = "fits_after_rearrangement"
 NO_LEGAL_ARRANGEMENT = "no_legal_arrangement"
+#: Fits this roster, but taking them would leave a drafter still to pick THIS
+#: ROUND with no selectable player on the roll. See `draft.round_keepers`.
+STRANDS_ROUND = "strands_round"
 
 #: Human-readable reasons for the disabled state. Authored here so every
 #: surface says the same sentence and a test can assert on it.
@@ -74,6 +77,11 @@ REASON_NO_ARRANGEMENT = (
     "else, so there is no legal way to fit them on this roster."
 )
 
+REASON_STRANDS_ROUND = (
+    "Another drafter still to pick this round needs this player: nobody else on "
+    "this roll fits their roster, so taking them would leave that seat with no "
+    "legal pick."
+)
 
 @dataclass(frozen=True)
 class CandidateFit:
@@ -101,7 +109,9 @@ class CandidateFit:
 
     @property
     def selectable(self) -> bool:
-        return self.state != NO_LEGAL_ARRANGEMENT
+        # The two states a drafter may commit, and nothing else: a future
+        # non-selectable state must not become selectable by omission.
+        return self.state in (FITS_NOW, FITS_AFTER_REARRANGEMENT)
 
     def as_dict(self) -> dict:
         return {
@@ -302,6 +312,8 @@ __all__ = [
     "FITS_AFTER_REARRANGEMENT",
     "FITS_NOW",
     "NO_LEGAL_ARRANGEMENT",
+    "REASON_STRANDS_ROUND",
+    "STRANDS_ROUND",
     "REASON_NO_ARRANGEMENT",
     "REASON_NO_POSITION_DATA",
     "CandidateFit",

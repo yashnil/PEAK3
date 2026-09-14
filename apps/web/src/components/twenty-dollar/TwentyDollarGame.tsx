@@ -1,9 +1,11 @@
 "use client";
 
+import { primeMatchView, takeMatchView } from "@/lib/game-feel/match-handoff";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
+  SHOWDOWN_COMMAND_INTRO_SEEN,
   showdownIdempotencyKey,
   twentyDollarApi,
   TwentyDollarAPIError,
@@ -19,6 +21,8 @@ import {
 } from "@/lib/arena-rejection";
 import { BOT_DISPLAY_NAME, modeMeta } from "@/lib/arena-modes";
 import { isNewer, useCommandLane } from "@/lib/game-feel/authoritative";
+import { reportHandoff, startActionTimer } from "@/lib/game-feel/action-timing";
+import { serverTimingOf } from "@/lib/game-feel/server-timing";
 import type { EventMomentData } from "@/components/game-feel";
 import HowToPlay from "@/components/arena/HowToPlay";
 import { deadlineFromSeconds } from "@/components/shared/ArenaTimer";
@@ -171,6 +175,9 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
   const [copied, setCopied] = useState(false);
   const [locallyExpired, setLocallyExpired] = useState(false);
   const lane = useCommandLane();
+  /** When the read that handed this seat the clock landed; reported once the
+   *  room renders it actionable. See `lib/game-feel/action-timing`. */
+  const handoffSince = useRef<number | null>(null);
 
   /** Apply an authoritative view, unless it is older than what is on screen. */
   const applyView = useCallback((next: TwentyDollarMatchView, source: Source): boolean => {
@@ -197,7 +204,15 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
       }
     }
     const moment = prev && source !== "load" ? describeTransition(prev.view, next) : null;
-    const nextRoom = roomFrom(next, moment ?? prev?.moment ?? null);
+    if (prev && source !== "command" && !prev.view.private_state.is_your_turn && next.private_state.is_your_turn) {
+      handoffSince.current = typeof performance !== "undefined" ? performance.now() : null;
+    }
+    // THE PLAYER'S OWN PRESS SUPERSEDES WHATEVER WAS BEING ANNOUNCED. Carrying
+    // the previous moment across a command left "Finisher opens at $1 · Your
+    // move" on the news row for the whole of the bot's deliberation that
+    // followed -- a line telling the player it was their move while the room
+    // said the other bench was thinking.
+    const nextRoom = roomFrom(next, moment ?? (source === "command" ? null : (prev?.moment ?? null)));
     latest.current = nextRoom;
     setRoom(nextRoom);
     setLocallyExpired(false);
@@ -251,11 +266,26 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
   const loadRef = useRef(load);
   loadRef.current = load;
   useEffect(() => {
+    // A match the lobby just started arrives with its view (see match-handoff):
+    // mount on it now, and let the normal polling read from there.
+    const handedOff = takeMatchView<TwentyDollarMatchView>(matchId);
+    if (handedOff && !latest.current) {
+      applyView(handedOff, "load");
+      setPollEpoch((n) => n + 1);
+      return;
+    }
     void loadRef.current();
-  }, [matchId]);
+  }, [matchId, applyView]);
 
   const view = room?.view ?? null;
   const complete = view?.public_state?.phase === "complete";
+
+  useEffect(() => {
+    if (handoffSince.current === null || !view) return;
+    if (!view.private_state.is_your_turn || view.turn_phase !== "auction") return;
+    reportHandoff(view.mode, handoffSince.current);
+    handoffSince.current = null;
+  }, [view]);
 
   // -- polling: whose turn decides the cadence ---------------------------
   const timer = useRef<number | null>(null);
@@ -276,7 +306,8 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
       lastScheduledVersion.current = view.state_version;
       retryStep.current = 0;
     }
-    const seatless = view.public_state.active_seat === null || view.turn_phase === "intro";
+    const seatless =
+      view.public_state.active_seat === null || view.turn_phase === "intro" || view.turn_phase === "arrival";
     const botReply = view.bot_reply_in_seconds ?? null;
     let delay: number;
     if (seatless) {
@@ -328,6 +359,7 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
    */
   const act = useCallback(
     async (command: "bid" | "pass", amount: number): Promise<boolean> => {
+      const timer = startActionTimer("twenty_dollar", command);
       const result = await lane.run("act", async () => {
         const current = latest.current;
         if (!current || current.view.public_state.phase === "complete") return false;
@@ -346,7 +378,9 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
         setLocallyExpired(false);
         try {
           const response = await twentyDollarApi.submitCommand(matchId, command, payload, snapshot.state_version, key);
+          timer.responded(serverTimingOf(response));
           applyView(response.match, "command");
+          timer.settled(response.accepted || response.replayed ? "accepted" : "refused");
           if (!response.accepted) {
             setError(
               explainRejection(
@@ -363,6 +397,7 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
           return true;
         } catch (err) {
           const apiError = err as TwentyDollarAPIError;
+          timer.settled("failed");
           setError(explainTransportError(apiError.status, apiError.code, apiError.message, command));
           return false;
         } finally {
@@ -378,6 +413,7 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
    *  skip any more: it is a shared timeline that ends on its own clock.) */
   const sendLifecycle = useCallback(
     async (command: "showdown_forfeit"): Promise<boolean> => {
+      const timer = startActionTimer("twenty_dollar", "forfeit");
       const result = await lane.run(command, async () => {
         const current = latest.current;
         if (!current) return false;
@@ -390,7 +426,9 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
             snapshot.state_version,
             showdownIdempotencyKey(matchId, snapshot.your_seat_index, snapshot.state_version, command, {}),
           );
+          timer.responded(serverTimingOf(response));
           applyView(response.match, "command");
+          timer.settled(response.accepted || response.replayed ? "accepted" : "refused");
           if (!response.accepted && command === "showdown_forfeit") {
             setError(explainTransportError(409, response.rejection_code ?? null, response.message ?? "", "load"));
             return false;
@@ -409,6 +447,47 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
     [matchId, lane, applyView],
   );
 
+  /**
+   * ARRIVAL: TELL THE SERVER THE INTRO IS ON THIS SCREEN. Its clock starts
+   * when both bidders have (a bot is already there), never at match creation.
+   * Sent once after the intro rendered; re-armed only if it did not land.
+   */
+  const arrivalSent = useRef(false);
+  const mayReportArrival =
+    view?.turn_phase === "arrival" && (view?.legal_commands ?? []).includes(SHOWDOWN_COMMAND_INTRO_SEEN);
+  useEffect(() => {
+    if (!mayReportArrival || arrivalSent.current) return;
+    arrivalSent.current = true;
+    void lane
+      .run(
+        "intro_seen",
+        async () => {
+          const current = latest.current;
+          if (!current) return false;
+          const snapshot = current.view;
+          const timer = startActionTimer("twenty_dollar", "intro_seen");
+          const response = await twentyDollarApi.submitCommand(
+            matchId,
+            SHOWDOWN_COMMAND_INTRO_SEEN,
+            {},
+            snapshot.state_version,
+            showdownIdempotencyKey(matchId, snapshot.your_seat_index, snapshot.state_version, SHOWDOWN_COMMAND_INTRO_SEEN, {}),
+          );
+          timer.responded(serverTimingOf(response));
+          applyView(response.match, "command");
+          timer.settled(response.accepted || response.replayed ? "accepted" : "refused");
+          return response.accepted || response.replayed;
+        },
+        { exclusive: false },
+      )
+      .then((ok) => {
+        if (!ok) arrivalSent.current = false;
+      })
+      .catch(() => {
+        arrivalSent.current = false;
+      });
+  }, [mayReportArrival, lane, matchId, applyView]);
+
   const hasBots = view?.seats.some((seat) => seat.is_bot) ?? false;
 
   /**
@@ -421,6 +500,8 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
     const result = await lane.run("replay", async () => {
       if (hasBots) {
         const created = await twentyDollarApi.startPractice();
+        // The rematch's room mounts on this authoritative view (see match-handoff).
+        primeMatchView(created);
         router.replace(`/arena/twenty-dollar/${created.match_id}`);
         return true;
       }
@@ -566,7 +647,7 @@ function AuctionRoom({
     deadlineAt,
     pending: actPending,
     complete,
-    introOpen: view.turn_phase === "intro",
+    introOpen: view.turn_phase === "intro" || view.turn_phase === "arrival",
   });
 
   const yourTurn = privateState.is_your_turn && !complete;
@@ -634,8 +715,9 @@ function AuctionRoom({
           slots={publicState.slots.length}
           marketSkips={publicState.market_skips_per_seat}
           rated={view.rated}
-          elapsedSeconds={view.turn_elapsed_seconds ?? null}
-          totalSeconds={view.turn_total_seconds ?? null}
+          arriving={view.turn_phase === "arrival"}
+          elapsedSeconds={view.turn_phase === "arrival" ? null : (view.turn_elapsed_seconds ?? null)}
+          totalSeconds={view.turn_phase === "arrival" ? null : (view.turn_total_seconds ?? null)}
           turnSeq={view.turn_seq ?? null}
         />
       ) : null}

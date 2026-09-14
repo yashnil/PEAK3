@@ -154,6 +154,7 @@ class TestEventAllowlist:
             "arena_match_completed",
             "arena_rematch",
             "arena_match_abandoned",
+            "arena_action_timing",
         }
 
     @pytest.mark.parametrize("name", sorted(EVENT_NAMES))

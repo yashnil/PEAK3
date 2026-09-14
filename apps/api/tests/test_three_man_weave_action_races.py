@@ -53,6 +53,9 @@ async def _seed_match(repo: MemoryArenaRepository, *, seed: int = 4242) -> Arena
     about, so the turn is stamped straight onto the pick phase.
     """
     snapshot = tmw_mode.initial_snapshot(seed, ())
+    # Past arrival (these races are about a pick turn, stamped directly below).
+    snapshot.pop("arrival_open", None)
+    snapshot.pop("arrived_seats", None)
     assert snapshot["current_seat"] == 0, "seed chosen so seat 0 (human) opens the draft"
     match = ArenaMatch(
         match_id="m-race",

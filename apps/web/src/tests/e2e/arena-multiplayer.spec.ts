@@ -162,6 +162,14 @@ test.describe("both games are reachable through normal navigation", () => {
     await expect(group).toBeVisible();
     await expect(group.getByRole("link", { name: /Three-Man Weave/i })).toBeVisible();
     await expect(group.getByRole("link", { name: /\$20 Showdown/i })).toBeVisible();
+    // Its three formats sit nested under the Weave's row, each at its own
+    // lobby deep link -- not as three more games beside it.
+    const formats = group.getByRole("list", { name: /Three-Man Weave formats/i });
+    await expect(formats.getByRole("link")).toHaveCount(3);
+    await expect(formats.getByRole("link", { name: /Franchise Draft/ })).toHaveAttribute(
+      "href",
+      "/arena/lobby?game=three_man_weave_franchise",
+    );
   });
 
   test("a homepage card reaches the lobby, which offers all three entry paths", async ({
@@ -192,6 +200,72 @@ test.describe("the multiplayer lobby", () => {
     await expect(weave).toContainText("3 players");
     await expect(weave).toContainText("Closed alpha");
     await expect(page.getByTestId("lobby-rules-three_man_weave")).toBeVisible();
+  });
+
+  test("shows Three-Man Weave as one game with its three formats inside it", async ({ page }) => {
+    // Franchise Draft and Decade Draft are ways to play the Weave, not further
+    // games: one card, three rows, each row with its own Play control.
+    await page.goto("/arena/lobby?game=three_man_weave_franchise", { waitUntil: "domcontentloaded" });
+    const card = page.getByTestId("lobby-mode-three_man_weave");
+    await expect(card).toBeVisible();
+    await expect(page.getByTestId("lobby-mode-three_man_weave_franchise")).toHaveCount(0);
+    await expect(page.getByTestId("lobby-mode-three_man_weave_decade")).toHaveCount(0);
+    for (const [id, label] of [
+      ["three_man_weave", "Classic"],
+      ["three_man_weave_franchise", "Franchise Draft"],
+      ["three_man_weave_decade", "Decade Draft"],
+    ] as const) {
+      const row = card.getByTestId(`lobby-variant-${id}`);
+      await expect(row).toContainText(label);
+      await expect(row.getByTestId(`lobby-${id}-practice`)).toBeVisible();
+    }
+    await expect(card.getByTestId("lobby-variant-three_man_weave_franchise")).toHaveAttribute(
+      "data-highlighted",
+      "true",
+    );
+  });
+
+  test("the handle prompt never sits over a lobby control on a desktop screen", async ({ browser }) => {
+    // A FRESH ACCOUNT HAS NO HANDLE, so the fixed bottom-right handle prompt
+    // is on the lobby -- deliberately. It once covered Prime Cut's private-room
+    // Join button at 1280x720. The prompt is fixed and the page scrolls, so the
+    // only guarantee that holds at every scroll position is that no control
+    // shares the prompt's horizontal band; that is what is asserted, with the
+    // Prime Cut room panel open, at a laptop size and a wider desktop size.
+    const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+    const page = await context.newPage();
+    try {
+      await signInAs(context, page, uniqueSub("lobby-handle-lane"));
+      await page.goto("/arena/lobby?game=prime_cut", { waitUntil: "domcontentloaded" });
+      const prompt = page.getByTestId("handle-onboarding-prompt");
+      await expect(prompt).toBeVisible({ timeout: 20_000 });
+      await page.getByTestId("lobby-prime_cut-private_room").click();
+      await expect(page.getByTestId("lobby-prime_cut-join-submit")).toBeAttached();
+
+      for (const size of [
+        { width: 1280, height: 720 },
+        { width: 1600, height: 900 },
+      ]) {
+        await page.setViewportSize(size);
+        await expect(prompt).toBeVisible();
+        const overlaps = await page.evaluate(() => {
+          const band = document.querySelector('[data-testid="handle-onboarding-prompt"]')!.getBoundingClientRect();
+          const lobby = document.querySelector('[data-testid="arena-lobby"]')!;
+          return [...lobby.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, summary")]
+            .filter((el) => el.getClientRects().length > 0)
+            .map((el) => ({ id: el.getAttribute("data-testid") ?? el.textContent?.trim().slice(0, 40), r: el.getBoundingClientRect() }))
+            .filter(({ r }) => r.width > 0 && r.left < band.right && r.right > band.left)
+            .map(({ id, r }) => `${id} [${Math.round(r.left)}-${Math.round(r.right)}] vs prompt [${Math.round(band.left)}-${Math.round(band.right)}]`);
+        });
+        expect(overlaps, `lobby controls under the handle prompt at ${size.width}x${size.height}`).toEqual([]);
+      }
+      // And the Join the prompt used to cover takes a real press path.
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await page.getByTestId("lobby-prime_cut-join-code").fill("ABC123");
+      await page.getByTestId("lobby-prime_cut-join-submit").click({ trial: true, timeout: 10_000 });
+    } finally {
+      await context.close();
+    }
   });
 
   test("has no serious accessibility violations", async ({ page }) => {
@@ -391,7 +465,9 @@ test.describe("Three-Man Weave", () => {
     // and the human's seat is drawn from the match seed so up to TWO bot
     // picks can precede the overlay, and after the human's own pick the test
     // deliberately waits for two MORE bot turns — and every bot pick takes a
-    // seeded 4–10s think (BOT_THINK_SECONDS_MIN/MAX, enforced server-side
+    // seeded think (BOT_THINK_SECONDS_MIN/MAX, 4–10s when this budget was
+    // derived, 2.0–11.5s shaped by the board since game-feel pass 5 -- the budget is kept as a
+    // ceiling, which a shorter think only sits further inside; enforced server-side
     // against the turn's opened_at) plus a poll for the move to land. Worst
     // case by design: 9.2 + 2x(10+2) + 2x(10+2) ≈ 57s of server-enforced
     // pacing alone, before ~15–20s of setup and live interactions (CI run
@@ -400,7 +476,12 @@ test.describe("Three-Man Weave", () => {
     // instant-bot timing). 90s = that 77s derived worst case plus CI margin;
     // the step-level waits below were already sized for this and are
     // unchanged.
-    test.setTimeout(90_000);
+    //
+    // 120s since game-feel pass 5: the roll is 3.8s, a round's roll after a
+    // pick leads with a 1.4s settle, and a bot's think is shaped by the board
+    // up to 11.5s. Re-derived: 3.8 + 2x(11.5+2) + 2x(11.5+2) + 5.2 ≈ 63s of
+    // server pacing, plus ~20s of setup and interactions and CI margin.
+    test.setTimeout(120_000);
     const context = await browser.newContext();
     const page = await context.newPage();
     try {
@@ -593,9 +674,16 @@ test.describe("Three-Man Weave", () => {
         await legalSlot.click();
       }
 
-      // No separate confirm press is made here on purpose -- the click(s)
-      // above already committed the pick. The identity lock is the server's
-      // own record of it landing.
+      // COMMIT IT. Since Pass 1 a candidate or slot click only STAGES; the
+      // pick is the explicit "Draft X at Y" press. This comment used to say the
+      // clicks above had already committed, so the test silently waited for
+      // the 45 s turn clock to draft the staged choice -- which left only
+      // ~15 s of this test's budget once game-feel pass 5 lengthened the roll
+      // and the bot thinks. Pressing Draft is what a player does.
+      if (await confirm.isEnabled()) {
+        await confirm.click();
+      }
+      // The identity lock is the server's own record of it landing.
       await expect(page.getByTestId("tmw-identity-lock")).toContainText(/\S/, {
         timeout: 20_000,
       });
@@ -603,9 +691,10 @@ test.describe("Three-Man Weave", () => {
       // was reproduced failing on an otherwise-idle machine, not just under
       // CI load. This wait only covers what happens AFTER the human's own
       // pick: up to two more seats (bot or human) must each get a turn, and
-      // per this test's own sibling comment above (`test.setTimeout(90_000)`),
+      // per this test's own sibling comment above (`test.setTimeout(120_000)`),
       // every one of those seats can legitimately take BOT_THINK_SECONDS_MAX
-      // (10s, `nba_peak/three_man_weave/config.py`) plus ACTION_GRACE_SECONDS
+      // (10s when derived, 11.5s since game-feel pass 5,
+      // `nba_peak/three_man_weave/config.py`) plus ACTION_GRACE_SECONDS
       // (2s, `clock.py`) to resolve -- 2 x 12 = 24s on its own. On TOP of
       // that, Three-Man Weave opens a real reveal-ceremony turn (`REVEAL_
       // SECONDS` + its own grace, `three_man_weave/mode.py`) at the START OF
@@ -986,11 +1075,27 @@ test.describe("Three-Man Weave", () => {
       // Everyone is in the room. The server's phase is the same on all three,
       // keyed to the same server turn, and nobody has a skip.
       for (const page of pages) await dismissTmwIntro(page);
-      const phases = await Promise.all(pages.map((p) => p.getByTestId("tmw-room").getAttribute("data-turn-phase")));
-      const seqs = await Promise.all(pages.map((p) => p.getByTestId("tmw-room").getAttribute("data-turn-seq")));
-      expect(new Set(phases).size, `phases diverged: ${phases.join(",")}`).toBe(1);
-      expect(new Set(seqs).size, `turn seqs diverged: ${seqs.join(",")}`).toBe(1);
-      expect(["intro", "reveal", "pick"]).toContain(phases[0]);
+      // THE THREE ROOMS CONVERGE ON ONE SERVER TURN. A single snapshot could
+      // land in the instant between the last arrival report (which moves the
+      // server from `arrival` to `intro`) and one client's next read of it, and
+      // report `intro,arrival,intro` for a table that agrees a poll later. So
+      // the assertion waits for agreement -- same phase AND same turn seq on
+      // all three -- rather than accepting a disagreement as equal.
+      const sample = async () => {
+        const phases = await Promise.all(pages.map((p) => p.getByTestId("tmw-room").getAttribute("data-turn-phase")));
+        const seqs = await Promise.all(pages.map((p) => p.getByTestId("tmw-room").getAttribute("data-turn-seq")));
+        return { phases, seqs };
+      };
+      await expect
+        .poll(async () => {
+          const { phases, seqs } = await sample();
+          return new Set(phases).size === 1 && new Set(seqs).size === 1 ? "agreed" : `phases ${phases} seqs ${seqs}`;
+        }, { timeout: 5_000, intervals: [100, 250, 500] })
+        .toBe("agreed");
+      const { phases } = await sample();
+      // `arrival` is the briefing waiting for the table's reports (game-feel
+      // pass 4), so an agreed sample may still land on it.
+      expect(["arrival", "intro", "reveal", "pick"]).toContain(phases[0]);
 
       // Delay one player: guest C's tab does nothing at all. The other two
       // still reach the first pick, and C lands on the same pick turn when it
@@ -1079,7 +1184,7 @@ test.describe("Three-Man Weave", () => {
       });
       expect(await page.getByTestId("tmw-start-gate").count()).toBe(0);
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
-      await expect(page.getByTestId("tmw-room")).toHaveAttribute("data-turn-phase", /intro|reveal/);
+      await expect(page.getByTestId("tmw-room")).toHaveAttribute("data-turn-phase", /arrival|intro|reveal/);
       expect(await page.getByTestId("tmw-podium").count()).toBe(0);
       // Clean state: no roster carries a pick from the finished match.
       await expect(page.getByTestId("tmw-turnbar-round")).toContainText(/Round 1 of 6/);

@@ -137,6 +137,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Stage durations only (see `api/v1/arena.py::_RouteTiming`); readable by
+    # the web client so an action's round trip can be split into network and
+    # server time.
+    expose_headers=["Server-Timing"],
 )
 
 # Routers

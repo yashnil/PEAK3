@@ -72,6 +72,11 @@ export interface CommandLane {
   pendingNow(): string | null;
   /** Synchronous read of `busy`, for a poll that must not race a command. */
   busyNow(): boolean;
+  /** Drop every QUEUED (not yet started) task on a coalescing channel; each
+   *  resolves `null`. A task already executing is left to finish -- it has
+   *  already left the client. Used when a later intent makes a queued one
+   *  pointless (a Draft press supersedes a staging request still waiting). */
+  cancel(channel: string): number;
 }
 
 export function useCommandLane(): CommandLane {
@@ -113,6 +118,21 @@ export function useCommandLane(): CommandLane {
   }, []);
 
   const busyNow = useCallback((): boolean => executing.current !== null || queue.current.length > 0, []);
+
+  const cancel = useCallback(
+    (channel: string): number => {
+      let dropped = 0;
+      queue.current = queue.current.filter((task) => {
+        if (task.channel !== channel) return true;
+        task.cancel();
+        dropped += 1;
+        return false;
+      });
+      if (dropped) publish();
+      return dropped;
+    },
+    [publish],
+  );
 
   const run = useCallback(
     <R,>(kind: string, fn: () => Promise<R>, options: CommandLaneRunOptions = {}): Promise<R | null> => {
@@ -156,5 +176,8 @@ export function useCommandLane(): CommandLane {
   // A STABLE OBJECT for a stable state. Callers list the lane as a hook
   // dependency; a fresh object every render made every dependent callback
   // fresh every render, and one room's "first read" effect fired on each.
-  return useMemo(() => ({ run, pending, busy, pendingNow, busyNow }), [run, pending, busy, pendingNow, busyNow]);
+  return useMemo(
+    () => ({ run, pending, busy, pendingNow, busyNow, cancel }),
+    [run, pending, busy, pendingNow, busyNow, cancel],
+  );
 }

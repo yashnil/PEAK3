@@ -186,6 +186,26 @@ export function MobileNavDrawer({
                         search={search}
                         onNavigate={onClose}
                       />
+                      {/* A game's rulesets, indented beneath it. */}
+                      {item.children?.length ? (
+                        <ul
+                          role="list"
+                          className="pk-nav-drawer-children"
+                          aria-label={`${item.label} formats`}
+                        >
+                          {item.children.map((child) => (
+                            <li key={child.id}>
+                              <DrawerLink
+                                item={child}
+                                pathname={pathname}
+                                search={search}
+                                onNavigate={onClose}
+                                nested
+                              />
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
@@ -373,17 +393,20 @@ function DrawerLink({
   pathname,
   search,
   onNavigate,
+  nested = false,
 }: {
   item: NavItem;
   pathname: string;
   search: string;
   onNavigate: () => void;
+  /** A ruleset listed under its game: indented, same tap target. */
+  nested?: boolean;
 }) {
   const current = isActive(pathname, item, search);
   return (
     <Link
       href={item.href}
-      className="pk-nav-drawer-row"
+      className={cn("pk-nav-drawer-row", nested && "pk-nav-drawer-row--nested")}
       style={TAP_TARGET_STYLE}
       aria-current={current ? "page" : undefined}
       data-nav-item={item.id}

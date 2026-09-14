@@ -65,8 +65,14 @@ import {
  * it cannot push the current lot below the fold and cannot replace the reveal.
  */
 
-/** How long one settled lot holds centre stage before it counts as seen. */
-export const REVEAL_HOLD_MS = 2200;
+/** How long one settled lot holds centre stage before it counts as seen.
+ *
+ *  2800, FROM 2200 (game-feel pass 5). The SOLD beat is now a hammer: the
+ *  verdict lands, the price and the PEAK3 score follow, and the next lot
+ *  arrives underneath as "Next on the block". At 2.2 s the score had been on
+ *  screen for under two seconds before the banner left. Presentation only --
+ *  the next lot's controls are live throughout. */
+export const REVEAL_HOLD_MS = 2800;
 
 /**
  * How long the tab must have been hidden for the return to count as a resume

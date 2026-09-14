@@ -1,4 +1,4 @@
-import { ARENA_MODES } from "@/lib/arena-modes";
+import { ARENA_MODES, groupModeFamilies, variantLabelOf } from "@/lib/arena-modes";
 
 /**
  * Arena readiness, read on the SERVER for the catalogue surfaces.
@@ -33,6 +33,20 @@ export interface ArenaCatalogueMode {
   /** Where the card points. Always the lobby: it is the surface that knows how
    *  to start a match, and it renders its own closed-alpha state. */
   href: string;
+  /** A game played under several rulesets (Three-Man Weave: Classic,
+   *  Franchise Draft, Decade Draft) lists the ones the server serves here, in
+   *  catalogue order. Absent for a game with one ruleset. */
+  variants?: ArenaCatalogueVariant[];
+}
+
+export interface ArenaCatalogueVariant {
+  id: string;
+  /** The ruleset's name inside its family ("Franchise Draft"). */
+  label: string;
+  /** One menu-sized line on how it differs. */
+  summary: string;
+  /** The lobby with this ruleset highlighted. */
+  href: string;
 }
 
 export interface ArenaCatalogue {
@@ -57,23 +71,39 @@ export async function getArenaCatalogue(): Promise<ArenaCatalogue> {
     if (!body.arena_enabled) return CLOSED;
 
     const live = body.modes ?? [];
-    const modes = ARENA_MODES.flatMap((meta) => {
-      const served = live.find((m) => m.id === meta.id);
-      if (!served) return [];
-      return [
-        {
-          id: meta.id,
-          name: meta.name,
-          description: meta.description,
-          facts: [
-            `${served.seat_count} player${served.seat_count === 1 ? "" : "s"}`,
-            meta.duration,
-            "Closed alpha",
-          ],
-          kindBadge: meta.kindBadge,
-          href: `/arena/lobby?game=${meta.id}`,
-        },
-      ];
+    const served = ARENA_MODES.flatMap((meta) => {
+      const entry = live.find((m) => m.id === meta.id);
+      return entry ? [{ ...meta, seatCount: entry.seat_count }] : [];
+    });
+    // THE CATALOGUE LISTS GAMES, NOT RULESETS. Franchise Draft and Decade
+    // Draft are Three-Man Weave played under one constraint, in the Weave's
+    // room. Listing them as games made the homepage's two multiplayer cells
+    // Weave, Franchise Draft -- and the $20 Showdown fell off the page. They
+    // travel as the family's `variants` instead.
+    const modes = groupModeFamilies(served).map((family): ArenaCatalogueMode => {
+      const lead = family.variants[0];
+      const grouped = family.variants.length > 1;
+      const meta = family.parent ?? lead;
+      return {
+        id: lead.variantOf ? lead.id : family.id,
+        name: family.name,
+        description: grouped ? (meta.family?.description ?? meta.description) : lead.description,
+        facts: [
+          `${lead.seatCount} player${lead.seatCount === 1 ? "" : "s"}`,
+          meta.duration,
+          "Closed alpha",
+        ],
+        kindBadge: meta.kindBadge,
+        href: grouped ? `/arena/lobby?family=${family.id}` : `/arena/lobby?game=${lead.id}`,
+        variants: grouped
+          ? family.variants.map((variant) => ({
+              id: variant.id,
+              label: variantLabelOf(variant),
+              summary: variant.variantSummary ?? variant.tagline,
+              href: `/arena/lobby?game=${variant.id}`,
+            }))
+          : undefined,
+      };
     });
     return { available: modes.length > 0, modes };
   } catch {

@@ -22,7 +22,13 @@ export type ContactCategory =
   | "accessibility"
   | "account_or_privacy"
   | "partnership_or_press"
-  | "other";
+  | "other"
+  // Homepage feedback kinds (supabase/migrations/20260914100000_contact_feedback_categories.sql).
+  | "game_idea"
+  | "dislike"
+  | "weakness"
+  | "general_feedback"
+  | "question";
 
 export type ContactRelevantArea =
   | "daily_grid"
@@ -45,7 +51,38 @@ export const CONTACT_CATEGORY_LABELS: Record<ContactCategory, string> = {
   account_or_privacy: "Account or privacy",
   partnership_or_press: "Partnership or press",
   other: "Something else",
+  game_idea: "A game idea",
+  dislike: "Something I didn't like",
+  weakness: "A weakness or gap",
+  general_feedback: "General feedback",
+  question: "A question",
 };
+
+/** The categories the full /contact page offers, in its long-standing order.
+ * The homepage feedback kinds are deliberately NOT listed here: "A game idea"
+ * beside "Suggest a new mode" would be two answers to one question. */
+export const CONTACT_PAGE_CATEGORIES: readonly ContactCategory[] = [
+  "new_mode",
+  "improve_mode",
+  "bug",
+  "question_ranking_or_data",
+  "accessibility",
+  "account_or_privacy",
+  "partnership_or_press",
+  "other",
+];
+
+/** The six kinds of note the homepage feedback section offers, in display
+ * order, each with its short chip label. Every value is a real stored
+ * category -- none is folded into another. */
+export const HOME_FEEDBACK_KINDS: readonly { category: ContactCategory; label: string }[] = [
+  { category: "game_idea", label: "Game idea" },
+  { category: "bug", label: "Bug" },
+  { category: "dislike", label: "Didn't like" },
+  { category: "weakness", label: "Weakness" },
+  { category: "question", label: "Question" },
+  { category: "general_feedback", label: "General" },
+];
 
 export const CONTACT_RELEVANT_AREA_LABELS: Record<ContactRelevantArea, string> = {
   daily_grid: "Daily Grid",
@@ -90,7 +127,10 @@ function parseErrorDetail(detail: unknown, status: number): { message: string; c
     // FastAPI's default 422 validation-error shape: a list of {loc, msg, type}.
     const messages = detail
       .map((e) => (e && typeof e === "object" && "msg" in e ? String((e as { msg: unknown }).msg) : null))
-      .filter((m): m is string => !!m);
+      .filter((m): m is string => !!m)
+      // Pydantic prefixes a custom validator's message with "Value error, ";
+      // that is framework vocabulary, not something to show a player.
+      .map((m) => m.replace(/^Value error,\s*/, ""));
     if (messages.length > 0) return { message: messages.join(" ") };
   }
   if (detail && typeof detail === "object") {

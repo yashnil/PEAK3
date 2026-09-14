@@ -204,6 +204,8 @@ def test_the_shipped_category_list_is_exactly_the_reviewed_set():
     assert set(CONTACT_CATEGORIES) == {
         "new_mode", "improve_mode", "bug", "question_ranking_or_data",
         "accessibility", "account_or_privacy", "partnership_or_press", "other",
+        # Homepage feedback kinds (20260914100000_contact_feedback_categories.sql).
+        "game_idea", "dislike", "weakness", "general_feedback", "question",
     }
 
 
@@ -374,3 +376,150 @@ def test_storage_failure_returns_503_not_a_false_success(client: TestClient, mon
 def test_there_is_no_get_route(client: TestClient):
     resp = client.get(CONTACT_URL)
     assert resp.status_code in (404, 405)
+
+
+# ---------------------------------------------------------------------------
+# Homepage feedback kinds (20260914100000_contact_feedback_categories.sql)
+# ---------------------------------------------------------------------------
+
+#: The six kinds the homepage feedback section offers, each a real stored
+#: category -- mirrors apps/web/src/lib/contact-api.ts's HOME_FEEDBACK_KINDS.
+HOME_FEEDBACK_CATEGORIES = ("game_idea", "bug", "dislike", "weakness", "question", "general_feedback")
+
+_FEEDBACK_MIGRATION = "20260914100000_contact_feedback_categories.sql"
+
+
+def _sql_without_comments(sql: str) -> str:
+    return "\n".join(line.split("--", 1)[0] for line in sql.splitlines())
+
+
+def _category_check_values(sql: str) -> set[str]:
+    match = re.search(r"category IN \((.*?)\)\s*\)", sql, re.DOTALL)
+    assert match, "no category CHECK found"
+    return set(re.findall(r"'([a-z_]+)'", match.group(1)))
+
+
+def test_feedback_migration_check_matches_the_python_vocabulary_exactly():
+    """The database's category CHECK and CONTACT_CATEGORIES must be the same
+    set -- a value only one side knows is either a 422 the UI can't explain
+    or a 503 on insert."""
+    sql = _sql_without_comments(
+        (_repo_root / "supabase" / "migrations" / _FEEDBACK_MIGRATION).read_text()
+    )
+    assert _category_check_values(sql) == set(CONTACT_CATEGORIES)
+
+
+def test_feedback_migration_is_additive_and_leaves_access_control_alone():
+    migrations = _repo_root / "supabase" / "migrations"
+    original = _sql_without_comments((migrations / "20260803110000_contact_submissions.sql").read_text())
+    new = _sql_without_comments((migrations / _FEEDBACK_MIGRATION).read_text())
+
+    assert _category_check_values(original) <= _category_check_values(new), "a stored category value was removed"
+    # Replaces exactly the category constraint, under its Postgres-derived name.
+    assert "DROP CONSTRAINT IF EXISTS contact_submissions_category_check" in new
+    assert "ADD CONSTRAINT contact_submissions_category_check" in new
+    # Never loosens the table's write-only posture.
+    for forbidden in ("POLICY", "GRANT", "REVOKE", "ROW LEVEL SECURITY", "DROP TABLE", "DROP COLUMN"):
+        assert forbidden not in new.upper(), forbidden
+
+
+@pytest.mark.parametrize("category", HOME_FEEDBACK_CATEGORIES)
+def test_each_homepage_feedback_kind_is_accepted_and_stored_as_itself(client: TestClient, category: str):
+    # The homepage form's shape: no relevant_area, no reply email.
+    body = {
+        "category": category,
+        "subject": "The draft timer felt too short",
+        "message": "The draft timer felt too short on mobile.",
+    }
+    resp = client.post(CONTACT_URL, json=body)
+    assert resp.status_code == 202, resp.text
+    rows = _stored()
+    assert len(rows) == 1
+    assert rows[0].category == category
+    assert rows[0].relevant_area is None
+    assert rows[0].reply_email is None
+
+
+def test_accepted_response_never_echoes_the_submitted_text(client: TestClient):
+    resp = client.post(CONTACT_URL, json=_valid_body(category="question"))
+    assert resp.status_code == 202, resp.text
+    assert set(resp.json()) == {"request_id", "accepted"}
+    assert _valid_body()["message"] not in resp.text
+
+
+def test_whitespace_only_message_is_rejected(client: TestClient):
+    resp = client.post(CONTACT_URL, json=_valid_body(category="game_idea", message="  \n\t  "))
+    assert resp.status_code == 422
+    assert _stored() == []
+
+
+def test_oversized_reply_email_is_rejected(client: TestClient):
+    long_email = ("x" * 315) + "@a.com"  # 321 characters, well-shaped otherwise
+    assert len(long_email) == 321
+    resp = client.post(CONTACT_URL, json=_valid_body(category="dislike", reply_email=long_email))
+    assert resp.status_code == 422
+    assert _stored() == []
+
+
+def test_oversized_honeypot_is_rejected_without_storing(client: TestClient):
+    resp = client.post(CONTACT_URL, json=_valid_body(website="x" * 201))
+    assert resp.status_code == 422
+    assert _stored() == []
+
+
+@pytest.mark.parametrize("category", HOME_FEEDBACK_CATEGORIES)
+def test_honeypot_with_a_feedback_kind_looks_like_success_and_stores_nothing(client: TestClient, category: str):
+    real = client.post(CONTACT_URL, json=_valid_body(category="weakness"))
+    trapped = client.post(CONTACT_URL, json=_valid_body(category=category, website="https://spam.example"))
+    assert trapped.status_code == real.status_code == 202
+    assert set(trapped.json()) == set(real.json())
+    assert len(_stored()) == 1, "only the real submission may reach storage"
+
+
+def test_rate_limited_submission_writes_nothing(client: TestClient):
+    from app.core.config import settings
+    from app.core.rate_limit import limiter
+
+    client.post(CONTACT_URL, json=_valid_body())  # warm-up mints the anon cookie (see above)
+    limiter.reset()
+    before = len(_stored())
+
+    for _ in range(settings.CONTACT_RATE_LIMIT):
+        assert client.post(CONTACT_URL, json=_valid_body(category="general_feedback")).status_code == 202
+
+    limited = client.post(CONTACT_URL, json=_valid_body(category="general_feedback"))
+    assert limited.status_code == 429
+    assert int(limited.headers["Retry-After"]) > 0
+    assert len(_stored()) == before + settings.CONTACT_RATE_LIMIT
+
+
+@pytest.mark.parametrize("category", HOME_FEEDBACK_CATEGORIES)
+def test_disabled_flag_rejects_feedback_kinds_and_writes_nothing(monkeypatch, category: str):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CONTACT_ENABLED", False, raising=False)
+    with TestClient(app) as c:
+        resp = c.post(CONTACT_URL, json=_valid_body(category=category))
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["error_code"] == "contact_disabled"
+    assert _stored() == []
+
+
+def test_contact_routes_are_write_only(client: TestClient):
+    """Private storage: the stored row is reachable through the repository
+    (the only reader) but no HTTP route under /api/v1/contact reads."""
+    resp = client.post(CONTACT_URL, json=_valid_body(category="question"))
+    assert resp.status_code == 202, resp.text
+    request_id = resp.json()["request_id"]
+    assert [r.id for r in _stored()] == [request_id]
+
+    # The OpenAPI schema, not `app.routes`: included routers are registered
+    # lazily in this FastAPI version, so a flat route walk sees none of them.
+    contact_paths = {
+        path: set(ops) for path, ops in app.openapi()["paths"].items() if path.startswith(CONTACT_URL)
+    }
+    assert contact_paths, "the contact route is not registered"
+    for path, methods in contact_paths.items():
+        assert methods == {"post"}, f"{path} exposes {methods}"
+
+    assert client.get(f"{CONTACT_URL}/{request_id}").status_code in (404, 405)

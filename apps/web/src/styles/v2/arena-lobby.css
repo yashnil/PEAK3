@@ -131,3 +131,187 @@
   font-family: var(--v2-font-mono);
   border-radius: var(--v2-radius-control);
 }
+
+/* ================================================================
+   One game, several rulesets — the family card
+   ================================================================
+   Three-Man Weave is ONE card whose formats (Classic, Franchise Draft,
+   Decade Draft) are rows inside it, each with its own line, length and
+   actions. The rows sit on the card's inset ground behind a hairline rail,
+   so the hierarchy is the card (the game) over its rows (ways to play it). */
+
+.ar-variants {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--v2-border-subtle, var(--border-subtle));
+  border-radius: var(--v2-radius-control, 10px);
+  overflow: hidden;
+}
+
+.ar-variants-label {
+  margin: 0 0 -0.35rem;
+  font-family: var(--v2-font-mono, var(--font-mono, ui-monospace, monospace));
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--v2-text-secondary, var(--text-secondary));
+}
+
+.ar-variant {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.8rem 0.9rem 0.7rem 1.05rem;
+  background: var(--v2-bg-surface, var(--bg-surface));
+}
+
+.ar-variant + .ar-variant {
+  border-top: 1px solid var(--v2-border-subtle, var(--border-subtle));
+}
+
+/* The rail: quiet until the row is the one the visitor was sent to, or is
+   being operated. Gold is the accent the page's primary buttons already use. */
+.ar-variant::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--v2-border, var(--border-default));
+  transition: background-color 200ms ease;
+}
+
+.ar-variant:focus-within::before,
+.ar-variant[data-highlighted="true"]::before {
+  background: var(--v2-color-accent, var(--peak-accent));
+}
+
+.ar-variant-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.2rem 0.75rem;
+}
+
+.ar-variant-title {
+  margin: 0;
+  font-family: var(--v2-font-ui, inherit);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--v2-text-primary, var(--text-primary));
+}
+
+.ar-variant-duration {
+  font-family: var(--v2-font-mono, var(--font-mono, ui-monospace, monospace));
+  font-size: 0.6875rem;
+  color: var(--v2-text-secondary, var(--text-secondary));
+}
+
+.ar-variant-summary {
+  margin: -0.3rem 0 0;
+  font-family: var(--v2-font-ui, inherit);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--v2-text-secondary, var(--text-secondary));
+}
+
+.ar-variant .ar-actions {
+  margin-top: 0;
+  padding-top: 0;
+  gap: 0.45rem;
+}
+
+.ar-variant .ar-action {
+  flex-basis: 8rem;
+}
+
+/* The per-row note is a rated/unrated word, not a sentence: the card's
+   facts already say what each path is. */
+.ar-variant .ar-action-note {
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ar-variant .ar-rules {
+  margin-top: -0.15rem;
+}
+
+.ar-variant-highlight {
+  font-family: var(--v2-font-mono, var(--font-mono, ui-monospace, monospace));
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-color-accent-text, var(--peak-accent-text));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ar-variant::before {
+    transition: none;
+  }
+}
+
+/* THE FAMILY TAKES THE WHOLE ROW, its formats side by side. In one column of
+   a two-up grid the family card was three rows tall and stretched the card
+   beside it into a mostly empty panel; across the row, the formats read as
+   three peers under one heading, and every single-ruleset game keeps its
+   ordinary half-width card. A single card left alone in its row takes the
+   row too (`data-span`, computed from the list), so no half-row hole is left
+   showing the grid's hairline ground. */
+.ar-grid > .ar-grid-family,
+.ar-grid > li[data-span="row"] {
+  grid-column: 1 / -1;
+}
+
+.ar-grid > li[data-span="row"] .ar-actions {
+  max-width: 40rem;
+}
+
+@media (min-width: 900px) {
+  .ar-grid-family .ar-variants {
+    display: grid;
+    grid-template-columns: repeat(var(--ar-variant-count, 3), minmax(0, 1fr));
+  }
+  .ar-grid-family .ar-variant + .ar-variant {
+    border-top: 0;
+    border-left: 1px solid var(--v2-border-subtle, var(--border-subtle));
+  }
+  /* Rows in a row: the rules disclosure sits at the foot of every column,
+     whatever each summary's length. */
+  .ar-grid-family .ar-variant .ar-rules {
+    margin-top: auto;
+  }
+}
+
+/* THE HANDLE PROMPT'S SAFE LANE (desktop).
+   `HandleOnboardingPrompt` is fixed at the viewport's bottom-right
+   (22rem wide, 1rem in) and is meant to appear on the lobby. On a desktop
+   screen the lobby's right-hand column scrolls underneath it, so a
+   right-column control -- Prime Cut's private-room Join, found at 1280x720 --
+   could sit under the prompt and not take a press. A fixed panel over a
+   scrolling page can only be kept off every control at every scroll position
+   if the controls never share its horizontal band, so while the prompt is on
+   screen the lobby's content stops 1rem short of it:
+
+     shell content right edge = 50vw + 1180px/2 - gutter
+     prompt left edge         = 100vw - 22rem - 1rem
+     padding = max(0, content right - prompt left + 1rem)
+             = max(0, 590px + 24rem - gutter - 50vw)
+
+   286px at 1280, 206px at 1440, 126px at 1600, and nothing from ~1850px up,
+   where the page's own margin already clears it. Below 1200px (and on phones)
+   nothing changes. Only the lobby's layout moves; the prompt, its logic and
+   its dismissal are untouched. */
+@media (min-width: 1200px) {
+  :root:has(.pk-handle-prompt) .ar-lobby-page {
+    padding-right: max(0px, calc(590px + 24rem - var(--v2-gutter) - 50vw));
+  }
+}

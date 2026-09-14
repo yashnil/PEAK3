@@ -275,6 +275,22 @@ export function PlayMenu({ pathname, search = "", availability, className }: Pla
                   {group.items.map((item) => (
                     <li key={item.id}>
                       <PlayMenuRow item={item} pathname={pathname} search={search} />
+                      {/* A game's rulesets, indented under the game rather
+                          than listed as further games beside it. */}
+                      {item.children?.length ? (
+                        <ul
+                          className="pk-playmenu-sublist"
+                          role="list"
+                          aria-label={`${item.label} formats`}
+                          data-nav-children={item.id}
+                        >
+                          {item.children.map((child) => (
+                            <li key={child.id}>
+                              <PlayMenuSubRow item={child} pathname={pathname} search={search} />
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
@@ -317,6 +333,38 @@ function PlayMenuRow({
           {item.badge && <span className="pk-playmenu-badge">{item.badge}</span>}
         </span>
         {item.blurb && <span className="pk-playmenu-blurb">{item.blurb}</span>}
+      </span>
+      {current && (
+        <span className="pk-playmenu-current" aria-hidden="true">
+          Current
+        </span>
+      )}
+    </Link>
+  );
+}
+
+/** A ruleset row, indented under its game. Lighter than a game row: no icon,
+ *  label and one line side by side, the same 44px target. */
+function PlayMenuSubRow({
+  item,
+  pathname,
+  search,
+}: {
+  item: NavItem;
+  pathname: string;
+  search: string;
+}) {
+  const current = isActive(pathname, item, search);
+  return (
+    <Link
+      href={item.href}
+      data-nav-item={item.id}
+      aria-current={current ? "page" : undefined}
+      className="pk-playmenu-subrow"
+    >
+      <span className="pk-playmenu-subtext">
+        <span className="pk-playmenu-sublabel">{item.label}</span>
+        {item.blurb && <span className="pk-playmenu-subblurb">{item.blurb}</span>}
       </span>
       {current && (
         <span className="pk-playmenu-current" aria-hidden="true">

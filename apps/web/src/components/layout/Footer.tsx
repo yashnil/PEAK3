@@ -64,6 +64,9 @@ export const FOOTER_COLUMNS: readonly FooterColumn[] = [
       { label: "Data Sources", href: "/data-sources" },
       { label: "About", href: "/about" },
       { label: "Accessibility", href: "/accessibility" },
+      // The homepage's one-note feedback form: a game idea, a weak spot, a
+      // question. `/contact` (Legal) stays the longer-form route.
+      { label: "Send feedback", href: "/#feedback" },
     ],
   },
   {

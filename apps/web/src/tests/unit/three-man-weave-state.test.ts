@@ -495,6 +495,27 @@ describe("candidates", () => {
     expect(candidates[0].fit.reason).toBeTruthy();
   });
 
+  it("disables a candidate a later drafter this round needs, and says so", () => {
+    // tmw_ruleset_v3: a pick that would leave a later seat with nobody to
+    // take is refused by the server, so the surface must not offer it.
+    const match = matchView({
+      private_state: {
+        seat_index: 0,
+        candidate_fits: {
+          "kawhi-leonard": fit({
+            state: "strands_round",
+            direct_slots: [],
+            reason: "Another drafter still to pick this round needs this player.",
+          }),
+        },
+      },
+    });
+    const [entry] = candidatesForSeat(match);
+    expect(entry.selectable).toBe(false);
+    expect(fitLabel(entry)).toBe("Needed by a later drafter");
+    expect(entry.fit.reason).toBeTruthy();
+  });
+
   it("preserves the server's order and never re-sorts by anything", () => {
     // The list used to be sorted by `prime_score`, which made the number
     // visible whether or not it was printed: the right pick was the top row.

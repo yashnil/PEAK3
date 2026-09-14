@@ -25,6 +25,7 @@
  */
 
 import { getAccessToken } from "@/lib/auth";
+import { attachServerTiming } from "@/lib/game-feel/server-timing";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -98,7 +99,8 @@ async function arenaFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     const { message, code } = parseErrorDetail((json as { detail?: unknown }).detail, res.status);
     throw new TwentyDollarAPIError(res.status, message, code);
   }
-  return json as T;
+  // The server's stage durations ride along, invisible to renderers.
+  return attachServerTiming(json as T, res.headers?.get?.("server-timing"));
 }
 
 // ---------------------------------------------------------------------------
@@ -422,10 +424,13 @@ export type ShowdownCommand =
   | "bid"
   | "pass"
   | "showdown_skip_intro"
+  | "showdown_intro_seen"
   | "showdown_forfeit";
 
 export const SHOWDOWN_COMMAND_SKIP_INTRO = "showdown_skip_intro" as const;
 export const SHOWDOWN_COMMAND_FORFEIT = "showdown_forfeit" as const;
+/** This seat's client has the intro on screen; sent once, during arrival. */
+export const SHOWDOWN_COMMAND_INTRO_SEEN = "showdown_intro_seen" as const;
 
 export interface SubmitCommandResult {
   accepted: boolean;

@@ -1,0 +1,1015 @@
+/* =============================================================================
+   THREE-MAN WEAVE · THE STAGE (game-feel pass 5)
+   =============================================================================
+   Loaded AFTER `three-man-weave.css` and the shared `v2/spin.css`, because it
+   re-sets pieces of both for this mode only.
+
+   ONE SCROLL, AND IT IS THE PAGE'S. The active match used to be a column
+   capped to a measured viewport height with an inner scrolling region, a
+   fixed pick modal with two more scrolling panes, and a ceremony overlay that
+   could scroll too. Everything below lets the Arena page scroll naturally and
+   uses `position: sticky` for the two things that must stay in reach -- the
+   turn strip and the Draft action.
+
+   Contrast discipline: small text sits on `--v2-text-secondary` or brighter,
+   never on `--v2-text-muted`, and nothing that carries text is dimmed with
+   whole-element opacity. Decoration (court hairlines, bars) is the only thing
+   drawn faint. */
+
+.tmw-room {
+  /* The site header is `sticky top-0` with an `h-14` bar
+     (`components/layout/nav.tsx`, "the sticky offset every page already
+     assumes"). Named once here so every TMW sticky offset reads from it. */
+  --tmw-nav-h: 3.5rem;
+  --tmw-sticky-gap: 0.75rem;
+  /* Anything that sticks under the strip. `--tmw-strip-h` is published on
+     `.tmw-board` by `PeakV2TMWCourts` from the strip's real rendered height. */
+  --tmw-below-strip: calc(var(--tmw-nav-h) + var(--tmw-strip-h, 5.5rem) + var(--tmw-sticky-gap));
+}
+
+.tmw-board {
+  position: relative;
+}
+
+/* -- the strip: constraint first, turn second ----------------------------- */
+
+.tmw-strip {
+  position: sticky;
+  top: var(--tmw-nav-h);
+  z-index: 20;
+  margin-top: var(--v2-space-4, 1rem);
+  /* OPAQUE and full-bleed: the courts and the candidate list scroll beneath
+     it and must never show through. */
+  background: var(--v2-bg-page);
+  border-top: 1px solid var(--v2-border-subtle);
+  border-bottom: 1px solid var(--v2-border-subtle);
+  box-shadow: 0 14px 24px -22px rgba(0, 0, 0, 0.9);
+}
+
+.tmw-strip[data-turn-owner="you"] {
+  border-top-color: color-mix(in srgb, var(--v2-color-accent) 60%, transparent);
+}
+
+.tmw-strip-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    "round owner clock"
+    "roll  owner clock"
+    "qual  owner clock";
+  align-items: center;
+  column-gap: var(--v2-space-5, 1.25rem);
+  row-gap: 0.1rem;
+  padding-block: 0.6rem;
+}
+
+.tmw-strip-round {
+  grid-area: round;
+  min-width: 0;
+}
+
+.tmw-strip-roll {
+  grid-area: roll;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.5rem;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--v2-font-display);
+  font-size: clamp(1.3rem, 1rem + 1vw, 1.8rem);
+  line-height: 1.1;
+  color: var(--v2-text-primary);
+}
+
+.tmw-strip-x {
+  font-family: var(--v2-font-ui);
+  font-size: 0.8em;
+  color: var(--v2-color-accent);
+}
+
+.tmw-strip-decade {
+  color: var(--v2-color-accent);
+}
+
+.tmw-strip-pending {
+  font-family: var(--v2-font-ui);
+  font-size: 0.9375rem;
+  color: var(--v2-text-secondary);
+}
+
+.tmw-strip-qualifier {
+  grid-area: qual;
+  margin: 0;
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary);
+}
+
+.tmw-strip-owner {
+  grid-area: owner;
+  justify-self: end;
+}
+
+.tmw-strip-clock {
+  grid-area: clock;
+  justify-self: end;
+  min-width: 2.5rem;
+  text-align: right;
+}
+
+.tmw-strip-clock-reserve {
+  visibility: hidden;
+  font-family: var(--v2-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 1.125rem;
+}
+
+.tmw-on-clock {
+  display: inline-block;
+  font-family: var(--v2-font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--v2-color-accent);
+}
+
+/* YOUR PICK is the one state that asks for an action: filled, not tinted. */
+.tmw-strip[data-turn-owner="you"] .tmw-on-clock {
+  padding: 0.35rem 0.7rem;
+  border-radius: var(--v2-radius-instrument);
+  background: var(--v2-color-accent);
+  color: var(--v2-text-inverse);
+}
+
+.tmw-strip-notice {
+  margin: 0 0 0.55rem;
+  font-family: var(--v2-font-ui);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--v2-color-negative);
+}
+
+@media (max-width: 640px) {
+  .tmw-strip-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "round clock"
+      "roll  clock"
+      "owner owner"
+      "qual  qual";
+    padding-block: 0.5rem;
+  }
+  .tmw-strip-owner {
+    justify-self: start;
+    margin-top: 0.25rem;
+  }
+  .tmw-strip-roll {
+    font-size: 1.25rem;
+  }
+}
+
+/* -- the decision surface, in flow ----------------------------------------- */
+
+.tmw-decision {
+  margin-top: var(--v2-space-4, 1rem);
+}
+
+.tmw-decision:empty {
+  display: none;
+}
+
+/* Moments and the previous-pick beat announce over the VIEWPORT, not over the
+   middle of a board that may be 2000px tall and scrolled. */
+.tmw-room .gf-moment,
+.tmw-room .tmw-previous-pick-beat {
+  position: fixed;
+}
+
+/* A pick announcement lands just under the sticky strip it belongs to, not
+   38% down the screen where it sat over another seat's court header (or the
+   seat tabs on a phone) for the second it was visible. */
+.tmw-room .gf-moment {
+  top: calc(var(--tmw-below-strip) + 0.5rem);
+  transform: translate(-50%, 0);
+}
+
+/* The pick panel: inline, no inner scrolling, no clipping ancestor (an
+   `overflow: hidden` here would silently disable the sticky column). */
+.tmw-overlay-scrim {
+  position: static;
+  display: block;
+  padding: 0;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  overflow: visible;
+}
+
+.tmw-overlay,
+[data-ui-version="v2"] .tmw-overlay {
+  width: 100%;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+  border: 1px solid color-mix(in srgb, var(--v2-color-accent) 40%, var(--v2-border));
+  border-top: 2px solid var(--v2-color-accent);
+  border-radius: var(--v2-radius-control);
+  background: var(--v2-bg-plane);
+  box-shadow: var(--v2-elev-plane);
+  /* When the panel scrolls itself into view, it lands BELOW the strip. */
+  scroll-margin-top: var(--tmw-below-strip);
+}
+
+[data-ui-version="v2"] .tmw-overlay-head {
+  border-radius: var(--v2-radius-control) var(--v2-radius-control) 0 0;
+}
+
+/* The panel's own clock, compact: the strip above carries the big number. */
+.tmw-overlay .ar-timer {
+  padding: 0.5rem 0.75rem;
+}
+
+.tmw-overlay .ar-timer-value {
+  font-size: 2rem;
+}
+
+.tmw-overlay-body {
+  align-items: start;
+  flex: none;
+}
+
+.tmw-overlay-list {
+  overflow: visible;
+}
+
+/* THE ROSTER COLUMN STAYS BESIDE THE LIST. The list is as long as the pool
+   and the page scrolls it; the column sticks under the strip, so the slot to
+   click and "Draft X at Y" are always in view while scanning names. Its
+   content is ~540px (six slots, fallback select, rearrangement note,
+   actions), so it is only sticky where the viewport below the strip can hold
+   it -- a shorter screen gets the column in flow, still at the top of the
+   panel beside the first names. */
+.tmw-overlay-place {
+  overflow: visible;
+  align-self: start;
+}
+
+@media (min-width: 761px) and (min-height: 760px) {
+  .tmw-overlay-place {
+    position: sticky;
+    top: var(--tmw-below-strip);
+  }
+}
+
+/* The mobile "choose a slot" jump only exists where the board is below the
+   list; on desktop the board is already beside it. */
+.tmw-slot-jump {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  /* One column, and the roster pane's children join the panel's own flow so
+     the ACTION DOCK can stick to the bottom of the viewport for as long as
+     the panel is on screen -- including while the player is deep in the
+     candidate list, which is exactly when the Draft button used to be out
+     of reach. `display: contents` on a plain, role-less div. */
+  .tmw-overlay-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+  .tmw-overlay-place {
+    display: contents;
+  }
+  .tmw-overlay-place > :not(.tmw-place-actions) {
+    margin-inline: 1rem;
+  }
+  .tmw-overlay-place-head {
+    margin-top: 0.4rem;
+    scroll-margin-top: var(--tmw-below-strip);
+  }
+  .tmw-place-actions,
+  [data-ui-version="v2"] .tmw-place-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    margin: 0.4rem 0 0;
+    padding: 0.65rem 1rem calc(0.65rem + env(safe-area-inset-bottom, 0px));
+    background: var(--v2-bg-plane);
+    border-top: 1px solid var(--v2-border-emphasis);
+    border-radius: 0 0 var(--v2-radius-control) var(--v2-radius-control);
+    box-shadow: 0 -14px 24px -18px rgba(0, 0, 0, 0.9);
+  }
+  .tmw-place-actions:empty {
+    display: none;
+  }
+  .tmw-place-actions > * {
+    flex: 1 1 auto;
+  }
+  .tmw-slot-jump {
+    display: inline-flex;
+  }
+  /* A flex column must STRETCH its children: the grid's `align-items:
+     start` above would shrink the pool to its content width. */
+  .tmw-overlay-body {
+    align-items: stretch;
+  }
+  /* THE DOCK, COMPACT: the primary on its own row, the secondary actions
+     side by side beneath it -- two rows at most, never three. */
+  .tmw-place-actions,
+  [data-ui-version="v2"] .tmw-place-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+  .tmw-place-actions > :first-child {
+    grid-column: 1 / -1;
+  }
+  .tmw-place-actions > :only-child {
+    grid-column: 1 / -1;
+  }
+  /* The panel's own clock, one line tall on a phone. */
+  .tmw-overlay .ar-timer {
+    grid-template-columns: auto auto 1fr;
+    grid-template-areas:
+      "label value unit"
+      "track track track"
+      "note  note  note";
+    align-items: baseline;
+    padding: 0.45rem 0.7rem;
+  }
+  .tmw-overlay .ar-timer-value {
+    font-size: 1.5rem;
+  }
+}
+
+/* The strip directly above already states the round and the pick number. */
+.tmw-overlay .tmw-overlay-round {
+  display: none;
+}
+
+/* -- the roll: a draft-lottery slate --------------------------------------- */
+
+.tmw-stage-scrim {
+  position: fixed;
+  inset: var(--tmw-nav-h, 3.5rem) 0 0 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--v2-space-6, 1.5rem) var(--v2-gutter, 1rem);
+  /* Scrolls only if a tiny landscape viewport cannot hold the card. */
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--v2-bg-page) 94%, transparent);
+}
+
+.tmw-lottery {
+  position: relative;
+  display: grid;
+  grid-template-areas: "stack";
+  width: min(42rem, 100%);
+  margin: auto;
+  padding: var(--v2-space-8, 2rem) var(--v2-space-8, 2rem) var(--v2-space-6, 1.5rem);
+  border: 1px solid var(--v2-border-emphasis);
+  border-radius: var(--v2-radius-modal);
+  background:
+    radial-gradient(120% 70% at 50% 0%, color-mix(in srgb, var(--v2-color-accent) 8%, transparent), transparent 62%),
+    var(--v2-bg-plane);
+  box-shadow: var(--v2-elev-modal);
+  text-align: center;
+  overflow: hidden;
+}
+
+/* COURT-LINE GEOMETRY: the top of a centre circle behind the slate. A
+   hairline, decoration only, far fainter than any text on the card. */
+.tmw-lottery::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -11rem;
+  width: 20rem;
+  height: 20rem;
+  transform: translateX(-50%);
+  border: 1px solid color-mix(in srgb, var(--v2-color-accent) 12%, transparent);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.tmw-lottery-eyebrow {
+  margin: 0;
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--v2-color-accent);
+}
+
+.tmw-brief-rules,
+.tmw-brief-objective {
+  margin: 0.9rem auto 0;
+  max-width: 34rem;
+  font-family: var(--v2-font-ui);
+  font-size: 0.875rem;
+  color: var(--v2-text-secondary);
+}
+
+.tmw-brief-objective {
+  margin-top: 0.75rem;
+}
+
+.tmw-brief-countdown {
+  margin: 1rem 0 0;
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-secondary);
+}
+
+.tmw-lottery-head {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--v2-text-secondary);
+}
+
+.tmw-lottery-round {
+  color: var(--v2-color-accent);
+}
+
+.tmw-lottery-rule {
+  display: block;
+  height: 1px;
+  margin: 0.6rem 0 0.85rem;
+  background: linear-gradient(90deg, transparent, var(--v2-color-accent) 20%, var(--v2-color-accent) 80%, transparent);
+  transform-origin: center;
+}
+
+.tmw-lottery-kicker {
+  margin: 0 0 1rem;
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  color: var(--v2-text-secondary);
+}
+
+/* The slate lands; the rule draws under it. Transform/opacity only, and the
+   global reduced-motion rule zeroes both. */
+.tmw-lottery[data-stage="round"] .tmw-lottery-head {
+  animation: tmw-slate-in 240ms var(--v2-ease-out, ease-out) both;
+}
+
+.tmw-lottery[data-stage="round"] .tmw-lottery-rule {
+  animation: tmw-rule-draw 280ms var(--v2-ease-out, ease-out) both;
+}
+
+@keyframes tmw-slate-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes tmw-rule-draw {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* THE APERTURES. The shared shell's axes, re-set as two scoreboard windows
+   with a multiplication sign between them. Scoped to this card, so 82-0's
+   roll is untouched. */
+[data-ui-version="v2"] .tmw-lottery .v2-spin-axes {
+  position: relative;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2.75rem;
+  background: none;
+  border: 0;
+  overflow: visible;
+}
+
+[data-ui-version="v2"] .tmw-lottery .v2-spin-axes::after {
+  content: "×";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -30%);
+  font-family: var(--v2-font-display);
+  font-size: 1.75rem;
+  line-height: 1;
+  color: var(--v2-color-accent);
+  pointer-events: none;
+}
+
+[data-ui-version="v2"] .tmw-lottery .v2-spin-axis {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "label"
+    "value";
+  justify-items: stretch;
+  row-gap: 0.45rem;
+  padding: 0.8rem 0.9rem 1.05rem;
+  border: 1px solid var(--v2-border);
+  border-radius: var(--v2-radius-instrument);
+  background: var(--v2-bg-page);
+  transition:
+    border-color var(--v2-dur-transition, 210ms) var(--v2-ease-standard, ease),
+    background-color var(--v2-dur-transition, 210ms) var(--v2-ease-standard, ease);
+}
+
+[data-ui-version="v2"] .tmw-lottery .v2-spin-axis-label {
+  text-align: center;
+  color: var(--v2-text-secondary);
+}
+
+[data-ui-version="v2"] .tmw-lottery .v2-spin-axis-action {
+  display: none;
+}
+
+[data-ui-version="v2"] .tmw-lottery .v2-spin-axis-value .spin-reel-row,
+[data-ui-version="v2"] .tmw-lottery .v2-spin-axis-value .tmw-reel-value {
+  font-family: var(--v2-font-display);
+  font-size: 1.5rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-align: center;
+}
+
+[data-ui-version="v2"] .tmw-lottery .v2-spin-axis-value .spin-reel-row {
+  color: var(--v2-text-secondary);
+}
+
+/* Travel reads as travel: a little blur at speed, none as it settles. */
+[data-ui-version="v2"] .tmw-lottery .spin-reel-strip[data-stage="spinning"] .spin-reel-track {
+  filter: blur(1.2px);
+}
+
+/* The empty window, before anything turns: one hairline where the value
+   will land. */
+[data-ui-version="v2"] .tmw-lottery .v2-spin-axis-armed {
+  display: block;
+  width: 40%;
+  height: 1px;
+  margin: 14px auto 0;
+  background: var(--v2-border-emphasis);
+}
+
+[data-ui-version="v2"] .tmw-lottery[data-stage="armed"] .v2-spin-axis,
+[data-ui-version="v2"] .tmw-lottery[data-stage="spinning"] .v2-spin-axis {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 45%, var(--v2-border));
+}
+
+/* THE BASELINE: gold, drawn under each window as the pair locks. */
+[data-ui-version="v2"] .tmw-lottery .v2-spin-axis::after {
+  content: "";
+  position: absolute;
+  left: 1rem;
+  right: 1rem;
+  bottom: 0.5rem;
+  height: 2px;
+  background: var(--v2-color-accent);
+  transform: scaleX(0);
+  transition: transform 200ms var(--v2-ease-out, ease-out);
+}
+
+[data-ui-version="v2"] .tmw-lottery .v2-spin[data-stage="locking"] .v2-spin-axis,
+[data-ui-version="v2"] .tmw-lottery .v2-spin[data-stage="revealed"] .v2-spin-axis {
+  border-color: var(--v2-color-accent);
+}
+
+[data-ui-version="v2"] .tmw-lottery .v2-spin[data-stage="locking"] .v2-spin-axis {
+  background: var(--v2-color-accent-bg);
+}
+
+[data-ui-version="v2"] .tmw-lottery .v2-spin[data-stage="locking"] .v2-spin-axis::after,
+[data-ui-version="v2"] .tmw-lottery .v2-spin[data-stage="revealed"] .v2-spin-axis::after {
+  transform: scaleX(1);
+}
+
+/* The round's draft order (and the briefing's seats). */
+.tmw-lottery-order {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem;
+  margin: 1.1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tmw-lottery-order li {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-instrument);
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--v2-text-secondary);
+}
+
+.tmw-lottery-order-num {
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--v2-text-secondary);
+}
+
+.tmw-lottery-order li[data-you="true"] {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 50%, transparent);
+  color: var(--v2-text-primary);
+}
+
+.tmw-lottery-order li[data-next="true"] {
+  border-color: var(--v2-color-accent);
+  background: var(--v2-color-accent-bg);
+  color: var(--v2-text-primary);
+}
+
+.tmw-lottery-order-next {
+  font-family: var(--v2-font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-color-accent);
+}
+
+.tmw-lottery-status {
+  min-height: 1.25rem;
+  margin: 0.9rem 0 0;
+  font-family: var(--v2-font-ui);
+  font-size: 0.8125rem;
+  color: var(--v2-text-secondary);
+}
+
+.tmw-lottery-status[data-stage="locked"] {
+  font-family: var(--v2-font-mono);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-color-accent);
+}
+
+/* THE HANDOFF: the line that says drafting is now actionable. */
+.tmw-lottery-handoff {
+  min-height: 2.6rem;
+  margin: 0.2rem 0 0;
+  font-family: var(--v2-font-display);
+  font-size: clamp(1.6rem, 1.2rem + 1.2vw, 2.1rem);
+  line-height: 1.2;
+  color: var(--v2-text-primary);
+}
+
+.tmw-lottery-handoff[data-you="true"] {
+  color: var(--v2-color-accent);
+}
+
+.tmw-lottery-handoff[data-visible="true"] {
+  animation: tmw-slate-in 200ms var(--v2-ease-out, ease-out) both;
+}
+
+/* A FRANCHISE OR DECADE DRAFT: one aperture, for the whole draft. */
+[data-ui-version="v2"] .tmw-lottery .v2-spin-axes[data-axis-count="1"] {
+  grid-template-columns: minmax(0, 1fr);
+  width: min(24rem, 100%);
+  margin-inline: auto;
+}
+
+[data-ui-version="v2"] .tmw-lottery .v2-spin-axes[data-axis-count="1"]::after {
+  display: none;
+}
+
+.tmw-strip-scope,
+.tmw-strip-scope-note {
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-secondary);
+}
+
+@media (max-width: 560px) {
+  .tmw-lottery {
+    padding: var(--v2-space-6, 1.5rem) var(--v2-space-4, 1rem) var(--v2-space-5, 1.25rem);
+  }
+  [data-ui-version="v2"] .tmw-lottery .v2-spin-axes {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+  [data-ui-version="v2"] .tmw-lottery .v2-spin-axes::after {
+    display: none;
+  }
+}
+
+
+/* -- the roll, pass 5: anticipation, then two releases ---------------------
+   Stages come from `PeakV2TMWReveal` on the server's clock: round -> armed
+   (windows pulse) -> spinning (a light sweeps the card) -> landing (the
+   franchise window lands and flashes while the decade keeps turning) ->
+   locked (the decade lands, the pair flashes, the × pops) -> resolved.
+   Transform, opacity, filter and box-shadow only; nothing reflows, and the
+   reduced-motion block at the end removes every animation. */
+
+.tmw-lottery::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 32%,
+    color-mix(in srgb, var(--v2-color-accent) 9%, transparent) 50%,
+    transparent 68%
+  );
+  transform: translateX(-100%);
+}
+
+.tmw-lottery[data-stage="spinning"]::after,
+.tmw-lottery[data-stage="landing"]::after {
+  opacity: 1;
+  animation: tmw-sweep 1.15s linear infinite;
+}
+
+@keyframes tmw-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+[data-ui-version="v2"] .tmw-lottery[data-stage="armed"] .v2-spin-axis {
+  animation: tmw-aperture-pulse 260ms ease-in-out infinite alternate;
+}
+
+@keyframes tmw-aperture-pulse {
+  from {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  to {
+    box-shadow: 0 0 24px 2px color-mix(in srgb, var(--v2-color-accent) 32%, transparent);
+  }
+}
+
+[data-ui-version="v2"] .tmw-lottery[data-stage="spinning"] .v2-spin-axis,
+[data-ui-version="v2"] .tmw-lottery[data-stage="landing"] .v2-spin-axis {
+  box-shadow: 0 0 20px -4px color-mix(in srgb, var(--v2-color-accent) 30%, transparent);
+}
+
+/* The first release: the franchise lands with the decade still turning. */
+[data-ui-version="v2"] .tmw-lottery[data-stage="landing"] .v2-spin-axis:first-child {
+  border-color: var(--v2-color-accent);
+  background: var(--v2-color-accent-bg);
+  animation: tmw-window-land 440ms cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+}
+
+[data-ui-version="v2"] .tmw-lottery[data-stage="landing"] .v2-spin-axis:first-child::after {
+  transform: scaleX(1);
+}
+
+/* The second release: the last window lands, the pair locks. */
+[data-ui-version="v2"] .tmw-lottery[data-stage="locked"] .v2-spin-axis:last-child {
+  animation: tmw-window-land 440ms cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+}
+
+@keyframes tmw-window-land {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--v2-color-accent) 60%, transparent);
+  }
+  40% {
+    transform: scale(1.04);
+    box-shadow: 0 0 36px 6px color-mix(in srgb, var(--v2-color-accent) 42%, transparent);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 18px 0 color-mix(in srgb, var(--v2-color-accent) 18%, transparent);
+  }
+}
+
+[data-ui-version="v2"] .tmw-lottery[data-stage="locked"] .v2-spin-axes::after {
+  animation: tmw-x-pop 380ms cubic-bezier(0.2, 0.9, 0.3, 1.3) both;
+}
+
+@keyframes tmw-x-pop {
+  0% {
+    transform: translate(-50%, -30%) scale(1);
+  }
+  45% {
+    transform: translate(-50%, -30%) scale(1.55);
+  }
+  100% {
+    transform: translate(-50%, -30%) scale(1);
+  }
+}
+
+.tmw-lottery[data-stage="locked"] {
+  animation: tmw-card-thunk 280ms ease-out;
+}
+
+@keyframes tmw-card-thunk {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.012);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* The anticipation, in words: the status line leans in while it rolls. */
+.tmw-lottery-status[data-stage="armed"],
+.tmw-lottery-status[data-stage="spinning"] {
+  color: var(--v2-text-primary);
+  animation: tmw-breathe 700ms ease-in-out infinite alternate;
+}
+
+.tmw-lottery-status[data-stage="landing"] {
+  font-family: var(--v2-font-display);
+  font-size: 1.15rem;
+  color: var(--v2-text-primary);
+  animation: tmw-slate-in 220ms var(--v2-ease-out, ease-out) both;
+}
+
+@keyframes tmw-breathe {
+  from {
+    opacity: 0.62;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmw-lottery,
+  .tmw-lottery::after,
+  .tmw-lottery-status,
+  [data-ui-version="v2"] .tmw-lottery .v2-spin-axis,
+  [data-ui-version="v2"] .tmw-lottery .v2-spin-axes::after {
+    animation: none !important;
+  }
+  .tmw-lottery::after {
+    opacity: 0 !important;
+  }
+}
+
+/* -- the pick surface, pass 5: a bubble over the teams ---------------------
+   The courts and the decision share ONE grid cell (`PeakV2TMWCourts`). The
+   surface sits on top, the courts dim and stop taking presses beneath it, and
+   the cell is as tall as the taller of the two, so the PAGE scrolls a long
+   pool -- no fixed modal, no nested scroll pane. The roster tab bar stays
+   outside the cell and live. Opacity-only entrance: nothing the player presses
+   moves under the pointer while it arrives. */
+
+.tmw-stage {
+  position: relative;
+  display: grid;
+  grid-template-areas: "stack";
+}
+
+.tmw-stage > .tmw-courts,
+.tmw-stage > .tmw-decision {
+  grid-area: stack;
+  min-width: 0;
+}
+
+.tmw-stage > .tmw-courts {
+  transition:
+    filter 240ms var(--v2-ease-standard, ease),
+    opacity 240ms var(--v2-ease-standard, ease);
+}
+
+.tmw-stage[data-decision-open="true"] > .tmw-courts {
+  filter: saturate(0.5) brightness(0.45);
+  opacity: 0.9;
+  pointer-events: none;
+  user-select: none;
+}
+
+.tmw-stage > .tmw-decision {
+  position: relative;
+  z-index: 8;
+  align-self: start;
+  justify-self: center;
+  width: min(74rem, 100%);
+  margin-top: 1.25rem;
+  padding-inline: clamp(0rem, 2.5vw, 2rem);
+}
+
+.tmw-stage > .tmw-decision:empty {
+  display: none;
+}
+
+.tmw-stage .tmw-overlay,
+[data-ui-version="v2"] .tmw-stage .tmw-overlay {
+  box-shadow:
+    0 36px 90px -28px rgba(0, 0, 0, 0.92),
+    0 0 0 1px color-mix(in srgb, var(--v2-color-accent) 20%, transparent),
+    0 0 70px -34px color-mix(in srgb, var(--v2-color-accent) 70%, transparent);
+  animation: tmw-bubble-in 200ms var(--v2-ease-out, ease-out) both;
+}
+
+@keyframes tmw-bubble-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 760px) {
+  .tmw-stage > .tmw-decision {
+    width: 100%;
+    margin-top: 0.5rem;
+    padding-inline: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmw-stage > .tmw-courts {
+    transition: none;
+  }
+  .tmw-stage .tmw-overlay,
+  [data-ui-version="v2"] .tmw-stage .tmw-overlay {
+    animation: none;
+  }
+}
+
+/* -- the pick landing ------------------------------------------------------
+   A drafted card used to arrive on a 260 ms opacity paint -- correct, and too
+   quiet to notice from across three courts. On the Weave board it now drops
+   in and rings gold once (a Weave card may move, so a transform is allowed
+   here, unlike 82-0's fixed court). During a pick-opened reveal's settle lead
+   (`data-beat="settle"`) the board is the whole show, so the ring holds a
+   little longer. Paint-only under reduced motion. */
+.tmw-board [data-gf-lock="arrived"] > * {
+  animation:
+    tmw-card-drop 420ms cubic-bezier(0.2, 0.9, 0.3, 1.2) 1,
+    tmw-card-ring 900ms var(--v2-ease-out, ease-out) 1;
+}
+
+.tmw-room[data-beat="settle"] .tmw-board [data-gf-lock="arrived"] > * {
+  animation-duration: 420ms, 1400ms;
+}
+
+@keyframes tmw-card-drop {
+  0% {
+    transform: translateY(-10px) scale(0.96);
+    opacity: 0.35;
+  }
+  60% {
+    transform: translateY(0) scale(1.02);
+    opacity: 1;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes tmw-card-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--v2-color-accent) 75%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 10px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmw-board [data-gf-lock="arrived"] > * {
+    animation: none;
+  }
+}
