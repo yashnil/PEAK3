@@ -820,6 +820,8 @@ async def queue_status(
 #: `peak3_per_dollar` (twenty_dollar/mode.py).
 _MODE_DETAIL_KEYS: dict[str, tuple[str, ...]] = {
     "three_man_weave": ("lineup_peak_score",),
+    "three_man_weave_franchise": ("lineup_peak_score",),
+    "three_man_weave_decade": ("lineup_peak_score",),
     "twenty_dollar": ("budget_remaining", "peak3_per_dollar"),
     "prime_cut": ("heat_2y", "heat_3y", "heat_5y", "optimal_keeps"),
     "find_the_prime": ("exact_windows", "total_regret"),

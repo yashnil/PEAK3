@@ -46,6 +46,7 @@ waiting on.
 """
 from __future__ import annotations
 
+import functools
 from collections import OrderedDict
 from datetime import timedelta
 from typing import Optional
@@ -93,8 +94,28 @@ from nba_peak.three_man_weave.evaluation import (
     placements,
 )
 from nba_peak.three_man_weave.positions import card_starter_positions
+from nba_peak.three_man_weave.variants import (
+    VARIANT_DECADE,
+    VARIANT_FRANCHISE,
+    VARIANT_STANDARD,
+    Constraint,
+    choose_constraint,
+    constraint_roll,
+    viable_constraints,
+)
 
 MODE_NAME = "three_man_weave"
+#: FRANCHISE DRAFT and DECADE DRAFT: the same game under one constraint for all
+#: eighteen picks (`nba_peak.three_man_weave.variants`). Registered as their own
+#: mode ids so a queue never pairs players who chose different rules and each
+#: ruleset keeps its own rating ladder; the implementation is this one class.
+MODE_FRANCHISE = "three_man_weave_franchise"
+MODE_DECADE = "three_man_weave_decade"
+VARIANT_MODE_IDS: dict[str, str] = {
+    VARIANT_STANDARD: MODE_NAME,
+    VARIANT_FRANCHISE: MODE_FRANCHISE,
+    VARIANT_DECADE: MODE_DECADE,
+}
 
 #: How long one pick gets. Six rounds x three seats = 18 turns, so this sets
 #: the worst-case match length at about 13 minutes of pure thinking time.
@@ -258,13 +279,19 @@ REJECT_SHARED_TIMELINE = "shared_timeline"
 
 
 class ThreeManWeaveMode:
-    """The `ArenaMode` implementation. Stateless -- one instance is registered
-    process-wide and every method is a pure function of its arguments."""
+    """The `ArenaMode` implementation. Stateless -- one instance per ruleset is
+    registered process-wide and every method is a pure function of its
+    arguments. `variant` selects the standard game or a one-constraint draft."""
+
+    def __init__(self, variant: str = VARIANT_STANDARD) -> None:
+        if variant not in VARIANT_MODE_IDS:
+            raise ValueError(f"unknown Three-Man Weave variant {variant!r}")
+        self.variant = variant
 
     # -- identity ---------------------------------------------------------
     @property
     def mode(self) -> str:
-        return MODE_NAME
+        return VARIANT_MODE_IDS[self.variant]
 
     @property
     def mode_version(self) -> str:
@@ -376,7 +403,12 @@ class ThreeManWeaveMode:
         recorded in the snapshot so a match built against a different index
         is detectable rather than silently reinterpreted.
         """
-        state = D.create_match(seed, participants=len(seats) or PARTICIPANT_COUNT)
+        participants = len(seats) or PARTICIPANT_COUNT
+        # THE ONE CONSTRAINT, drawn once from the seed (a variant only).
+        constraint: Optional[Constraint] = (
+            None if self.variant == VARIANT_STANDARD else choose_constraint(self.variant, seed, participants)
+        )
+        state = D.create_match(seed, participants=participants, constraint=constraint)
         state = self._open_round(state)
         snapshot = self._to_snapshot(state)
         # ARRIVAL BOOKKEEPING, carried only until the briefing opens: every
@@ -783,7 +815,10 @@ class ThreeManWeaveMode:
         # `opened_round` is true exactly when this command drew a new roll, so
         # the reveal fires once per round and mid-round picks hand straight to
         # the next seat.
-        if opened_round:
+        # A VARIANT'S CONSTRAINT WAS SPUN ONCE, before round one; its later
+        # rounds hand straight to the next seat. The standard game spins
+        # every round.
+        if opened_round and state.constraint is None:
             return ReducerOutput(
                 accepted=True,
                 snapshot=self._to_snapshot(state),
@@ -1075,6 +1110,20 @@ class ThreeManWeaveMode:
             "current_roll": (
                 {
                     **current_roll.as_dict(),
+                    # A variant's open dimension, named for people rather than
+                    # as the placeholder key the snapshot stores.
+                    **(
+                        {
+                            "variant": state.constraint.kind,
+                            **(
+                                {"decade": "All decades"}
+                                if state.constraint.kind == VARIANT_FRANCHISE
+                                else {}
+                            ),
+                        }
+                        if state.constraint is not None
+                        else {}
+                    ),
                     # THE FULL ELIGIBLE POOL, in the roll's own sorted order --
                     # never narrowed to whichever players suit the asking
                     # seat's open slots, and never ordered by a score. Already
@@ -1090,7 +1139,7 @@ class ThreeManWeaveMode:
                     # the number back whether or not it was printed.
                     "candidates": [
                         self._candidate_public(
-                            slug, current_roll.franchise_id, current_roll.decade
+                            slug, *state.card_key(slug), constraint=state.constraint
                         )
                         for slug in current_roll.eligible_slugs
                         if slug not in drafted
@@ -1100,6 +1149,12 @@ class ThreeManWeaveMode:
                 else None
             ),
         }
+        public_state["variant"] = self.variant
+        if state.constraint is not None:
+            # The constraint, never its resolved cards: which season (and so
+            # which decade or franchise) a candidate is scored on stays on the
+            # server until the pick is made, exactly as in the standard game.
+            public_state["constraint"] = state.constraint.public_dict()
         if state.is_complete and snapshot.get("results"):
             public_state["results"] = snapshot["results"]
         if snapshot.get("arrival_open"):
@@ -1332,7 +1387,9 @@ class ThreeManWeaveMode:
             ],
         }
 
-    def _candidate_public(self, player_slug: str, franchise_id: str, decade: str) -> dict:
+    def _candidate_public(
+        self, player_slug: str, franchise_id: str, decade: str, constraint: Optional[Constraint] = None
+    ) -> dict:
         """An UNDRAFTED candidate: everything except what they are worth.
 
         Deliberately a different function from `_player_public` rather than the
@@ -1344,7 +1401,11 @@ class ThreeManWeaveMode:
         return {
             "player_slug": player_slug,
             "player_name": index.player_name(player_slug) or player_slug,
-            "eligibility": self._eligibility_public(player_slug, franchise_id, decade),
+            "eligibility": (
+                _constraint_eligibility(player_slug, constraint.kind, constraint.value, constraint.label)
+                if constraint is not None
+                else self._eligibility_public(player_slug, franchise_id, decade)
+            ),
             # The positions they may legally start at ON THIS CARD -- a rule
             # of the game and the thing a drafter reasons about, carrying no
             # valuation. Season-grain, not career-grain: the card is what the
@@ -1399,6 +1460,12 @@ class ThreeManWeaveMode:
         round_number = state.current_round
         if round_number is None:  # pragma: no cover - callers check is_complete
             return state
+        if state.constraint is not None:
+            # A variant's pool is the constraint itself; completability is kept
+            # pick by pick (`draft.round_keepers`), so there is nothing to draw.
+            return D.set_roll(
+                state, constraint_roll(state.constraint, round_number, state.drafted_identities())
+            )
         roll = F.roll_next(
             get_index(),
             state.rosters,
@@ -1427,6 +1494,37 @@ _EDGE_CACHE: "OrderedDict[tuple, dict]" = OrderedDict()
 _EDGE_CACHE_SIZE = 2048
 
 
+@functools.lru_cache(maxsize=4096)
+def _constraint_eligibility(player_slug: str, kind: str, value: str, label: str) -> dict:
+    """A variant candidate's eligibility evidence: every season with the
+    franchise (Franchise Draft) or in the decade (Decade Draft). Public facts
+    about where a player played -- deliberately NOT narrowed to the season the
+    card resolves to, which would reveal where their best PEAK3 season sits."""
+    index = get_index()
+    seasons: list[dict] = []
+    for franchise_id, decade in index.rolls():
+        if kind == VARIANT_FRANCHISE and franchise_id != value:
+            continue
+        if kind == VARIANT_DECADE and decade != value:
+            continue
+        for appearance in index.evidence(player_slug, franchise_id, decade):
+            seasons.append(
+                {
+                    "season": appearance.season,
+                    "team_code": appearance.team_code,
+                    "games_played": appearance.games_played,
+                    "via": appearance.via,
+                }
+            )
+    seasons.sort(key=lambda row: (row["season"], row["team_code"]))
+    return {
+        "franchise_id": value if kind == VARIANT_FRANCHISE else "ANY",
+        "franchise_display_name": label if kind == VARIANT_FRANCHISE else "All franchises",
+        "decade": value if kind == VARIANT_DECADE else "any",
+        "seasons": seasons,
+    }
+
+
 class _NoFeasibleRoll(RuntimeError):
     """Raised internally when the validated roll space is exhausted."""
 
@@ -1447,8 +1545,10 @@ def _reject(code: str, message: str) -> ReducerOutput:
     return ReducerOutput(accepted=False, rejection_code=code, rejection_message=message)
 
 
-#: The single registered instance.
+#: The registered instances: the standard game and its two one-constraint drafts.
 mode = ThreeManWeaveMode()
+franchise_mode = ThreeManWeaveMode(VARIANT_FRANCHISE)
+decade_mode = ThreeManWeaveMode(VARIANT_DECADE)
 
 #: The mode's own bot policy. Registered beside the mode below.
 bot = ThreeManWeaveBot()
@@ -1471,6 +1571,8 @@ def register(registry_obj: Optional[object] = None) -> ThreeManWeaveMode:
 
         registry_obj = default_registry
     registry_obj.register(mode)  # type: ignore[attr-defined]
+    registry_obj.register(franchise_mode)  # type: ignore[attr-defined]
+    registry_obj.register(decade_mode)  # type: ignore[attr-defined]
     return mode
 
 
@@ -1486,7 +1588,7 @@ def register_bot() -> ThreeManWeaveBot:
     """
     from app.services.arena import bots as bot_service
 
-    bot_service.registry.register(bot, for_modes=(MODE_NAME,))
+    bot_service.registry.register(bot, for_modes=(MODE_NAME, MODE_FRANCHISE, MODE_DECADE))
     return bot
 
 
@@ -1516,6 +1618,11 @@ def warm_caches() -> None:
     safe at API startup with no services available.
     """
     get_index()
+    # The one-constraint drafts' viable constraints (a pool resolution and a
+    # completability matching per franchise and decade) -- once, here, not on
+    # the first match's creation.
+    viable_constraints(VARIANT_FRANCHISE)
+    viable_constraints(VARIANT_DECADE)
     # A real lookup, not a private cache poke -- this goes through
     # `career_positions()`'s own build path, so it warms whatever that
     # function actually populates rather than whatever it populated when this
@@ -1531,6 +1638,10 @@ register()
 register_bot()
 
 __all__ = [
+    "MODE_DECADE",
+    "MODE_FRANCHISE",
+    "decade_mode",
+    "franchise_mode",
     "ARRIVAL_BACKSTOP_SECONDS",
     "COMMAND_INTRO_SEEN",
     "PHASE_ARRIVAL",

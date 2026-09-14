@@ -849,15 +849,16 @@ export default function ThreeManWeaveGame({
   const playAgain = useCallback(async (): Promise<boolean> => {
     const result = await lane.run("replay", async () => {
       if (hasBots) {
-        const created = await createPracticeMatch(TMW_MODE);
+        // The same ruleset again: a Franchise or Decade Draft rematches as one.
+        const created = await createPracticeMatch(match.mode || TMW_MODE);
         router.replace(`/arena/three-man-weave/${created.match_id}`);
         return true;
       }
-      router.push("/arena/lobby?game=three_man_weave");
+      router.push(`/arena/lobby?game=${match.mode || TMW_MODE}`);
       return true;
     });
     return result === true;
-  }, [hasBots, lane, router]);
+  }, [hasBots, lane, router, match.mode]);
 
   const connection = connectionState(failures);
   const candidates = useMemo(() => candidatesForSeat(match), [match]);
@@ -900,7 +901,8 @@ export default function ThreeManWeaveGame({
     handoffSince.current = null;
   }, [overlayOpen, match.mode]);
 
-  const meta = modeMeta(TMW_MODE);
+  // A Franchise or Decade Draft shows its own rules in the same room.
+  const meta = modeMeta(match.mode) ?? modeMeta(TMW_MODE);
   const pendingKind = lane.pending;
   const busy = pendingKind === "pick" || pendingKind === "rearrange" || pendingKind === "replay";
 

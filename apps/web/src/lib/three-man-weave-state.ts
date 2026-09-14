@@ -676,6 +676,15 @@ export function rollHeadline(roll: TmwRoll | null): string {
   return `${roll.franchise_display_name} · ${roll.decade}`;
 }
 
+/** "the Chicago Bulls in the 1990s" -- what a candidate needed a season for.
+ *  A Franchise or Decade Draft fixes only one of the two. */
+export function rollScopeLine(roll: TmwRoll | null | undefined): string {
+  if (!roll) return "this roll";
+  if (roll.variant === "franchise") return `the ${roll.franchise_display_name}, in any decade`;
+  if (roll.variant === "decade") return `the ${roll.decade}, on any franchise`;
+  return `the ${roll.franchise_display_name} in the ${roll.decade}`;
+}
+
 // ---------------------------------------------------------------------------
 // Seat identity
 // ---------------------------------------------------------------------------

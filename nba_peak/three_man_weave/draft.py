@@ -60,6 +60,7 @@ from nba_peak.three_man_weave.positions import (
     validate_roster,
 )
 from nba_peak.three_man_weave.schemas import DraftPick, Roll, Roster
+from nba_peak.three_man_weave.variants import CompletionOracle, Constraint
 
 
 class DraftError(ValueError):
@@ -130,6 +131,10 @@ class DraftState:
     used_roll_ids: tuple[str, ...]
     current_roll: Optional[Roll] = None
     staged_pick: Optional[StagedPick] = None
+    #: FRANCHISE DRAFT / DECADE DRAFT: the one constraint every pick in this
+    #: match is drawn under, with its resolved cards. None for the standard
+    #: game, whose every round rolls its own franchise x decade. See `variants`.
+    constraint: Optional[Constraint] = None
 
     # -- turn -------------------------------------------------------------
     @property
@@ -165,6 +170,7 @@ class DraftState:
             "current_roll": self.current_roll.as_dict() if self.current_roll else None,
             "drafted_identities": sorted(self.drafted_identities()),
             "staged_pick": self.staged_pick.as_dict() if self.staged_pick else None,
+            "constraint": self.constraint.as_dict() if self.constraint else None,
         }
 
     @classmethod
@@ -196,7 +202,24 @@ class DraftState:
             staged_pick=(
                 StagedPick.from_dict(data["staged_pick"]) if data.get("staged_pick") else None
             ),
+            constraint=(
+                Constraint.from_dict(data["constraint"]) if data.get("constraint") else None
+            ),
         )
+
+    # -- cards --------------------------------------------------------------
+    def card_key(self, player_slug: str) -> tuple[str, str]:
+        """The (franchise_id, decade) a candidate on the current roll would be
+        scored on. The rolled cell in the standard game; the constraint's own
+        resolved card in a variant."""
+        if self.constraint is not None:
+            key = self.constraint.card_key(player_slug)
+            if key is None:
+                raise DraftError("not_on_roll", f"'{player_slug}' has no card under {self.constraint.label}")
+            return key
+        if self.current_roll is None:
+            raise DraftError("no_roll", "No roll has been revealed for this round")
+        return (self.current_roll.franchise_id, self.current_roll.decade)
 
     # -- position rights --------------------------------------------------
     def slot_rights(
@@ -217,8 +240,7 @@ class DraftState:
         committed: list[tuple[str, str, str]] = []
         if self.current_roll is not None:
             committed.extend(
-                (slug, self.current_roll.franchise_id, self.current_roll.decade)
-                for slug in self.current_roll.eligible_slugs
+                (slug, *self.card_key(slug)) for slug in self.current_roll.eligible_slugs
             )
         # Appended AFTER the roll's candidates so a drafted identity's own card
         # wins if it somehow appears in both.
@@ -242,8 +264,13 @@ class DraftState:
         return frozenset(pick.player_slug for pick in self.picks)
 
 
-def create_match(match_seed: int, participants: int = PARTICIPANT_COUNT) -> DraftState:
-    """A fresh match with empty rosters and no roll revealed."""
+def create_match(
+    match_seed: int,
+    participants: int = PARTICIPANT_COUNT,
+    constraint: Optional[Constraint] = None,
+) -> DraftState:
+    """A fresh match with empty rosters and no roll revealed. `constraint`
+    makes it a Franchise or Decade Draft (see `variants`)."""
     return DraftState(
         match_seed=match_seed,
         ruleset_version=RULESET_VERSION,
@@ -252,6 +279,7 @@ def create_match(match_seed: int, participants: int = PARTICIPANT_COUNT) -> Draf
         picks=(),
         used_roll_ids=(),
         current_roll=None,
+        constraint=constraint,
     )
 
 
@@ -308,6 +336,8 @@ def round_keepers(
     the current drafter without a move. It only forbids the picks that would
     have hung the match.
     """
+    if state.constraint is not None:
+        return _constraint_keepers(state, index, rights)
     later = seats_still_to_pick_this_round(state)
     if not later or state.current_roll is None:
         return None
@@ -336,6 +366,60 @@ def round_keepers(
         if find_assignment(list(later), adjacency) is not None:
             keepers.add(slug)
     return frozenset(keepers)
+
+
+#: `_constraint_keepers` memo: a pure function of the draft state, asked by the
+#: projection, the bot, legality and the timeout for the same state.
+_KEEPERS_MEMO: "dict[tuple, Optional[frozenset[str]]]" = {}
+_KEEPERS_MEMO_LIMIT = 512
+
+
+def _constraint_keepers(
+    state: DraftState, index: EligibilityIndex, rights: Optional[SlotRights]
+) -> Optional[frozenset[str]]:
+    """A variant's keeper rule: the draft must stay COMPLETABLE from the
+    constraint's own pool after the pick. See `variants` for why a variant
+    needs the whole-draft check and the standard game only the round."""
+    seat = state.current_seat
+    if seat is None or state.current_roll is None or state.constraint is None:
+        return None
+    key = (
+        state.match_seed,
+        state.constraint.kind,
+        state.constraint.value,
+        state.turn_index,
+        tuple(sorted((p.seat_index, p.slot_type, p.player_slug) for p in state.picks)),
+    )
+    if key in _KEEPERS_MEMO:
+        return _KEEPERS_MEMO[key]
+    if rights is None:
+        rights = state.slot_rights(index)
+    drafted = state.drafted_identities()
+    pool = [slug for slug in state.constraint.pool if slug not in drafted]
+    oracle = CompletionOracle(
+        {roster.seat_index: roster.open_slots() for roster in state.rosters}, pool, rights
+    )
+    result: Optional[frozenset[str]]
+    if not oracle.complete:
+        result = None
+    else:
+        assignment = state.roster(seat).assignment()
+        filled = {slot for slot, slug in assignment.items() if slug is not None}
+        keepers: set[str] = set()
+        for slug in state.current_roll.eligible_slugs:
+            if slug in drafted:
+                continue
+            fit = candidate_fit(assignment, slug, rights)
+            if not fit.selectable:
+                continue
+            slots = fit.direct_slots if fit.direct_slots else tuple(set(fit.plan or {}) - filled)
+            if any(oracle.keeps_completable(seat, slot, slug) for slot in slots):
+                keepers.add(slug)
+        result = frozenset(keepers)
+    if len(_KEEPERS_MEMO) >= _KEEPERS_MEMO_LIMIT:
+        _KEEPERS_MEMO.clear()
+    _KEEPERS_MEMO[key] = result
+    return result
 
 
 def _refuse_stranding(
@@ -515,8 +599,8 @@ def apply_pick(
         round_number=state.current_roll.round_number,
         slot_type=slot_type,
         player_slug=player_slug,
-        franchise_id=state.current_roll.franchise_id,
-        decade=state.current_roll.decade,
+        franchise_id=state.card_key(player_slug)[0],
+        decade=state.card_key(player_slug)[1],
         resolution=resolution,
     )
 
@@ -624,8 +708,8 @@ def _apply_pick_with_arrangement(
                 round_number=state.current_roll.round_number,
                 slot_type=slot,
                 player_slug=player_slug,
-                franchise_id=state.current_roll.franchise_id,
-                decade=state.current_roll.decade,
+                franchise_id=state.card_key(player_slug)[0],
+                decade=state.card_key(player_slug)[1],
                 resolution=resolution,
             )
             new_slots[slot] = incoming
@@ -807,6 +891,9 @@ def reposition(
 
 def undrafted_pool(state: DraftState, index: EligibilityIndex) -> tuple[str, ...]:
     """Every identity anywhere in the index that no seat has drafted, sorted."""
+    if state.constraint is not None:
+        drafted = state.drafted_identities()
+        return tuple(slug for slug in state.constraint.pool if slug not in drafted)
     everyone: set[str] = set()
     for roll in index.rolls():
         everyone |= index.eligible_slugs(*roll)

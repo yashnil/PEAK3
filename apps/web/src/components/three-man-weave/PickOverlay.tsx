@@ -33,6 +33,7 @@ import {
   seatLabel,
   slotAbbrev,
   takenThisRoll,
+  rollScopeLine,
 } from "@/lib/three-man-weave-state";
 import ArenaTimer from "@/components/shared/ArenaTimer";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
@@ -978,7 +979,7 @@ function EmptyPool({
       <span data-testid="tmw-pool-empty-ineligible" className="tmw-overlay-empty-body">
         <strong>Not eligible for this roll.</strong> No undrafted player matching “
         {reason.query}” recorded a season for{" "}
-        {roll ? `the ${roll.franchise_display_name} in the ${roll.decade}` : "this roll"}.
+        {rollScopeLine(roll)}.
       </span>
     );
   }

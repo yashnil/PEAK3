@@ -164,13 +164,12 @@ def auto_pick_options(
 
     match_seed = state.match_seed if seed is None else seed
     rng = stream_rng(match_seed, f"autopick:{state.turn_index}")
-    decade = state.current_roll.decade
-    franchise_id = state.current_roll.franchise_id
-
     def score_of(slug: str) -> float:
-        # The card for THIS roll's franchise and decade -- the same card the
-        # roster will actually be graded on. Ranking on a decade-wide best
-        # would rank a candidate on a season they will never be scored for.
+        # The card this candidate would be scored on -- the rolled cell in the
+        # standard game, the constraint's resolved card in a variant
+        # (`DraftState.card_key`). Ranking on any other season would rank a
+        # candidate on a card they will never be scored for.
+        franchise_id, decade = state.card_key(slug)
         card = index.scoring_card(slug, franchise_id, decade)
         return card.prime_score if card is not None else float("-inf")
 

@@ -537,6 +537,17 @@ class ThreeManWeaveBot:
         ]
 
         out: dict[str, float] = {}
+        constraint = public.get("constraint") or None
+        if constraint and constraint.get("kind") and constraint.get("value"):
+            # FRANCHISE / DECADE DRAFT: every candidate is scored on its best
+            # card under the one constraint -- the same estimate as the rolled
+            # cell in the standard game, over the open dimension.
+            from nba_peak.three_man_weave.variants import best_card_score
+
+            for slug in slugs:
+                score = best_card_score(constraint["kind"], constraint["value"], slug)
+                out[slug] = float(score) if score is not None else float("-inf")
+            return out
         if franchise_id and decade:
             try:
                 from nba_peak.three_man_weave.eligibility import get_index

@@ -50,6 +50,9 @@ const READY = {
   modes: [
     { id: "twenty_dollar", seat_count: 2 },
     { id: "three_man_weave", seat_count: 3 },
+    // Three-Man Weave's one-constraint rulesets, registered alongside it.
+    { id: "three_man_weave_franchise", seat_count: 3 },
+    { id: "three_man_weave_decade", seat_count: 3 },
     // The two multi-year-window modes, as the server publishes them when their
     // rollout flags are on. Without them this OPEN fixture would describe a
     // server that serves fewer modes than the catalogue lists.
@@ -102,8 +105,23 @@ describe("every published match path resolves to a real route", () => {
   );
 
   it("uses a distinct route per mode", () => {
-    const paths = ARENA_MODES.map((m) => m.matchPath("x"));
+    const paths = ARENA_MODES.filter((m) => !m.variantOf).map((m) => m.matchPath("x"));
     expect(new Set(paths).size).toBe(paths.length);
+  });
+
+  it("plays a ruleset variant in its own game's room, and only there", () => {
+    const variants = ARENA_MODES.filter((m) => m.variantOf);
+    expect(variants.map((m) => m.id).sort()).toEqual([
+      "three_man_weave_decade",
+      "three_man_weave_franchise",
+    ]);
+    for (const variant of variants) {
+      const parent = ARENA_MODES.find((m) => m.id === variant.variantOf);
+      expect(parent, `${variant.id} names a real parent`).toBeDefined();
+      expect(parent?.variantOf).toBeUndefined();
+      expect(variant.matchPath("x")).toBe(parent?.matchPath("x"));
+      expect(variant.name).not.toBe(parent?.name);
+    }
   });
 
   it("the nav catalogue deep-links at server mode ids this build serves", () => {

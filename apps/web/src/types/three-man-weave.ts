@@ -367,6 +367,8 @@ export interface TmwRoll {
   franchise_id: string;
   franchise_display_name: string;
   decade: string;
+  /** Set on a Franchise or Decade Draft's roll: which dimension is fixed. */
+  variant?: "franchise" | "decade";
   eligible_slugs: string[];
   /** THE WHOLE ELIGIBLE POOL for this roll, minus already-drafted identities,
    * in the roll's own sorted order. Never narrowed to this seat's open slots
@@ -444,6 +446,10 @@ export interface TmwCurrentEdge {
 }
 
 export interface TmwPublicState {
+  /** `standard`, `franchise` or `decade` (game-feel pass 4). */
+  variant?: "standard" | "franchise" | "decade";
+  /** A Franchise or Decade Draft's one constraint, drawn before round one. */
+  constraint?: { kind: "franchise" | "decade"; value: string; label: string } | null;
   mode_version: string;
   formula_version: string;
   slot_types: TmwSlotType[];

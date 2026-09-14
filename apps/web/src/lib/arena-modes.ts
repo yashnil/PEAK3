@@ -75,6 +75,10 @@ export interface ArenaModeMeta {
   matchPath: (matchId: string) => string;
   /** The rules a "How to play" disclosure lists, shortest first. */
   rules: readonly string[];
+  /** A ruleset of another mode, played in that mode's room (and so at its
+   *  route). Franchise Draft and Decade Draft are Three-Man Weave with one
+   *  constraint for the whole draft -- the same room, not a new game. */
+  variantOf?: string;
 }
 
 export const ARENA_MODES: readonly ArenaModeMeta[] = [
@@ -94,6 +98,48 @@ export const ARENA_MODES: readonly ArenaModeMeta[] = [
       "Six roster slots each — PG, SG, SF, PF, C and one bench.",
       "A player drafted by anyone is locked for everyone.",
       "A pick is scored on that player's best PEAK3 season anywhere in the drafted decade.",
+      "The strongest lineup by PEAK3's own lineup rating wins.",
+    ],
+  },
+  {
+    id: "three_man_weave_franchise",
+    name: "Three-Man Weave: Franchise Draft",
+    tagline: "One franchise · all 18 picks",
+    description:
+      "One franchise is spun before the first pick, and every pick in the match comes from its history. Everyone fights over the same pool, so the skill is building the best six before your rivals take them.",
+    duration: "8–12 min",
+    kindBadge: "Multiplayer",
+    matchPath: (matchId) => `/arena/three-man-weave/${matchId}`,
+    variantOf: "three_man_weave",
+    rules: [
+      "Three drafters, one franchise, drawn once before round one.",
+      "All eighteen picks come from that franchise's players, in any decade.",
+      "The order snakes: A-B-C, then C-B-A, and back again.",
+      "Six roster slots each — PG, SG, SF, PF, C and one bench.",
+      "A player drafted by anyone is locked for everyone.",
+      "A pick is scored on that player's best PEAK3 season with the franchise.",
+      "No pick may leave any roster unable to finish; the board marks those players.",
+      "The strongest lineup by PEAK3's own lineup rating wins.",
+    ],
+  },
+  {
+    id: "three_man_weave_decade",
+    name: "Three-Man Weave: Decade Draft",
+    tagline: "One decade · all 18 picks",
+    description:
+      "One decade is spun before the first pick, and every pick in the match comes from it, from any franchise. A deep, shared pool — and the best players in it go early.",
+    duration: "8–12 min",
+    kindBadge: "Multiplayer",
+    matchPath: (matchId) => `/arena/three-man-weave/${matchId}`,
+    variantOf: "three_man_weave",
+    rules: [
+      "Three drafters, one decade, drawn once before round one.",
+      "All eighteen picks come from players of that decade, on any franchise.",
+      "The order snakes: A-B-C, then C-B-A, and back again.",
+      "Six roster slots each — PG, SG, SF, PF, C and one bench.",
+      "A player drafted by anyone is locked for everyone.",
+      "A pick is scored on that player's best PEAK3 season in the decade.",
+      "No pick may leave any roster unable to finish; the board marks those players.",
       "The strongest lineup by PEAK3's own lineup rating wins.",
     ],
   },
