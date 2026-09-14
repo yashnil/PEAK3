@@ -72,6 +72,18 @@ EventName = Literal[
     # Daily
     "daily_opened",
     "daily_completed",
+    # Arena: PRIME CUT and FIND THE PRIME (docs/implementation/TELEMETRY.md §2).
+    # Reported after the fact: a decision once made, a round's score once
+    # revealed. None carries a hidden score or another seat's choice.
+    "arena_match_started",
+    "arena_round_started",
+    "arena_prompt_shown",
+    "arena_decision",
+    "arena_timeout",
+    "arena_round_completed",
+    "arena_match_completed",
+    "arena_rematch",
+    "arena_match_abandoned",
 ]
 
 EVENT_NAMES: frozenset[str] = frozenset(EventName.__args__)  # type: ignore[attr-defined]
@@ -129,6 +141,14 @@ PROPERTY_KEYS: frozenset[str] = frozenset(
         "streak",
         "is_first_run",
         "is_second_run",
+        # Arena prime modes. Small integers and short slugs only.
+        "card_index",
+        "duration_years",
+        "decision",
+        "forced",
+        "placement",
+        "score",
+        "bots",
     }
 )
 

@@ -531,6 +531,37 @@ class MemoryArenaRepository:
         )
         return [_clone_result(r) for r in rows]
 
+    async def list_results_for_sub(self, mode: str, owner_sub: str, limit: int = 1000):
+        from app.repositories.arena_protocols import ArenaSubjectResult, _utc
+
+        rows = []
+        for match_id, results in self._results.items():
+            match = self._matches.get(match_id)
+            if match is None or match.mode != mode:
+                continue
+            seat = next((s for s in self._seats.get(match_id, []) if s.occupant_sub == owner_sub), None)
+            if seat is None:
+                continue
+            result = next((r for r in results if r.seat_index == seat.seat_index and not r.was_bot), None)
+            if result is None:
+                continue
+            rows.append(
+                ArenaSubjectResult(
+                    match_id=match_id,
+                    seat_index=result.seat_index,
+                    placement=result.placement,
+                    outcome=result.outcome,
+                    score=result.score,
+                    rated=result.rated,
+                    seat_count=match.seat_count,
+                    entry_path=match.entry_path,
+                    completed_at=_utc(match.completed_at or result.created_at),
+                    detail=copy.deepcopy(result.detail),
+                )
+            )
+        rows.sort(key=lambda r: (r.completed_at, r.match_id))
+        return rows[-limit:] if limit else rows
+
     async def get_player_stats(
         self,
         mode: str,

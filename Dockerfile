@@ -68,6 +68,9 @@ COPY scripts/ ./scripts/
 COPY leaderboards/ ./leaderboards/
 COPY data/game/ ./data/game/
 COPY data/generated/ ./data/generated/
+# Player reference bios: an input to the career-window check below (career-span
+# disambiguation), not read at request time.
+COPY data/reference/ ./data/reference/
 # THE CURATED HALF OF THE FACT BANK, AND IT WAS MISSING.
 #
 # 94KB of committed, human-checked, individually sourced facts — the half of
@@ -129,6 +132,14 @@ RUN python scripts/build_web_dataset.py \
  && test -s data/web/leaderboards.json
 RUN python scripts/build_nba_facts.py \
  && test -s data/web/nba_facts.v1.json
+
+# The PRIME CUT / FIND THE PRIME career-window artifact is COMMITTED (it is a
+# versioned game artifact under data/game/, copied above), so this step writes
+# nothing. It runs the same `--check` as `scripts/ci/build-web-data.sh`: an image
+# whose artifact no longer matches a fresh build from its own inputs fails here
+# instead of serving stale windows.
+RUN python scripts/build_prime_windows.py --check \
+ && test -s data/game/prime_modes/career_windows.v1.json
 
 # Railway injects PORT. The default matches local development so `docker run`
 # without -e PORT behaves like `make api`.

@@ -839,6 +839,49 @@ class PostgresArenaRepository:
 
     # -- results ------------------------------------------------------------
 
+    async def list_results_for_sub(self, mode: str, owner_sub: str, limit: int = 1000):
+        from app.repositories.arena_protocols import ArenaSubjectResult
+
+        # Most recent `limit` first, then re-ordered oldest-first for streaks.
+        # Joined exactly as `get_player_stats` joins results to seats to
+        # matches; unlike it, no `rated` filter -- see the protocol docstring.
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT * FROM (
+                    SELECT r.match_id, r.seat_index, r.placement, r.outcome, r.score,
+                           r.rated, r.detail, m.seat_count, m.entry_path,
+                           COALESCE(m.completed_at, r.created_at) AS completed_at
+                      FROM arena_match_results r
+                      JOIN arena_match_seats s
+                        ON s.match_id = r.match_id AND s.seat_index = r.seat_index
+                      JOIN arena_matches m ON m.match_id = r.match_id
+                     WHERE m.mode = $1
+                       AND s.occupant_sub = $2
+                       AND NOT r.was_bot
+                     ORDER BY COALESCE(m.completed_at, r.created_at) DESC, r.match_id DESC
+                     LIMIT $3
+                ) recent
+                ORDER BY completed_at ASC, match_id ASC
+                """,
+                mode, owner_sub, limit,
+            )
+        return [
+            ArenaSubjectResult(
+                match_id=str(r["match_id"]),
+                seat_index=int(r["seat_index"]),
+                placement=int(r["placement"]),
+                outcome=r["outcome"],
+                score=float(r["score"]),
+                rated=bool(r["rated"]),
+                seat_count=int(r["seat_count"]),
+                entry_path=r["entry_path"],
+                completed_at=r["completed_at"],
+                detail=_json_obj(r["detail"]),
+            )
+            for r in rows
+        ]
+
     async def get_player_stats(
         self,
         mode: str,

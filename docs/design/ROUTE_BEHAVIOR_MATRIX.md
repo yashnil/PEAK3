@@ -388,6 +388,25 @@ auto-filled lot framing. All untouched by Batch 11.
 - **Tests:** `twenty-dollar*.test.tsx` (phase, reconnect, room, base) — all pre-existing, unmodified.
 - **Polish category:** DONE. Narrower gap than Three-Man Weave — only the top-level gates and the forfeit control needed work.
 
+### `/arena/prime-cut/[matchId]`, `/arena/find-the-prime/[matchId]` — new modes (2026-09-13)
+
+**Renders:** `PrimeCutGame` (`components/prime-cut/*`) and `FindThePrimeGame`
+(`components/find-the-prime/*`), both on `lib/prime-arena/useArenaRoom.ts`
+(poll + command lane + newer-wins on `state_version`) and the shared
+`components/prime-arena/*` (`ArenaMatchStrip`, `ArenaFinalPodium`,
+`RoomChrome`, `PersonalRecordLine`). Styles are exclusive: `styles/v2/prime-arena.css`
+(`.parena-*`), `prime-cut.css` (`.pcut-*`), `find-the-prime.css` (`.fprime-*`).
+Neither route imports or restyles any existing mode's component.
+
+**Must not change:** the server owns every score, timer, bot and the reveal
+schedule (ADR-006); a card's or career's PEAK3 values reach the client only in
+the reveal payload; decisions of other seats show as lock state only; a staged
+FIND THE PRIME window is private until the round resolves. Each route is off
+unless `PEAK3_ARENA_PRIME_CUT_ENABLED` / `PEAK3_ARENA_FIND_THE_PRIME_ENABLED` is on.
+
+- **Tests:** `prime-cut-room.test.tsx`, `find-the-prime-room.test.tsx`, `prime-arena-components.test.tsx`; e2e `prime-cut.spec.ts`, `find-the-prime.spec.ts` (chromium-multiplayer + `@mobile`; serious/critical axe checks on the live decision, the reveal and the final result, plus the phone decision).
+- **Polish category:** new surface, reviewed at 1440 and 390×844.
+
 ### `/arena/daily`, `/arena/daily/[mode]`, `/arena/practice/[mode]`, `/arena/results/[id]`, `/arena/labs` — Batch 7 semantic inventory (2026-08-29, pre-implementation)
 
 **Route → component map (actual imports, not inferred):**

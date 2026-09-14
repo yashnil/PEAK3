@@ -53,6 +53,10 @@ export PEAK3_ARENA_ENABLED=true
 export PEAK3_ARENA_PUBLIC_QUEUE_ENABLED=true
 export PEAK3_ARENA_BOTS_ENABLED=true
 export PEAK3_ARENA_READINESS_LEVEL=closed_alpha
+# The two multi-year-window modes ship behind their own switches (ADR-006);
+# the browser suite plays both, so it opens both explicitly.
+export PEAK3_ARENA_PRIME_CUT_ENABLED=true
+export PEAK3_ARENA_FIND_THE_PRIME_ENABLED=true
 
 step "Playwright browser tests + axe accessibility"
 cd "$REPO_ROOT/apps/web"

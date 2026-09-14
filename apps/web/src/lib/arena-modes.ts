@@ -117,6 +117,42 @@ export const ARENA_MODES: readonly ArenaModeMeta[] = [
       "The higher total of five career-best 1Y PEAK3 scores wins. Leftover money counts for nothing.",
     ],
   },
+  {
+    id: "prime_cut",
+    name: "Prime Cut",
+    tagline: "Four players · three heats",
+    description:
+      "Eight multi-year peaks arrive one at a time. Keep the four you think were greatest and cut the rest — every call is final, and you never see what is coming next.",
+    duration: "3–6 min",
+    kindBadge: "Multiplayer",
+    matchPath: (matchId) => `/arena/prime-cut/${matchId}`,
+    rules: [
+      "Three heats: 2-year peaks, then 3-year, then 5-year.",
+      "Each heat deals eight peaks, one at a time. Keep exactly four and cut exactly four.",
+      "Calls lock immediately. Once your four keeps are used, every remaining card is cut, and the other way round.",
+      "Every seat sees the same cards in the same order at the same time.",
+      "A heat scores how much of its best possible four you kept, from 0 to 100.",
+      "Your match score is the average of the three heats. PEAK3 scores stay hidden until a heat ends.",
+    ],
+  },
+  {
+    id: "find_the_prime",
+    name: "Find the Prime",
+    tagline: "Four players · nine careers",
+    description:
+      "One player, one peak length, one career timeline. Pick the stretch PEAK3 rates highest — the closer your window, the more points you earn.",
+    duration: "3–5 min",
+    kindBadge: "Multiplayer",
+    matchPath: (matchId) => `/arena/find-the-prime/${matchId}`,
+    rules: [
+      "Nine rounds: three 2-year, three 3-year and three 5-year windows, in a shuffled order.",
+      "Each round shows a player's career seasons. Choose a contiguous window of the required length.",
+      "Lock before the clock runs out. A window you placed but did not lock is locked for you; no window scores nothing.",
+      "Up to 100 points a round: PEAK3's highest-rated window, or one it rates as effectively tied, earns all 100.",
+      "A nearby window with a close score still earns most of the points.",
+      "Highest total out of 900 wins.",
+    ],
+  },
 ] as const;
 
 /** A catalogued mode the server is currently serving, carrying the server's

@@ -50,6 +50,11 @@ const READY = {
   modes: [
     { id: "twenty_dollar", seat_count: 2 },
     { id: "three_man_weave", seat_count: 3 },
+    // The two multi-year-window modes, as the server publishes them when their
+    // rollout flags are on. Without them this OPEN fixture would describe a
+    // server that serves fewer modes than the catalogue lists.
+    { id: "prime_cut", seat_count: 4 },
+    { id: "find_the_prime", seat_count: 4 },
   ],
 };
 
@@ -206,6 +211,16 @@ describe("the lobby shows both games at once", () => {
       expect(screen.getByTestId(`lobby-${mode.id}-private_room`)).toBeEnabled();
       expect(screen.getByTestId(`lobby-${mode.id}-practice`)).toBeEnabled();
     }
+  });
+
+  it("never renders a card for a catalogued mode the server does not publish", async () => {
+    // A mode behind a rollout switch that is off is simply absent from
+    // readiness; the catalogue entry must not turn into a card that would 403.
+    vi.stubGlobal("fetch", mockFetch({ ...READY, modes: READY.modes.filter((m) => m.id !== "prime_cut") }));
+    render(<ArenaLobby />);
+    await screen.findByTestId("lobby-mode-grid");
+    expect(screen.queryByTestId("lobby-mode-prime_cut")).toBeNull();
+    expect(screen.getByTestId("lobby-mode-find_the_prime")).toBeInTheDocument();
   });
 
   it("shows a real unavailable state when the arena is off", async () => {

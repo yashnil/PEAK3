@@ -1,3 +1,65 @@
+# PRIME CUT + FIND THE PRIME — progress (2026-09-13)
+
+Branch `feature/prime-modes` from `main` @ `0f41077`. Plan:
+`.claude-private/PRIME_MODES_IMPLEMENTATION_PLAN.md`. ADR-006. Rules:
+`docs/game-design/PRIME_CUT.md`, `docs/game-design/FIND_THE_PRIME.md`.
+
+## Commits
+- `9ed0411` career-window artifact (`data/game/prime_modes/career_windows.v1.json`,
+  `scripts/build_prime_windows.py --check` in build-web-data.sh; CSV parity 0
+  mismatches) + additive Arena hooks (`simultaneous_action_grace`,
+  `simultaneous_bot_think_seconds` w/ fresh match + version-scoped bot key,
+  `bot_seat_rating`) + per-mode flags `ARENA_PRIME_CUT_ENABLED` /
+  `ARENA_FIND_THE_PRIME_ENABLED` (readiness + entry paths; live matches keep working).
+- `cbbb894` both server-authoritative modes (`nba_peak/prime_cut`,
+  `nba_peak/find_the_prime`, `app/services/{prime_cut,find_the_prime}/mode.py`).
+- `5b2de38` rooms (`components/prime-cut`, `components/find-the-prime`,
+  `components/prime-arena`, `lib/prime-arena/useArenaRoom.ts`), personal records
+  (`GET /arena/modes/{mode}/me`, `list_results_for_sub` memory+postgres), telemetry
+  (9 `arena_*` events), unit + e2e specs, CI wiring.
+
+## Calibration facts (do not re-derive)
+- Prime Cut boards: 1000 seeds 0 failures; cut gap >= 1.0 (> p90 adjacent board gap);
+  bots capture 70.1/75.4/78.9/82.6 (coin 49.6); ratings 1059/1200/1303/1388.
+- Find the Prime: scale clamp P10/P75 of eligible spreads (2Y 20.47-38.56, 3Y
+  13.42-31.67, 5Y 9.59-26.41), equivalence 0.65; first bot noise draft (1.5-9) was far
+  too strong (MVP 99.3/round) -> 30/18/12/8 gives 69.8/77.3/83.4/89.2; ratings
+  1030/1200/1356/1570.
+
+## Gates so far
+- Model: `tests/prime_modes` 9, `tests/prime_cut` 43, `tests/find_the_prime` 36 pass.
+- API memory: all arena/TMW/Showdown/telemetry/conformance suites 450+ pass.
+- Postgres (local Supabase, 127.0.0.1:54422): arena conformance 9 passed (0 skipped);
+  `api-integration-tests.sh` 285 passed, 1 skipped. Supabase CLI is NOT installed in
+  node_modules any more: use `npx --yes supabase@2.117.0 status -o json` for keys.
+- Web: typecheck clean, lint 0 warnings, vitest 2503/2503.
+- migration-validate: chain valid, inventory in sync (no migration in this pass).
+
+## Verification after `bdfbdc5`
+- Existing-mode e2e smoke: 71/72; the one failure is `showdown-two-tab.spec.ts:331`,
+  a BASELINE flake: 1 fail in 6 on `main@0f41077` (same working copy, same local
+  servers), 6/6 on this branch.
+- Visual pass 1 (evaluator findings 1-12) + pass 2 (desktop FTP strip clipped "You" ->
+  `.parena-strip-name-text` + `@container (max-width: 22rem)` puts lock state under the
+  name; PC keep slots wrap the window; FTP rail centres the whole bracket via
+  `rail.scrollTo`; FTP mobile head order title/clock/length). Shots:
+  scratchpad `v3/shots`, 0 horizontal overflow at 1440 and 390x844.
+- e2e specs now assert that axe checks inside the retrying loop actually ran (they
+  were swallowed by `catch`), and PRIME CUT adds an axe check on the heat reveal.
+- frontend-verify: 128 files / 2506 tests + production build (before pass 2);
+  after pass 2: prime unit 29/29, typecheck, lint 0 warnings.
+- Practice match length measured 180-204 s with instant decisions.
+- Final gates: model 2089 passed / 2 skipped / 1 xfailed / 1 failed ->
+  `test_the_image_build_runs_the_same_generators_as_the_ci_build` (my `--check` was in
+  build-web-data.sh but not the Dockerfile; fixed by adding it + `COPY data/reference/`,
+  file now 24/24, test unchanged). API unit 1897 passed / 2 skipped (both baseline:
+  live JWKS; perfect-season postgres conformance has no marker on main). Prime e2e 8/8
+  after pass 2.
+- Remaining low visual items (not fixed): result pages tight under the court frame on
+  desktop, clock box top ~5px above the frame line, "How to play" strip border
+  artefact (shared shell), mobile PC result stat cards wrap, some desktop hint text
+  may be under 12px, empty space around the desktop PC card.
+
 # Final pre-deploy polish pass — progress (2026-09-07)
 
 Branch `feature/game-feel-reconstruction` (pass 3 checkpoint `1cd0bbd`).

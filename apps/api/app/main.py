@@ -213,3 +213,8 @@ app.include_router(arena_router.router, prefix="/api/v1", tags=["arena"])
 # re-import is a `sys.modules` hit and a no-op.
 from app.services.three_man_weave import mode as _three_man_weave_mode  # noqa: E402,F401
 from app.services.twenty_dollar import mode as _twenty_dollar_mode  # noqa: E402,F401
+# The two multi-year-window modes. Registered unconditionally so a match in
+# progress stays playable; each is offered only while its own rollout flag is
+# on (`ARENA_PRIME_CUT_ENABLED` / `ARENA_FIND_THE_PRIME_ENABLED`, arena.py).
+from app.services.prime_cut import mode as _prime_cut_mode  # noqa: E402,F401
+from app.services.find_the_prime import mode as _find_the_prime_mode  # noqa: E402,F401

@@ -80,6 +80,7 @@ from app.models.arena import (
     JoinRoomRequest,
     MatchHistoryResponse,
     MatchSummary,
+    PersonalRecordResponse,
     QueueStatusResponse,
     SeatPublic,
     SubmitCommandRequest,
@@ -98,6 +99,7 @@ from app.repositories.arena_protocols import (
 from app.services.arena import bots as bot_service
 from app.services.arena import rating as arena_rating
 from app.services.arena import clock
+from app.services.arena import personal as arena_personal
 from app.services.arena import matchmaking as mm
 from app.services.arena.modes import ModeNotRegistered, registry as mode_registry
 
@@ -275,6 +277,36 @@ def _mode_or_404(mode: str):
             status_code=404,
             detail=_error(f"Unknown mode {mode!r}.", "unknown_mode"),
         )
+
+
+#: Modes that ship behind their own rollout switch, and the setting that opens
+#: each one. A mode absent from this map has no switch: Three-Man Weave and
+#: The $20 Showdown are served whenever the Arena is, exactly as before.
+_MODE_ENABLE_FLAGS: dict[str, str] = {
+    "prime_cut": "ARENA_PRIME_CUT_ENABLED",
+    "find_the_prime": "ARENA_FIND_THE_PRIME_ENABLED",
+}
+
+
+def _mode_enabled(mode: str) -> bool:
+    flag = _MODE_ENABLE_FLAGS.get(mode)
+    return True if flag is None else bool(getattr(settings, flag, False))
+
+
+def _entry_mode_or_error(mode: str):
+    """The mode, for a route that STARTS or JOINS a match.
+
+    Every entry path (practice, private room create/join/fill, public queue)
+    goes through this; routes that act inside an existing match keep using
+    `_mode_or_404`, so switching a mode off never strands a match in progress.
+    """
+    impl = _mode_or_404(mode)
+    if not _mode_enabled(impl.mode):
+        raise HTTPException(
+            status_code=403,
+            detail=_error("This game is not open yet.", "mode_not_enabled"),
+        )
+    return impl
 
 
 #: Room-code lookup is the only route a stranger can call in a loop against a
@@ -455,7 +487,7 @@ async def _advance(repo, mode, match_id: str, rating_repo=None) -> ArenaMatch:
     clock forfeits, which is a defined outcome.
     """
     now = _now()
-    await clock.enforce(repo, match_id, mode.reduce if mode else None, now)
+    await clock.enforce(repo, match_id, mode.reduce if mode else None, now, mode=mode)
     if mode is not None and settings.ARENA_BOTS_ENABLED:
         await bot_service.drive_pending_bots(repo, mode, mode.reduce, match_id, now)
     match = await _match_or_404(repo, match_id)
@@ -495,6 +527,7 @@ async def readiness() -> ArenaReadinessResponse:
         modes=[
             ArenaModeInfo(id=name, seat_count=mode_registry.get(name).seat_count)
             for name in mode_registry.names()
+            if _mode_enabled(name)
         ],
     )
 
@@ -526,7 +559,7 @@ async def start_practice(
             status_code=403,
             detail=_error("Bot practice is not currently enabled.", "bots_disabled"),
         )
-    mode = _mode_or_404(body.mode)
+    mode = _entry_mode_or_error(body.mode)
     name = await _display_name(profile_repo, identity.sub)
     match = await mm.start_practice(repo, mode, identity.sub, name, _now())
     seat = await repo.get_seat_for_sub(match.match_id, identity.sub)
@@ -542,7 +575,7 @@ async def create_private(
 ) -> ArenaMatchView:
     """Open a private room. Always UNRATED, and never auto-filled with bots."""
     _require_account_access(identity)
-    mode = _mode_or_404(body.mode)
+    mode = _entry_mode_or_error(body.mode)
     name = await _display_name(profile_repo, identity.sub)
     try:
         match = await mm.create_private_room(repo, mode, identity.sub, name, _now())
@@ -576,7 +609,7 @@ async def join_private(
             status_code=404,
             detail=_error("No open room with that code.", "room_not_found"),
         )
-    mode = _mode_or_404(existing.mode)
+    mode = _entry_mode_or_error(existing.mode)
     name = await _display_name(profile_repo, identity.sub)
     try:
         match = await mm.join_private_room(repo, mode, code, identity.sub, name, _now())
@@ -600,7 +633,7 @@ async def join_queue(
             status_code=403,
             detail=_error("The public queue is not currently open.", "queue_disabled"),
         )
-    mode_impl = _mode_or_404(mode)
+    mode_impl = _entry_mode_or_error(mode)
     now = _now()
     try:
         entry = await mm.join_queue(repo, mode_impl, identity.sub, now)
@@ -630,7 +663,7 @@ async def queue_status(
     fill -- the waiting player's own poll is what completes their match, which
     is the same lazy discipline the clock uses and for the same reason."""
     _require_account_access(identity)
-    mode_impl = _mode_or_404(mode)
+    mode_impl = _entry_mode_or_error(mode)
     now = _now()
     entry = await repo.get_queue_entry(identity.sub, mode)
     if entry is None:
@@ -669,6 +702,8 @@ async def queue_status(
 _MODE_DETAIL_KEYS: dict[str, tuple[str, ...]] = {
     "three_man_weave": ("lineup_peak_score",),
     "twenty_dollar": ("budget_remaining", "peak3_per_dollar"),
+    "prime_cut": ("heat_2y", "heat_3y", "heat_5y", "optimal_keeps"),
+    "find_the_prime": ("exact_windows", "total_regret"),
 }
 
 #: Rated matches before a rating stops being labelled provisional. Matches the
@@ -749,6 +784,72 @@ async def leaderboard(
     )
 
 
+@router.get(f"{BASE}/modes/{{mode}}/me", response_model=PersonalRecordResponse)
+async def personal_record(
+    mode: str,
+    identity: ArenaAuth,
+    repo: ArenaRepoDep,
+    rating_repo: ArenaRatingRepoDep,
+    match_id: Optional[str] = Query(None, max_length=64),
+) -> PersonalRecordResponse:
+    """The caller's own record in one mode: played, wins, streaks, bests, and
+    whether `match_id` was a personal best.
+
+    THE SUBJECT IS THE TOKEN'S, never a parameter, so this can only ever read
+    the caller's own results. Practice access suffices for the same reason the
+    poll's does: nothing here reaches another person's data.
+
+    A RATING IS REPORTED ONLY WHILE RATINGS ARE WRITTEN. With the flag off there
+    is no number to show, and the response says so rather than inventing one.
+    """
+    _require_practice_access(identity)
+    mode_impl = _mode_or_404(mode)
+    rows = await repo.list_results_for_sub(mode_impl.mode, identity.sub)
+    record = arena_personal.compute_record(
+        [
+            arena_personal.PersonalResultRow(
+                match_id=r.match_id, placement=r.placement, outcome=r.outcome, score=r.score,
+                rated=r.rated, seat_count=r.seat_count, detail=r.detail,
+            )
+            for r in rows
+        ],
+        detail_keys=_MODE_DETAIL_KEYS.get(mode_impl.mode, ()),
+        match_id=match_id,
+    )
+    rating = provisional = change = None
+    if settings.ARENA_RATINGS_ENABLED:
+        current = (await rating_repo.get_ratings_for_subs([identity.sub], mode_impl.mode)).get(identity.sub)
+        if current is not None:
+            rating = round(current.rating, 2)
+            provisional = current.rated_matches < _PROVISIONAL_UNTIL
+        if match_id and record.match_found:
+            for entry in await rating_repo.list_history(identity.sub, mode_impl.mode, limit=200):
+                if entry.match_id == match_id:
+                    change = round(entry.post_rating - entry.pre_rating, 2)
+                    break
+    return PersonalRecordResponse(
+        mode=mode_impl.mode,
+        matches_played=record.matches_played,
+        rated_matches=record.rated_matches,
+        wins=record.wins,
+        podiums=record.podiums,
+        current_win_streak=record.current_win_streak,
+        longest_win_streak=record.longest_win_streak,
+        best_score=record.best_score,
+        bests=record.bests,
+        match_found=record.match_found,
+        match_score=record.match_score,
+        match_placement=record.match_placement,
+        previous_best_score=record.previous_best_score,
+        is_personal_best=record.is_personal_best,
+        streak_after_match=record.streak_after_match,
+        ratings_enabled=settings.ARENA_RATINGS_ENABLED,
+        rating=rating,
+        rating_provisional=provisional,
+        match_rating_change=change,
+    )
+
+
 def _require_bots_enabled() -> None:
     """Refuse cleanly rather than half-seating.
 
@@ -790,7 +891,7 @@ async def fill_queue_now(
     """
     _require_account_access(identity)
     _require_bots_enabled()
-    mode_impl = _mode_or_404(mode)
+    mode_impl = _entry_mode_or_error(mode)
     now = _now()
 
     name = await _display_name(profile_repo, identity.sub)
@@ -859,7 +960,7 @@ async def fill_room_with_bots(
             ),
         )
 
-    mode_impl = _mode_or_404(match.mode)
+    mode_impl = _entry_mode_or_error(match.mode)
     try:
         match = await mm.fill_private_room_with_bots(
             repo, mode_impl, match, identity.sub, _now()
@@ -962,7 +1063,7 @@ async def submit_command(
 
     mode = _mode_or_404(match.mode)
     now = _now()
-    await clock.enforce(repo, match_id, mode.reduce, now)
+    await clock.enforce(repo, match_id, mode.reduce, now, mode=mode)
 
     request = CommandRequest(
         match_id=match_id,

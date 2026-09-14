@@ -1,5 +1,29 @@
 # PEAK3 Current Project State
 
+> **Addendum, 2026-09-13 — PRIME CUT and FIND THE PRIME (branch `feature/prime-modes`, off `main@0f41077`).**
+> Everything below this box is the 2026-07-21 snapshot and is historical; it was not re-verified in this pass.
+>
+> - **What was added:** two 4-seat, server-authoritative Arena modes (`prime_cut`, `find_the_prime`), each behind its own flag
+>   (`PEAK3_ARENA_PRIME_CUT_ENABLED`, `PEAK3_ARENA_FIND_THE_PRIME_ENABLED`, both default off). They read one committed
+>   artifact, `data/game/prime_modes/career_windows.v1.json`, built by `scripts/build_prime_windows.py` from the committed
+>   leaderboard CSVs and scored parquet. CI and the Docker image both run `--check` against it. Design:
+>   `docs/architecture/ADR-006-prime-modes-additive.md`, `docs/game-design/PRIME_CUT.md`, `docs/game-design/FIND_THE_PRIME.md`.
+> - **Changes to shared code (additive only):** optional simultaneous-turn hooks in `apps/api/app/services/arena/{bots,clock,matchmaking}.py`;
+>   `GET /arena/modes/{mode}/me` (personal record); nine `arena_*` telemetry events. No migration. No existing mode's rules, UI or tests changed.
+> - **Verified locally this pass:**
+>   - `model-tests.sh`: 2089 passed, 2 skipped, 1 xfailed, 1 failed. The failure was the image/CI generator-parity test, fixed in the Dockerfile; that file now passes 24/24.
+>   - A local `docker build` of the API image passes the new `--check` step, including under the image's pandas 3.0.5.
+>   - `api-unit-tests.sh`: 1897 passed, 2 skipped. Both skips predate this branch: a live-JWKS test, and a perfect-season Postgres conformance test with no `supabase_integration` marker on `main`.
+>   - `frontend-verify.sh`: 2506 tests passed, production build OK.
+>   - Local Supabase integration: 285 passed, 1 skipped.
+>   - Prime e2e: 8/8, desktop, mobile and two-human.
+>   - Existing-mode e2e smoke: 71/72. The failure, `showdown-two-tab.spec.ts:331`, is a flake already on `main`: it failed 1 of 6 runs there and passed 6 of 6 on the branch.
+> - **Known gaps:**
+>   - A practice match runs about 3–3.5 minutes with instant decisions, below the 4–7 minute design target.
+>   - The lobby entry point is not instrumented.
+>   - There is no single-heat practice.
+>   - A few low-severity visual items remain (listed in `.claude-private/PROGRESS.md`).
+
 **Report generated:** 2026-07-21, by direct inspection of the working repository (`pwd`, `git`, `gh`, and file listings run this session — nothing in this report is inferred from memory or fabricated).
 
 ---

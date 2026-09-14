@@ -187,6 +187,7 @@ async def start_practice(
                 index,
                 policy,
                 display_name=names.get(index),
+                rating=bot_service.bot_seat_rating(mode, match.seed, index, policy),
                 seat_count=mode.seat_count,
             )
         )
@@ -379,6 +380,7 @@ async def _pair(
                     index,
                     policy,
                     display_name=names.get(index),
+                    rating=bot_service.bot_seat_rating(mode, match.seed, index, policy),
                     seat_count=mode.seat_count,
                 )
             )
@@ -498,6 +500,7 @@ async def fill_private_room_with_bots(
                     index,
                     policy,
                     display_name=names.get(index),
+                    rating=bot_service.bot_seat_rating(mode, match.seed, index, policy),
                     seat_count=match.seat_count,
                 )
             )

@@ -19,5 +19,12 @@ step "NBA Fact of the Day bank"
 step "Building card profiles v3"
 "$PYTHON_BIN" scripts/build_card_profiles.py
 
+step "Career-window artifact is current (Prime Cut / Find the Prime)"
+# COMMITTED, not regenerated here: data/game/prime_modes/career_windows.v1.json
+# is an immutable, versioned game artifact. This only proves a fresh build from
+# the committed parquet, universe, bio and leaderboard CSVs reproduces it byte
+# for byte, so the file cannot silently outlive its inputs.
+"$PYTHON_BIN" scripts/build_prime_windows.py --check
+
 require_generated_data
 ok "Generated data present"

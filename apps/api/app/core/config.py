@@ -445,6 +445,17 @@ class Settings(BaseSettings):
     # by convention.
     ARENA_ANONYMOUS_PRACTICE_ENABLED: bool = False
 
+    # PER-MODE ROLLOUT SWITCHES for the two multi-year-window modes.
+    #
+    # Independent of each other and of the two modes that shipped before them
+    # (Three-Man Weave and The $20 Showdown have no switch and are unaffected).
+    # A mode that is off is omitted from /arena/readiness and refused on every
+    # ENTRY path (practice, private room, public queue); a match already in
+    # progress keeps working, because stranding players mid-heat is not what a
+    # rollout switch is for. See docs/architecture/ADR-006-prime-modes-additive.md.
+    ARENA_PRIME_CUT_ENABLED: bool = False
+    ARENA_FIND_THE_PRIME_ENABLED: bool = False
+
     # Human-facing readiness classification. Does not itself gate behavior --
     # the booleans above do -- but is surfaced on /api/v1/arena/readiness and
     # must be kept consistent with them (validated below).
@@ -475,6 +486,12 @@ class Settings(BaseSettings):
             raise ValueError(
                 "PEAK3_ARENA_BOTS_ENABLED is set but PEAK3_ARENA_ENABLED is not."
             )
+        for flag in ("ARENA_PRIME_CUT_ENABLED", "ARENA_FIND_THE_PRIME_ENABLED"):
+            if getattr(self, flag) and not self.ARENA_ENABLED:
+                raise ValueError(
+                    f"PEAK3_{flag} is set but PEAK3_ARENA_ENABLED is not. A mode "
+                    "cannot be served by an Arena that does not answer."
+                )
         if self.ARENA_RATINGS_ENABLED and not self.ARENA_ENABLED:
             raise ValueError(
                 "PEAK3_ARENA_RATINGS_ENABLED is set but PEAK3_ARENA_ENABLED is "

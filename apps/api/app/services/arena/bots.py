@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import math
 from datetime import datetime
 from typing import Any, Optional, Sequence
 
@@ -336,6 +337,7 @@ def bot_seat(
     policy: BotPolicy,
     display_name: Optional[str] = None,
     seat_count: int = 2,
+    rating: Optional[float] = None,
 ) -> ArenaSeat:
     """Build the seat row for a bot.
 
@@ -350,7 +352,9 @@ def bot_seat(
         seat_index=seat_index,
         occupant_kind="bot",
         bot_id=policy.bot_id,
-        bot_rating=policy.rating,
+        # `rating` is the per-seat calibrated rating a mode with skill tiers
+        # supplies (`bot_seat_rating`); None keeps the policy's own rating.
+        bot_rating=policy.rating if rating is None else rating,
         display_name=display_name or bot_display_name(seat_index, seat_count),
     )
 
@@ -364,6 +368,7 @@ async def drive_bot_seat(
     policy: BotPolicy,
     now: datetime,
     turn_seq: int,
+    idempotency_suffix: str = "",
 ) -> Optional[CommandOutcome]:
     """Let one bot seat act, once.
 
@@ -417,7 +422,7 @@ async def drive_bot_seat(
 
     request = CommandRequest(
         match_id=match.match_id,
-        idempotency_key=f"bot:{match.match_id}:{seat.seat_index}:{turn_seq}",
+        idempotency_key=f"bot:{match.match_id}:{seat.seat_index}:{turn_seq}{idempotency_suffix}",
         command_type=decision.command_type,
         payload=dict(decision.payload),
         # A bot acts AS its seat but has no subject: it is not a person and must
@@ -514,6 +519,42 @@ def bot_reply_in_seconds(mode, match, turn, seats, now: datetime) -> Optional[fl
     think = bot_think_seconds_for(mode, match, turn)
     elapsed = (now - _utc(turn.opened_at)).total_seconds()
     return round(max(0.0, think - elapsed), 3)
+
+
+def _simultaneous_think(hook, match, seat, turn) -> float:
+    """One bot seat's think time on a simultaneous decision turn.
+
+    Deterministic from stored state (seed, seat, turn), so every poller agrees
+    and a fast client cannot hurry a bot along. Clamped below by the flat
+    default -- a bot must never act inside the request that opened the turn --
+    and above by the longest simultaneous decision any mode opens.
+    """
+    try:
+        seconds = float(hook(match.seed, seat.seat_index, turn.turn_seq))
+    except Exception:  # pragma: no cover - a broken hook must not wedge a turn
+        logger.exception("arena: simultaneous_bot_think_seconds hook failed")
+        return BOT_THINK_SECONDS
+    return max(BOT_THINK_SECONDS, min(seconds, 20.0))
+
+
+def bot_seat_rating(mode, seed: int, seat_index: int, policy: BotPolicy) -> float:
+    """The calibrated rating to pin on one bot seat.
+
+    A mode whose bots play at different SKILL TIERS must pin the tier's own
+    rating, or a rated match against its strongest bot would be scored as a
+    match against its weakest. It says so through `bot_seat_rating(seed,
+    seat_index)`. Without the hook this is exactly `policy.rating`, the value
+    every seat has always carried.
+    """
+    hook = getattr(mode, "bot_seat_rating", None)
+    if hook is None:
+        return float(policy.rating)
+    try:
+        value = float(hook(seed, seat_index))
+    except Exception:  # pragma: no cover - a broken hook must not block seating
+        logger.exception("arena: bot_seat_rating hook failed for mode %r", getattr(mode, "mode", "?"))
+        return float(policy.rating)
+    return value if math.isfinite(value) and value > 0 else float(policy.rating)
 
 
 def phase_accepts_bot_action(mode, turn) -> bool:
@@ -644,13 +685,44 @@ async def drive_pending_bots(
         seats = await repo.get_seats(match_id)
         if turn.seat_index is None:
             # A simultaneous turn: every bot seat that has not yet acted plays.
+            #
+            # A MODE THAT OPTS INTO SIMULTANEOUS DECISIONS (by defining
+            # `simultaneous_bot_think_seconds`) gets three things a ceremony-only
+            # mode never needed, each additive and absent otherwise:
+            #
+            #   * PER-SEAT THINK TIME, so four seats do not all lock on the same
+            #     metronome tick the instant the flat default elapses;
+            #   * A FRESH MATCH PER BOT. One bot's accepted command bumps
+            #     `state_version`; the next bot in the same pass would otherwise
+            #     submit the version read at the top of the loop and be rejected
+            #     as stale;
+            #   * A VERSION-SCOPED IDEMPOTENCY KEY. A rejection is recorded under
+            #     its key, so a bot that lost a race with a human's command at
+            #     version v must be able to try again at v+1 in the same turn --
+            #     otherwise it would sit out the decision and take the timeout
+            #     default. The mode's reducer refuses a second decision from a
+            #     seat that already decided, so this cannot let a bot act twice.
+            think_hook = getattr(mode, "simultaneous_bot_think_seconds", None)
             acted = False
             for seat in seats:
                 if not seat.is_bot:
                     continue
+                current = match
+                suffix = ""
+                if think_hook is not None:
+                    if not bot_may_act_at(turn, now, _simultaneous_think(think_hook, match, seat, turn)):
+                        continue
+                    current = await repo.get_match(match_id)
+                    if current is None or not current.is_live():
+                        return steps
+                    open_now = await repo.get_open_turn(match_id)
+                    if open_now is None or open_now.turn_seq != turn.turn_seq:
+                        break
+                    suffix = f":v{current.state_version}"
                 outcome = await drive_bot_seat(
-                    repo, mode, reducer, match, seat,
-                    registry.default_for(match.mode), now, turn.turn_seq,
+                    repo, mode, reducer, current, seat,
+                    registry.default_for(current.mode), now, turn.turn_seq,
+                    idempotency_suffix=suffix,
                 )
                 if outcome is not None and outcome.accepted and not outcome.replayed:
                     steps += 1

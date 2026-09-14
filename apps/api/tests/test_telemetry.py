@@ -145,6 +145,15 @@ class TestEventAllowlist:
             "daily_opened",
             "daily_completed",
             "second_run_started",
+            "arena_match_started",
+            "arena_round_started",
+            "arena_prompt_shown",
+            "arena_decision",
+            "arena_timeout",
+            "arena_round_completed",
+            "arena_match_completed",
+            "arena_rematch",
+            "arena_match_abandoned",
         }
 
     @pytest.mark.parametrize("name", sorted(EVENT_NAMES))

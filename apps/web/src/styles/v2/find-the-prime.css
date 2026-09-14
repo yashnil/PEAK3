@@ -1,0 +1,549 @@
+/* ================================================================
+   PEAK3 — FIND THE PRIME
+   ================================================================
+   Career film strip x timeline x peak-mountain reveal.
+
+   BEFORE THE LOCK the rail is neutral: every season looks alike except
+   for being inside your bracket. AFTER the round resolves the ridge
+   carries the analysis. A season's cell never changes height, colour or
+   weight based on a score.
+
+   The rail scrolls INSIDE the stage on a narrow screen; the page never
+   scrolls horizontally. Every cell and step control is at least 44 px.
+
+   Mode accent: teal, scoped to this room, with a foundation-blue deep
+   tone reusing `--foundation-blue`. Light theme swaps to a darker teal
+   that holds contrast on a pale ground.
+   ================================================================ */
+
+.fprime-room {
+  --fprime-accent: #2dd4bf;
+  --fprime-accent-text: #5eead4;
+  --fprime-deep: var(--foundation-blue);
+
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "head"
+    "stage"
+    "strip"
+    "foot";
+  gap: var(--v2-space-4);
+  padding-block: var(--v2-space-6) var(--v2-space-10);
+}
+
+[data-theme="light"] .fprime-room,
+[data-theme="light"] .fprime-result {
+  --fprime-accent: #0f766e;
+  --fprime-accent-text: #0f766e;
+}
+
+.fprime-result {
+  --fprime-accent: #2dd4bf;
+  --fprime-accent-text: #5eead4;
+  max-width: 52rem;
+  margin-inline: auto;
+  padding-block: var(--v2-space-8) var(--v2-space-12);
+}
+
+.fprime-head {
+  grid-area: head;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "title"
+    "clock"
+    "length";
+  align-items: end;
+  gap: var(--v2-space-3);
+  padding-bottom: var(--v2-space-3);
+  border-bottom: 1px solid var(--v2-border-subtle);
+}
+
+.fprime-head > div:first-child {
+  grid-area: title;
+  min-width: 0;
+}
+
+.fprime-heading {
+  margin: 4px 0 0;
+  font-family: var(--v2-font-display);
+  font-size: var(--v2-display-size-line);
+  font-weight: 400;
+  line-height: var(--v2-display-leading);
+  color: var(--v2-text-primary);
+}
+
+.fprime-length {
+  grid-area: length;
+  justify-self: start;
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--fprime-accent);
+  border-radius: var(--v2-radius-instrument);
+  font-family: var(--v2-font-mono);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fprime-accent-text);
+}
+
+.fprime-clock {
+  grid-area: clock;
+  min-width: 0;
+}
+
+.fprime-clock > * {
+  width: 100%;
+}
+
+.fprime-stage {
+  grid-area: stage;
+  min-width: 0;
+}
+
+.fprime-strip {
+  grid-area: strip;
+  min-width: 0;
+}
+
+.fprime-foot {
+  grid-area: foot;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v2-space-3);
+}
+
+.fprime-player {
+  margin-bottom: var(--v2-space-4);
+}
+
+.fprime-player-name {
+  margin: 4px 0;
+  font-family: var(--v2-font-display);
+  font-size: var(--v2-display-size-moment);
+  font-weight: 400;
+  line-height: var(--v2-display-leading);
+  color: var(--v2-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.fprime-player-span {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--v2-text-secondary);
+}
+
+/* -- the rail ----------------------------------------------------------- */
+
+.fprime-rail-controls {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.fprime-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0 8px;
+  border: 1px solid var(--v2-border);
+  border-radius: var(--v2-radius-control);
+  background: var(--v2-bg-plane);
+  color: var(--v2-text-primary);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.fprime-step span {
+  display: none;
+}
+
+.fprime-step:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.fprime-step:focus-visible,
+.fprime-rail:focus-visible,
+.fprime-cell:focus-visible,
+.fprime-lock:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.fprime-rail {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  padding: 10px 4px;
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-instrument);
+  background: color-mix(in srgb, var(--v2-bg-plane) 80%, transparent);
+}
+
+.fprime-rail-cells {
+  display: flex;
+  min-width: 100%;
+  width: max-content;
+  margin: 0;
+  /* The first and last seasons can scroll clear of the edge fade. */
+  padding: 0 16px;
+  list-style: none;
+}
+
+.fprime-cell-item {
+  flex: 1 0 46px;
+  scroll-snap-align: center;
+}
+
+.fprime-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 60px;
+  padding: 0 2px;
+  border: 0;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--v2-text-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.fprime-cell-season {
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.fprime-cell-team {
+  color: var(--v2-text-muted);
+}
+
+.fprime-cell[data-inside="true"] {
+  background: color-mix(in srgb, var(--fprime-accent) 16%, transparent);
+  border-top-color: var(--fprime-accent);
+  border-bottom-color: var(--fprime-accent);
+  color: var(--v2-text-primary);
+}
+
+.fprime-cell[data-inside="true"] .fprime-cell-team {
+  color: var(--v2-text-secondary);
+}
+
+.fprime-cell[data-edge="start"] {
+  box-shadow: inset 3px 0 0 var(--fprime-accent);
+}
+
+.fprime-cell[data-edge="end"] {
+  box-shadow: inset -3px 0 0 var(--fprime-accent);
+}
+
+.fprime-cell:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.fprime-rail[data-locked="true"] .fprime-cell[data-inside="true"] {
+  opacity: 1;
+  background: color-mix(in srgb, var(--fprime-accent) 26%, transparent);
+}
+
+.fprime-gap {
+  flex: 0 0 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--v2-text-muted);
+}
+
+.fprime-rail-hint {
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  color: var(--v2-text-muted);
+}
+
+.fprime-lock-row {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v2-space-2) var(--v2-space-3);
+  margin-top: var(--v2-space-3);
+  padding-block: var(--v2-space-2) var(--v2-space-3);
+  background: linear-gradient(to top, var(--v2-bg-page) 72%, transparent);
+}
+
+.fprime-selection {
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--v2-text-secondary);
+}
+
+.fprime-selection strong {
+  color: var(--v2-text-primary);
+}
+
+.fprime-lock {
+  flex: 1 1 12rem;
+  min-height: 56px;
+  padding: 0 24px;
+  border: 2px solid var(--fprime-accent);
+  border-radius: var(--v2-radius-control);
+  background: var(--fprime-accent);
+  color: var(--v2-text-inverse);
+  font-family: var(--v2-font-ui);
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.fprime-lock:disabled {
+  border-color: var(--v2-border);
+  background: transparent;
+  color: var(--v2-text-muted);
+  cursor: not-allowed;
+}
+
+.fprime-waiting {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--v2-text-secondary);
+}
+
+/* -- slate -------------------------------------------------------------- */
+
+.fprime-slate {
+  padding: var(--v2-space-6) 0;
+}
+
+.fprime-slate-title {
+  margin: var(--v2-space-2) 0;
+  font-family: var(--v2-font-display);
+  font-size: var(--v2-display-size-moment);
+  font-weight: 400;
+  line-height: var(--v2-display-leading);
+  color: var(--v2-text-primary);
+}
+
+.fprime-slate-body {
+  max-width: 40rem;
+  margin: 0 0 var(--v2-space-3);
+  color: var(--v2-text-secondary);
+}
+
+.fprime-slate-rules {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--v2-text-primary);
+}
+
+.fprime-slate-rules li + li {
+  margin-top: 4px;
+}
+
+/* -- ridge -------------------------------------------------------------- */
+
+.fprime-ridge {
+  margin: 0;
+}
+
+.fprime-ridge svg {
+  display: block;
+  width: 100%;
+  height: 200px;
+  overflow: visible;
+}
+
+.fprime-ridge-line {
+  stroke: var(--v2-text-secondary);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  stroke-dasharray: 3000;
+  stroke-dashoffset: 3000;
+  animation: fprime-draw 900ms var(--v2-ease-out) forwards;
+}
+
+@keyframes fprime-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fprime-ridge-line {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+
+.fprime-ridge-best {
+  fill: color-mix(in srgb, var(--prime-gold) 20%, transparent);
+  stroke: color-mix(in srgb, var(--prime-gold) 70%, transparent);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.fprime-ridge-yours {
+  fill: var(--fprime-accent);
+}
+
+.fprime-ridge-mark {
+  stroke: var(--v2-text-secondary);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.fprime-ridge-mark[data-best="true"] {
+  stroke: var(--prime-gold);
+  stroke-width: 3;
+}
+
+.fprime-ridge-seat {
+  stroke: var(--v2-text-muted);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.fprime-ridge-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--v2-text-muted);
+}
+
+.fprime-ridge-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary);
+}
+
+.fprime-ridge-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fprime-ridge-legend span::before {
+  content: "";
+  width: 14px;
+  height: 8px;
+  border-radius: 1px;
+}
+
+.fprime-ridge-legend [data-kind="best"]::before {
+  background: color-mix(in srgb, var(--prime-gold) 45%, transparent);
+  border: 1px solid var(--prime-gold);
+}
+
+.fprime-ridge-legend [data-kind="yours"]::before {
+  background: var(--fprime-accent);
+}
+
+.fprime-ridge-legend [data-kind="seat"]::before {
+  width: 2px;
+  height: 10px;
+  background: var(--v2-text-muted);
+}
+
+.fprime-ridge-seats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary);
+}
+
+/* -- result ------------------------------------------------------------- */
+
+.fprime-round-list {
+  display: grid;
+  gap: 2px;
+  margin: var(--v2-space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fprime-round-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "name points"
+    "best best"
+    "yours yours";
+  gap: 2px 8px;
+  padding: 8px;
+  border-bottom: 1px solid var(--v2-border-subtle);
+  font-size: 0.8125rem;
+}
+
+.fprime-round-name {
+  grid-area: name;
+  font-weight: 600;
+  color: var(--v2-text-primary);
+}
+
+.fprime-round-best {
+  grid-area: best;
+  color: var(--v2-text-secondary);
+}
+
+.fprime-round-yours {
+  grid-area: yours;
+  color: var(--v2-text-secondary);
+}
+
+.fprime-round-points {
+  grid-area: points;
+  font-weight: 700;
+}
+
+@media (min-width: 1024px) {
+  .fprime-room {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+    grid-template-areas:
+      "head head"
+      "stage strip"
+      "foot foot";
+    column-gap: var(--v2-space-8);
+  }
+
+  .fprime-head {
+    grid-template-columns: minmax(0, 1fr) auto 15rem;
+    grid-template-areas: "title length clock";
+  }
+
+  .fprime-lock-row {
+    position: static;
+    background: none;
+  }
+
+  .fprime-ridge svg {
+    height: 240px;
+  }
+}

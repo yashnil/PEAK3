@@ -143,15 +143,40 @@ def guard_timeout(reducer: MatchReducer, turn_seq: int) -> MatchReducer:
     return _guarded
 
 
+def _simultaneous_grace(mode: object, phase: str) -> bool:
+    """Does this mode want the action grace on a SEATLESS turn in `phase`?
+
+    OPT-IN, DEFAULT NO. A seatless turn has always been a ceremony nobody acts
+    on (Three-Man Weave's reveal, the Showdown's intro), and charging it the
+    grace would lengthen every ceremony for nothing -- see the comment at the
+    call site. A mode whose seatless turn is a SIMULTANEOUS DECISION (every
+    seat choosing at once, as Prime Cut and Find the Prime do) has exactly the
+    late-but-in-time action the grace exists to protect, so it says so through
+    `simultaneous_action_grace(phase)`. A mode without the hook is unchanged.
+    """
+    hook = getattr(mode, "simultaneous_action_grace", None)
+    if hook is None:
+        return False
+    try:
+        return bool(hook(phase))
+    except Exception:  # pragma: no cover - a broken hook must not wedge a turn
+        logger.exception("arena: simultaneous_action_grace hook failed")
+        return False
+
+
 async def enforce(
     repo: ArenaRepository,
     match_id: str,
     reducer: Optional[MatchReducer],
     now: datetime,
+    mode: Optional[object] = None,
 ) -> Optional[CommandOutcome]:
     """Advance one match's clock. Call before serving or mutating it.
 
     Returns the timeout's `CommandOutcome` if one fired, else None.
+
+    `mode` is optional and read only for the opt-in grace hook above; a caller
+    that passes none gets exactly the behaviour this function always had.
 
     `reducer` may be None when the caller has no mode module (an unregistered or
     retired mode). The match clock is still enforced in that case -- an expired
@@ -182,7 +207,14 @@ async def enforce(
     # Three-Man Weave's franchise x decade reveal is one -- and there charging
     # the two-second allowance would simply make every ceremony two seconds
     # longer than the mode asked for, with nothing to protect.
-    grace = ACTION_GRACE_SECONDS if turn.seat_index is not None else 0.0
+    # A SEATLESS turn that is a simultaneous DECISION (every seat choosing at
+    # once) has the same late-but-in-time action to protect, and a mode says
+    # so explicitly -- see `_simultaneous_grace`. Without the hook, unchanged.
+    grace = (
+        ACTION_GRACE_SECONDS
+        if turn.seat_index is not None or _simultaneous_grace(mode, turn.phase)
+        else 0.0
+    )
     if not turn.is_overdue_at(now, grace):
         return None
 
