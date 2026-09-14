@@ -988,12 +988,26 @@ test.describe("Three-Man Weave", () => {
       // Everyone is in the room. The server's phase is the same on all three,
       // keyed to the same server turn, and nobody has a skip.
       for (const page of pages) await dismissTmwIntro(page);
-      const phases = await Promise.all(pages.map((p) => p.getByTestId("tmw-room").getAttribute("data-turn-phase")));
-      const seqs = await Promise.all(pages.map((p) => p.getByTestId("tmw-room").getAttribute("data-turn-seq")));
-      expect(new Set(phases).size, `phases diverged: ${phases.join(",")}`).toBe(1);
-      expect(new Set(seqs).size, `turn seqs diverged: ${seqs.join(",")}`).toBe(1);
+      // THE THREE ROOMS CONVERGE ON ONE SERVER TURN. A single snapshot could
+      // land in the instant between the last arrival report (which moves the
+      // server from `arrival` to `intro`) and one client's next read of it, and
+      // report `intro,arrival,intro` for a table that agrees a poll later. So
+      // the assertion waits for agreement -- same phase AND same turn seq on
+      // all three -- rather than accepting a disagreement as equal.
+      const sample = async () => {
+        const phases = await Promise.all(pages.map((p) => p.getByTestId("tmw-room").getAttribute("data-turn-phase")));
+        const seqs = await Promise.all(pages.map((p) => p.getByTestId("tmw-room").getAttribute("data-turn-seq")));
+        return { phases, seqs };
+      };
+      await expect
+        .poll(async () => {
+          const { phases, seqs } = await sample();
+          return new Set(phases).size === 1 && new Set(seqs).size === 1 ? "agreed" : `phases ${phases} seqs ${seqs}`;
+        }, { timeout: 5_000, intervals: [100, 250, 500] })
+        .toBe("agreed");
+      const { phases } = await sample();
       // `arrival` is the briefing waiting for the table's reports (game-feel
-      // pass 4); a sample can land on it before every client has reported.
+      // pass 4), so an agreed sample may still land on it.
       expect(["arrival", "intro", "reveal", "pick"]).toContain(phases[0]);
 
       // Delay one player: guest C's tab does nothing at all. The other two
