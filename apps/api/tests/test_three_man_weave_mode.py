@@ -727,10 +727,15 @@ def test_the_ceremony_is_one_short_shared_beat_every_round(opening):
     on both sides: long enough for the reels to visibly decelerate and lock
     and for the settled pair to be read, short enough not to become a tax on
     the tenth match.
+
+    1.0-2.0 s, FROM 2.0-4.0 (game-feel pass 4): the reveal is one slate whose
+    reels resolve at 1.0 s and hold the settled pair for half a second, so a
+    window shorter than 1.0 s cannot show it settled and one longer than 2.0 s
+    is the dead air in front of the pick this pass removed.
     """
     assert mode.phase_seconds(PHASE_REVEAL) == OPENING_REVEAL_SECONDS
     assert OPENING_REVEAL_SECONDS == REVEAL_SECONDS
-    assert 2.0 <= REVEAL_SECONDS <= 4.0
+    assert 1.0 <= REVEAL_SECONDS <= 2.0
     # And the briefing is a short, timed phase in the same band: T0 -> ~3-5s.
     assert 3.0 <= INTRO_SECONDS <= 5.0
     assert mode.phase_seconds(PHASE_INTRO) == INTRO_SECONDS

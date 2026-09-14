@@ -170,7 +170,14 @@ PHASE_REVEAL = "reveal"
 #: as: ROUND card ~1.5 s, an armed beat, the reels, a 0.4 s lock, then a hold
 #: on the pair until this deadline opens the pick turn (`PeakV2TMWReveal`).
 #: Still one shared server window for every seat; nothing per-seat changed.
-REVEAL_SECONDS = 4.0
+#:
+#: 1.5, FROM 4.0 (game-feel pass 4). The reveal is information, not a pause:
+#: four seconds between every round of an 18-pick draft was dead air in front
+#: of the pick. The ceremony is now one slate -- round, franchise x decade, the
+#: round's pick order -- with reels that lock by 0.86 s and resolve at 1.0 s,
+#: and half a second of the settled pair before this deadline opens the pick
+#: (`PeakV2TMWReveal`, `TMW_REVEAL_SECONDS`, which mirrors this value).
+REVEAL_SECONDS = 1.5
 
 #: Round one's ceremony window. It used to carry the matchup card as well and
 #: so ran longer; the matchup card is now the briefing phase's own
