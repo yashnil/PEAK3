@@ -109,7 +109,20 @@ export type AnalyticsEvent =
   | { type: "arena_round_completed"; mode: string; stage: number; duration_years?: number; score?: number }
   | { type: "arena_match_completed"; mode: string; outcome?: string; placement?: number; score?: number; duration_seconds?: number; bots?: number }
   | { type: "arena_rematch"; mode: string }
-  | { type: "arena_match_abandoned"; mode: string; stage?: number };
+  | { type: "arena_match_abandoned"; mode: string; stage?: number }
+  // Arena responsiveness: durations of one action's lifecycle, or a turn
+  // handoff. `decision` is the action kind (bid, pick, handoff...), never a value.
+  | {
+      type: "arena_action_timing";
+      mode: string;
+      decision: string;
+      outcome?: string;
+      ack_ms?: number;
+      response_ms?: number;
+      server_ms?: number;
+      visible_ms?: number;
+      wait_seconds?: number;
+    };
 
 // DO NOT include: raw tokens, email, IP, future offers, secrets, player selections,
 // opponent identity/picks, raw integrity signals, service-role details, exact
@@ -194,6 +207,7 @@ const COLLECTED_EVENTS: ReadonlySet<string> = new Set([
   "arena_match_completed",
   "arena_rematch",
   "arena_match_abandoned",
+  "arena_action_timing",
 ]);
 
 /**
@@ -242,6 +256,11 @@ const ALLOWED_PROPERTIES: ReadonlySet<string> = new Set([
   "placement",
   "score",
   "bots",
+  "ack_ms",
+  "response_ms",
+  "server_ms",
+  "visible_ms",
+  "wait_seconds",
 ]);
 
 const MAX_STRING_VALUE_LENGTH = 64;

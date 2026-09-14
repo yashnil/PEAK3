@@ -306,32 +306,70 @@ describe("single-click drafting", () => {
     expect(submitCommand).toHaveBeenCalledTimes(2);
   });
 
-  it("does not stage the same intent twice, and a rapid re-selection keeps only the latest", async () => {
+  it("stages only a SETTLED selection: rapid re-selection sends one request for the final intent, never a repeat", async () => {
     const user = userEvent.setup();
     getMatch.mockImplementation(async () => view());
-    const gate = deferred<ReturnType<typeof accepted>>();
-    submitCommand.mockImplementation(async (_id: string, type: string, payload: { player_slug?: string }) => {
-      if (type === "tmw_stage_pick" && payload.player_slug === "john-stockton") return gate.promise;
-      return accepted(view({ state_version: 6, private_state: { ...view().private_state, staged_pick: { player_slug: payload.player_slug ?? "", slot_type: payload.player_slug === "john-stockton" ? "PG" : "PF" } } }));
-    });
+    submitCommand.mockImplementation(async (_id: string, _type: string, payload: { player_slug?: string }) =>
+      accepted(
+        view({
+          state_version: 5,
+          private_state: {
+            ...view().private_state,
+            staged_pick: { player_slug: payload.player_slug ?? "", slot_type: payload.player_slug === "john-stockton" ? "PG" : "PF" },
+          },
+        }),
+      ),
+    );
     render(<ThreeManWeaveGame initialMatch={view()} />);
     await user.click(screen.getByTestId("tmw-candidate-john-stockton"));
     await user.click(screen.getByTestId("tmw-candidate-john-stockton"));
     await user.click(screen.getByTestId("tmw-candidate-karl-malone"));
     await user.click(screen.getByTestId("tmw-candidate-john-stockton"));
-    await act(async () => {
-      gate.resolve(accepted(view({ state_version: 5, private_state: { ...view().private_state, staged_pick: { player_slug: "john-stockton", slot_type: "PG" } } })));
-      await gate.promise;
-    });
-    // Four clicks, ONE request. The first intent executed; the flip to
-    // Malone was superseded by the flip back before it ever started; and the
-    // trailing Stockton intent was dropped at execution time because the
-    // server's own response already held exactly that staged pick.
-    await act(async () => {
-      await Promise.resolve();
-    });
+    // Browsing costs no request: staging exists for the timeout, and a choice
+    // still being made is not one the timeout should draft.
+    expect(submitCommand).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(submitCommand).toHaveBeenCalledTimes(1), { timeout: 2000 });
     const staged = submitCommand.mock.calls.map((c) => (c[2] as { player_slug?: string }).player_slug);
     expect(staged).toEqual(["john-stockton"]);
+
+    // The same intent again is not re-sent.
+    await user.click(screen.getByTestId("tmw-candidate-john-stockton"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+    });
+    expect(submitCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("a Draft pressed before the selection settles sends the pick alone, with no staging round trip in front of it", async () => {
+    const user = userEvent.setup();
+    getMatch.mockImplementation(async () => view());
+    const afterPick = view({
+      state_version: 5,
+      current_turn_seat_index: 1,
+      seconds_remaining: null,
+      legal_commands: [],
+      public_state: publicState({
+        current_seat: 1,
+        rosters: [roster(0, { PG: pick("john-stockton", "John Stockton", "PG") }), roster(1), roster(2)],
+        drafted_identities: ["john-stockton"],
+      }),
+    });
+    submitCommand.mockImplementation(async (_id: string, type: string, _payload: unknown, version: number) => {
+      if (type === "tmw_pick") {
+        expect(version).toBe(4);
+        return accepted(afterPick);
+      }
+      throw new Error(`unexpected ${type}`);
+    });
+    render(<ThreeManWeaveGame initialMatch={view()} />);
+    await user.click(screen.getByTestId("tmw-candidate-john-stockton"));
+    await user.click(screen.getByTestId("tmw-confirm-pick"));
+    await waitFor(() => expect(screen.queryByTestId("tmw-pick-overlay")).toBeNull());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+    });
+    expect(submitCommand.mock.calls.map((c) => c[1])).toEqual(["tmw_pick"]);
   });
 });
 

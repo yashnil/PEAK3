@@ -102,14 +102,14 @@ def _real_modes_registered():
 
 #: How much of a bot's think time ONE `_poll` lets elapse, in seconds.
 #:
-#: Three-Man Weave draws its think time from 4-10 seconds per (seat, turn)
+#: Three-Man Weave draws its think time from 2-5 seconds per (seat, turn)
 #: (`nba_peak.three_man_weave.config.bot_think_seconds`), so under this driver
-#: a bot pick legitimately costs `ceil(think / 5)` polls: one when the draw is
-#: under five seconds, two otherwise. A test that budgets polls per bot turn
+#: a bot pick legitimately costs `ceil(think / 2.5)` polls: one when the draw is
+#: at most 2.5 seconds, two otherwise. A test that budgets polls per bot turn
 #: must budget from THIS number and the reply the server publishes, never from
 #: a flat "one poll per pick" -- see
 #: `test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock`.
-BOT_AGE_PER_POLL_SECONDS = 5.0
+BOT_AGE_PER_POLL_SECONDS = 2.5
 
 
 def _age_open_turn(match_id: str, seconds: float) -> None:
@@ -549,10 +549,10 @@ def test_the_weaves_snake_order_is_exactly_the_published_one():
 #: `BOT_AGE_PER_POLL_SECONDS`, one per human seat (`config.human_seat_index`).
 #: Found by an offline scan of `bot_think_seconds(seed, seat, turn_seq)` over
 #: the draft's turn schedule (arrival = turn 0, intro = turn 1, then per round one ceremony turn
-#: and three picks in snake order); every draw is at least 5.5 s so none sits
+#: and three picks in snake order); every draw is at least 3.0 s so none sits
 #: on the one-poll/two-poll boundary. This is the configuration that made the
 #: flat ceiling fail: two polls per pick, twelve picks, plus the briefing.
-WEAVE_SLOW_BOT_SEEDS = {0: 2, 1: 35, 2: 4}
+WEAVE_SLOW_BOT_SEEDS = {0: 2, 1: 389, 2: 168}
 
 
 @pytest.mark.parametrize(

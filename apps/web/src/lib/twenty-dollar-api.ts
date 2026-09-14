@@ -25,6 +25,7 @@
  */
 
 import { getAccessToken } from "@/lib/auth";
+import { attachServerTiming } from "@/lib/game-feel/server-timing";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -98,7 +99,8 @@ async function arenaFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     const { message, code } = parseErrorDetail((json as { detail?: unknown }).detail, res.status);
     throw new TwentyDollarAPIError(res.status, message, code);
   }
-  return json as T;
+  // The server's stage durations ride along, invisible to renderers.
+  return attachServerTiming(json as T, res.headers.get("server-timing"));
 }
 
 // ---------------------------------------------------------------------------

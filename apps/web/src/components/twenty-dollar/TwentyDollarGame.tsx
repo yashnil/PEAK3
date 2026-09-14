@@ -20,6 +20,8 @@ import {
 } from "@/lib/arena-rejection";
 import { BOT_DISPLAY_NAME, modeMeta } from "@/lib/arena-modes";
 import { isNewer, useCommandLane } from "@/lib/game-feel/authoritative";
+import { reportHandoff, startActionTimer } from "@/lib/game-feel/action-timing";
+import { serverTimingOf } from "@/lib/game-feel/server-timing";
 import type { EventMomentData } from "@/components/game-feel";
 import HowToPlay from "@/components/arena/HowToPlay";
 import { deadlineFromSeconds } from "@/components/shared/ArenaTimer";
@@ -172,6 +174,9 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
   const [copied, setCopied] = useState(false);
   const [locallyExpired, setLocallyExpired] = useState(false);
   const lane = useCommandLane();
+  /** When the read that handed this seat the clock landed; reported once the
+   *  room renders it actionable. See `lib/game-feel/action-timing`. */
+  const handoffSince = useRef<number | null>(null);
 
   /** Apply an authoritative view, unless it is older than what is on screen. */
   const applyView = useCallback((next: TwentyDollarMatchView, source: Source): boolean => {
@@ -198,6 +203,9 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
       }
     }
     const moment = prev && source !== "load" ? describeTransition(prev.view, next) : null;
+    if (prev && source !== "command" && !prev.view.private_state.is_your_turn && next.private_state.is_your_turn) {
+      handoffSince.current = typeof performance !== "undefined" ? performance.now() : null;
+    }
     const nextRoom = roomFrom(next, moment ?? prev?.moment ?? null);
     latest.current = nextRoom;
     setRoom(nextRoom);
@@ -257,6 +265,13 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
 
   const view = room?.view ?? null;
   const complete = view?.public_state?.phase === "complete";
+
+  useEffect(() => {
+    if (handoffSince.current === null || !view) return;
+    if (!view.private_state.is_your_turn || view.turn_phase !== "auction") return;
+    reportHandoff(view.mode, handoffSince.current);
+    handoffSince.current = null;
+  }, [view]);
 
   // -- polling: whose turn decides the cadence ---------------------------
   const timer = useRef<number | null>(null);
@@ -330,6 +345,7 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
    */
   const act = useCallback(
     async (command: "bid" | "pass", amount: number): Promise<boolean> => {
+      const timer = startActionTimer("twenty_dollar", command);
       const result = await lane.run("act", async () => {
         const current = latest.current;
         if (!current || current.view.public_state.phase === "complete") return false;
@@ -348,7 +364,9 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
         setLocallyExpired(false);
         try {
           const response = await twentyDollarApi.submitCommand(matchId, command, payload, snapshot.state_version, key);
+          timer.responded(serverTimingOf(response));
           applyView(response.match, "command");
+          timer.settled(response.accepted || response.replayed ? "accepted" : "refused");
           if (!response.accepted) {
             setError(
               explainRejection(
@@ -365,6 +383,7 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
           return true;
         } catch (err) {
           const apiError = err as TwentyDollarAPIError;
+          timer.settled("failed");
           setError(explainTransportError(apiError.status, apiError.code, apiError.message, command));
           return false;
         } finally {
@@ -380,6 +399,7 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
    *  skip any more: it is a shared timeline that ends on its own clock.) */
   const sendLifecycle = useCallback(
     async (command: "showdown_forfeit"): Promise<boolean> => {
+      const timer = startActionTimer("twenty_dollar", "forfeit");
       const result = await lane.run(command, async () => {
         const current = latest.current;
         if (!current) return false;
@@ -392,7 +412,9 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
             snapshot.state_version,
             showdownIdempotencyKey(matchId, snapshot.your_seat_index, snapshot.state_version, command, {}),
           );
+          timer.responded(serverTimingOf(response));
           applyView(response.match, "command");
+          timer.settled(response.accepted || response.replayed ? "accepted" : "refused");
           if (!response.accepted && command === "showdown_forfeit") {
             setError(explainTransportError(409, response.rejection_code ?? null, response.message ?? "", "load"));
             return false;
@@ -429,6 +451,7 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
           const current = latest.current;
           if (!current) return false;
           const snapshot = current.view;
+          const timer = startActionTimer("twenty_dollar", "intro_seen");
           const response = await twentyDollarApi.submitCommand(
             matchId,
             SHOWDOWN_COMMAND_INTRO_SEEN,
@@ -436,7 +459,9 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
             snapshot.state_version,
             showdownIdempotencyKey(matchId, snapshot.your_seat_index, snapshot.state_version, SHOWDOWN_COMMAND_INTRO_SEEN, {}),
           );
+          timer.responded(serverTimingOf(response));
           applyView(response.match, "command");
+          timer.settled(response.accepted || response.replayed ? "accepted" : "refused");
           return response.accepted || response.replayed;
         },
         { exclusive: false },

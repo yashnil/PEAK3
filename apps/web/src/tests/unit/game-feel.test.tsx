@@ -148,6 +148,31 @@ describe("useCommandLane — serialized, de-duplicated, coalesced", () => {
     await expect(promises[2]).resolves.toBe("c");
   });
 
+  it("cancel drops a QUEUED intent on its channel but never one already sent", async () => {
+    const { result } = renderHook(() => useCommandLane());
+    const gate = deferred<void>();
+    const ran: string[] = [];
+    let executing!: Promise<string | null>;
+    let queued!: Promise<string | null>;
+    act(() => {
+      executing = result.current.run("stage", async () => { await gate.promise; ran.push("sent"); return "sent"; }, { exclusive: false, coalesce: "stage" });
+      queued = result.current.run("stage", async () => { ran.push("queued"); return "queued"; }, { exclusive: false, coalesce: "stage" });
+    });
+    let dropped = 0;
+    act(() => {
+      dropped = result.current.cancel("stage");
+    });
+    expect(dropped).toBe(1);
+    await expect(queued).resolves.toBeNull();
+    await act(async () => {
+      gate.resolve();
+      await executing;
+    });
+    expect(ran).toEqual(["sent"]);
+    expect(result.current.busyNow()).toBe(false);
+    expect(result.current.cancel("stage")).toBe(0);
+  });
+
   it("reports busy synchronously while anything is executing or queued", async () => {
     const { result } = renderHook(() => useCommandLane());
     const gate = deferred<void>();

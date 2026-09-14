@@ -49,6 +49,8 @@ import {
   slotAbbrev,
 } from "@/lib/three-man-weave-state";
 import { isNewer, useCommandLane } from "@/lib/game-feel/authoritative";
+import { reportHandoff, startActionTimer } from "@/lib/game-feel/action-timing";
+import { serverTimingOf } from "@/lib/game-feel/server-timing";
 import { EventMoment, type EventMomentData } from "@/components/game-feel";
 import { usePrefersReducedMotion } from "@/lib/a11y";
 import { modeMeta } from "@/lib/arena-modes";
@@ -81,6 +83,18 @@ import { StatusChip } from "@/components/ui/StatusChip";
 const POLL_SEATLESS_MS = 400;
 const POLL_OPPONENT_MS = 1000;
 const POLL_OWN_TURN_MS = 2000;
+/** Slack after the server's own instant (a bot's reply, a seatless deadline). */
+const BOT_REPLY_SLACK_MS = 60;
+const SEATLESS_SLACK_MS = 60;
+/** When the read that should have carried a bot's move did not, read again on this ladder. */
+const BOT_RETRY_LADDER_MS = [150, 300, 600, 1000] as const;
+/** A selection is staged once it has SETTLED for this long (game-feel pass 4).
+ *  Staging exists only so a timeout drafts the player's own choice; sending it
+ *  on every press put a round trip in front of the Draft press that followed,
+ *  measured at up to 700 ms of queueing on a 750 ms connection. */
+const STAGE_SETTLE_MS = 600;
+/** ...unless the clock is nearly out, when the choice is staged at once. */
+const STAGE_URGENT_MS = 8000;
 /** How long one command may stay unanswered before the press reads as an error. */
 const COMMAND_TIMEOUT_MS = 15_000;
 /**
@@ -95,7 +109,11 @@ const COMMAND_TIMEOUT_MS = 15_000;
  * collapses it to zero -- the overlay's own "taken this roll" chips carry
  * the same fact.
  */
-export const TMW_PREVIOUS_PICK_BEAT_MS = 900;
+//
+// 200 ms, FROM 900 (game-feel pass 4): the handoff should read as a beat, not
+// as a wait. The previous pick's card and its moment still land first; the
+// surface follows inside the 120-220 ms handoff band.
+export const TMW_PREVIOUS_PICK_BEAT_MS = 200;
 
 /**
  * THE ROOM'S WHOLE STATE, AS ONE OBJECT.
@@ -365,6 +383,9 @@ export default function ThreeManWeaveGame({
   /** See `StagedArrangement`. Null whenever the board is showing the server. */
   const [staged, setStaged] = useState<StagedArrangement | null>(null);
   const lane = useCommandLane();
+  /** When the read that handed this seat the pick landed; reported once the
+   *  pick surface is actually open. See `lib/game-feel/action-timing`. */
+  const handoffSince = useRef<number | null>(null);
   const match = room.match;
   const state = match.public_state;
 
@@ -388,6 +409,9 @@ export default function ThreeManWeaveGame({
         return false;
       }
       const moment = describeTransition(prev.match, next, source, kind);
+      if (source === "poll" && !isYourTurn(prev.match) && isYourTurn(next)) {
+        handoffSince.current = typeof performance !== "undefined" ? performance.now() : null;
+      }
       const beat =
         source === "poll" && moment?.kind === "pick" && handedToYouAfterPick(prev.match, next)
           ? `beat:${next.state_version}`
@@ -431,10 +455,23 @@ export default function ThreeManWeaveGame({
   const yourTurn = isYourTurn(match);
 
   // -- polling: recovery and reconciliation -------------------------------
+  //
+  // ONE READ AT A TIME (game-feel pass 4). This was a `setInterval`, which does
+  // not wait for the previous read: on a 750 ms connection reads overlapped,
+  // filled the browser's per-host connection pool, and a poll took 2.2 s at the
+  // median and 5 s at p95 -- with every command queued behind them. The next
+  // read is now armed only after the previous one settled (`pollEpoch`), and
+  // it is TIMED by what the room is waiting for: a seatless beat's own
+  // deadline, the instant the server says a bot's move is due, or the ordinary
+  // safety cadence.
+  const [pollEpoch, setPollEpoch] = useState(0);
   const refresh = useCallback(async () => {
     // Never race a command: its response is newer by construction and is
     // applied the instant it lands.
-    if (lane.busyNow()) return;
+    if (lane.busyNow()) {
+      setPollEpoch((n) => n + 1);
+      return;
+    }
     try {
       const next = (await getMatch(latest.current.match.match_id)) as TmwMatchView;
       applyView(next, "poll");
@@ -442,22 +479,68 @@ export default function ThreeManWeaveGame({
     } catch {
       // Counted, not thrown: a transport failure must not clear the board.
       setFailures((count) => count + 1);
+    } finally {
+      setPollEpoch((n) => n + 1);
     }
   }, [applyView, lane]);
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
 
-  const pollMs = complete
-    ? null
-    : briefing || revealing
-      ? POLL_SEATLESS_MS
-      : yourTurn
-        ? POLL_OWN_TURN_MS
-        : POLL_OPPONENT_MS;
+  const retryStep = useRef(0);
+  const scheduledFor = useRef("");
+  useEffect(() => {
+    if (complete) return;
+    const key = `${match.state_version}:${match.turn_seq ?? ""}:${match.turn_phase ?? ""}`;
+    if (scheduledFor.current !== key) {
+      scheduledFor.current = key;
+      retryStep.current = 0;
+    }
+    const step = retryStep.current;
+    retryStep.current += 1;
+    let delay: number;
+    if (briefing || revealing) {
+      const left = match.turn_seconds_remaining ?? match.seconds_remaining ?? null;
+      delay =
+        !arriving && step === 0 && left !== null
+          ? Math.min(POLL_SEATLESS_MS, left * 1000 + SEATLESS_SLACK_MS)
+          : POLL_SEATLESS_MS;
+    } else if (match.bot_reply_in_seconds !== null && match.bot_reply_in_seconds !== undefined) {
+      delay =
+        step === 0
+          ? match.bot_reply_in_seconds * 1000 + BOT_REPLY_SLACK_MS
+          : BOT_RETRY_LADDER_MS[Math.min(step - 1, BOT_RETRY_LADDER_MS.length - 1)];
+    } else {
+      delay = yourTurn ? POLL_OWN_TURN_MS : POLL_OPPONENT_MS;
+    }
+    const timer = window.setTimeout(() => void refreshRef.current(), Math.max(40, delay));
+    return () => window.clearTimeout(timer);
+  }, [
+    pollEpoch,
+    complete,
+    briefing,
+    revealing,
+    arriving,
+    yourTurn,
+    match.state_version,
+    match.turn_seq,
+    match.turn_phase,
+    match.bot_reply_in_seconds,
+    match.turn_seconds_remaining,
+    match.seconds_remaining,
+  ]);
 
   useEffect(() => {
-    if (pollMs === null) return;
-    const timer = window.setInterval(refresh, pollMs);
-    return () => window.clearInterval(timer);
-  }, [pollMs, refresh]);
+    // A BACKGROUNDED TAB IS THROTTLED, so the first frame back may be stale.
+    const wake = () => {
+      if (document.visibilityState === "visible") void refreshRef.current();
+    };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    return () => {
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+    };
+  }, []);
 
   useEffect(() => {
     if (!complete || results) return;
@@ -550,6 +633,14 @@ export default function ThreeManWeaveGame({
       // THE SERVER'S OWN PLAN, ECHOED BACK. When a pick needs a rearrangement
       // the arrangement committed is the one the projection said was legal.
       if (candidate.fit.plan) payload.placements = candidate.fit.plan;
+      const timer = startActionTimer(latest.current.match.mode, "pick");
+      // A DRAFT SUPERSEDES ANY STAGING NOT YET SENT: the pick carries the choice.
+      if (stageTimer.current !== null) {
+        window.clearTimeout(stageTimer.current);
+        stageTimer.current = null;
+        lastStageIntent.current = "";
+      }
+      if (lane.cancel("stage") > 0) lastStageIntent.current = "";
       // THE CARD LANDS ON THE COURT IN THE SAME FRAME AS THE PRESS, without a
       // score -- the season and the PEAK3 number are the server's to state.
       const snapshot = latest.current.match;
@@ -579,10 +670,13 @@ export default function ThreeManWeaveGame({
       try {
         const response = await lane.run("pick", () => send(TMW_COMMAND_PICK, payload, "pick"));
         if (response === null) return false;
+        timer.responded(serverTimingOf(response));
+        timer.settled(response.accepted || response.replayed ? "accepted" : "refused");
         if (response.accepted || response.replayed) return true;
         setRejection(response.message ?? "That pick was refused.");
         return false;
       } catch (error) {
+        timer.settled("failed");
         setRejection(describe(error, "your pick was not sent"));
         setFailures((count) => count + 1);
         return false;
@@ -602,6 +696,7 @@ export default function ThreeManWeaveGame({
    * path (`mode._reduce_timeout`), never the commit.
    */
   const lastStageIntent = useRef<string>("");
+  const stageTimer = useRef<number | null>(null);
   const stage = useCallback(
     async (candidate: TmwCandidate | null, slotType: TmwSlotType | null) => {
       const intent = candidate && slotType ? `${candidate.player_slug}@${slotType}` : "clear";
@@ -609,23 +704,54 @@ export default function ThreeManWeaveGame({
       lastStageIntent.current = intent;
       const payload: Record<string, unknown> =
         candidate && slotType ? { player_slug: candidate.player_slug, slot_type: slotType } : { clear: true };
-      try {
-        await lane.run(
-          "stage",
-          async () => {
-            const staged = latest.current.match.private_state.staged_pick ?? null;
-            const already = staged ? `${staged.player_slug}@${staged.slot_type}` : "clear";
-            if (already === intent) return null;
-            if (!canPick(latest.current.match)) return null;
-            return send(TMW_COMMAND_STAGE_PICK, payload, "stage");
-          },
-          { exclusive: false, coalesce: "stage" },
-        );
-      } catch {
-        // Best-effort -- see docstring above.
+      if (stageTimer.current !== null) {
+        window.clearTimeout(stageTimer.current);
+        stageTimer.current = null;
       }
+      const dispatch = () => {
+        stageTimer.current = null;
+        void lane
+          .run(
+            "stage",
+            async () => {
+              const staged = latest.current.match.private_state.staged_pick ?? null;
+              const already = staged ? `${staged.player_slug}@${staged.slot_type}` : "clear";
+              if (already === intent) return null;
+              if (!canPick(latest.current.match)) return null;
+              const timer = startActionTimer(latest.current.match.mode, "stage");
+              try {
+                const response = await send(TMW_COMMAND_STAGE_PICK, payload, "stage");
+                timer.responded(serverTimingOf(response));
+                timer.settled(response && (response.accepted || response.replayed) ? "accepted" : "refused");
+                return response;
+              } catch (error) {
+                timer.settled("failed");
+                throw error;
+              }
+            },
+            { exclusive: false, coalesce: "stage" },
+          )
+          .catch(() => {
+            // Best-effort -- see docstring above.
+          });
+      };
+      // SETTLED SELECTIONS ONLY. A player browsing the list, or pressing Draft
+      // straight after choosing, sends no staging request at all; a choice left
+      // on the board is staged after `STAGE_SETTLE_MS`, or at once when the
+      // clock is nearly out so the timeout still drafts it.
+      const deadline = latest.current.deadlineAt;
+      const urgent =
+        deadline !== null && typeof performance !== "undefined" && deadline - performance.now() < STAGE_URGENT_MS;
+      if (urgent) dispatch();
+      else stageTimer.current = window.setTimeout(dispatch, STAGE_SETTLE_MS);
     },
     [lane, send],
+  );
+  useEffect(
+    () => () => {
+      if (stageTimer.current !== null) window.clearTimeout(stageTimer.current);
+    },
+    [],
   );
 
   /**
@@ -643,7 +769,22 @@ export default function ThreeManWeaveGame({
     if (!mayReportArrival || arrivalSent.current) return;
     arrivalSent.current = true;
     void lane
-      .run("intro_seen", () => send(TMW_COMMAND_INTRO_SEEN, {}, "intro_seen"), { exclusive: false })
+      .run(
+        "intro_seen",
+        async () => {
+          const timer = startActionTimer(latest.current.match.mode, "intro_seen");
+          try {
+            const response = await send(TMW_COMMAND_INTRO_SEEN, {}, "intro_seen");
+            timer.responded(serverTimingOf(response));
+            timer.settled(response && (response.accepted || response.replayed) ? "accepted" : "refused");
+            return response;
+          } catch (error) {
+            timer.settled("failed");
+            throw error;
+          }
+        },
+        { exclusive: false },
+      )
       .then((response) => {
         if (!response || !(response.accepted || response.replayed)) arrivalSent.current = false;
       })
@@ -660,6 +801,7 @@ export default function ThreeManWeaveGame({
 
   const rearrange = useCallback(
     async (placements: Record<string, string>): Promise<boolean> => {
+      const timer = startActionTimer(latest.current.match.mode, "rearrange");
       setRejection(null);
       // THE BOARD MOVES ON THE PRESS. The arrangement is the one the command
       // carries, re-seating cards the server already validated; it is marked
@@ -674,10 +816,13 @@ export default function ThreeManWeaveGame({
       try {
         const response = await lane.run("rearrange", () => send(TMW_COMMAND_REARRANGE, { placements }, "rearrange"));
         if (response === null) return false;
+        timer.responded(serverTimingOf(response));
+        timer.settled(response.accepted || response.replayed ? "accepted" : "refused");
         if (response.accepted || response.replayed) return true;
         setRejection(response.message ?? "That move was refused.");
         return false;
       } catch (error) {
+        timer.settled("failed");
         setRejection(describe(error, "the move was not sent"));
         return false;
       } finally {
@@ -749,6 +894,11 @@ export default function ThreeManWeaveGame({
   // The previous-pick beat holds only the OVERLAY shut. Your turn, your
   // clock and every command are live underneath it.
   const overlayOpen = !ceremonyOpen && yourTurn && !complete && canPick(match) && previousPickBeat === null;
+  useEffect(() => {
+    if (!overlayOpen || handoffSince.current === null) return;
+    reportHandoff(match.mode, handoffSince.current);
+    handoffSince.current = null;
+  }, [overlayOpen, match.mode]);
 
   const meta = modeMeta(TMW_MODE);
   const pendingKind = lane.pending;

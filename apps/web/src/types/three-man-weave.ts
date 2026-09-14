@@ -24,6 +24,9 @@ export interface ArenaSeatPublic {
 }
 
 export interface ArenaMatchView<TPublic = TmwPublicState, TPrivate = TmwPrivateState> {
+  /** How long until the bot on the open turn is allowed to move, or null.
+   *  The room schedules ONE read for that instant (game-feel pass 4). */
+  bot_reply_in_seconds?: number | null;
   match_id: string;
   mode: string;
   mode_version: string;
