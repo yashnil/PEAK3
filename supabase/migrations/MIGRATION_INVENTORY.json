@@ -2540,5 +2540,25 @@
     "idempotency_notes": [
       "none detected"
     ]
+  },
+  {
+    "filename": "20260914100000_contact_feedback_categories.sql",
+    "identifier": "20260914100000_contact_feedback_categories",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [
+      "contact_submissions_category_check"
+    ],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "none detected"
+    ]
   }
 ]

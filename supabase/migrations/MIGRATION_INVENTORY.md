@@ -50,6 +50,7 @@ migration change rather than hand-editing this file.
 | 43 | `20260901120000_revoke_remaining_write_grants` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | 44 | `20260901130000_fix_progression_public_policy_privilege` | 0 | 0 | 0 | 1 | 0 | 0 | 3 |
 | 45 | `20260901140000_anonymous_subjects_ownership_claims_revoke` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 46 | `20260914100000_contact_feedback_categories` | 0 | 0 | 1 | 0 | 0 | 0 | 0 |
 
 ## Detail per migration
 
@@ -1266,6 +1267,32 @@ migration change rather than hand-editing this file.
 **Indexes:** none
 
 **Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected
+
+### `20260914100000_contact_feedback_categories.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** contact_submissions_category_check
 
 **Functions:** none
 

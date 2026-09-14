@@ -127,6 +127,89 @@ async def test_postgres_game_repo_conforms(pg_pool):
 
 
 # ---------------------------------------------------------------------------
+# ContactRepository
+# ---------------------------------------------------------------------------
+
+#: The homepage feedback kinds. On Postgres these are exactly the values
+#: 20260914100000_contact_feedback_categories.sql added to the category CHECK
+#: (`bug` predates it), so the Postgres half fails if that migration is absent.
+_CONTACT_FEEDBACK_CATEGORIES = ("game_idea", "bug", "dislike", "weakness", "question", "general_feedback")
+
+
+def _contact_subject_hash() -> str:
+    from app.models.contact import hash_subject
+
+    return hash_subject(f"anon:conformance-{uuid.uuid4().hex}", "conformance-test-secret")
+
+
+async def _assert_contact_repo_conforms(repo, subject_hash: str) -> None:
+    from app.repositories.contact_protocols import ContactSubmission
+
+    saved_ids = []
+    for category in _CONTACT_FEEDBACK_CATEGORIES:
+        saved = await repo.record(
+            ContactSubmission(
+                subject_hash=subject_hash,
+                subject_kind="anon",
+                category=category,
+                subject=f"conformance {category}",
+                message=f"conformance note for {category}",
+            )
+        )
+        assert saved.id
+        assert saved.category == category
+        assert saved.status == "open"
+        assert saved.created_at is not None
+        assert saved.relevant_area is None and saved.reply_email is None
+        saved_ids.append(saved.id)
+
+    mine = [s for s in await repo.list_recent(1000) if s.subject_hash == subject_hash]
+    assert sorted(s.id for s in mine) == sorted(saved_ids)
+    assert {s.category for s in mine} == set(_CONTACT_FEEDBACK_CATEGORIES)
+
+
+@pytest.mark.asyncio
+async def test_memory_contact_repo_conforms():
+    from app.repositories.contact_memory import MemoryContactRepository
+
+    await _assert_contact_repo_conforms(MemoryContactRepository(), _contact_subject_hash())
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_contact_repo_conforms(pg_pool):
+    from app.repositories.contact_postgres import PostgresContactRepository
+
+    subject_hash = _contact_subject_hash()
+    try:
+        await _assert_contact_repo_conforms(PostgresContactRepository(pg_pool), subject_hash)
+    finally:
+        async with pg_pool.acquire() as conn:
+            await conn.execute("DELETE FROM contact_submissions WHERE subject_hash = $1", subject_hash)
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_contact_category_check_rejects_an_unreviewed_value(pg_pool):
+    """Defense in depth: the database CHECK refuses a category the API's
+    closed vocabulary would never send, so a direct owner-role insert can't
+    widen the vocabulary either."""
+    from app.repositories.contact_postgres import PostgresContactRepository
+    from app.repositories.contact_protocols import ContactSubmission
+
+    with pytest.raises(asyncpg.CheckViolationError):
+        await PostgresContactRepository(pg_pool).record(
+            ContactSubmission(
+                subject_hash=_contact_subject_hash(),
+                subject_kind="anon",
+                category="not_a_reviewed_category",
+                subject="conformance",
+                message="conformance",
+            )
+        )
+
+
+# ---------------------------------------------------------------------------
 # ChallengeRepository
 # ---------------------------------------------------------------------------
 

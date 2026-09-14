@@ -27,7 +27,8 @@ from app.models.telemetry import hash_subject, subject_kind  # noqa: F401 (re-ex
 
 # ---------------------------------------------------------------------------
 # Closed vocabularies -- authoritative here; supabase/migrations/
-# 20260803110000_contact_submissions.sql's CHECK constraints mirror this
+# 20260803110000_contact_submissions.sql's CHECK constraints (category's
+# since replaced by 20260914100000_contact_feedback_categories.sql) mirror this
 # list as a second, independent layer, the same "app validates, database
 # double-checks the shape" split telemetry_events uses for event_name.
 # ---------------------------------------------------------------------------
@@ -41,6 +42,13 @@ ContactCategory = Literal[
     "account_or_privacy",
     "partnership_or_press",
     "other",
+    # Homepage feedback kinds (20260914100000_contact_feedback_categories.sql).
+    # `bug` above already covers the sixth kind.
+    "game_idea",
+    "dislike",
+    "weakness",
+    "general_feedback",
+    "question",
 ]
 
 CONTACT_CATEGORIES: tuple[str, ...] = (
@@ -52,6 +60,11 @@ CONTACT_CATEGORIES: tuple[str, ...] = (
     "account_or_privacy",
     "partnership_or_press",
     "other",
+    "game_idea",
+    "dislike",
+    "weakness",
+    "general_feedback",
+    "question",
 )
 
 ContactRelevantArea = Literal[
