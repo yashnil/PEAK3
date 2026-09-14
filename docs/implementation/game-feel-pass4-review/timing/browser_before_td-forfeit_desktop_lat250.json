@@ -1,0 +1,185 @@
+{
+  "label": "before",
+  "mode": "td-forfeit",
+  "latency": 250,
+  "viewport": "desktop",
+  "samples": {
+    "td.intro_elapsed_at_first_read_s": [
+      0.808085
+    ],
+    "td.read_to_controls_live_ms_upper": [
+      18.40000057220459,
+      52.79999923706055,
+      49.5
+    ],
+    "td.bid": [
+      {
+        "ackMs": 4.100000381469727,
+        "confirmMs": 266.5,
+        "dispatchMs": 1.8000001907348633,
+        "responseMs": 263.69999980926514,
+        "accepted": true,
+        "version": 3
+      }
+    ],
+    "td.after_confirm_handoff_visible_ms": [
+      0,
+      0
+    ],
+    "td.pass": [
+      {
+        "ackMs": 1.8999996185302734,
+        "confirmMs": 267.69999980926514,
+        "dispatchMs": 1.1999998092651367,
+        "responseMs": 264.19999980926514,
+        "accepted": true,
+        "version": 5
+      }
+    ],
+    "td.forfeit": [
+      {
+        "ackMs": 8.5,
+        "confirmMs": 262.79999923706055,
+        "dispatchMs": 0.7999992370605469,
+        "responseMs": 256.29999923706055,
+        "accepted": true,
+        "version": 7
+      }
+    ],
+    "td.bot_due_to_client_seen_ms": [
+      318.70000076293945,
+      318.5999994277954
+    ],
+    "td.poll_request_ms": [
+      256.5,
+      253.9000005722046,
+      256.29999923706055,
+      256.6000003814697,
+      253.29999923706055,
+      257.20000076293945,
+      256.29999923706055
+    ],
+    "td.command_request_ms": [
+      261.8999996185303,
+      263,
+      255.5
+    ]
+  },
+  "notes": [],
+  "summary": {
+    "td.intro_elapsed_at_first_read_s": {
+      "n": 1,
+      "p50": 1,
+      "p95": 1,
+      "max": 1
+    },
+    "td.read_to_controls_live_ms_upper": {
+      "n": 3,
+      "p50": 50,
+      "p95": 53,
+      "max": 53
+    },
+    "td.bid": {
+      "ackMs": {
+        "n": 1,
+        "p50": 4,
+        "p95": 4,
+        "max": 4
+      },
+      "dispatchMs": {
+        "n": 1,
+        "p50": 2,
+        "p95": 2,
+        "max": 2
+      },
+      "responseMs": {
+        "n": 1,
+        "p50": 264,
+        "p95": 264,
+        "max": 264
+      },
+      "confirmMs": {
+        "n": 1,
+        "p50": 267,
+        "p95": 267,
+        "max": 267
+      }
+    },
+    "td.after_confirm_handoff_visible_ms": {
+      "n": 2,
+      "p50": 0,
+      "p95": 0,
+      "max": 0
+    },
+    "td.pass": {
+      "ackMs": {
+        "n": 1,
+        "p50": 2,
+        "p95": 2,
+        "max": 2
+      },
+      "dispatchMs": {
+        "n": 1,
+        "p50": 1,
+        "p95": 1,
+        "max": 1
+      },
+      "responseMs": {
+        "n": 1,
+        "p50": 264,
+        "p95": 264,
+        "max": 264
+      },
+      "confirmMs": {
+        "n": 1,
+        "p50": 268,
+        "p95": 268,
+        "max": 268
+      }
+    },
+    "td.forfeit": {
+      "ackMs": {
+        "n": 1,
+        "p50": 9,
+        "p95": 9,
+        "max": 9
+      },
+      "dispatchMs": {
+        "n": 1,
+        "p50": 1,
+        "p95": 1,
+        "max": 1
+      },
+      "responseMs": {
+        "n": 1,
+        "p50": 256,
+        "p95": 256,
+        "max": 256
+      },
+      "confirmMs": {
+        "n": 1,
+        "p50": 263,
+        "p95": 263,
+        "max": 263
+      }
+    },
+    "td.bot_due_to_client_seen_ms": {
+      "n": 2,
+      "p50": 319,
+      "p95": 319,
+      "max": 319
+    },
+    "td.poll_request_ms": {
+      "n": 7,
+      "p50": 256,
+      "p95": 257,
+      "max": 257
+    },
+    "td.command_request_ms": {
+      "n": 3,
+      "p50": 262,
+      "p95": 263,
+      "max": 263
+    }
+  }
+}
