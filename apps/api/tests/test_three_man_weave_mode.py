@@ -1646,14 +1646,14 @@ def test_bot_think_time_is_seeded_inside_the_published_window():
 
     # THE WINDOW IS PINNED TO LITERALS, not only to its own constants.
     # Asserting `MIN <= value <= MAX` is true for every window, so a literal is
-    # what makes a change deliberate. 2-5 s (game-feel pass 4, from 4-10): the
+    # what makes a change deliberate. 1.2-3.0 s (game-feel pass 4, from 4-10): the
     # floor used to have to clear the room's fixed poll interval or the bot's
     # deliberation was never observed. The room now reads the bot's move at the
-    # instant the server publishes (`bot_reply_in_seconds`), so two seconds is
+    # instant the server publishes (`bot_reply_in_seconds`), so 1.2 seconds is
     # watched in full, and the old window spent 50-120 s of every practice
     # draft on bots that had already decided.
-    assert BOT_THINK_SECONDS_MIN == 2.0
-    assert BOT_THINK_SECONDS_MAX == 5.0
+    assert BOT_THINK_SECONDS_MIN == 1.2
+    assert BOT_THINK_SECONDS_MAX == 3.0
 
     seen = set()
     for seed in range(40):

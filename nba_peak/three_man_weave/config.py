@@ -107,15 +107,18 @@ BOT_POLICY_VERSION: Final[str] = "tmw_bot_v2"
 #: computed by the same policy either way and the delay is enforced against the
 #: turn's stored `opened_at`, so a fast-polling client cannot hurry it.
 #
-#: 2-5, FROM 4-10 (game-feel pass 4). The floor above was raised past the old
-#: fixed two-second poll so the seat on the clock was observable at all. The
-#: room now reads the bot's move at the instant the server says it is due
+#: 1.2-3.0, FROM 4-10 (game-feel pass 4). The floor above was raised past the
+#: old fixed two-second poll so the seat on the clock was observable at all.
+#: The room now reads the bot's move at the instant the server says it is due
 #: (`bot_reply_in_seconds`), so a short think is still watched, and the old
 #: range spent 50-120 s of every practice draft on bots that had already
-#: decided. Two seconds is still long enough to read "X is on the clock"; five
-#: keeps successive bots from moving on a metronome.
-BOT_THINK_SECONDS_MIN: Final[float] = 2.0
-BOT_THINK_SECONDS_MAX: Final[float] = 5.0
+#: decided. Two bots sit between most of a human's picks, so the range is the
+#: dead air between their turns: 1.2 s is long enough to read "X is on the
+#: clock", 3.0 s keeps successive bots off a metronome, and a pair of bots
+#: costs 2.4-6 s instead of 8-20 s. (The Showdown's situational ranges sit in
+#: the same 0.55-2.9 s band.)
+BOT_THINK_SECONDS_MIN: Final[float] = 1.2
+BOT_THINK_SECONDS_MAX: Final[float] = 3.0
 
 
 def bot_think_seconds(seed: int | str, seat_index: int, turn_seq: int) -> float:

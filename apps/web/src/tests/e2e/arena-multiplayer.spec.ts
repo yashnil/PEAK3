@@ -391,7 +391,9 @@ test.describe("Three-Man Weave", () => {
     // and the human's seat is drawn from the match seed so up to TWO bot
     // picks can precede the overlay, and after the human's own pick the test
     // deliberately waits for two MORE bot turns — and every bot pick takes a
-    // seeded 4–10s think (BOT_THINK_SECONDS_MIN/MAX, enforced server-side
+    // seeded think (BOT_THINK_SECONDS_MIN/MAX, 4–10s when this budget was
+    // derived, 1.2–3.0s since game-feel pass 4 -- the budget is kept as a
+    // ceiling, which a shorter think only sits further inside; enforced server-side
     // against the turn's opened_at) plus a poll for the move to land. Worst
     // case by design: 9.2 + 2x(10+2) + 2x(10+2) ≈ 57s of server-enforced
     // pacing alone, before ~15–20s of setup and live interactions (CI run
@@ -605,7 +607,7 @@ test.describe("Three-Man Weave", () => {
       // pick: up to two more seats (bot or human) must each get a turn, and
       // per this test's own sibling comment above (`test.setTimeout(90_000)`),
       // every one of those seats can legitimately take BOT_THINK_SECONDS_MAX
-      // (10s, `nba_peak/three_man_weave/config.py`) plus ACTION_GRACE_SECONDS
+      // (10s when derived, 3.0s now, `nba_peak/three_man_weave/config.py`) plus ACTION_GRACE_SECONDS
       // (2s, `clock.py`) to resolve -- 2 x 12 = 24s on its own. On TOP of
       // that, Three-Man Weave opens a real reveal-ceremony turn (`REVEAL_
       // SECONDS` + its own grace, `three_man_weave/mode.py`) at the START OF
