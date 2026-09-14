@@ -1,13 +1,16 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { reportMatchmakingWait } from "@/lib/game-feel/action-timing";
 
 import {
   arenaLobbyApi,
   ArenaAPIError,
   normaliseRoomCode,
   searchLabel,
+  skillBandLabel,
   type ArenaMatchStub,
   type ArenaReadiness,
   type QueueStatus,
@@ -104,6 +107,8 @@ export default function ArenaLobby() {
   // poll that resolves while `router.push` is already navigating fires a second
   // push, and the player lands on the match twice in their history.
   const navigated = useRef(false);
+  // When the current public search was pressed, for the wait telemetry.
+  const queueJoinedAt = useRef<number | null>(null);
 
   useEffect(() => {
     arenaLobbyApi
@@ -133,6 +138,18 @@ export default function ArenaLobby() {
     [router],
   );
 
+  // A public-queue match: report the search's length once, then go.
+  const matchedFromQueue = useCallback(
+    (target: OfferableMode, matchId: string) => {
+      if (queueJoinedAt.current !== null && !navigated.current) {
+        reportMatchmakingWait(target.id, queueJoinedAt.current);
+        queueJoinedAt.current = null;
+      }
+      go(target, matchId);
+    },
+    [go],
+  );
+
   const handle = useCallback((err: unknown) => {
     const apiError = err as ArenaAPIError;
     setError(apiError.status === 0 ? "Could not reach the PEAK3 API." : apiError.message);
@@ -149,14 +166,14 @@ export default function ArenaLobby() {
         setQueue(status);
         if (status.status === "matched" && status.match_id) {
           clearInterval(id);
-          go(queueMode, status.match_id);
+          matchedFromQueue(queueMode, status.match_id);
         }
       } catch (err) {
         handle(err);
       }
     }, POLL_MS);
     return () => clearInterval(id);
-  }, [queueMode, go, handle]);
+  }, [queueMode, matchedFromQueue, handle]);
 
   // Poll a private room until it fills. It starts itself the moment the last
   // seat is taken -- there is no "start" button because the server needs no
@@ -192,9 +209,10 @@ export default function ArenaLobby() {
           setRoomMode(mode);
           setRoom(match);
         } else {
+          queueJoinedAt.current = performance.now();
           const status = await arenaLobbyApi.joinQueue(mode.id);
           if (status.status === "matched" && status.match_id) {
-            go(mode, status.match_id);
+            matchedFromQueue(mode, status.match_id);
           } else {
             setQueueMode(mode);
             setQueue(status);
@@ -206,7 +224,7 @@ export default function ArenaLobby() {
         setPending(null);
       }
     },
-    [pending, go, handle],
+    [pending, go, matchedFromQueue, handle],
   );
 
   const cancelSearch = useCallback(async () => {
@@ -216,6 +234,7 @@ export default function ArenaLobby() {
     } catch (err) {
       handle(err);
     }
+    queueJoinedAt.current = null;
     setQueue(null);
     setQueueMode(null);
   }, [queueMode, handle]);
@@ -224,11 +243,11 @@ export default function ArenaLobby() {
     if (!queueMode) return;
     try {
       const status = await arenaLobbyApi.fillWithBotsNow(queueMode.id);
-      if (status.status === "matched" && status.match_id) go(queueMode, status.match_id);
+      if (status.status === "matched" && status.match_id) matchedFromQueue(queueMode, status.match_id);
     } catch (err) {
       handle(err);
     }
-  }, [queueMode, go, handle]);
+  }, [queueMode, matchedFromQueue, handle]);
 
   const fillRoom = useCallback(async () => {
     if (!room || !roomMode) return;
@@ -439,6 +458,16 @@ function LobbyShell({
               {headline.intro}
             </p>
           ) : null}
+          <p className="mt-1 text-sm">
+            <Link
+              href="/arena/leaderboard"
+              data-testid="lobby-leaderboard-link"
+              className="font-semibold underline-offset-4 hover:underline"
+              style={{ color: "var(--v2-color-accent)" }}
+            >
+              Rated leaderboards →
+            </Link>
+          </p>
         </header>
         <PeakV2Rule spacing="md" />
         {children}
@@ -770,6 +799,12 @@ function QueuePanel({
           <dt>Status</dt>
           <dd data-testid="lobby-search-label">{searchLabel(status)}</dd>
         </div>
+        {skillBandLabel(status) ? (
+          <div>
+            <dt>Skill range</dt>
+            <dd data-testid="lobby-queue-band">{skillBandLabel(status)}</dd>
+          </div>
+        ) : null}
         <div>
           <dt>Bots fill in</dt>
           <dd data-testid="lobby-queue-countdown">

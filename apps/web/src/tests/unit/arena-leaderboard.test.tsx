@@ -255,10 +255,15 @@ describe("ArenaLeaderboardView", () => {
       { id: "three_man_weave", seat_count: 3 },
       { id: "twenty_dollar", seat_count: 2 },
       { id: "three_man_weave_franchise", seat_count: 3 },
+      { id: "future_mode_x", seat_count: 2 },
     ]);
     render(<ArenaLeaderboardView mode={MODE} api={fakeApi({ modes })} />);
-    const variant = await screen.findByTestId("alb-mode-three_man_weave_franchise");
-    expect(variant).toHaveTextContent("Three Man Weave Franchise");
+    const unknown = await screen.findByTestId("alb-mode-future_mode_x");
+    expect(unknown).toHaveTextContent("Future Mode X");
+    expect(unknown).toHaveAttribute("href", "/arena/leaderboard/future_mode_x");
+    // A catalogued ruleset variant gets its catalogue name, not its id.
+    const variant = screen.getByTestId("alb-mode-three_man_weave_franchise");
+    expect(variant).toHaveTextContent("Franchise Draft");
     expect(variant).toHaveAttribute("href", "/arena/leaderboard/three_man_weave_franchise");
     expect(screen.getByTestId("alb-mode-three_man_weave")).toHaveAttribute("aria-current", "page");
     expect(screen.getByTestId("alb-mode-twenty_dollar")).toHaveTextContent("The $20 Showdown");

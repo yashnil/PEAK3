@@ -37,7 +37,8 @@ export type ArenaActionKind =
   | "pass"
   | "forfeit"
   | "intro_seen"
-  | "handoff";
+  | "handoff"
+  | "queue_matched";
 
 export interface ActionTiming {
   mode: string;
@@ -124,6 +125,18 @@ export function startActionTimer(mode: string, kind: ArenaActionKind): ActionTim
       );
     },
   };
+}
+
+/** Report how long a public-queue search took, from the join press to the
+ *  match the server returned. Whole seconds; nothing about who was matched. */
+export function reportMatchmakingWait(mode: string, joinedAtMs: number): void {
+  analytics.track({
+    type: "arena_action_timing",
+    mode,
+    decision: "queue_matched",
+    outcome: "accepted",
+    wait_seconds: Math.max(0, Math.round((now() - joinedAtMs) / 1000)),
+  });
 }
 
 /** Report a turn handoff: `sinceMs` is when the authoritative read that made
