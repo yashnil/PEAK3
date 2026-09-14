@@ -1100,6 +1100,120 @@ async def test_postgres_arena_queue_conforms(pg_pool):
     await _assert_arena_queue_conforms(PostgresArenaRepository(pg_pool))
 
 
+async def _assert_arena_standings_conform(standings, ratings, profiles, new_match_id) -> None:
+    """The standings read model, identical on both backends.
+
+    WRITTEN BECAUSE THE TWO ARE GENUINELY DIFFERENT: one composes the memory
+    rating and profile repositories in Python, the other is a window function
+    over `arena_ratings` joined to `profiles`. What must agree:
+
+      * rank is the GLOBAL position (rating desc, rated_matches desc, sub),
+        counting unlisted players;
+      * listing and paging are over handle holders only;
+      * neighbours are the nearest LISTED players, in board order, excluding
+        the subject, and empty on the side that has none;
+      * `players_below` counts strictly lower ratings;
+      * an unrated subject has no standing and no neighbours.
+    """
+    from app.repositories.arena_rating_protocols import ArenaRatingHistoryEntry
+
+    mode = f"smode_{uuid.uuid4().hex[:8]}"
+    tag = uuid.uuid4().hex[:8]
+
+    async def rate(sub: str, rating: float, matches: int = 1, handle: str | None = None):
+        for _ in range(matches):
+            await ratings.record_match_rating([
+                ArenaRatingHistoryEntry(
+                    owner_sub=sub, mode=mode, match_id=await new_match_id(),
+                    pre_rating=1500.0, pre_rd=350.0, pre_volatility=0.06,
+                    post_rating=rating, post_rd=80.0, post_volatility=0.06,
+                    unbounded_post_rating=rating, bound_applied=False, placement=1,
+                    had_bot_opponent=False, algorithm_version="test_v1",
+                )
+            ])
+        if handle:
+            await profiles.update_profile(sub, {"handle": handle})
+        return sub
+
+    top = await rate(f"user-{uuid.uuid4()}", 2000.0, handle=f"top{tag}")
+    unlisted = await rate(f"user-{uuid.uuid4()}", 1900.0)
+    mid = await rate(f"user-{uuid.uuid4()}", 1800.0, matches=7, handle=f"mid{tag}")
+    tie_more = await rate(f"user-{uuid.uuid4()}", 1700.0, matches=3, handle=f"tma{tag}")
+    tie_less = await rate(f"user-{uuid.uuid4()}", 1700.0, matches=2, handle=f"tle{tag}")
+    bottom = await rate(f"user-{uuid.uuid4()}", 1600.0, handle=f"bot{tag}")
+
+    population = await standings.get_population(mode, 7)
+    assert (population.rated_players, population.listed_players, population.established_players) == (6, 5, 1)
+
+    board = await standings.list_top(mode, limit=10)
+    assert [r.owner_sub for r in board] == [top, mid, tie_more, tie_less, bottom]
+    assert [r.rank for r in board] == [1, 3, 4, 5, 6], "rank counts the unlisted player"
+    assert board[1].handle == f"mid{tag}" and board[1].rated_matches == 7
+    paged = await standings.list_top(mode, limit=2, offset=1)
+    assert [r.owner_sub for r in paged] == [mid, tie_more]
+
+    hidden = await standings.get_standing(mode, unlisted)
+    assert hidden is not None and hidden.row.rank == 2 and hidden.row.handle is None
+    assert hidden.players_below == 4
+    tied = await standings.get_standing(mode, tie_less)
+    assert tied.row.rank == 5 and tied.players_below == 1, "ties are not below each other"
+    assert await standings.get_standing(mode, f"user-{uuid.uuid4()}") is None
+
+    above, below = await standings.list_neighbours(mode, mid, 2, 2)
+    assert [r.owner_sub for r in above] == [top]
+    assert [r.owner_sub for r in below] == [tie_more, tie_less]
+    above, below = await standings.list_neighbours(mode, top, 2, 2)
+    assert above == [] and [r.owner_sub for r in below] == [mid, tie_more]
+    above, below = await standings.list_neighbours(mode, bottom, 2, 2)
+    assert [r.owner_sub for r in above] == [tie_more, tie_less] and below == []
+    above, below = await standings.list_neighbours(mode, unlisted, 1, 1)
+    assert [r.owner_sub for r in above] == [top] and [r.owner_sub for r in below] == [mid]
+    assert await standings.list_neighbours(mode, f"user-{uuid.uuid4()}", 3, 3) == ([], [])
+
+    empty_mode = f"smode_{uuid.uuid4().hex[:8]}"
+    assert await standings.get_population(empty_mode, 7) == type(population)(0, 0, 0)
+    assert await standings.list_top(empty_mode) == []
+
+
+@pytest.mark.asyncio
+async def test_memory_arena_standings_conform():
+    from app.repositories.arena_rating_memory import MemoryArenaRatingRepository
+    from app.repositories.arena_standings_memory import MemoryArenaStandingsRepository
+
+    ratings, profiles = MemoryArenaRatingRepository(), MemoryProfileRepository()
+
+    async def new_match_id():
+        return str(uuid.uuid4())
+
+    await _assert_arena_standings_conform(
+        MemoryArenaStandingsRepository(ratings, profiles), ratings, profiles, new_match_id
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_arena_standings_conform(pg_pool):
+    from app.repositories.arena_postgres import PostgresArenaRepository
+    from app.repositories.arena_rating_postgres import PostgresArenaRatingRepository
+    from app.repositories.arena_standings_postgres import PostgresArenaStandingsRepository
+    from app.repositories.postgres_profile import PostgresProfileRepository
+
+    arena = PostgresArenaRepository(pg_pool)
+
+    async def new_match_id():
+        # arena_rating_history.match_id is a FOREIGN KEY into arena_matches.
+        match = _arena_match()
+        await arena.create_match(match, _arena_seats(match.match_id, 2))
+        return match.match_id
+
+    await _assert_arena_standings_conform(
+        PostgresArenaStandingsRepository(pg_pool),
+        PostgresArenaRatingRepository(pg_pool),
+        PostgresProfileRepository(pg_pool),
+        new_match_id,
+    )
+
+
 # ---------------------------------------------------------------------------
 # TRUE two-connection concurrency. Postgres only, by nature.
 # ---------------------------------------------------------------------------

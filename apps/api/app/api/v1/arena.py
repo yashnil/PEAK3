@@ -66,9 +66,15 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, R
 
 from app.core.auth import ANON_COOKIE_NAME, OptionalAuth, resolve_owner_sub
 from app.core.config import settings
-from app.core.dependencies import ArenaRatingRepoDep, ArenaRepoDep, ProfileRepoDep
+from app.core.dependencies import (
+    ArenaRatingRepoDep,
+    ArenaRepoDep,
+    ArenaStandingsRepoDep,
+    ProfileRepoDep,
+)
 from app.core.rate_limit import RateLimitRule, client_key, limiter
 from app.models.arena import (
+    ArenaAroundMeResponse,
     ArenaEventsResponse,
     ArenaLeaderboardEntry,
     ArenaLeaderboardResponse,
@@ -104,6 +110,8 @@ from app.services.arena import rating as arena_rating
 from app.services.arena import clock
 from app.services.arena import personal as arena_personal
 from app.services.arena import matchmaking as mm
+from app.services.arena import skill as arena_skill
+from app.services.arena import standings as arena_standings
 from app.services.arena.modes import ModeNotRegistered, registry as mode_registry
 
 logger = logging.getLogger(__name__)
@@ -738,12 +746,29 @@ async def join_private(
     return await _build_view(repo, mode, match, seat)
 
 
+def _waiting_status(mode: str, entry, now: datetime) -> QueueStatusResponse:
+    """A `waiting` answer that explains the search honestly: how long, how wide
+    the skill band is right now, when it widens, and whether humans are still
+    being held out for. See `matchmaking` "Skill bands"."""
+    from app.repositories.arena_protocols import _utc
+
+    return QueueStatusResponse(
+        status="waiting",
+        mode=mode,
+        waited_seconds=max(0.0, (now - _utc(entry.joined_at)).total_seconds()),
+        still_seeking_humans=entry.prefers_humans_at(now),
+        rating_band=mm.rating_band(entry, now),
+        rating_band_widens_in_seconds=mm.rating_band_widens_in(entry, now),
+    )
+
+
 @router.post(f"{BASE}/queue/{{mode}}/join", response_model=QueueStatusResponse)
 async def join_queue(
     mode: str,
     identity: ArenaAuth,
     repo: ArenaRepoDep,
     profile_repo: ProfileRepoDep,
+    rating_repo: ArenaRatingRepoDep,
 ) -> QueueStatusResponse:
     """Join the public queue. Matches created from it are RATED."""
     _require_account_access(identity)
@@ -762,13 +787,12 @@ async def join_queue(
         )
 
     name = await _display_name(profile_repo, identity.sub)
-    match = await mm.try_match(repo, mode_impl, entry, {identity.sub: name}, now)
+    match = await mm.try_match(
+        repo, mode_impl, entry, {identity.sub: name}, now, rating_repo=rating_repo
+    )
     if match is not None:
         return QueueStatusResponse(status="matched", mode=mode, match_id=match.match_id)
-    return QueueStatusResponse(
-        status="waiting", mode=mode, waited_seconds=0.0,
-        still_seeking_humans=entry.prefers_humans_at(now),
-    )
+    return _waiting_status(mode, entry, now)
 
 
 @router.get(f"{BASE}/queue/{{mode}}/status", response_model=QueueStatusResponse)
@@ -777,6 +801,7 @@ async def queue_status(
     identity: ArenaAuth,
     repo: ArenaRepoDep,
     profile_repo: ProfileRepoDep,
+    rating_repo: ArenaRatingRepoDep,
 ) -> QueueStatusResponse:
     """Poll while waiting. This is also where a lapsed window turns into a bot
     fill -- the waiting player's own poll is what completes their match, which
@@ -795,20 +820,15 @@ async def queue_status(
 
     if settings.ARENA_PUBLIC_QUEUE_ENABLED:
         name = await _display_name(profile_repo, identity.sub)
-        match = await mm.try_match(repo, mode_impl, entry, {identity.sub: name}, now)
+        match = await mm.try_match(
+            repo, mode_impl, entry, {identity.sub: name}, now, rating_repo=rating_repo
+        )
         if match is not None:
             return QueueStatusResponse(
                 status="matched", mode=mode, match_id=match.match_id
             )
 
-    from app.repositories.arena_protocols import _utc
-
-    return QueueStatusResponse(
-        status="waiting",
-        mode=mode,
-        waited_seconds=(now - _utc(entry.joined_at)).total_seconds(),
-        still_seeking_humans=entry.prefers_humans_at(now),
-    )
+    return _waiting_status(mode, entry, now)
 
 
 #: Which `arena_match_results.detail` keys each mode's board surfaces.
@@ -830,19 +850,18 @@ _MODE_DETAIL_KEYS: dict[str, tuple[str, ...]] = {
 #: Rated matches before a rating stops being labelled provisional. Matches the
 #: placement convention ranked already uses (`placement_states.required_matches`
 #: defaults to 7) rather than inventing a second number for the same idea.
-_PROVISIONAL_UNTIL = 7
+_PROVISIONAL_UNTIL = arena_skill.PROVISIONAL_UNTIL
 
 
 @router.get(f"{BASE}/leaderboard/{{mode}}", response_model=ArenaLeaderboardResponse)
 async def leaderboard(
     mode: str,
     repo: ArenaRepoDep,
-    rating_repo: ArenaRatingRepoDep,
-    profile_repo: ProfileRepoDep,
+    standings_repo: ArenaStandingsRepoDep,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> ArenaLeaderboardResponse:
-    """The public rating board for one mode.
+    """The public rating board for one mode -- "Top Players".
 
     NO AUTH. A public leaderboard is public, and requiring a token to read one
     would make it invisible to exactly the people it exists to attract. What
@@ -855,6 +874,15 @@ async def leaderboard(
     (launch-polish IMPLEMENTATION_CONTRACT.md §8). A player without one is rated
     and simply unlisted until they pick a handle -- their rating is not lost and
     their matches still counted.
+
+    `rank` IS THE GLOBAL POSITION among every rated human, unchanged from the
+    original contract, so an unlisted player ahead shows as a gap. PAGING IS
+    OVER LISTED ROWS (it used to be over all rated rows, which let a page of 50
+    hold fewer than 50 names); `total_rated_players` is the count to page
+    against, and `population` says how many rated humans the ranks count.
+
+    NEVER A BOT, NEVER A FABRICATED ROW. Bots have no rating row. An empty or
+    tiny board is returned as it is, with the counts that say so.
     """
     _require_enabled()
     if not settings.ARENA_LEADERBOARD_ENABLED:
@@ -863,45 +891,46 @@ async def leaderboard(
         return ArenaLeaderboardResponse(leaderboard_enabled=False, mode=mode)
 
     mode_impl = _mode_or_404(mode)
-    rows = await rating_repo.get_leaderboard_page(mode_impl.mode, limit, offset)
-    if not rows:
-        return ArenaLeaderboardResponse(leaderboard_enabled=True, mode=mode)
-
-    subs = [r.owner_sub for r in rows]
-    stats = await repo.get_player_stats(
-        mode_impl.mode, subs, _MODE_DETAIL_KEYS.get(mode_impl.mode, ())
+    return await arena_standings.top_players(
+        repo, standings_repo, mode_impl.mode,
+        _MODE_DETAIL_KEYS.get(mode_impl.mode, ()), limit, offset,
     )
 
-    entries: list[ArenaLeaderboardEntry] = []
-    for index, row in enumerate(rows):
-        profile = await profile_repo.get_profile_by_auth_sub(row.owner_sub)
-        handle = getattr(profile, "handle", None) if profile else None
-        if not handle:
-            continue  # rated, but has not chosen a public name
-        st = stats.get(row.owner_sub)
-        entries.append(
-            ArenaLeaderboardEntry(
-                rank=offset + index + 1,
-                handle=handle,
-                rating=round(row.rating, 2),
-                rd=round(row.rd, 2),
-                rated_matches=row.rated_matches,
-                provisional=row.rated_matches < _PROVISIONAL_UNTIL,
-                wins=st.wins if st else 0,
-                losses=st.losses if st else 0,
-                draws=st.draws if st else 0,
-                matches_with_bots=st.matches_with_bots if st else 0,
-                matches_all_human=st.matches_all_human if st else 0,
-                average_placement=st.average_placement if st else None,
-                podium_rate=st.podium_rate if st else None,
-                average_score=st.score_avg if st else None,
-                best_score=st.score_best if st else None,
-                averages=dict(st.detail_averages) if st else {},
-                bests=dict(st.detail_bests) if st else {},
-            )
-        )
-    return ArenaLeaderboardResponse(
-        leaderboard_enabled=True, mode=mode, entries=entries
+
+@router.get(
+    f"{BASE}/leaderboard/{{mode}}/around-me", response_model=ArenaAroundMeResponse
+)
+async def leaderboard_around_me(
+    mode: str,
+    identity: ArenaAuth,
+    repo: ArenaRepoDep,
+    standings_repo: ArenaStandingsRepoDep,
+    window: int = Query(
+        arena_standings.AROUND_ME_DEFAULT_WINDOW,
+        ge=1,
+        le=arena_standings.AROUND_ME_MAX_WINDOW,
+    ),
+) -> ArenaAroundMeResponse:
+    """"Around You": the caller's standing and the listed players nearest them.
+
+    THE SUBJECT IS THE TOKEN'S. Account access is required because a standing
+    is a rated-queue fact and only accounts can enter the rated queue.
+
+    Three honest answers, never a guess (`ArenaAroundMeResponse.status`):
+    `not_rated` with no neighbours; `unlisted` -- ranked and counted, with real
+    listed neighbours, but not on the board until a handle is chosen; `listed`.
+    Neighbours are the nearest LISTED players on each side, so a window is full
+    whenever enough listed players exist there; at the top of the board `above`
+    is simply empty, at the bottom `below` is.
+    """
+    _require_account_access(identity)
+    if not settings.ARENA_LEADERBOARD_ENABLED:
+        return ArenaAroundMeResponse(leaderboard_enabled=False, mode=mode)
+    mode_impl = _mode_or_404(mode)
+    return await arena_standings.around_me(
+        repo, standings_repo, mode_impl.mode, identity.sub,
+        _MODE_DETAIL_KEYS.get(mode_impl.mode, ()), window,
+        ratings_enabled=settings.ARENA_RATINGS_ENABLED,
     )
 
 
@@ -911,6 +940,7 @@ async def personal_record(
     identity: ArenaAuth,
     repo: ArenaRepoDep,
     rating_repo: ArenaRatingRepoDep,
+    standings_repo: ArenaStandingsRepoDep,
     match_id: Optional[str] = Query(None, max_length=64),
 ) -> PersonalRecordResponse:
     """The caller's own record in one mode: played, wins, streaks, bests, and
@@ -948,6 +978,16 @@ async def personal_record(
                 if entry.match_id == match_id:
                     change = round(entry.post_rating - entry.pre_rating, 2)
                     break
+    # THE SKILL CARD, for accounts only: a local-practice guest cannot enter
+    # the rated queue, so there is no competitive identity to describe. Rank
+    # and percentile additionally wait for the public board to be open.
+    skill_card = None
+    if identity.is_account:
+        skill_card = await arena_standings.skill_view(
+            repo, standings_repo, mode_impl.mode, identity.sub,
+            ratings_enabled=settings.ARENA_RATINGS_ENABLED,
+            leaderboard_enabled=settings.ARENA_LEADERBOARD_ENABLED,
+        )
     return PersonalRecordResponse(
         mode=mode_impl.mode,
         matches_played=record.matches_played,
@@ -968,6 +1008,10 @@ async def personal_record(
         rating=rating,
         rating_provisional=provisional,
         match_rating_change=change,
+        unrated_matches=record.matches_played - record.rated_matches,
+        practice_matches=sum(1 for r in rows if r.entry_path == "practice"),
+        private_matches=sum(1 for r in rows if r.entry_path == "private_room"),
+        skill=skill_card,
     )
 
 
@@ -990,6 +1034,7 @@ async def fill_queue_now(
     identity: ArenaAuth,
     repo: ArenaRepoDep,
     profile_repo: ProfileRepoDep,
+    rating_repo: ArenaRatingRepoDep,
 ) -> QueueStatusResponse:
     """"Fill with bots now" -- the other half of "Keep waiting".
 
@@ -1017,7 +1062,7 @@ async def fill_queue_now(
 
     name = await _display_name(profile_repo, identity.sub)
     match = await mm.fill_queue_with_bots_now(
-        repo, mode_impl, identity.sub, {identity.sub: name}, now
+        repo, mode_impl, identity.sub, {identity.sub: name}, now, rating_repo=rating_repo
     )
     if match is not None:
         return QueueStatusResponse(status="matched", mode=mode, match_id=match.match_id)

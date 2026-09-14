@@ -61,12 +61,124 @@ class ArenaLeaderboardEntry(BaseModel):
     #: A dict rather than named fields so a third mode needs no model change.
     averages: dict[str, float] = Field(default_factory=dict)
     bests: dict[str, float] = Field(default_factory=dict)
+    #: The ranked division ladder's label for this rating
+    #: (`services/arena/skill.py`). None while `provisional` -- a rating that is
+    #: not yet a measurement does not get a rank name.
+    tier: Optional[str] = None
+
+
+class ArenaTierStep(BaseModel):
+    label: str
+    min_rating: float
+
+
+class ArenaPopulationView(BaseModel):
+    """Who a mode's board and statistics are computed over. Humans only.
+
+    Two counts because rank and listing answer different questions:
+    `rated_population` is every human with a rated match (ranks and percentiles
+    are positions in it), `total_rated_players` is the subset with a public
+    handle (the rows a board can list). A board showing rank #12 beside ten
+    listed names is honest about the two unlisted players ahead.
+    """
+
+    #: Humans with a public handle and at least one rated match.
+    total_rated_players: int = 0
+    #: Every human with at least one rated match, listed or not.
+    rated_population: int = 0
+    #: Rated humans past the provisional threshold.
+    established_players: int = 0
+    #: Percentiles are withheld below this rated population.
+    percentile_min_population: int = 30
+    #: Rated matches before a rating stops being provisional.
+    provisional_until: int = 7
 
 
 class ArenaLeaderboardResponse(BaseModel):
     leaderboard_enabled: bool
     mode: str
     entries: list[ArenaLeaderboardEntry] = Field(default_factory=list)
+    #: Paging, over LISTED rows. `total_rated_players` below is the total to
+    #: page against.
+    limit: int = 50
+    offset: int = 0
+    population: ArenaPopulationView = Field(default_factory=ArenaPopulationView)
+    #: Mirrors `population.total_rated_players` at the top level for clients
+    #: that only need the count.
+    total_rated_players: int = 0
+    tier_version: Optional[str] = None
+    tier_ladder: list[ArenaTierStep] = Field(default_factory=list)
+
+
+class ArenaSkillView(BaseModel):
+    """One player's competitive identity in one mode, as they may see it.
+
+    Every "withheld" value carries a reason instead of a silent null, so a
+    client can say WHY -- "percentiles appear at 30 rated players" -- rather
+    than rendering a blank where a number was expected. Reasons are stable
+    strings: `not_rated`, `provisional`, `population_too_small`,
+    `ratings_disabled`, `leaderboard_disabled`.
+    """
+
+    rated: bool = False
+    rating: Optional[float] = None
+    rd: Optional[float] = None
+    rated_matches: int = 0
+    provisional: Optional[bool] = None
+    #: Rated matches still needed before the rating is established.
+    matches_until_established: Optional[int] = None
+    tier: Optional[str] = None
+    tier_reason: Optional[str] = None
+    #: True when MVP/Legend was earned but is displayed as All-NBA because the
+    #: mode's established population is below ranked's high-tier floor.
+    tier_capped: bool = False
+    next_tier: Optional[str] = None
+    next_tier_rating: Optional[float] = None
+    #: Global position among every rated human in the mode.
+    rank: Optional[int] = None
+    rank_reason: Optional[str] = None
+    #: False when rated but without a public handle: ranked, not listed.
+    listed: bool = False
+    handle: Optional[str] = None
+    percentile: Optional[float] = None
+    percentile_reason: Optional[str] = None
+    #: Rated-match record. `matches_with_bots` + `matches_all_human` ==
+    #: `rated_matches_counted`: how much of this rating was earned against
+    #: calibrated bots rather than people.
+    wins: int = 0
+    losses: int = 0
+    draws: int = 0
+    rated_matches_counted: int = 0
+    matches_with_bots: int = 0
+    matches_all_human: int = 0
+    best_rated_score: Optional[float] = None
+    population: ArenaPopulationView = Field(default_factory=ArenaPopulationView)
+    tier_version: Optional[str] = None
+
+
+class ArenaAroundMeResponse(BaseModel):
+    """`GET /arena/leaderboard/{mode}/around-me` -- the caller and the listed
+    players nearest them.
+
+    `status`:
+      * `listed`     rated and on the public board under a handle;
+      * `unlisted`   rated, counted in every rank, but not shown on the board
+                     until a handle is chosen;
+      * `not_rated`  no rated match in this mode yet -- `me` carries only the
+                     reason, and `above`/`below` are empty.
+    """
+
+    leaderboard_enabled: bool
+    mode: str
+    status: str = "not_rated"
+    me: Optional[ArenaSkillView] = None
+    #: Listed players ahead of the caller, best first (nearest is LAST).
+    above: list[ArenaLeaderboardEntry] = Field(default_factory=list)
+    #: Listed players behind the caller, best first (nearest is FIRST).
+    below: list[ArenaLeaderboardEntry] = Field(default_factory=list)
+    population: ArenaPopulationView = Field(default_factory=ArenaPopulationView)
+    total_rated_players: int = 0
+    tier_version: Optional[str] = None
 
 
 class ArenaModeInfo(BaseModel):
@@ -291,6 +403,17 @@ class QueueStatusResponse(BaseModel):
     # can say "looking for players..." and then "adding a bot opponent" honestly,
     # rather than a spinner that means nothing.
     still_seeking_humans: Optional[bool] = None
+    #: The skill band this entry is currently matched within: the largest
+    #: |rating difference| a waiting human may have and still be paired with
+    #: you (`matchmaking.rating_band`). Starts at 100 and widens by 100 every
+    #: 10 s of YOUR wait. Null while waiting means UNBOUNDED -- the 30 s human
+    #: window has lapsed (or you asked to fill now), so any waiting human is
+    #: taken and bots fill the rest; `still_seeking_humans` is then false.
+    #: Null for `matched` / `not_in_queue`.
+    rating_band: Optional[float] = None
+    #: Seconds until the band next widens (or becomes unbounded). Null when it
+    #: is already unbounded or the caller is not waiting.
+    rating_band_widens_in_seconds: Optional[float] = None
 
 
 class MatchSummary(BaseModel):
@@ -332,3 +455,12 @@ class PersonalRecordResponse(BaseModel):
     rating: Optional[float] = None
     rating_provisional: Optional[bool] = None
     match_rating_change: Optional[float] = None
+    #: `matches_played` split by entry path. Only public-queue matches can move
+    #: a rating; practice and private rooms never do.
+    unrated_matches: int = 0
+    practice_matches: int = 0
+    private_matches: int = 0
+    #: The competitive skill card (tier, rank, percentile-when-meaningful,
+    #: rated record and bot composition). None for a local-practice guest, who
+    #: cannot enter a rated queue.
+    skill: Optional[ArenaSkillView] = None

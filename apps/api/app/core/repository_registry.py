@@ -73,6 +73,12 @@ REPOSITORY_DOMAINS: list[str] = [
     # rating that silently reverted is a number a player watched go up and then
     # go back down, with nothing to point at.
     "arena_rating",
+    # Arena standings (get_arena_standings_repo). A read model over
+    # arena_ratings + profiles.handle that owns no table, listed anyway: it
+    # resolves its backend from the same flag, and a production process whose
+    # board read memory while ratings wrote Postgres would publish an empty
+    # leaderboard over a full one.
+    "arena_standings",
     "telemetry",
     "contact",
 ]

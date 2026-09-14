@@ -305,25 +305,127 @@ async def join_queue(
     return await repo.enqueue(entry)
 
 
+# ---------------------------------------------------------------------------
+# Skill bands
+#
+# DESIGNED FOR A QUIET QUEUE. At launch concurrency most searches will find
+# nobody within any band, so the schedule is built to STOP chasing parity
+# quickly rather than to find the perfect opponent:
+#
+#     waited  0-10 s   |rating difference| <= 100
+#     waited 10-20 s                      <= 200
+#     waited 20-30 s                      <= 300
+#     window lapsed    unbounded -- any waiting human, then bots
+#
+# "Window lapsed" is the entry's own `human_preference_until`, whether it ran
+# out or the player pressed "Fill with bots now". The band therefore never
+# outlives the human-preference window: once a player has waited 30 s (or asked
+# to start) EVERY waiting human is compatible, so a bot can never be seated
+# while a person of any rating is available -- the rule `try_match` already
+# had, unchanged.
+#
+# A PAIR IS COMPATIBLE UNDER THE WIDER OF ITS TWO BANDS. Each entry's band comes
+# from that entry's own wait; taking the wider one means a player who has
+# waited 25 s is matchable by a newcomer's join request, not only by their own
+# next poll, so the outcome does not depend on which of two clients happens to
+# ask first.
+#
+# THREE-SEAT TABLES ARE ANCHORED ON THE REQUESTER: each chosen candidate must be
+# compatible with the entry being matched. Requiring every pair to be mutually
+# compatible would turn selection into a clique search for a benefit a
+# 300-point band cannot deliver anyway.
+#
+# Ratings come from `arena_ratings` for the mode; a player with no rated match
+# is at Glicko-2's initial rating (1500), exactly what the rating pass would
+# rate them from. Without a rating repository every entry is at 1500 and the
+# band never excludes anyone -- the matchmaker's previous behaviour.
+# ---------------------------------------------------------------------------
+
+#: The band a fresh entry starts with, in Glicko-1 display points.
+RATING_BAND_INITIAL = 100.0
+#: How much the band widens per step of the entry's own wait.
+RATING_BAND_STEP = 100.0
+#: How long each step lasts.
+RATING_BAND_STEP_SECONDS = 10.0
+
+
+def rating_band_for_wait(waited_seconds: float) -> float:
+    """The band for an entry still inside its human-preference window."""
+    steps = int(max(0.0, waited_seconds) // RATING_BAND_STEP_SECONDS)
+    return RATING_BAND_INITIAL + RATING_BAND_STEP * steps
+
+
+def rating_band(entry: ArenaQueueEntry, now: datetime) -> Optional[float]:
+    """This entry's current band, or None when it is unbounded (window lapsed)."""
+    from app.repositories.arena_protocols import _utc
+
+    if not entry.prefers_humans_at(now):
+        return None
+    return rating_band_for_wait((now - _utc(entry.joined_at)).total_seconds())
+
+
+def rating_band_widens_in(entry: ArenaQueueEntry, now: datetime) -> Optional[float]:
+    """Seconds until this entry's band next widens -- including the final step
+    to unbounded when the human window lapses. None once already unbounded."""
+    from app.repositories.arena_protocols import _utc
+
+    if not entry.prefers_humans_at(now):
+        return None
+    waited = max(0.0, (now - _utc(entry.joined_at)).total_seconds())
+    next_step = (int(waited // RATING_BAND_STEP_SECONDS) + 1) * RATING_BAND_STEP_SECONDS
+    until_window = (_utc(entry.human_preference_until) - now).total_seconds()
+    return round(max(0.0, min(next_step - waited, until_window)), 1)
+
+
+def _compatible(
+    a_band: Optional[float], b_band: Optional[float], a_rating: float, b_rating: float
+) -> bool:
+    if a_band is None or b_band is None:
+        return True
+    return abs(a_rating - b_rating) <= max(a_band, b_band)
+
+
+async def _queue_ratings(
+    rating_repo, mode: ArenaMode, subs: list[str]
+) -> dict[str, float]:
+    from app.services.ranked.glicko2 import initial_rating
+
+    start = initial_rating().rating
+    found = {}
+    if rating_repo is not None and subs:
+        found = await rating_repo.get_ratings_for_subs(subs, mode.mode)
+    return {sub: (found[sub].rating if sub in found else start) for sub in subs}
+
+
 async def try_match(
     repo: ArenaRepository,
     mode: ArenaMode,
     entry: ArenaQueueEntry,
     display_names: Optional[dict[str, str]] = None,
     now: Optional[datetime] = None,
+    rating_repo=None,
 ) -> Optional[ArenaMatch]:
     """Try to fill a match around `entry`. Returns the match, or None.
 
     Two phases, in order:
 
-      1. HUMANS. Take the longest-waiting compatible entries. If enough exist to
-         fill every seat, pair them -- regardless of anyone's preference window,
-         because a full table of humans is what the window is holding out FOR.
-      2. BOTS. Only once `entry`'s own window has lapsed. Fill the remaining
-         seats with the mode's default policy.
+      1. HUMANS. Among waiting entries compatible with `entry` under the skill
+         band (see "Skill bands" above), take the CLOSEST ratings first,
+         longest-waiting breaking ties, then entry id so the choice is total.
+         If enough exist to fill every seat, pair them -- regardless of anyone's
+         preference window, because a full table of humans is what the window
+         is holding out FOR.
+      2. BOTS. Only once `entry`'s own window has lapsed. Its band is then
+         unbounded, so every waiting human is brought in first and bots fill
+         only the seats nobody is available for.
 
-    Returns None while the window is still open and there are not enough humans:
-    the entry stays queued and the next request tries again.
+    Returns None while the window is still open and there are not enough
+    compatible humans: the entry stays queued and the next request -- with a
+    longer wait and so a wider band -- tries again.
+
+    RACE SAFETY IS UNCHANGED. Selection only decides WHICH entries to ask for;
+    `claim_entries_into_match` still claims them all-or-nothing, so two
+    matchmakers choosing overlapping sets still produce exactly one match.
     """
     now = now or _now()
     display_names = display_names or {}
@@ -333,18 +435,37 @@ async def try_match(
     )
     needed = mode.seat_count - 1
 
-    if len(candidates) >= needed:
-        chosen = candidates[:needed]  # longest-waiting first -- fairness.
-        return await _pair(repo, mode, [entry, *chosen], display_names, now)
+    ratings = await _queue_ratings(
+        rating_repo, mode, [entry.owner_sub, *(c.owner_sub for c in candidates)]
+    )
+    mine = ratings[entry.owner_sub]
+    my_band = rating_band(entry, now)
+    compatible = [
+        c for c in candidates
+        if _compatible(my_band, rating_band(c, now), mine, ratings[c.owner_sub])
+    ]
+    compatible.sort(
+        key=lambda c: (abs(ratings[c.owner_sub] - mine), _utc_ts(c.joined_at), c.entry_id)
+    )
+
+    if len(compatible) >= needed:
+        return await _pair(repo, mode, [entry, *compatible[:needed]], display_names, now)
 
     if entry.prefers_humans_at(now):
         return None  # still holding out for people.
 
-    # Window lapsed: fill what is left with bots. Every human still waiting is
-    # brought in first, so a bot never displaces a person who was available.
+    # Window lapsed: `my_band` is None, so `compatible` is every waiting human.
+    # They are all seated before any bot, so a bot never displaces a person who
+    # was available.
     return await _pair(
-        repo, mode, [entry, *candidates], display_names, now, fill_with_bots=True
+        repo, mode, [entry, *compatible], display_names, now, fill_with_bots=True
     )
+
+
+def _utc_ts(value: datetime) -> float:
+    from app.repositories.arena_protocols import _utc
+
+    return _utc(value).timestamp()
 
 
 async def _pair(
@@ -419,8 +540,13 @@ async def fill_queue_with_bots_now(
     owner_sub: str,
     display_names: Optional[dict[str, str]] = None,
     now: Optional[datetime] = None,
+    rating_repo=None,
 ) -> Optional[ArenaMatch]:
     """Collapse the caller's OWN human-preference window and match immediately.
+
+    With the window collapsed the caller's skill band is unbounded
+    (`rating_band`), so every waiting human is still taken before any bot --
+    pressing this never skips a person because their rating is far away.
 
     Returns the match, or None when the caller has no waiting entry.
 
@@ -445,7 +571,9 @@ async def fill_queue_with_bots_now(
     entry = await repo.collapse_human_preference(owner_sub, mode.mode, now)
     if entry is None:
         return None
-    return await try_match(repo, mode, entry, display_names or {}, now)
+    return await try_match(
+        repo, mode, entry, display_names or {}, now, rating_repo=rating_repo
+    )
 
 
 async def fill_private_room_with_bots(
