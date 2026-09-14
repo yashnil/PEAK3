@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
+  SHOWDOWN_COMMAND_INTRO_SEEN,
   showdownIdempotencyKey,
   twentyDollarApi,
   TwentyDollarAPIError,
@@ -276,7 +277,8 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
       lastScheduledVersion.current = view.state_version;
       retryStep.current = 0;
     }
-    const seatless = view.public_state.active_seat === null || view.turn_phase === "intro";
+    const seatless =
+      view.public_state.active_seat === null || view.turn_phase === "intro" || view.turn_phase === "arrival";
     const botReply = view.bot_reply_in_seconds ?? null;
     let delay: number;
     if (seatless) {
@@ -408,6 +410,44 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
     },
     [matchId, lane, applyView],
   );
+
+  /**
+   * ARRIVAL: TELL THE SERVER THE INTRO IS ON THIS SCREEN. Its clock starts
+   * when both bidders have (a bot is already there), never at match creation.
+   * Sent once after the intro rendered; re-armed only if it did not land.
+   */
+  const arrivalSent = useRef(false);
+  const mayReportArrival =
+    view?.turn_phase === "arrival" && (view?.legal_commands ?? []).includes(SHOWDOWN_COMMAND_INTRO_SEEN);
+  useEffect(() => {
+    if (!mayReportArrival || arrivalSent.current) return;
+    arrivalSent.current = true;
+    void lane
+      .run(
+        "intro_seen",
+        async () => {
+          const current = latest.current;
+          if (!current) return false;
+          const snapshot = current.view;
+          const response = await twentyDollarApi.submitCommand(
+            matchId,
+            SHOWDOWN_COMMAND_INTRO_SEEN,
+            {},
+            snapshot.state_version,
+            showdownIdempotencyKey(matchId, snapshot.your_seat_index, snapshot.state_version, SHOWDOWN_COMMAND_INTRO_SEEN, {}),
+          );
+          applyView(response.match, "command");
+          return response.accepted || response.replayed;
+        },
+        { exclusive: false },
+      )
+      .then((ok) => {
+        if (!ok) arrivalSent.current = false;
+      })
+      .catch(() => {
+        arrivalSent.current = false;
+      });
+  }, [mayReportArrival, lane, matchId, applyView]);
 
   const hasBots = view?.seats.some((seat) => seat.is_bot) ?? false;
 
@@ -566,7 +606,7 @@ function AuctionRoom({
     deadlineAt,
     pending: actPending,
     complete,
-    introOpen: view.turn_phase === "intro",
+    introOpen: view.turn_phase === "intro" || view.turn_phase === "arrival",
   });
 
   const yourTurn = privateState.is_your_turn && !complete;
@@ -634,8 +674,9 @@ function AuctionRoom({
           slots={publicState.slots.length}
           marketSkips={publicState.market_skips_per_seat}
           rated={view.rated}
-          elapsedSeconds={view.turn_elapsed_seconds ?? null}
-          totalSeconds={view.turn_total_seconds ?? null}
+          arriving={view.turn_phase === "arrival"}
+          elapsedSeconds={view.turn_phase === "arrival" ? null : (view.turn_elapsed_seconds ?? null)}
+          totalSeconds={view.turn_phase === "arrival" ? null : (view.turn_total_seconds ?? null)}
           turnSeq={view.turn_seq ?? null}
         />
       ) : null}

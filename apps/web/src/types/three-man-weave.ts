@@ -162,6 +162,8 @@ export const TMW_COMMAND_REARRANGE = "tmw_rearrange";
  * to reintroduce.
  */
 export const TMW_COMMAND_STAGE_PICK = "tmw_stage_pick";
+/** This seat's client has the briefing on screen. Sent once, during arrival. */
+export const TMW_COMMAND_INTRO_SEEN = "tmw_intro_seen";
 /**
  * FORMER commands, kept as names only. The briefing and the ceremony are
  * short, server-timed phases every seat watches on the same clock; neither
@@ -186,6 +188,9 @@ export const TMW_REJECT_SHARED_TIMELINE = "shared_timeline";
  * turn's published timeline, so a reload mid-briefing or mid-ceremony
  * resumes it from server state rather than restarting a client timer.
  */
+/** The seatless turn every match OPENS on: the briefing is on screen but its
+ *  clock waits until each human seat's client reports it (`TMW_COMMAND_INTRO_SEEN`). */
+export const TMW_TURN_PHASE_ARRIVAL = "arrival";
 export const TMW_TURN_PHASE_INTRO = "intro";
 export const TMW_TURN_PHASE_REVEAL = "reveal";
 export const TMW_TURN_PHASE_PICK = "pick";

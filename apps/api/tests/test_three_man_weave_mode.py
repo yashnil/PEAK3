@@ -34,6 +34,11 @@ from app.repositories.arena_protocols import (
 )
 from app.services.arena.modes import ArenaMode, ModeRegistry
 from app.services.three_man_weave.mode import (
+    ARRIVAL_BACKSTOP_SECONDS,
+    COMMAND_INTRO_SEEN,
+    PHASE_ARRIVAL,
+    REJECT_INTRO_ALREADY_SEEN,
+    REJECT_INTRO_STARTED,
     COMMAND_PICK,
     COMMAND_REARRANGE,
     COMMAND_SKIP_INTRO,
@@ -165,9 +170,26 @@ def _timeout(key: str = "sweep") -> CommandRequest:
     return _command(COMMAND_TYPE_TIMEOUT, {}, seat_index=None, key=key)
 
 
+def _through_arrival(snapshot: dict) -> dict:
+    """The opening snapshot as the briefing sees it: arrival over (every human
+    reported, or the backstop fired), nothing else changed. Tests that drive
+    picks straight through `reduce` without a foundation turn start here."""
+    opened = dict(snapshot)
+    opened.pop("arrival_open", None)
+    opened.pop("arrived_seats", None)
+    return opened
+
+
+def _arrival_turn(seq: int = 0) -> ArenaTurn:
+    """The turn every match OPENS on: no seat, the arrival backstop deadline."""
+    return _turn(
+        PHASE_ARRIVAL, None, deadline=NOW + timedelta(seconds=ARRIVAL_BACKSTOP_SECONDS), seq=seq
+    )
+
+
 @pytest.fixture(scope="module")
 def opening() -> dict:
-    return mode.initial_snapshot(4242, _seats())
+    return _through_arrival(mode.initial_snapshot(4242, _seats()))
 
 
 def _first_legal_pick(snapshot: dict, seat_index: int) -> tuple[str, str]:
@@ -178,7 +200,7 @@ def _first_legal_pick(snapshot: dict, seat_index: int) -> tuple[str, str]:
 
 def _play_to_completion(seed: int = 4242):
     """Drive a whole match through `reduce`, exactly as the foundation would."""
-    snapshot = mode.initial_snapshot(seed, _seats())
+    snapshot = _through_arrival(mode.initial_snapshot(seed, _seats()))
     outputs = []
     for turn in range(ROUNDS * PARTICIPANT_COUNT):
         seat = snapshot["current_seat"]
@@ -216,7 +238,7 @@ def test_the_six_contract_members_are_present_and_correctly_typed():
     # EVERY MATCH OPENS ON THE PRE-MATCH BRIEFING, never directly on the
     # ceremony -- and it belongs to no seat, which is what makes the
     # foundation publish `seconds_remaining` to all three participants.
-    assert mode.initial_phase() == PHASE_INTRO
+    assert mode.initial_phase() == PHASE_ARRIVAL
     assert mode.initial_turn_seat(mode.initial_snapshot(4242, _seats())) is None
     assert callable(mode.initial_snapshot)
     assert callable(mode.reduce)
@@ -603,7 +625,7 @@ def test_every_round_opens_on_the_ceremony_and_no_mid_round_pick_does(opening):
     # open turn (`open_turn` defaults to `None` in `_reduce`), so it is
     # unaffected by either seatless phase and still exercises the ceremony
     # boundary this test is about.
-    assert mode.initial_phase() == PHASE_INTRO
+    assert mode.initial_phase() == PHASE_ARRIVAL
     assert mode.initial_turn_seat(opening) is None
 
     _snapshot, outputs = _play_to_completion(seed=4242)
@@ -733,7 +755,7 @@ def test_the_intro_phase_gates_everything_else(opening):
     """PHASE_INTRO -> (its own timeout) -> PHASE_REVEAL, and nothing else moves
     a match still sitting on the briefing.
     """
-    assert mode.initial_phase() == PHASE_INTRO
+    assert mode.initial_phase() == PHASE_ARRIVAL
     assert mode.phase_seconds(PHASE_INTRO) == INTRO_SECONDS
 
     intro_turn = _intro_turn()
@@ -801,7 +823,16 @@ def test_a_fresh_match_never_reaches_an_active_state_with_no_open_turn_and_no_co
     the deadlock a newly-created match must never be able to reach.
     """
     snapshot = mode.initial_snapshot(4242, _seats())
-    assert mode.initial_phase() == PHASE_INTRO
+    assert mode.initial_phase() == PHASE_ARRIVAL
+
+    # ARRIVAL first: each human seat reports; the last report opens the
+    # briefing. Every intermediate state is active AND still has its arrival
+    # turn open (nothing resolved), so it is never "active with nothing to do".
+    for seat in range(PARTICIPANT_COUNT):
+        arrived = _reduce(snapshot, _command(COMMAND_INTRO_SEEN, seat_index=seat, key=f"arrive-{seat}"), open_turn=_arrival_turn())
+        assert arrived.accepted, arrived.rejection_message
+        snapshot = arrived.snapshot
+    assert arrived.open_turn is not None and arrived.open_turn.phase == PHASE_INTRO
 
     intro_ends = NOW + timedelta(seconds=INTRO_SECONDS)
     out = _reduce(snapshot, _timeout(key="intro-timeout"), open_turn=_intro_turn(), now=intro_ends)
@@ -1230,7 +1261,7 @@ def test_settling_an_unscoreable_roster_fails_loudly_instead_of_writing_a_zero(m
 
     # Play to the final turn honestly, then break the invariant for the last
     # command only -- so the failure lands at settlement, where the guard is.
-    snapshot = mode.initial_snapshot(4242, _seats())
+    snapshot = _through_arrival(mode.initial_snapshot(4242, _seats()))
     for turn in range(ROUNDS * PARTICIPANT_COUNT - 1):
         seat = snapshot["current_seat"]
         slug, slot = _first_legal_pick(snapshot, seat)
@@ -1383,7 +1414,7 @@ def test_a_whole_match_is_reproducible_from_its_seed():
 
 def test_bot_seats_are_recorded_but_change_no_rule():
     """A bot seat plays through exactly the same reducer as a human."""
-    snapshot = mode.initial_snapshot(4242, _seats(bot_indexes=(2,)))
+    snapshot = _through_arrival(mode.initial_snapshot(4242, _seats(bot_indexes=(2,))))
     seat = snapshot["current_seat"]
     slug, slot = _first_legal_pick(snapshot, seat)
     out = _reduce(
@@ -1767,3 +1798,98 @@ def test_a_snapshot_written_before_resolution_existed_reads_as_an_action(opening
                 entry.pop("resolution", None)
     public, _private, _legal = mode.project(_match(legacy), _seats(), seat)
     assert public["rosters"][seat]["slots"][slot]["resolution"] == "action"
+
+
+# ---------------------------------------------------------------------------
+# ARRIVAL (game-feel pass 4): the briefing's clock starts when the table has
+# reached the match, not when the match was created.
+# ---------------------------------------------------------------------------
+
+
+def test_every_human_is_offered_only_the_arrival_report_while_arriving():
+    arriving = mode.initial_snapshot(4242, _seats())
+    assert mode.initial_phase() == PHASE_ARRIVAL
+    assert mode.phase_seconds(PHASE_ARRIVAL) == ARRIVAL_BACKSTOP_SECONDS
+    assert mode.phase_accepts_action(PHASE_ARRIVAL) is False
+    for seat in range(PARTICIPANT_COUNT):
+        public, private, legal = mode.project(_match(arriving), _seats(), seat)
+        assert legal == (COMMAND_INTRO_SEEN,), seat
+        assert "legal_picks" not in private and "candidate_fits" not in private
+        assert public["arrival"] == {"arrived_seats": []}
+
+
+def test_a_late_arrival_still_gets_the_whole_briefing():
+    """The last human reports 15 s after the match was created: the briefing's
+    FULL window is measured from that report, not from creation."""
+    snapshot = mode.initial_snapshot(4242, _seats())
+    late = NOW + timedelta(seconds=15)
+    for seat in (0, 1):
+        out = _reduce(snapshot, _command(COMMAND_INTRO_SEEN, seat_index=seat, key=f"arr-{seat}"), open_turn=_arrival_turn(), now=late)
+        assert out.accepted
+        assert out.open_turn is None and out.resolve_turn is None, "the table is not all here yet"
+        snapshot = out.snapshot
+    assert snapshot["arrived_seats"] == [0, 1]
+    _public, _private, legal = mode.project(_match(snapshot), _seats(), 1)
+    assert legal == (), "a seat that already reported has nothing to send"
+
+    last = _reduce(snapshot, _command(COMMAND_INTRO_SEEN, seat_index=2, key="arr-2"), open_turn=_arrival_turn(), now=late)
+    assert last.accepted
+    assert last.resolve_turn == "action"
+    assert last.open_turn.phase == PHASE_INTRO and last.open_turn.seat_index is None
+    assert last.open_turn.deadline_at == late + timedelta(seconds=INTRO_SECONDS)
+    assert "arrival_open" not in last.snapshot and "arrived_seats" not in last.snapshot
+    assert last.snapshot["picks"] == [] and last.snapshot["current_roll"] == snapshot["current_roll"]
+
+
+def test_an_arrival_report_is_replay_safe_and_cannot_restart_the_briefing():
+    snapshot = mode.initial_snapshot(4242, _seats())
+    first = _reduce(snapshot, _command(COMMAND_INTRO_SEEN, seat_index=0, key="a0"), open_turn=_arrival_turn())
+    again = _reduce(first.snapshot, _command(COMMAND_INTRO_SEEN, seat_index=0, key="a0-again"), open_turn=_arrival_turn())
+    assert not again.accepted and again.rejection_code == REJECT_INTRO_ALREADY_SEEN
+    assert again.snapshot is None and again.open_turn is None
+
+    started = _reduce(_through_arrival(snapshot), _command(COMMAND_INTRO_SEEN, seat_index=1, key="late"), open_turn=_intro_turn())
+    assert not started.accepted and started.rejection_code == REJECT_INTRO_STARTED
+    assert started.open_turn is None
+
+
+def test_bots_are_at_the_table_already_and_cannot_report():
+    seats = _seats(bot_indexes=(1, 2))
+    arriving = mode.initial_snapshot(4242, seats)
+    for bot_seat in (1, 2):
+        _public, _private, legal = mode.project(_match(arriving), seats, bot_seat)
+        assert COMMAND_INTRO_SEEN not in legal
+        refused = mode.reduce(ReducerInput(
+            match=_match(arriving), seats=seats, open_turn=_arrival_turn(),
+            command=_command(COMMAND_INTRO_SEEN, seat_index=bot_seat, key=f"bot-{bot_seat}"), now=NOW,
+        ))
+        assert not refused.accepted
+    human = mode.reduce(ReducerInput(
+        match=_match(arriving), seats=seats, open_turn=_arrival_turn(),
+        command=_command(COMMAND_INTRO_SEEN, seat_index=0, key="human"), now=NOW,
+    ))
+    assert human.accepted and human.open_turn.phase == PHASE_INTRO
+
+
+def test_nothing_can_be_drafted_while_the_table_is_arriving():
+    arriving = mode.initial_snapshot(4242, _seats())
+    seat = arriving["current_seat"]
+    slug, slot = _first_legal_pick(_through_arrival(arriving), seat)
+    picked = _reduce(arriving, _command(COMMAND_PICK, {"player_slug": slug, "slot_type": slot}, seat_index=seat), open_turn=_arrival_turn())
+    assert not picked.accepted and picked.rejection_code == REJECT_NOT_YOUR_TURN
+    staged = _reduce(arriving, _command(COMMAND_STAGE_PICK, {"player_slug": slug, "slot_type": slot}, seat_index=seat), open_turn=_arrival_turn())
+    assert not staged.accepted
+
+
+def test_the_arrival_backstop_opens_the_briefing_and_never_gameplay():
+    arriving = mode.initial_snapshot(4242, _seats())
+    at = NOW + timedelta(seconds=ARRIVAL_BACKSTOP_SECONDS)
+    first = _reduce(arriving, _timeout(key="backstop"), open_turn=_arrival_turn(), now=at)
+    second = _reduce(arriving, _timeout(key="backstop"), open_turn=_arrival_turn(), now=at)
+    for out in (first, second):
+        assert out.accepted
+        assert out.open_turn.phase == PHASE_INTRO, "a backstop must open the briefing, not a ceremony or a pick"
+        assert out.open_turn.seat_index is None
+        assert out.open_turn.deadline_at == at + timedelta(seconds=INTRO_SECONDS)
+        assert out.snapshot["picks"] == []
+    assert first.snapshot == second.snapshot and first.open_turn == second.open_turn

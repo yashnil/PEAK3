@@ -9,6 +9,7 @@ import type {
   TmwSlotType,
 } from "@/types/three-man-weave";
 import {
+  TMW_COMMAND_INTRO_SEEN,
   TMW_COMMAND_PICK,
   TMW_COMMAND_REARRANGE,
   TMW_COMMAND_STAGE_PICK,
@@ -17,6 +18,7 @@ import {
   TMW_RESOLUTION_TIMEOUT,
   TMW_REVEAL_SECONDS,
   TMW_SLOT_TYPES,
+  TMW_TURN_PHASE_ARRIVAL,
   TMW_TURN_PHASE_INTRO,
   TMW_TURN_PHASE_REVEAL,
   TMW_TURN_SECONDS,
@@ -36,6 +38,7 @@ import {
   changedSlots,
   connectionState,
   identityLock,
+  isArriving,
   isBriefing,
   isRevealing,
   isYourTurn,
@@ -154,6 +157,8 @@ interface StagedArrangement {
 }
 
 function nominalPhaseSeconds(match: TmwMatchView): number | null {
+  // Arrival has no countdown to draw: its length is only a backstop.
+  if (match.turn_phase === TMW_TURN_PHASE_ARRIVAL) return null;
   if (match.turn_phase === TMW_TURN_PHASE_INTRO) return TMW_INTRO_SECONDS;
   if (match.turn_phase === TMW_TURN_PHASE_REVEAL) return TMW_REVEAL_SECONDS;
   if (match.turn_phase) return TMW_TURN_SECONDS;
@@ -421,6 +426,7 @@ export default function ThreeManWeaveGame({
   const phase = phaseOf(match);
   const complete = phase === "complete";
   const briefing = isBriefing(match);
+  const arriving = isArriving(match);
   const revealing = isRevealing(match);
   const yourTurn = isYourTurn(match);
 
@@ -621,6 +627,30 @@ export default function ThreeManWeaveGame({
     },
     [lane, send],
   );
+
+  /**
+   * ARRIVAL: TELL THE SERVER THE BRIEFING IS ON THIS SCREEN.
+   *
+   * The briefing's clock does not start at match creation any more; it starts
+   * when every human seat's client has reported having it on screen. This
+   * runs after the commit that rendered the briefing (effects follow paint),
+   * sends once, and re-arms only if the report did not land -- a duplicate is
+   * refused by name on the server and changes nothing.
+   */
+  const arrivalSent = useRef(false);
+  const mayReportArrival = arriving && match.legal_commands.includes(TMW_COMMAND_INTRO_SEEN);
+  useEffect(() => {
+    if (!mayReportArrival || arrivalSent.current) return;
+    arrivalSent.current = true;
+    void lane
+      .run("intro_seen", () => send(TMW_COMMAND_INTRO_SEEN, {}, "intro_seen"), { exclusive: false })
+      .then((response) => {
+        if (!response || !(response.accepted || response.replayed)) arrivalSent.current = false;
+      })
+      .catch(() => {
+        arrivalSent.current = false;
+      });
+  }, [mayReportArrival, lane, send]);
 
   // A new turn is a new decision: forget the last staged intent so the same
   // selection can be staged again next turn.
@@ -886,6 +916,7 @@ export default function ThreeManWeaveGame({
             seats={match.seats}
             yourSeatIndex={match.your_seat_index}
             handoffLabel={nextUp ?? undefined}
+            arriving={arriving}
             startedAt={room.turnStartedAt}
             totalSeconds={room.turnTotalSeconds ?? (briefing ? TMW_INTRO_SECONDS : TMW_REVEAL_SECONDS)}
           />

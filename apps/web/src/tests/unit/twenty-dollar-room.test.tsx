@@ -678,3 +678,52 @@ describe("the side-column turn rails", () => {
     expect(rail).toBe(stage);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Arrival (game-feel pass 4)
+// ---------------------------------------------------------------------------
+
+describe("arrival", () => {
+  it("reports the intro on screen exactly once, then shows the intro's own countdown", async () => {
+    const arriving = view({
+      state_version: 1,
+      turn_phase: "arrival",
+      legal_commands: ["showdown_intro_seen", "showdown_forfeit"],
+      current_turn_seat_index: null,
+      seconds_remaining: 20,
+      turn_seconds_remaining: 20,
+      turn_elapsed_seconds: 0.1,
+      turn_total_seconds: 20,
+      turn_seq: 0,
+      private_state: { is_your_turn: false },
+    });
+    const intro = view({
+      state_version: 2,
+      turn_phase: "intro",
+      legal_commands: ["showdown_forfeit"],
+      current_turn_seat_index: null,
+      seconds_remaining: 4.5,
+      turn_seconds_remaining: 4.5,
+      turn_elapsed_seconds: 0,
+      turn_total_seconds: 4.5,
+      turn_seq: 1,
+      private_state: { is_your_turn: false },
+    });
+    submitCommand.mockResolvedValue({ accepted: true, replayed: false, match: intro });
+    await openRoom(arriving);
+
+    expect(screen.getByTestId("td-intro")).toBeInTheDocument();
+    await waitFor(() => expect(submitCommand).toHaveBeenCalledTimes(1));
+    expect(submitCommand.mock.calls[0][1]).toBe("showdown_intro_seen");
+    expect(submitCommand.mock.calls[0][3]).toBe(1);
+
+    await waitFor(() => expect(screen.getByTestId("td-intro-countdown")).toHaveTextContent(/Lot 1 opens in \d+s/));
+    expect(screen.getByTestId("td-intro-countdown")).toHaveAttribute("data-arriving", "false");
+
+    getMatch.mockResolvedValue(intro);
+    await act(async () => {
+      vi.advanceTimersByTime(2500);
+    });
+    expect(submitCommand).toHaveBeenCalledTimes(1);
+  });
+});

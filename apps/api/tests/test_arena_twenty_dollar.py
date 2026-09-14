@@ -38,6 +38,11 @@ from app.repositories.arena_protocols import (
     project_seat_view,
 )
 from app.services.twenty_dollar.mode import (
+    ARRIVAL_BACKSTOP_SECONDS,
+    COMMAND_INTRO_SEEN,
+    PHASE_ARRIVAL,
+    REJECT_INTRO_ALREADY_SEEN,
+    REJECT_INTRO_STARTED,
     COMMAND_FORFEIT,
     COMMAND_SKIP_INTRO,
     INTRO_SECONDS,
@@ -70,6 +75,15 @@ SEATS = (
 )
 
 
+def opened_snapshot(seed=4242) -> dict:
+    """The opening snapshot as the intro sees it: both bidders arrived. Tests
+    about ARRIVAL itself build from `td_mode.initial_snapshot` directly."""
+    snapshot = td_mode.initial_snapshot(seed, SEATS)
+    snapshot.pop("arrival_open", None)
+    snapshot.pop("arrived_seats", None)
+    return snapshot
+
+
 def make_match(snapshot=None, seed=4242, status=MATCH_STATUS_ACTIVE) -> ArenaMatch:
     return ArenaMatch(
         match_id="m1",
@@ -83,7 +97,7 @@ def make_match(snapshot=None, seed=4242, status=MATCH_STATUS_ACTIVE) -> ArenaMat
         created_by="u0",
         expires_at=NOW + timedelta(days=1),
         status=status,
-        snapshot=snapshot if snapshot is not None else td_mode.initial_snapshot(seed, SEATS),
+        snapshot=snapshot if snapshot is not None else opened_snapshot(seed),
     )
 
 
@@ -190,7 +204,11 @@ class TestContract:
         # used to run as a client beat while the server's 25-second deadline
         # was already going, so it spent the player's own decision clock to
         # tell them the rules. It is a real turn now, belonging to no seat.
-        assert td_mode.initial_phase() == "intro"
+        # ...and it opens on ARRIVAL before that: the intro's clock waits for
+        # both bidders to reach the match (game-feel pass 4).
+        assert td_mode.initial_phase() == PHASE_ARRIVAL
+        assert td_mode.phase_seconds(PHASE_ARRIVAL) == ARRIVAL_BACKSTOP_SECONDS
+        assert td_mode.phase_accepts_action(PHASE_ARRIVAL) is False
         assert td_mode.phase_seconds("intro") == INTRO_SECONDS
         assert td_mode.phase_seconds("auction") == td_mode.turn_seconds
         assert td_mode.phase_accepts_action("intro") is False
@@ -1440,3 +1458,72 @@ class TestPhantomLotFixInvariant:
             "ordinary play -- the eligibility pre-filter should make this "
             "unreachable; see `nba_peak.twenty_dollar.state._eligible_candidates`"
         )
+
+
+
+# ---------------------------------------------------------------------------
+# ARRIVAL (game-feel pass 4)
+# ---------------------------------------------------------------------------
+
+
+def arrival_turn(seq: int = 0) -> ArenaTurn:
+    return ArenaTurn(
+        match_id="m1", turn_seq=seq, phase=PHASE_ARRIVAL, seat_index=None,
+        deadline_at=NOW + timedelta(seconds=ARRIVAL_BACKSTOP_SECONDS), opened_at=NOW,
+    )
+
+
+class TestArrival:
+    def test_each_human_is_offered_only_the_report_and_conceding(self):
+        match = make_match(td_mode.initial_snapshot(4242, SEATS))
+        for seat in (0, 1):
+            public, _private, legal = td_mode.project(match, SEATS, seat)
+            assert set(legal) == {COMMAND_INTRO_SEEN, COMMAND_FORFEIT}, legal
+            assert public["arrival"] == {"arrived_seats": []}
+
+    def test_the_intro_starts_from_the_last_report_not_from_creation(self):
+        match = make_match(td_mode.initial_snapshot(4242, SEATS))
+        late = NOW + timedelta(seconds=12)
+        first = td_mode.reduce(ReducerInput(match=match, seats=SEATS, open_turn=arrival_turn(), command=cmd(0, COMMAND_INTRO_SEEN, key="arr-0"), now=late))
+        assert first.accepted and first.open_turn is None and first.resolve_turn is None
+        assert first.snapshot["arrived_seats"] == [0]
+        # The same seat again changes nothing.
+        again = td_mode.reduce(ReducerInput(match=make_match(first.snapshot), seats=SEATS, open_turn=arrival_turn(), command=cmd(0, COMMAND_INTRO_SEEN, key="arr-0b"), now=late))
+        assert not again.accepted and again.rejection_code == REJECT_INTRO_ALREADY_SEEN
+        second = td_mode.reduce(ReducerInput(match=make_match(first.snapshot), seats=SEATS, open_turn=arrival_turn(), command=cmd(1, COMMAND_INTRO_SEEN, key="arr-1"), now=late))
+        assert second.accepted
+        assert second.open_turn.phase == PHASE_INTRO and second.open_turn.seat_index is None
+        assert second.open_turn.deadline_at == late + timedelta(seconds=INTRO_SECONDS)
+        assert "arrival_open" not in second.snapshot and "arrived_seats" not in second.snapshot
+        # The lot is untouched by arriving.
+        assert second.snapshot["current_candidate"] == match.snapshot["current_candidate"]
+        assert second.snapshot["history"] == []
+
+    def test_a_report_after_the_intro_started_is_refused_by_name(self):
+        out = td_mode.reduce(ReducerInput(match=make_match(), seats=SEATS, open_turn=intro_turn(), command=cmd(0, COMMAND_INTRO_SEEN), now=NOW))
+        assert not out.accepted and out.rejection_code == REJECT_INTRO_STARTED
+
+    def test_nobody_bids_or_passes_while_the_table_is_arriving(self):
+        match = make_match(td_mode.initial_snapshot(4242, SEATS))
+        opener = match.snapshot["active_seat"]
+        for command_type, payload in (("bid", {"amount": 1}), ("pass", {})):
+            out = td_mode.reduce(ReducerInput(match=match, seats=SEATS, open_turn=arrival_turn(), command=cmd(opener, command_type, payload), now=NOW))
+            assert not out.accepted, command_type
+            assert out.rejection_code == "not_your_turn", command_type
+
+    def test_a_bot_is_already_at_the_table(self):
+        seats = (SEATS[0], ArenaSeat(match_id="m1", seat_index=1, occupant_kind=OCCUPANT_BOT, bot_id="b", bot_rating=1200.0, display_name="Bot"))
+        match = make_match(td_mode.initial_snapshot(4242, SEATS))
+        _public, _private, legal = td_mode.project(match, seats, 1)
+        assert COMMAND_INTRO_SEEN not in legal
+        out = td_mode.reduce(ReducerInput(match=match, seats=seats, open_turn=arrival_turn(), command=cmd(0, COMMAND_INTRO_SEEN), now=NOW))
+        assert out.accepted and out.open_turn.phase == PHASE_INTRO
+
+    def test_the_backstop_opens_the_intro_never_a_lot(self):
+        match = make_match(td_mode.initial_snapshot(4242, SEATS))
+        at = NOW + timedelta(seconds=ARRIVAL_BACKSTOP_SECONDS)
+        out = td_mode.reduce(ReducerInput(match=match, seats=SEATS, open_turn=arrival_turn(), command=TIMEOUT_CMD, now=at))
+        assert out.accepted
+        assert out.open_turn.phase == PHASE_INTRO
+        assert out.open_turn.deadline_at == at + timedelta(seconds=INTRO_SECONDS)
+        assert out.snapshot["history"] == [] and out.snapshot["lot_actions"] == []

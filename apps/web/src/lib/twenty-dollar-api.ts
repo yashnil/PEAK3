@@ -422,10 +422,13 @@ export type ShowdownCommand =
   | "bid"
   | "pass"
   | "showdown_skip_intro"
+  | "showdown_intro_seen"
   | "showdown_forfeit";
 
 export const SHOWDOWN_COMMAND_SKIP_INTRO = "showdown_skip_intro" as const;
 export const SHOWDOWN_COMMAND_FORFEIT = "showdown_forfeit" as const;
+/** This seat's client has the intro on screen; sent once, during arrival. */
+export const SHOWDOWN_COMMAND_INTRO_SEEN = "showdown_intro_seen" as const;
 
 export interface SubmitCommandResult {
   accepted: boolean;

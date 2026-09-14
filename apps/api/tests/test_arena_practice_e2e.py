@@ -191,6 +191,29 @@ def _command(client: TestClient, match_id: str, view: dict, command: str, payloa
     return response.json()
 
 
+def _arrive(client: TestClient, view: dict) -> dict:
+    """What the room does once the intro is on screen: report arriving.
+
+    Every Arena match now OPENS in a seatless `arrival` turn; the intro's own
+    clock starts only when each human seat's client has sent its mode's
+    `*_intro_seen`. Returns the view the report answered with (the intro, once
+    the table is complete), or `view` unchanged when there is nothing to send.
+    """
+    command = {TMW: tmw_module.COMMAND_INTRO_SEEN, TWENTY: td_module.COMMAND_INTRO_SEEN}.get(view["mode"])
+    if command and view.get("turn_phase") == "arrival" and command in view["legal_commands"]:
+        result = _command(client, view["match_id"], view, command, {})
+        assert result["accepted"], result
+        return result["match"]
+    return view
+
+
+def _start_practice(client: TestClient, mode: str) -> dict:
+    """Start bot practice exactly as the room does: create it, then arrive."""
+    response = client.post("/api/v1/arena/matches/practice", json={"mode": mode})
+    assert response.status_code == 200, response.text
+    return _arrive(client, response.json())
+
+
 def _human_pick(view: dict) -> dict:
     """A pick payload a REAL player could press, from the seat's own projection.
 
@@ -229,9 +252,7 @@ def _human_pick(view: dict) -> dict:
 
 def test_three_man_weave_practice_seats_one_human_and_two_bots():
     client = _client_as("user-a")
-    view = client.post(
-        "/api/v1/arena/matches/practice", json={"mode": TMW}
-    ).json()
+    view = _start_practice(client, TMW)
     assert view["seat_count"] == 3
     assert [s["seat_index"] for s in view["seats"]] == [0, 1, 2]
     assert sum(1 for s in view["seats"] if s["is_bot"]) == 2
@@ -251,9 +272,7 @@ def test_the_weave_seats_the_human_at_every_seat_across_matches():
     client = _client_as("user-a")
     seen = set()
     for _ in range(40):
-        view = client.post(
-            "/api/v1/arena/matches/practice", json={"mode": TMW}
-        ).json()
+        view = _start_practice(client, TMW)
         human = next(s for s in view["seats"] if not s["is_bot"])
         seen.add(human["seat_index"])
         assert view["your_seat_index"] == human["seat_index"]
@@ -262,9 +281,7 @@ def test_the_weave_seats_the_human_at_every_seat_across_matches():
 
 def test_twenty_dollar_practice_seats_one_human_and_one_bot():
     client = _client_as("user-a")
-    view = client.post(
-        "/api/v1/arena/matches/practice", json={"mode": TWENTY}
-    ).json()
+    view = _start_practice(client, TWENTY)
     assert view["seat_count"] == 2
     assert [s["is_bot"] for s in view["seats"]] == [False, True]
 
@@ -272,7 +289,7 @@ def test_twenty_dollar_practice_seats_one_human_and_one_bot():
 @pytest.mark.parametrize("mode", [TMW, TWENTY])
 def test_no_seat_name_leaks_an_implementation_label(mode):
     client = _client_as("user-a")
-    view = client.post("/api/v1/arena/matches/practice", json={"mode": mode}).json()
+    view = _start_practice(client, mode)
     bot_names = []
     for seat in view["seats"]:
         name = seat["display_name"]
@@ -303,9 +320,7 @@ def test_the_showdowns_first_turn_belongs_to_the_seed_drawn_opener():
     client = _client_as("user-a")
     seen = set()
     for _ in range(25):
-        view = client.post(
-            "/api/v1/arena/matches/practice", json={"mode": TWENTY}
-        ).json()
+        view = _start_practice(client, TWENTY)
         opener = view["public_state"]["opening_seat"]
         seen.add(opener)
         assert view["public_state"]["active_seat"] == opener
@@ -335,7 +350,7 @@ def test_no_lot_can_expire_settle_or_draw_a_bot_action_while_the_intro_is_up():
     condition that would let it fire underneath the briefing.
     """
     client = _client_as("user-a")
-    view = client.post("/api/v1/arena/matches/practice", json={"mode": TWENTY}).json()
+    view = _start_practice(client, TWENTY)
     match_id = view["match_id"]
     assert view["turn_phase"] == td_module.PHASE_INTRO
     assert view["current_turn_seat_index"] is None
@@ -379,9 +394,7 @@ def test_the_human_gets_the_full_window_when_their_turn_opens():
     the full turn length the moment the turn is created.
     """
     client = _client_as("user-a")
-    view = client.post(
-        "/api/v1/arena/matches/practice", json={"mode": TWENTY}
-    ).json()
+    view = _start_practice(client, TWENTY)
     # END THE INTRO FIRST. It is a real turn belonging to no seat, so no
     # auction clock exists until it closes -- which is the whole point of it.
     view = _poll(client, view["match_id"])
@@ -396,9 +409,7 @@ def test_the_human_gets_the_full_window_when_their_turn_opens():
 def test_a_bot_does_not_move_inside_its_own_think_delay():
     """Without the delay a whole lot could resolve between two frames."""
     client = _client_as("user-a")
-    created = client.post(
-        "/api/v1/arena/matches/practice", json={"mode": TWENTY}
-    ).json()
+    created = _start_practice(client, TWENTY)
     match_id = created["match_id"]
     # A poll that does NOT backdate the turn: nothing may have moved.
     immediate = client.get(f"/api/v1/arena/matches/{match_id}").json()
@@ -412,9 +423,7 @@ def test_a_bot_does_not_move_inside_its_own_think_delay():
 
 def test_a_twenty_dollar_bot_practice_match_completes_with_two_legal_rosters():
     client = _client_as("user-a")
-    view = client.post(
-        "/api/v1/arena/matches/practice", json={"mode": TWENTY}
-    ).json()
+    view = _start_practice(client, TWENTY)
     match_id = view["match_id"]
     you = view["your_seat_index"]
 
@@ -449,9 +458,7 @@ def test_the_showdown_bot_buys_players_rather_than_passing_on_everything():
     """THE REPORTED DEFECT. A human who passes on every lot must still lose
     players to a bot that decided independently."""
     client = _client_as("user-a")
-    view = client.post(
-        "/api/v1/arena/matches/practice", json={"mode": TWENTY}
-    ).json()
+    view = _start_practice(client, TWENTY)
     match_id = view["match_id"]
     you = view["your_seat_index"]
 
@@ -472,7 +479,7 @@ def test_the_showdown_bot_buys_players_rather_than_passing_on_everything():
 
 def test_a_three_man_weave_bot_practice_match_completes_six_rounds():
     client = _client_as("user-a")
-    view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
+    view = _start_practice(client, TMW)
     match_id = view["match_id"]
     you = view["your_seat_index"]
 
@@ -509,7 +516,7 @@ def test_a_three_man_weave_bot_practice_match_completes_six_rounds():
 def test_the_weaves_snake_order_is_exactly_the_published_one():
     """A-B-C / C-B-A across all six rounds, observed from the live match."""
     client = _client_as("user-a")
-    view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
+    view = _start_practice(client, TMW)
     match_id = view["match_id"]
     you = view["your_seat_index"]
     order: list[int] = []
@@ -541,11 +548,11 @@ def test_the_weaves_snake_order_is_exactly_the_published_one():
 #: Practice seeds whose TWELVE bot picks ALL draw a think time above
 #: `BOT_AGE_PER_POLL_SECONDS`, one per human seat (`config.human_seat_index`).
 #: Found by an offline scan of `bot_think_seconds(seed, seat, turn_seq)` over
-#: the draft's turn schedule (intro = turn 0, then per round one ceremony turn
+#: the draft's turn schedule (arrival = turn 0, intro = turn 1, then per round one ceremony turn
 #: and three picks in snake order); every draw is at least 5.5 s so none sits
 #: on the one-poll/two-poll boundary. This is the configuration that made the
 #: flat ceiling fail: two polls per pick, twelve picks, plus the briefing.
-WEAVE_SLOW_BOT_SEEDS = {0: 40, 1: 37, 2: 49}
+WEAVE_SLOW_BOT_SEEDS = {0: 2, 1: 35, 2: 4}
 
 
 @pytest.mark.parametrize(
@@ -587,7 +594,7 @@ def test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock(monkeypatch, seed
     if seed is not None:
         monkeypatch.setattr(mm, "_new_seed", lambda: seed)
     client = _client_as("user-a")
-    view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
+    view = _start_practice(client, TMW)
     match_id = view["match_id"]
     you = view["your_seat_index"]
     if seed is not None:
@@ -697,7 +704,7 @@ WEAVE_FORMERLY_HUNG_SEEDS = (2037, 666)
 def test_the_seeds_that_used_to_hang_the_weave_now_finish(monkeypatch, seed):
     monkeypatch.setattr(mm, "_new_seed", lambda: seed)
     client = _client_as("user-a")
-    view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
+    view = _start_practice(client, TMW)
     match_id = view["match_id"]
     you = view["your_seat_index"]
     assert _memory_arena_repo._matches[match_id].seed == seed
@@ -833,7 +840,7 @@ def _weave_with_human_at_seat(client: TestClient, seat_index: int) -> dict:
     `test_the_weave_seats_the_human_at_every_seat_across_matches` relies on.
     """
     for _ in range(80):
-        view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
+        view = _start_practice(client, TMW)
         if view["your_seat_index"] == seat_index:
             return view
     raise AssertionError(f"no practice match seated the human at {seat_index}")
@@ -847,7 +854,7 @@ def test_every_weave_round_opens_on_a_ceremony_that_belongs_to_no_seat():
     been deleted for a third of them. This walks all six.
     """
     client = _client_as("user-a")
-    view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
+    view = _start_practice(client, TMW)
     match_id = view["match_id"]
     you = view["your_seat_index"]
 
@@ -981,7 +988,7 @@ def test_replaying_the_ceremonys_timeout_applies_nothing_twice():
     opening a second pick turn or moving the first one's deadline.
     """
     client = _client_as("user-a")
-    view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
+    view = _start_practice(client, TMW)
     match_id = view["match_id"]
     # Past the pre-match briefing (`PHASE_INTRO`) first -- see
     # `test_the_intro_phase_gates_everything_else` for that phase on its own.
@@ -1044,7 +1051,10 @@ def test_a_reconnect_mid_ceremony_reconstructs_it_for_every_seat():
     # Past the pre-match briefing (`PHASE_INTRO`) first -- see
     # `test_the_intro_phase_gates_everything_else` for that phase on its own.
     # This test is specifically about reconnecting mid-CEREMONY, so it has to
-    # actually be in the ceremony before measuring anything about it.
+    # actually be in the ceremony before measuring anything about it. Two
+    # seatless turns stand in front of it now: arrival (nobody reported, so
+    # its backstop is let to pass) and then the briefing itself.
+    _poll(host, match_id)
     _poll(host, match_id)
 
     window = (
@@ -1093,7 +1103,7 @@ def test_the_intro_phase_gates_everything_else():
     from app.services.arena import bots as bot_module
 
     client = _client_as("user-a")
-    view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
+    view = _start_practice(client, TMW)
     match_id = view["match_id"]
 
     assert view["turn_phase"] == tmw_module.PHASE_INTRO
@@ -1196,6 +1206,19 @@ def test_every_seat_enters_the_match_on_the_same_server_timeline():
         )
         assert joined.status_code == 200, joined.text
 
+    # ARRIVAL FIRST. The room is full and active, but the briefing's clock
+    # waits until every seat's client has it on screen; nobody can draft.
+    for position, sub in enumerate(("user-a", "user-b", "user-c")):
+        client = _client_as(sub)
+        view = client.get(f"/api/v1/arena/matches/{match_id}").json()
+        assert view["status"] == "active", sub
+        assert view["turn_phase"] == tmw_module.PHASE_ARRIVAL, sub
+        refused = _command(client, match_id, view, "tmw_pick", {"player_slug": "anyone", "slot_type": "PG"})
+        assert refused["accepted"] is False, sub
+        arrived = _arrive(client, view)
+        expected = tmw_module.PHASE_INTRO if position == 2 else tmw_module.PHASE_ARRIVAL
+        assert arrived["turn_phase"] == expected, (sub, arrived["turn_phase"])
+
     seqs = set()
     for sub in ("user-a", "user-b", "user-c"):
         client = _client_as(sub)
@@ -1239,7 +1262,7 @@ def test_the_intros_own_deadline_opens_the_ceremony_for_the_table():
     the phase, then reads with a plain GET.
     """
     client = _client_as("user-a")
-    view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
+    view = _start_practice(client, TMW)
     match_id = view["match_id"]
     assert view["turn_phase"] == tmw_module.PHASE_INTRO
     before_rosters = view["public_state"]["rosters"]
@@ -1277,7 +1300,7 @@ def test_round_ones_ceremony_is_the_modes_own_length():
     decision window.
     """
     client = _client_as("user-a")
-    view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
+    view = _start_practice(client, TMW)
     match_id = view["match_id"]
     _poll(client, match_id)
     turn = _open_turn(match_id)
@@ -1329,3 +1352,84 @@ def test_a_host_can_fill_their_own_room_on_request(mode):
     assert filled["status"] == "active"
     assert len(filled["seats"]) == filled["seat_count"]
     assert filled["rated"] is False
+
+
+# ---------------------------------------------------------------------------
+# ARRIVAL (game-feel pass 4), through the real routes
+# ---------------------------------------------------------------------------
+
+
+def _backdate_open_turn(match_id: str, seconds: float) -> None:
+    """The match was created `seconds` ago and nobody has rendered it yet."""
+    for turn in _memory_arena_repo._turns.get(match_id, []):
+        if turn.resolved_at is None:
+            turn.opened_at = turn.opened_at - timedelta(seconds=seconds)
+            turn.deadline_at = turn.deadline_at - timedelta(seconds=seconds)
+
+
+@pytest.mark.parametrize("mode", [TMW, TWENTY])
+def test_a_slow_client_still_sees_the_whole_intro(mode):
+    """A client that reaches the match 15 s after it was created -- a cold
+    route compile, a slow connection -- lands on arrival, not on a half-spent
+    intro, and its report opens the intro with the FULL window."""
+    client = _client_as("user-a")
+    created = client.post("/api/v1/arena/matches/practice", json={"mode": mode}).json()
+    match_id = created["match_id"]
+    assert created["turn_phase"] == "arrival"
+
+    _backdate_open_turn(match_id, 15.0)
+    late = client.get(f"/api/v1/arena/matches/{match_id}").json()
+    assert late["turn_phase"] == "arrival", "the intro must not start behind a client that has not arrived"
+
+    arrived = _arrive(client, late)
+    module = tmw_module if mode == TMW else td_module
+    assert arrived["turn_phase"] == module.PHASE_INTRO
+    assert arrived["turn_total_seconds"] == pytest.approx(module.INTRO_SECONDS, abs=0.5)
+    assert arrived["turn_elapsed_seconds"] < 1.0
+    # Reconnect mid-intro: a fresh read reconstructs the same intro turn.
+    again = client.get(f"/api/v1/arena/matches/{match_id}").json()
+    assert again["turn_phase"] == module.PHASE_INTRO
+    assert again["turn_seq"] == arrived["turn_seq"]
+
+
+@pytest.mark.parametrize("mode", [TMW, TWENTY])
+def test_no_gameplay_begins_behind_an_unseen_intro(mode):
+    """With nobody arriving, bots may think for as long as they like and
+    nothing moves; the backstop then opens the INTRO, never a pick or a lot."""
+    client = _client_as("user-a")
+    view = client.post("/api/v1/arena/matches/practice", json={"mode": mode}).json()
+    match_id = view["match_id"]
+    version = view["state_version"]
+    for _ in range(4):
+        _age_open_turn(match_id, 10.0)  # bot think time long elapsed; backstop deadline untouched
+        polled = client.get(f"/api/v1/arena/matches/{match_id}").json()
+        assert polled["turn_phase"] == "arrival"
+        assert polled["state_version"] == version, "something was played before anyone arrived"
+        assert polled["legal_commands"] and all(c.endswith("intro_seen") or c == "showdown_forfeit" for c in polled["legal_commands"])
+    steps = anyio.run(
+        bot_service.drive_pending_bots,
+        _memory_arena_repo,
+        mode_registry.get(mode),
+        mode_registry.get(mode).reduce,
+        match_id,
+        datetime.now(timezone.utc),
+    )
+    assert steps == 0, "a bot acted during arrival"
+
+    _expire_ceremony(match_id)  # the arrival backstop
+    after = client.get(f"/api/v1/arena/matches/{match_id}").json()
+    module = tmw_module if mode == TMW else td_module
+    assert after["turn_phase"] == module.PHASE_INTRO, after["turn_phase"]
+    assert after["turn_total_seconds"] == pytest.approx(module.INTRO_SECONDS, abs=0.5)
+
+
+def test_a_duplicate_arrival_report_is_a_replay_not_a_second_intro():
+    client = _client_as("user-a")
+    view = client.post("/api/v1/arena/matches/practice", json={"mode": TWENTY}).json()
+    first = _command(client, view["match_id"], view, td_module.COMMAND_INTRO_SEEN, {})
+    replay = _command(client, view["match_id"], view, td_module.COMMAND_INTRO_SEEN, {})
+    assert first["accepted"] and replay["replayed"]
+    assert replay["match"]["turn_seq"] == first["match"]["turn_seq"]
+    late = _command(client, view["match_id"], first["match"], td_module.COMMAND_INTRO_SEEN, {})
+    assert late["accepted"] is False
+    assert late["rejection_code"] == td_module.REJECT_INTRO_STARTED

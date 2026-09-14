@@ -150,6 +150,8 @@ export interface PeakV2TMWRevealProps {
   open?: boolean;
   /** Which seatless phase the server has open. */
   phase?: "intro" | "reveal";
+  /** The briefing is on screen but its clock waits for the table to arrive. */
+  arriving?: boolean;
   /** Changes per server turn. A new key re-arms the presentation; the same
    *  key across polls keeps it running from where it is. */
   turnKey?: string;
@@ -175,6 +177,7 @@ export default function PeakV2TMWReveal({
   totalRounds,
   open = true,
   phase,
+  arriving = false,
   turnKey,
   seats,
   yourSeatIndex,
@@ -307,9 +310,10 @@ export default function PeakV2TMWReveal({
             <p
               className="mt-3"
               data-testid="tmw-intro-countdown"
+              data-arriving={arriving ? "true" : "false"}
               style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--v2-text-muted)" }}
             >
-              Entering the draft room
+              {arriving ? "Taking seats" : "Entering the draft room"}
             </p>
           </div>
 

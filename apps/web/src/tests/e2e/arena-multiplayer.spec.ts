@@ -990,7 +990,9 @@ test.describe("Three-Man Weave", () => {
       const seqs = await Promise.all(pages.map((p) => p.getByTestId("tmw-room").getAttribute("data-turn-seq")));
       expect(new Set(phases).size, `phases diverged: ${phases.join(",")}`).toBe(1);
       expect(new Set(seqs).size, `turn seqs diverged: ${seqs.join(",")}`).toBe(1);
-      expect(["intro", "reveal", "pick"]).toContain(phases[0]);
+      // `arrival` is the briefing waiting for the table's reports (game-feel
+      // pass 4); a sample can land on it before every client has reported.
+      expect(["arrival", "intro", "reveal", "pick"]).toContain(phases[0]);
 
       // Delay one player: guest C's tab does nothing at all. The other two
       // still reach the first pick, and C lands on the same pick turn when it
@@ -1079,7 +1081,7 @@ test.describe("Three-Man Weave", () => {
       });
       expect(await page.getByTestId("tmw-start-gate").count()).toBe(0);
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
-      await expect(page.getByTestId("tmw-room")).toHaveAttribute("data-turn-phase", /intro|reveal/);
+      await expect(page.getByTestId("tmw-room")).toHaveAttribute("data-turn-phase", /arrival|intro|reveal/);
       expect(await page.getByTestId("tmw-podium").count()).toBe(0);
       // Clean state: no roster carries a pick from the finished match.
       await expect(page.getByTestId("tmw-turnbar-round")).toContainText(/Round 1 of 6/);

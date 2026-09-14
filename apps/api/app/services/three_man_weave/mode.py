@@ -193,6 +193,34 @@ PHASE_INTRO = "intro"
 #: actually legible.
 INTRO_SECONDS = 4.0
 
+#: THE ARRIVAL PHASE -- the ONLY phase a match opens on (game-feel pass 4).
+#:
+#: THE DEFECT. The briefing's clock used to start at match creation. A client
+#: that reached the match late -- a cold route compile, a slow network, a queue
+#: handoff -- found the 4-second briefing partly or wholly spent on the server,
+#: and was dropped into the round-one ceremony or the draft without ever seeing
+#: who it was playing. The browser latency run reproduced it on an ordinary
+#: 750 ms connection: the first read landed 2.3 s into the 4 s briefing.
+#:
+#: THE FIX is the one PRIME CUT and FIND THE PRIME proved. A match opens in a
+#: seatless `arrival` turn: the briefing is on every client's screen but its
+#: clock has not started. Each HUMAN seat's client sends `tmw_intro_seen` once
+#: it has rendered the briefing (bots count as already arrived), and the
+#: briefing's own `INTRO_SECONDS` turn opens when the last human has done so --
+#: measured from that instant. Nothing can be drafted during arrival.
+#:
+#: THE BACKSTOP is for a human who never arrives (a closed tab in a private
+#: room). It opens the BRIEFING, never gameplay, so whoever is at the table
+#: still gets all of it.
+PHASE_ARRIVAL = "arrival"
+ARRIVAL_BACKSTOP_SECONDS = 20.0
+#: A human seat's client has the briefing on screen. Accepted only in arrival,
+#: once per seat; a repeat or a late report is refused by name (replay-safe).
+COMMAND_INTRO_SEEN = "tmw_intro_seen"
+EVENT_INTRO_SEEN = "tmw_intro_seen"
+REJECT_INTRO_STARTED = "intro_already_started"
+REJECT_INTRO_ALREADY_SEEN = "intro_already_seen"
+
 #: FORMER client commands, kept as names so a stale client is refused with a
 #: specific reason rather than "unknown command". Neither is accepted from
 #: any seat any more -- see `REJECT_SHARED_TIMELINE` and `reduce`.
@@ -251,11 +279,11 @@ class ThreeManWeaveMode:
         return TURN_SECONDS
 
     def initial_phase(self) -> str:
-        # EVERY match opens on the pre-match briefing, never directly on the
-        # ceremony -- see `PHASE_INTRO`. Its own timeout is what opens round
-        # one's `PHASE_REVEAL`, exactly the way the ceremony's own end opens
-        # the pick turn.
-        return PHASE_INTRO
+        # EVERY match opens on ARRIVAL: the briefing is on screen but its clock
+        # waits for the table -- see `PHASE_ARRIVAL`. Arrival opens the
+        # briefing (`PHASE_INTRO`), whose own timeout opens round one's
+        # `PHASE_REVEAL`, exactly the way the ceremony's own end opens the pick.
+        return PHASE_ARRIVAL
 
     def phase_seconds(self, phase: str) -> float:
         """How long a turn in this phase lasts.
@@ -274,6 +302,8 @@ class ThreeManWeaveMode:
         `_commit` (a round boundary) or by the intro's own timeout
         (`_open_ceremony_turn`) with their own constant.
         """
+        if phase == PHASE_ARRIVAL:
+            return ARRIVAL_BACKSTOP_SECONDS
         if phase == PHASE_INTRO:
             return INTRO_SECONDS
         if phase == PHASE_REVEAL:
@@ -288,7 +318,7 @@ class ThreeManWeaveMode:
         would draft underneath the briefing or the ceremony and either would
         be over before anybody saw it.
         """
-        return phase not in (PHASE_INTRO, PHASE_REVEAL)
+        return phase not in (PHASE_ARRIVAL, PHASE_INTRO, PHASE_REVEAL)
 
     def initial_turn_seat(self, snapshot: dict) -> Optional[int]:
         """Neither the briefing nor the ceremony belongs to a seat, so the
@@ -348,7 +378,12 @@ class ThreeManWeaveMode:
         """
         state = D.create_match(seed, participants=len(seats) or PARTICIPANT_COUNT)
         state = self._open_round(state)
-        return self._to_snapshot(state)
+        snapshot = self._to_snapshot(state)
+        # ARRIVAL BOOKKEEPING, carried only until the briefing opens: every
+        # later snapshot is rebuilt by `_to_snapshot`, which does not carry it.
+        snapshot["arrival_open"] = True
+        snapshot["arrived_seats"] = []
+        return snapshot
 
     # -- rules ------------------------------------------------------------
     def reduce(self, data: ReducerInput) -> ReducerOutput:
@@ -378,6 +413,14 @@ class ThreeManWeaveMode:
             return _reject(REJECT_MATCH_COMPLETE, "The match is already complete")
 
         in_intro = data.open_turn is not None and data.open_turn.phase == PHASE_INTRO
+        in_arrival = data.open_turn is not None and data.open_turn.phase == PHASE_ARRIVAL
+
+        if command.command_type == COMMAND_TYPE_TIMEOUT and in_arrival:
+            # THE BACKSTOP: a human never reported. Open the BRIEFING for
+            # whoever is here -- never a ceremony, never a pick.
+            return self._open_intro_turn(data, state, TURN_RESOLUTION_TIMEOUT, events=())
+        if command.command_type == COMMAND_INTRO_SEEN:
+            return self._reduce_intro_seen(data, snapshot, state, in_arrival)
 
         if command.command_type == COMMAND_TYPE_TIMEOUT:
             # A TIMEOUT ON THE BRIEFING IS THE BRIEFING ENDING: it opens round
@@ -411,7 +454,7 @@ class ThreeManWeaveMode:
         # type: the briefing is exactly as blocking as the ceremony is for
         # `tmw_pick` below, and a future command must not have to remember to
         # add this check itself.
-        if in_intro:
+        if in_intro or in_arrival:
             return _reject(
                 REJECT_NOT_YOUR_TURN,
                 "The pre-match briefing has not been dismissed yet.",
@@ -767,6 +810,66 @@ class ThreeManWeaveMode:
             status=MATCH_STATUS_ACTIVE,
         )
 
+    def _reduce_intro_seen(
+        self, data: ReducerInput, snapshot: dict, state: D.DraftState, in_arrival: bool
+    ) -> ReducerOutput:
+        """A human seat's client has the briefing on screen.
+
+        Records the seat; when every HUMAN seat has reported, opens the
+        briefing's own timed turn from THIS instant. Bots never report: they
+        are at the table by construction. Refused by name when the briefing is
+        already running or this seat already reported, so a retried or
+        duplicated report changes nothing.
+        """
+        seat_index = data.command.actor_seat_index
+        seat = next((s for s in data.seats if s.seat_index == seat_index), None)
+        if seat is None or seat.is_bot:
+            return _reject(REJECT_NOT_YOUR_ROSTER, "Only a player's own client can report arriving.")
+        if not in_arrival or not snapshot.get("arrival_open"):
+            return _reject(REJECT_INTRO_STARTED, "The briefing is already running.")
+        arrived = set(snapshot.get("arrived_seats") or [])
+        if seat_index in arrived:
+            return _reject(REJECT_INTRO_ALREADY_SEEN, "The briefing is already on your screen.")
+        arrived.add(seat_index)
+        event = EventDraft(
+            event_type=EVENT_INTRO_SEEN,
+            actor_seat_index=seat_index,
+            visibility=VISIBILITY_PUBLIC,
+            payload={"seat_index": seat_index},
+        )
+        humans = {s.seat_index for s in data.seats if not s.is_bot}
+        if humans <= arrived:
+            return self._open_intro_turn(data, state, TURN_RESOLUTION_ACTION, events=(event,))
+        waiting = dict(snapshot)
+        waiting["arrived_seats"] = sorted(arrived)
+        return ReducerOutput(
+            accepted=True,
+            snapshot=waiting,
+            events=(event,),
+            resolve_turn=None,
+            open_turn=None,
+            status=None,
+        )
+
+    def _open_intro_turn(
+        self, data: ReducerInput, state: D.DraftState, resolution: str, events: tuple
+    ) -> ReducerOutput:
+        """Arrival is over: open the briefing with its FULL `INTRO_SECONDS`,
+        measured from now. The snapshot drops the arrival bookkeeping and is
+        otherwise unchanged -- no pick, no redraw."""
+        return ReducerOutput(
+            accepted=True,
+            snapshot=self._to_snapshot(state),
+            events=events,
+            resolve_turn=resolution,
+            open_turn=TurnDraft(
+                phase=PHASE_INTRO,
+                seat_index=None,
+                deadline_at=data.now + timedelta(seconds=INTRO_SECONDS),
+            ),
+            status=MATCH_STATUS_ACTIVE,
+        )
+
     def _open_ceremony_turn(self, data: ReducerInput, state: D.DraftState) -> ReducerOutput:
         """End the briefing and open round one's ceremony with a FULL window.
 
@@ -999,12 +1102,24 @@ class ThreeManWeaveMode:
         }
         if state.is_complete and snapshot.get("results"):
             public_state["results"] = snapshot["results"]
+        if snapshot.get("arrival_open"):
+            # Who is already at the table, so a room can say who it waits on.
+            public_state["arrival"] = {"arrived_seats": list(snapshot.get("arrived_seats") or [])}
 
         # `private_state` holds only THIS seat's own derivations. There is no
         # per-seat secret in a draft, so nothing here is denied to anyone --
         # it is a convenience, not a confidence.
         private_state: dict = {"seat_index": seat_index}
         legal_commands: tuple[str, ...] = ()
+        seat_row = next((s for s in seats if s.seat_index == seat_index), None)
+        if (
+            match.is_live()
+            and snapshot.get("arrival_open")
+            and seat_row is not None
+            and not seat_row.is_bot
+            and seat_index not in (snapshot.get("arrived_seats") or [])
+        ):
+            return public_state, private_state, (COMMAND_INTRO_SEEN,)
         if 0 <= seat_index < len(state.rosters):
             roster = state.roster(seat_index)
             private_state["open_slots"] = list(roster.open_slots())
@@ -1416,6 +1531,9 @@ register()
 register_bot()
 
 __all__ = [
+    "ARRIVAL_BACKSTOP_SECONDS",
+    "COMMAND_INTRO_SEEN",
+    "PHASE_ARRIVAL",
     "COMMAND_PICK",
     "COMMAND_STAGE_PICK",
     "COMMAND_SKIP_INTRO",

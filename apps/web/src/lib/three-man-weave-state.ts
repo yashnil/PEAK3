@@ -58,6 +58,7 @@ import {
   TMW_SLOT_LABELS,
   TMW_SLOT_TYPES,
   TMW_STARTER_SLOTS,
+  TMW_TURN_PHASE_ARRIVAL,
   TMW_TURN_PHASE_INTRO,
   TMW_TURN_PHASE_REVEAL,
 } from "@/types/three-man-weave";
@@ -80,7 +81,14 @@ export type TmwPhase = "waiting" | "briefing" | "revealing" | "picking" | "compl
  * this is false.
  */
 export function isBriefing(match: TmwMatchView | null): boolean {
-  return !!match && match.turn_phase === TMW_TURN_PHASE_INTRO;
+  // ARRIVAL IS THE BRIEFING TOO: the same card is on screen, its clock simply
+  // has not started until the table has reported arriving.
+  return !!match && (match.turn_phase === TMW_TURN_PHASE_INTRO || match.turn_phase === TMW_TURN_PHASE_ARRIVAL);
+}
+
+/** Is the briefing still waiting for the table (its clock not yet running)? */
+export function isArriving(match: TmwMatchView | null): boolean {
+  return !!match && match.turn_phase === TMW_TURN_PHASE_ARRIVAL;
 }
 
 /**

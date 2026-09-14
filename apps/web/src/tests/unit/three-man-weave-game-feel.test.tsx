@@ -745,3 +745,65 @@ describe("the round card", () => {
     shortWindow.unmount();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Arrival (game-feel pass 4): the briefing's clock starts when this client has
+// it on screen, never at match creation.
+// ---------------------------------------------------------------------------
+
+describe("arrival", () => {
+  const arriving = () =>
+    view({
+      state_version: 1,
+      current_turn_seat_index: null,
+      seconds_remaining: 20,
+      turn_seconds_remaining: 20,
+      turn_elapsed_seconds: 0.2,
+      turn_total_seconds: 20,
+      turn_seq: 0,
+      turn_phase: "arrival",
+      legal_commands: ["tmw_intro_seen"],
+      private_state: { seat_index: 0 },
+    });
+  const briefing = () =>
+    view({
+      state_version: 2,
+      current_turn_seat_index: null,
+      seconds_remaining: 4,
+      turn_seconds_remaining: 4,
+      turn_elapsed_seconds: 0,
+      turn_total_seconds: 4,
+      turn_seq: 1,
+      turn_phase: "intro",
+      legal_commands: [],
+      private_state: { seat_index: 0 },
+    });
+
+  it("reports the briefing on screen exactly once, then runs the briefing's own clock", async () => {
+    getMatch.mockResolvedValue(arriving());
+    submitCommand.mockResolvedValue(accepted(briefing()));
+    render(<ThreeManWeaveGame initialMatch={arriving()} />);
+
+    // The briefing is up, held: its clock has not started.
+    expect(screen.getByTestId("tmw-intro")).toBeVisible();
+    expect(screen.getByTestId("tmw-intro-countdown")).toHaveAttribute("data-arriving", "true");
+
+    await waitFor(() => expect(submitCommand).toHaveBeenCalledTimes(1));
+    expect(submitCommand.mock.calls[0][1]).toBe("tmw_intro_seen");
+    expect(submitCommand.mock.calls[0][3]).toBe(1);
+
+    await waitFor(() => expect(screen.getByTestId("tmw-room")).toHaveAttribute("data-turn-phase", "intro"));
+    expect(screen.getByTestId("tmw-intro-countdown")).toHaveAttribute("data-arriving", "false");
+    await act(async () => {});
+    expect(submitCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("tries again when the report did not land", async () => {
+    getMatch.mockResolvedValue(arriving());
+    submitCommand.mockRejectedValueOnce(new Error("offline")).mockResolvedValue(accepted(briefing()));
+    render(<ThreeManWeaveGame initialMatch={arriving()} />);
+    await waitFor(() => expect(submitCommand).toHaveBeenCalledTimes(2));
+    expect(submitCommand.mock.calls.every((call) => call[1] === "tmw_intro_seen")).toBe(true);
+    await waitFor(() => expect(screen.getByTestId("tmw-room")).toHaveAttribute("data-turn-phase", "intro"));
+  });
+});
