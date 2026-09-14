@@ -79,6 +79,9 @@ export interface PeakV2TMWCourtsProps {
    *  and above the courts: while it is your pick it is the task, and the
    *  courts are context. Renders nothing when the caller's node does. */
   decision?: ReactNode;
+  /** The decision surface is OPEN: it floats over the courts, which dim and
+   *  step back beneath it (game-feel pass 5). */
+  decisionOpen?: boolean;
   children?: React.ReactNode;
   /**
    * Between-turn rearrangement (Pass 4, TMW-10 ported to V2 — see
@@ -111,6 +114,7 @@ export default function PeakV2TMWCourts({
   picksMade,
   totalPicks,
   decision,
+  decisionOpen = false,
   children,
   onMove,
   busy = false,
@@ -313,8 +317,6 @@ export default function PeakV2TMWCourts({
       </div>
 
       <PeakV2Shell width="live-wide">
-        {decision ? <div className="tmw-decision">{decision}</div> : null}
-
         {/* Mobile tab bar — one court at a time, every one a tap away. */}
         <div className="tmw-roster-tabs mt-4 flex gap-1 lg:hidden" role="tablist" aria-label="Rosters">
           {state.rosters.map((roster) => {
@@ -363,7 +365,27 @@ export default function PeakV2TMWCourts({
             `data-testid="tmw-seat-court-N"` query resolves to when both are
             mounted for the seat shown on mobile: `.first()` lands on the
             always-present desktop instance, `.last()` on the mobile one. */}
-        <div data-testid="tmw-courts" aria-label="All three rosters" className="tmw-courts">
+        {/* THE STAGE: the courts, with the pick surface layered OVER them
+            (game-feel pass 5). Pass 4 moved the surface into the flow ABOVE
+            the courts to end a fixed modal with two nested scroll panes; that
+            fixed the scrolling but made choosing a player read as a form
+            detached from the board. The two now share one grid cell: the
+            surface is a bubble over the teams, the courts dim and stop taking
+            presses beneath it, and the page -- not a pane -- still scrolls a
+            long pool. Nothing here waits on the server: a press lands on the
+            court the frame it is made (the room's staged arrangement). */}
+        <div className="tmw-stage" data-testid="tmw-stage" data-decision-open={decisionOpen ? "true" : "false"}>
+        {decision ? <div className="tmw-decision">{decision}</div> : null}
+        {/* INERT beneath an open pick surface: the courts dim and stop taking
+            pointer presses in CSS, and `inert` takes them out of the tab order
+            and the accessibility tree too, so focus can never land on a
+            control the surface is covering. */}
+        <div
+          data-testid="tmw-courts"
+          aria-label="All three rosters"
+          className="tmw-courts"
+          inert={decisionOpen || undefined}
+        >
           {/* Desktop: the real three-column grid, always. */}
           <div className="mt-4 hidden gap-4 lg:grid lg:grid-cols-3">
             {state.rosters.map((roster) => {
@@ -431,6 +453,7 @@ export default function PeakV2TMWCourts({
                 );
               })}
           </div>
+        </div>
         </div>
 
         {children}

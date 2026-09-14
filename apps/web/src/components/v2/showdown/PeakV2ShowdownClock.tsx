@@ -76,6 +76,9 @@ export default function PeakV2ShowdownClock({
       data-mode={mode}
       data-direction="down"
       data-yours={mode === "countdown" ? "true" : undefined}
+      // A BOT ON THE CLOCK IS VISIBLY DELIBERATING (pass 5): the stage's own
+      // "thinking" treatment keys off this, never off a timer of its own.
+      data-thinking={mode === "elapsed" && opponentIsBot ? "true" : undefined}
     >
       {/* Real expiry authority — visually hidden, screen-reader announcements preserved. */}
       <div className="sr-only">

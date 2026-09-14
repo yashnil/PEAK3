@@ -79,14 +79,17 @@ one is enforced by ONE structural rule rather than left to the distribution:
 """
 from __future__ import annotations
 
+import functools
 import math
 import random
+from collections import Counter
 from typing import Any, Optional
 
 from nba_peak.three_man_weave.arrangement import (
     FITS_AFTER_REARRANGEMENT,
     FITS_NOW,
 )
+from nba_peak.three_man_weave.positions import canonical_positions
 from nba_peak.three_man_weave.config import (
     BOT_POLICY_VERSION,
     SLOT_TYPES,
@@ -168,6 +171,89 @@ _MAX_QUALITY_REGRET_POINTS = 12.0
 #: candidates are half a point apart normalises to a full 0-1 spread and the
 #: utility bands read a rounding difference as a decisive one.
 _QUALITY_SPREAD_FLOOR = 20.0
+
+# ---------------------------------------------------------------------------
+# A FRANCHISE OR DECADE DRAFT'S HUMAN LEAN (tmw_bot_v3)
+# ---------------------------------------------------------------------------
+#: WHY THE ONE-CONSTRAINT DRAFTS NEED MORE THAN THE STANDARD POLICY. A standard
+#: round rolls a fresh, shallow franchise x decade cell, so "best for this
+#: roll" is a small, local question and the slot/scarcity terms already make
+#: the bot draft around its shape. A Franchise or Decade Draft deals all
+#: eighteen picks from ONE deep pool, and there the same policy reads as a
+#: machine: it would happily take three bigs in a row whenever they topped the
+#: list, and it never behaved like a person who has heard of one player and not
+#: the other. Two small, general terms fix that -- no player is named anywhere:
+#:
+#:   * ROSTER CONSTRUCTION. Each player has a natural position GROUP (guard,
+#:     wing, big) when most of their canonical positions fall in one. A
+#:     candidate whose group this roster already holds twice is marked down per
+#:     extra body; one whose group the roster has none of yet (after two picks)
+#:     is marked up. Slot legality is untouched -- this only moves close calls.
+#:   * RECOGNITION. People lean toward names they know. The general, data-only
+#:     proxy for that is a player's career-best PEAK3 season ANYWHERE in the
+#:     index, not the constrained card they would be scored on -- so a star who
+#:     is merely good under this constraint gets a mild pull. Small on purpose.
+#:
+#: Both are bounded by the QUALITY GATE, which runs on raw scores before any
+#: utility is compared: no lean can reach a player more than
+#: `_MAX_QUALITY_REGRET_POINTS` behind the best legal one.
+POSITION_GROUPS: dict[str, str] = {"PG": "guard", "SG": "guard", "SF": "wing", "PF": "big", "C": "big"}
+_STACKED_GROUP_PENALTY = 0.07
+_MISSING_GROUP_BONUS = 0.05
+_RECOGNITION_WEIGHT = 0.10
+_RECOGNITION_FLOOR_POINTS = 55.0
+_RECOGNITION_SPAN_POINTS = 40.0
+#: A one-constraint draft samples its near-equivalent and mild bands a little
+#: more often than the standard game's 90/8/2: a deep shared pool is where a
+#: person's taste shows, and every draw is still inside the regret bands.
+_VARIANT_BAND_WEIGHTS = (0.82, 0.13, 0.05)
+
+# ---------------------------------------------------------------------------
+# DELIBERATION -- how hard a decision LOOKS, for think time only
+# ---------------------------------------------------------------------------
+#: A utility gap at or above this between the best two PLAYERS reads as an easy
+#: call; below it the call closes linearly toward a toss-up.
+_DELIBERATION_CLEAR_GAP = 0.20
+#: Players and slots within this much utility of the best option count as
+#: live contenders for the decision.
+_DELIBERATION_CONTENDER_REGRET = 0.06
+#: Contenders beyond the best before the crowd term saturates. A one-constraint
+#: draft's deep pool always has several; only a real crowd should read as one.
+_DELIBERATION_CROWD_SATURATION = 10
+
+
+def natural_group(player_slug: str | None) -> Optional[str]:
+    """guard / wing / big when MOST of a player's canonical positions sit in
+    one group; None for a genuinely versatile player (who stacks nothing)."""
+    groups = Counter(POSITION_GROUPS[p] for p in canonical_positions(player_slug) if p in POSITION_GROUPS)
+    if not groups:
+        return None
+    group, count = groups.most_common(1)[0]
+    return group if count * 2 > sum(groups.values()) else None
+
+
+@functools.lru_cache(maxsize=1)
+def _career_best_scores() -> dict[str, float]:
+    """Every identity's best PEAK3 season card anywhere in the committed index."""
+    try:
+        from nba_peak.three_man_weave.eligibility import get_index
+
+        index = get_index()
+    except Exception:  # pragma: no cover - defensive
+        return {}
+    best: dict[str, float] = {}
+    for (slug, _franchise, _decade), card in index._scoring.items():  # noqa: SLF001 - read-only
+        if card.prime_score > best.get(slug, float("-inf")):
+            best[slug] = float(card.prime_score)
+    return best
+
+
+def recognition(player_slug: str) -> float:
+    """A 0..1 recognition proxy from the career-best card. See the block above."""
+    best = _career_best_scores().get(player_slug)
+    if best is None:
+        return 0.0
+    return min(1.0, max(0.0, (best - _RECOGNITION_FLOOR_POINTS) / _RECOGNITION_SPAN_POINTS))
 
 #: Basketball archetypes, never real player names. A drafted player's name has
 #: to be unambiguous on a board where every other label is also a person, and
@@ -252,6 +338,10 @@ class ThreeManWeaveBot:
         values = [value for value in quality.values() if math.isfinite(value)]
         if not values:
             return []
+        # A one-constraint draft adds the human lean (see POSITION_GROUPS).
+        variant = bool((public.get("constraint") or {}).get("kind"))
+        own_picks = [slug for slug in (private.get("assignment") or {}).values() if slug]
+        own_groups = Counter(g for g in (natural_group(slug) for slug in own_picks) if g)
         best_overall = max(values)
         worst_overall = min(values)
         # THE SPREAD HAS A FLOOR, and it is not merely a divide-by-zero guard.
@@ -313,12 +403,26 @@ class ThreeManWeaveBot:
                             slot_supply=supply.get(slot, 1),
                             candidate_flexibility=len(self._slots_of(fit, open_slots)),
                             needs_rearrangement=fit.get("state") == FITS_AFTER_REARRANGEMENT,
-                        ),
+                        )
+                        + (self._drafter_lean(slug, own_groups, len(own_picks)) if variant else 0.0),
                     }
                 )
 
         out.sort(key=lambda option: (-option["utility"], option["player_slug"], option["slot_type"]))
         return out
+
+    @staticmethod
+    def _drafter_lean(player_slug: str, own_groups: Counter, picks_made: int) -> float:
+        """Roster construction and recognition, for a one-constraint draft."""
+        value = _RECOGNITION_WEIGHT * recognition(player_slug)
+        group = natural_group(player_slug)
+        if group is not None:
+            held = own_groups.get(group, 0)
+            if held >= 2:
+                value -= _STACKED_GROUP_PENALTY * (held - 1)
+            elif held == 0 and picks_made >= 2:
+                value += _MISSING_GROUP_BONUS
+        return value
 
     @staticmethod
     def _slots_of(fit: dict, open_slots: set[str]) -> tuple[str, ...]:
@@ -394,7 +498,8 @@ class ThreeManWeaveBot:
         if not options:
             return None
 
-        chosen = self._sample(options, rng)
+        variant = bool((public.get("constraint") or {}).get("kind"))
+        chosen = self._sample(options, rng, _VARIANT_BAND_WEIGHTS if variant else _BAND_WEIGHTS)
         payload: dict = {
             "player_slug": chosen["player_slug"],
             "slot_type": chosen["slot_type"],
@@ -467,7 +572,9 @@ class ThreeManWeaveBot:
         return ThreeManWeaveBot.dominant_option(options) is not None
 
     @staticmethod
-    def _sample(options: list[dict], rng: random.Random) -> dict:
+    def _sample(
+        options: list[dict], rng: random.Random, band_weights: tuple[float, float, float] = _BAND_WEIGHTS
+    ) -> dict:
         """Draw one option from the three calibration bands.
 
         THE ORDER OF THE THREE RULES BELOW IS THE POLICY.
@@ -507,11 +614,54 @@ class ThreeManWeaveBot:
         ]
 
         roll = rng.random()
-        if roll < _BAND_WEIGHTS[0]:
+        if roll < band_weights[0]:
             return best
-        if roll < _BAND_WEIGHTS[0] + _BAND_WEIGHTS[1]:
+        if roll < band_weights[0] + band_weights[1]:
             return near[rng.randrange(len(near))] if near else best
         return mild[rng.randrange(len(mild))] if mild else best
+
+    # -- deliberation: presentation only ------------------------------------
+
+    def deliberation(self, public: dict, private: dict) -> float:
+        """How hard this decision LOOKS, 0 (obvious) .. 1 (agonising).
+
+        Read by the mode's think-time hook and nothing else: it never changes
+        what the bot picks. RNG-free and a pure function of the projection, so
+        every poller computes the same think time.
+
+          * FORCED -- the quality gate leaves one player -- is near zero.
+          * CLOSENESS: the utility gap between the best two PLAYERS (their best
+            slot each), closing linearly below `_DELIBERATION_CLEAR_GAP`.
+          * CROWD: how many players are live contenders.
+          * FIT: how many different slots the live contenders would fill -- a
+            decision about roster shape as well as about players.
+          * A best option that needs a rearrangement adds a little.
+        """
+        options = self.options(public, private)
+        if not options:
+            return 0.0
+        if self.dominant_option(options) is not None:
+            return 0.05
+        viable = self.viable_options(options)
+        best = viable[0]
+        per_player: dict[str, float] = {}
+        for option in viable:  # utility order, so the first seen is each player's best
+            per_player.setdefault(option["player_slug"], option["utility"])
+        utilities = sorted(per_player.values(), reverse=True)
+        gap = utilities[0] - utilities[1] if len(utilities) > 1 else _DELIBERATION_CLEAR_GAP
+        closeness = 1.0 - min(1.0, max(0.0, gap) / _DELIBERATION_CLEAR_GAP)
+        contenders = sum(1 for u in utilities if utilities[0] - u <= _DELIBERATION_CONTENDER_REGRET)
+        crowd = min(1.0, (contenders - 1) / _DELIBERATION_CROWD_SATURATION)
+        slots = {
+            option["slot_type"]
+            for option in viable
+            if best["utility"] - option["utility"] <= _DELIBERATION_CONTENDER_REGRET
+        }
+        fit = min(1.0, (len(slots) - 1) / 3)
+        value = 0.60 * closeness + 0.15 * crowd + 0.15 * fit
+        if best.get("state") == FITS_AFTER_REARRANGEMENT:
+            value += 0.08
+        return round(min(1.0, max(0.0, value)), 4)
 
     # -- quality, the one thing the projection no longer publishes ----------
 
@@ -592,6 +742,9 @@ class ThreeManWeaveBot:
 __all__ = [
     "BOT_ARCHETYPE_NAMES",
     "COMMAND_PICK",
+    "POSITION_GROUPS",
+    "natural_group",
+    "recognition",
     "ThreeManWeaveBot",
     "archetype_names",
 ]

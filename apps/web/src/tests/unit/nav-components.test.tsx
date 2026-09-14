@@ -692,3 +692,54 @@ describe("MobileNavDrawer — resume", () => {
     expect(screen.queryByTestId("mobile-nav-resume")).toBeNull();
   });
 });
+
+/* ================================================================== */
+/* A game's rulesets, nested                                           */
+/* ================================================================== */
+
+describe("Three-Man Weave's rulesets are nested under the game", () => {
+  const weave = () =>
+    navGroups()
+      .find((g) => g.id === "multiplayer")!
+      .items.find((i) => i.modeId === "three-man-weave")!;
+
+  it("renders them indented under the game's row in the Play menu, not as sibling games", async () => {
+    const user = userEvent.setup();
+    render(<PlayMenu pathname="/" />);
+    await user.click(trigger());
+    const panel = screen.getByTestId("nav-play-panel");
+    const game = panel.querySelector(`[data-nav-item="${weave().id}"]`)!;
+    const sublist = panel.querySelector(`[data-nav-children="${weave().id}"]`) as HTMLElement;
+    expect(sublist).not.toBeNull();
+    // The sublist belongs to the game's own list item.
+    expect(game.closest("li")!.contains(sublist)).toBe(true);
+    const links = within(sublist).getAllByRole("link");
+    expect(links.map((l) => l.getAttribute("href"))).toEqual(weave().children!.map((c) => c.href));
+    for (const [index, child] of weave().children!.entries()) {
+      expect(links[index]).toHaveTextContent(child.label);
+      expect(links[index]).toHaveTextContent(child.blurb!);
+    }
+    // Keyboard roving reaches them like any other row.
+    expect(panelLinks()).toEqual(expect.arrayContaining(links));
+  });
+
+  it("marks the ruleset you are on as the one current row", async () => {
+    const user = userEvent.setup();
+    render(<PlayMenu pathname="/arena/lobby" search="game=three_man_weave_franchise" />);
+    await user.click(trigger());
+    const current = screen.getByTestId("nav-play-panel").querySelectorAll('[aria-current="page"]');
+    expect(current).toHaveLength(1);
+    expect(current[0]).toHaveTextContent("Franchise Draft");
+  });
+
+  it("nests them in the mobile drawer too, at the same tap target", () => {
+    renderDrawer({ pathname: "/" });
+    const drawer = screen.getByTestId("mobile-nav-drawer");
+    const list = within(drawer).getByRole("list", { name: `${weave().label} formats` });
+    const links = within(list).getAllByRole("link");
+    expect(links.map((l) => l.textContent)).toEqual(weave().children!.map((c) => c.label));
+    for (const link of links) {
+      expect(link).toHaveStyle({ minHeight: `${MIN_TAP_TARGET_PX}px` });
+    }
+  });
+});

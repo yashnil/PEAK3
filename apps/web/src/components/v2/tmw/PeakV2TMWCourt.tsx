@@ -146,8 +146,10 @@ export default function PeakV2TMWCourt({
           {isYou ? "You" : seat?.is_bot ? "Bot" : "Drafter"} · {filled}/6
           {/* THE TURN, SAID AS WHAT IT IS.
               A bot on the clock is genuinely deliberating — the server holds
-              a real, seeded 4–10s think window measured from the turn's
-              stored `opened_at` (`nba_peak/three_man_weave/config.py`), so
+              a real, seeded think window shaped by how hard the pick on the
+              board looks (~2-3 s for a lone star, up to ~11 s for a toss-up),
+              measured from the turn's stored `opened_at`
+              (`nba_peak/three_man_weave/config.py`), so
               "Thinking" describes something actually happening rather than a
               client-invented pause. The ellipsis animates in CSS, which is
               the whole treatment: no fabricated progress bar, no pretending

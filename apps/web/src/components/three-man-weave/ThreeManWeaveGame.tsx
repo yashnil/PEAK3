@@ -45,6 +45,7 @@ import {
   isYourTurn,
   phaseOf,
   provisionalPick,
+  revealLeadMs,
   rosterWithPlacements,
   seatLabel,
   slotAbbrev,
@@ -114,7 +115,15 @@ const COMMAND_TIMEOUT_MS = 15_000;
 // 200 ms, FROM 900 (game-feel pass 4): the handoff should read as a beat, not
 // as a wait. The previous pick's card and its moment still land first; the
 // surface follows inside the 120-220 ms handoff band.
-export const TMW_PREVIOUS_PICK_BEAT_MS = 200;
+//
+// 750 ms, FROM 200 (game-feel pass 5). Played end to end, 200 ms meant the
+// opponent's card and the pick surface arrived as one event: nobody saw what
+// had just been taken before the list covered the courts. Three quarters of a
+// second lets the card lock in and the moment be read. It is still never a
+// wait on the player: a press anywhere opens the surface at once, and the
+// clock and every command are live underneath. The same beat holds the
+// surface when a round turns back to you at the end of the snake.
+export const TMW_PREVIOUS_PICK_BEAT_MS = 750;
 
 /**
  * THE ROOM'S WHOLE STATE, AS ONE OBJECT.
@@ -139,8 +148,12 @@ interface Room {
   /** What this snapshot just did, for `EventMoment`. */
   moment: EventMomentData | null;
   /** Set when this snapshot handed you the turn on the back of another
-   *  seat's pick: the id of the beat holding the pick surface shut. */
+   *  seat's pick (`beat:<v>`) or turned a round back to you (`round:<v>`):
+   *  the id of the beat holding the pick surface shut. */
   previousPickBeat: string | null;
+  /** While a pick-opened reveal is still in its SETTLE LEAD: the
+   *  `performance.now()` instant the roll begins. Null otherwise. */
+  settleUntil: number | null;
 }
 
 type Source = "initial" | "command" | "poll";
@@ -199,6 +212,13 @@ function roomFrom(match: TmwMatchView, moment: EventMomentData | null, previousP
       : null);
   const turnStartedAt =
     elapsed !== null && typeof performance !== "undefined" ? performance.now() - elapsed * 1000 : null;
+  // THE SETTLE LEAD: a pick-opened reveal shows the board first. Converted
+  // once, here, like every other clock -- a reconnect past the lead has none.
+  const leadMs = revealLeadMs(match);
+  const settleUntil =
+    leadMs > 0 && turnStartedAt !== null && elapsed !== null && elapsed * 1000 < leadMs
+      ? turnStartedAt + leadMs
+      : null;
   return {
     match,
     deadlineAt: deadlineFromSeconds(match.seconds_remaining),
@@ -207,6 +227,7 @@ function roomFrom(match: TmwMatchView, moment: EventMomentData | null, previousP
     turnTotalSeconds: total,
     moment,
     previousPickBeat,
+    settleUntil,
   };
 }
 
@@ -299,17 +320,18 @@ function describeTransition(
   const pick = source === "command" && yours ? yours : arrivals[arrivals.length - 1];
   const who = pick.seat === you ? "You" : seatLabel(next.seats, pick.seat);
   const handsToYou = pick.seat !== you && handedToYouAfterPick(prev, next);
+  const pickAgain = pick.seat === you && roundTurnedToYou(prev, next);
   return {
     id,
     kind: pick.timedOut ? "timeout" : "pick",
     title: `${pick.name} → ${slotAbbrev(pick.slot)}`,
     detail: pick.timedOut
       ? "Time ran out · drafted for you"
-      : `${who} · Round ${pick.round}${handsToYou ? " · You're up" : ""}`,
+      : `${who} · Round ${pick.round}${handsToYou ? " · You're up" : pickAgain ? ` · Round ${next.public_state.current_round} opens with you` : ""}`,
     tone: pick.timedOut ? "negative" : pick.seat === you ? "accent" : "neutral",
     // The handoff moment stays up for the beat and a little past the
     // overlay opening (where the scrim covers it), never shorter than it.
-    durationMs: handsToYou ? TMW_PREVIOUS_PICK_BEAT_MS + 600 : undefined,
+    durationMs: handsToYou || pickAgain ? TMW_PREVIOUS_PICK_BEAT_MS + 600 : undefined,
   };
 }
 
@@ -331,6 +353,19 @@ function handedToYouAfterPick(prev: TmwMatchView, next: TmwMatchView): boolean {
     const before = prev.public_state.rosters.find((r) => r.seat_index === after.seat_index);
     return TMW_SLOT_TYPES.some((slot) => after.slots[slot] && !before?.slots[slot]);
   });
+}
+
+/**
+ * Did THIS snapshot turn a round over and hand it straight back to you? The
+ * snake's edge: the last pick of one round and the first of the next belong to
+ * the same seat. With a reveal in between (the standard game) the ceremony is
+ * the beat; without one (a Franchise or Decade Draft) the surface would
+ * otherwise re-open in the frame your own pick landed.
+ */
+function roundTurnedToYou(prev: TmwMatchView, next: TmwMatchView): boolean {
+  if (next.your_seat_index === null || !isYourTurn(next)) return false;
+  if (next.turn_phase && next.turn_phase !== "pick") return false;
+  return (next.public_state.current_round ?? 0) > (prev.public_state.current_round ?? 0);
 }
 
 function picksIn(state: TmwPublicState): number {
@@ -416,7 +451,9 @@ export default function ThreeManWeaveGame({
       const beat =
         source === "poll" && moment?.kind === "pick" && handedToYouAfterPick(prev.match, next)
           ? `beat:${next.state_version}`
-          : null;
+          : source === "command" && kind === "pick" && roundTurnedToYou(prev.match, next)
+            ? `round:${next.state_version}`
+            : null;
       const nextRoom = roomFrom(next, moment, beat);
       latest.current = nextRoom;
       setRoom(nextRoom);
@@ -447,6 +484,18 @@ export default function ThreeManWeaveGame({
       window.removeEventListener("keydown", press, true);
     };
   }, [previousPickBeat, reducedMotion, endBeat]);
+
+  // -- the settle lead: the board before the roll, on the server's clock ----
+  const settleUntil = room.settleUntil;
+  useEffect(() => {
+    if (settleUntil === null) return;
+    const clear = () => {
+      setRoom((current) => (current.settleUntil === settleUntil ? { ...current, settleUntil: null } : current));
+      if (latest.current.settleUntil === settleUntil) latest.current = { ...latest.current, settleUntil: null };
+    };
+    const timer = window.setTimeout(clear, Math.max(0, settleUntil - performance.now()));
+    return () => window.clearTimeout(timer);
+  }, [settleUntil]);
 
   const phase = phaseOf(match);
   const complete = phase === "complete";
@@ -894,7 +943,12 @@ export default function ThreeManWeaveGame({
 
   // THE WHOLE RULE: the ceremony surface is open exactly while the server
   // says a seatless phase is -- the briefing or the reveal. Every seat.
-  const ceremonyOpen = (briefing || revealing) && !complete;
+  //
+  // Except during a pick-opened reveal's SETTLE LEAD: the board stays up so
+  // every seat sees the round's last pick land before the roll covers it.
+  const settling = revealing && settleUntil !== null && !complete;
+  const ceremonyOpen = (briefing || revealing) && !complete && !settling;
+  const leadMs = revealing ? revealLeadMs(match) : 0;
   // The previous-pick beat holds only the OVERLAY shut. Your turn, your
   // clock and every command are live underneath it.
   const overlayOpen = !ceremonyOpen && yourTurn && !complete && canPick(match) && previousPickBeat === null;
@@ -937,7 +991,15 @@ export default function ThreeManWeaveGame({
       // is on screen AGAINST what the server said rather than against a timer.
       data-turn-phase={match.turn_phase ?? "none"}
       data-turn-seq={match.turn_seq ?? undefined}
-      data-beat={previousPickBeat ? "previous-pick" : undefined}
+      data-beat={
+        previousPickBeat
+          ? previousPickBeat.startsWith("round:")
+            ? "round-turn"
+            : "previous-pick"
+          : settling
+            ? "settle"
+            : undefined
+      }
     >
       <PeakV2Shell width="live-wide">
         <header
@@ -999,6 +1061,7 @@ export default function ThreeManWeaveGame({
           playAgainPending={pendingKind === "replay"}
           multiplayer={!hasBots}
           modeName={meta?.name}
+          constraintLabel={state.constraint?.label ?? null}
         />
       ) : (
         // `relative` so the ceremony overlay and every moment are anchored to
@@ -1015,13 +1078,14 @@ export default function ThreeManWeaveGame({
             turnTotalSeconds={room.turnTotalSeconds}
             // The roll is not the board's to state until the ceremony has
             // actually shown it.
-            rollRevealed={!ceremonyOpen}
+            rollRevealed={!ceremonyOpen && !settling}
             picksMade={picksMade}
             totalPicks={state.total_rounds * match.seat_count}
             onMove={rearrange}
             busy={busy}
-            // THE DECISION SURFACE sits under the turn strip, above the
-            // courts, in the page's own flow (see PickOverlay).
+            decisionOpen={overlayOpen}
+            // THE DECISION SURFACE floats over the courts, in the page's own
+            // flow (see PeakV2TMWCourts' stage and PickOverlay).
             decision={
               <PickOverlay
                 open={overlayOpen}
@@ -1063,8 +1127,11 @@ export default function ThreeManWeaveGame({
             upNextSeatIndex={upNextSeat === null || complete ? null : upNextSeat}
             handoffLabel={nextUp ?? undefined}
             arriving={arriving}
-            startedAt={room.turnStartedAt}
-            totalSeconds={room.turnTotalSeconds ?? (briefing ? TMW_INTRO_SECONDS : TMW_REVEAL_SECONDS)}
+            // The roll's own timeline starts after the settle lead.
+            startedAt={room.turnStartedAt === null ? null : room.turnStartedAt + leadMs}
+            totalSeconds={
+              (room.turnTotalSeconds ?? (briefing ? TMW_INTRO_SECONDS : TMW_REVEAL_SECONDS)) - leadMs / 1000
+            }
           />
           {/* THE MOMENT THIS SNAPSHOT ANNOUNCES -- never over the ceremony,
               which has its own round card. */}
@@ -1086,7 +1153,9 @@ export default function ThreeManWeaveGame({
               data-beat="previous-pick"
               onClick={() => endBeat(previousPickBeat)}
             >
-              <span className="tmw-previous-pick-beat-label">You&apos;re up</span>
+              <span className="tmw-previous-pick-beat-label">
+                {previousPickBeat.startsWith("round:") ? `Round ${state.current_round} · your pick again` : "You're up"}
+              </span>
               <span className="tmw-previous-pick-beat-hint">Opening your pick · press to open now</span>
             </button>
           ) : null}

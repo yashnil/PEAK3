@@ -25,7 +25,10 @@
  *      instead of five permanently-open paragraphs.
  *   8. FEEDBACK — `HomeV2Feedback`: a compact, real submission path for
  *      early users' game ideas, bugs, dislikes and questions. Near the end
- *      on purpose; it must never compete with play for the eye.
+ *      on purpose; it must never compete with play for the eye. It is made
+ *      FINDABLE by `HomeV2FeedbackPrompt`, a slim band at the end of "Your
+ *      Arena" whose quick picks open this form with the kind chosen, and by
+ *      its `#feedback` anchor (footer, Arena hub, lobby).
  *
  * Nothing here is fabricated — every value is a prop this file's caller
  * (`app/(main)/page.tsx`) already computed server-side from real fetches,
@@ -48,6 +51,7 @@ import HomeV2YourArena from "./HomeV2YourArena";
 import HomeV2LaneExplainer, { type HomeV2Lane } from "./HomeV2LaneExplainer";
 import HomeV2Faq from "./HomeV2Faq";
 import HomeV2Feedback from "./HomeV2Feedback";
+import HomeV2FeedbackPrompt from "./HomeV2FeedbackPrompt";
 import NbaFactOfTheDay, { type NbaFactView } from "@/components/home/NbaFactOfTheDay";
 import type { VignetteWindow, HomeModelProof } from "@/components/home/home-data";
 import type { Methodology, RankingComponentKey } from "@/types";
@@ -361,6 +365,11 @@ export default function HomePageV2({
           {mp2 ? <ModeSlateCell mode={mp2} live /> : null}
           <ModeSlateCell mode={leaderboardMode} />
         </div>
+
+        {/* ---- 3. THE WAY INTO FEEDBACK — one slim band under the games.
+             The form itself stays at the end of the page (section 9); this
+             only makes it findable, with the kind of note already chosen. ---- */}
+        <HomeV2FeedbackPrompt />
       </section>
 
       <PeakV2Rule spacing="lg" />

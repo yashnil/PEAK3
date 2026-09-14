@@ -424,7 +424,8 @@ function SoldStamp({ lot, seatNames, yourSeat, queued }: { lot: ResolvedLot; sea
   const headline = won === null ? "UNSOLD" : lot.decided_by === "forced_fill" ? "ASSIGNED" : "SOLD";
   const slot = (lot.slot_options ?? [])[0];
   return (
-    <div className="sd-sold" data-testid="td-lot-reveal" data-outcome={outcome} data-queued={queued} role="status" aria-live="off">
+    <div className="sd-sold" data-testid="td-lot-reveal" data-outcome={outcome} data-queued={queued} data-lot={lot.lot_index} role="status" aria-live="off">
+      <span className="sd-sold-flash" aria-hidden="true" />
       <span className="sd-sold-row">
         <span className="sd-sold-eyebrow" data-testid="td-reveal-lot">
           Lot {lot.lot_index + 1}
@@ -557,6 +558,11 @@ export default function PeakV2ShowdownLive({
   const lastEvent = lastActionLabel(publicState, yourSeat, seatNames);
   const contested = opened && publicState.lot_actions.filter((a) => a.action === "bid").length >= 3;
   const momentShown = moment !== null && !reveal && phase !== "pending";
+  // THE HANDOFF BETWEEN LOTS (pass 5). While the previous lot's SOLD beat is
+  // still playing, the lot underneath is the NEXT one -- said in words, so the
+  // new name reads as an arrival rather than a swap under the banner.
+  const nextOnBlock = reveal !== null && candidate !== null && publicState.lot_index > reveal.lot_index;
+  const botThinking = opponentIsBot && phase === "decide" && active !== null && active !== yourSeat;
 
   // THE STAKES OF THIS PRESS, on your own turn only, from published fields.
   const yourOpen = publicState.slots.length - yourSeatPublic.filled_slots;
@@ -606,7 +612,15 @@ export default function PeakV2ShowdownLive({
 
   return (
     <PeakV2Shell width="live-wide">
-      <div className="sd-room py-5" data-arena="live" data-testid="td-game" data-phase={phase} data-contested={contested ? "true" : "false"}>
+      <div
+        className="sd-room py-5"
+        data-arena="live"
+        data-testid="td-game"
+        data-phase={phase}
+        data-contested={contested ? "true" : "false"}
+        data-bot-thinking={botThinking ? "true" : "false"}
+        data-sold-beat={reveal ? "true" : "false"}
+      >
         <div className="sd-topbar">
           <div className="sd-topbar-left">
             <PeakV2GameStatus label={lotLabel} state="active" labelTestId="td-lot-number" />
@@ -728,8 +742,9 @@ export default function PeakV2ShowdownLive({
                     finger that is about to press it. */}
                 <CardArrival arrivalKey={`${publicState.lot_index}:${candidate.player_slug}`} variant="stage" className="sd-lot-card" testId="td-lot-card">
                   <div className="sd-lot-identity">
-                    <span className="sd-lot-eyebrow">
-                      On the block{publicState.lot_kind === "uncontested" ? " · uncontested" : ""}
+                    <span className="sd-lot-eyebrow" data-next={nextOnBlock ? "true" : "false"} data-testid="td-lot-eyebrow">
+                      {nextOnBlock ? "Next on the block" : "On the block"}
+                      {publicState.lot_kind === "uncontested" ? " · uncontested" : ""}
                     </span>
                     <PlayerAvatar name={candidate.player_name} size={56} imageUrl={candidate.headshot_url} />
                     <span className="sd-lot-name" data-testid="td-candidate-name">{candidate.player_name}</span>
@@ -744,6 +759,7 @@ export default function PeakV2ShowdownLive({
                         </span>
                       ))}
                     </span>
+                    <span className="sd-sealed">PEAK3 score sealed until sold</span>
                     {/* WHO HAS A PLACE FOR HIM. Your side is the server's own
                         feasibility answer (`candidate_fits`); the other side is
                         only which of his positions are still open on that
@@ -807,6 +823,9 @@ export default function PeakV2ShowdownLive({
                   </div>
                 </CardArrival>
 
+                {/* THE PADDLE: the clock and the hands, in one dock under the
+                    block. Nothing in here moves when a lot arrives. */}
+                <div className="sd-dock">
                 <PeakV2ShowdownClock
                   phase={phase}
                   deadlineAt={clockDeadlineAt}
@@ -821,8 +840,6 @@ export default function PeakV2ShowdownLive({
                   pendingAmount={inFlightAction?.amount ?? 0}
                   onExpire={onExpire}
                 />
-
-                <p className="sd-sealed">The PEAK3 score is sealed until this lot sells.</p>
 
                 <div className="sd-controls-wrap">
                   {stakes.length > 0 ? (
@@ -853,7 +870,7 @@ export default function PeakV2ShowdownLive({
                     </p>
                   ) : null}
                 </div>
-
+                </div>
               </div>
             ) : null}
           </div>

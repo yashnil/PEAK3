@@ -2511,7 +2511,7 @@
 /* the lot */
 .sd-lot { display: flex; flex-direction: column; align-items: center; text-align: center; padding-top: 0.5rem; }
 .sd-lot-card { display: flex; flex-direction: column; align-items: center; width: 100%; }
-.sd-lot-identity { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; }
+.sd-lot-identity { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; }
 .sd-lot-eyebrow { font-family: var(--v2-font-mono); font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--v2-text-secondary); }
 .sd-lot-name {
   font-family: var(--v2-font-ui);
@@ -2819,16 +2819,19 @@
 .sd-sold-row { display: flex; align-items: baseline; justify-content: center; gap: 0.65rem; }
 .sd-sold-eyebrow { font-family: var(--v2-font-mono); font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--v2-text-secondary); }
 .sd-sold-headline {
+  display: inline-block;
   font-family: var(--v2-font-display);
   font-size: clamp(1.6rem, 3.4vw, 2.1rem);
   letter-spacing: 0.06em;
   line-height: 1;
   color: var(--v2-color-accent);
+  /* THE HAMMER (pass 5): the verdict slams in, then settles. */
+  animation: sd-hammer 560ms cubic-bezier(0.2, 1.35, 0.4, 1) both;
 }
 .sd-sold[data-outcome="yours"] .sd-sold-headline { color: var(--v2-color-positive); }
 .sd-sold[data-outcome="theirs"] .sd-sold-headline { color: var(--v2-text-primary); }
 .sd-sold[data-outcome="unsold"] .sd-sold-headline { color: var(--v2-text-secondary); }
-.sd-sold-price { font-family: var(--v2-font-mono); font-weight: 700; font-size: 1.375rem; color: var(--v2-color-accent); }
+.sd-sold-price { font-family: var(--v2-font-mono); font-weight: 700; font-size: 1.375rem; color: var(--v2-color-accent); animation: gf-fade-in 260ms 260ms var(--gf-ease) both; }
 .sd-sold-line { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 0.1rem 0.45rem; font-family: var(--v2-font-ui); font-size: 0.8125rem; color: var(--v2-text-secondary); }
 .sd-sold-name { font-weight: 800; font-size: 1rem; color: var(--v2-text-primary); }
 .sd-sold-score { font-family: var(--v2-font-mono); font-size: 0.9375rem; font-weight: 700; color: var(--v2-text-primary); animation: gf-fade-in 300ms 220ms var(--gf-ease) both; }
@@ -3073,3 +3076,229 @@
 /* The next lot enters after the SOLD banner has read (~350 ms), never before;
    the controls beneath are live the whole time. */
 .sd-lot-card.gf-arrival[data-reduced-motion="false"] { animation-delay: 320ms; }
+
+/* ================================================================
+   GAME-FEEL PASS 5 — the auction floor breathes
+   ================================================================
+   Pacing moved to the server (slower, decision-shaped bot replies); this block
+   makes that pacing READABLE: one focal block (the player and the standing
+   bid), a paddle dock for the clock and the
+   hands, a visibly deliberating opponent, a bid that lands, and a SOLD beat
+   that reads as a hammer. Transform, opacity and colour only; every effect
+   has a reduced-motion fallback at the end of the block.
+   ================================================================ */
+
+/* --- table rhythm --------------------------------------------------- */
+@media (min-width: 1024px) {
+  .sd-table {
+    grid-template-columns: minmax(236px, 268px) minmax(0, 1fr) minmax(236px, 268px);
+    gap: 1.5rem;
+  }
+  .sd-stage { padding: 0.75rem 2.25rem 1.5rem; }
+  .sd-turn { margin: -0.75rem -2.25rem 0; }
+}
+@media (min-width: 1280px) {
+  .sd-table { gap: 2rem; }
+}
+
+/* --- the block --------------------------------------------------------- */
+.sd-lot { padding-top: 0.75rem; }
+.sd-lot-eyebrow[data-next="true"] {
+  color: var(--v2-color-accent);
+  animation: sd-next-eyebrow 900ms var(--gf-ease) both;
+}
+@keyframes sd-next-eyebrow {
+  0%   { opacity: 0; letter-spacing: 0.3em; }
+  100% { opacity: 1; letter-spacing: 0.12em; }
+}
+/* The sealed score, said once as a quiet tag under the positions instead of a
+   full sentence between the clock and the controls. */
+.sd-sealed {
+  margin-top: 0.1rem;
+  padding: 0.05rem 0.5rem;
+  border: 1px dashed var(--v2-border-subtle);
+  border-radius: 999px;
+  font-family: var(--v2-font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-secondary);
+}
+.sd-bid { margin-top: 0.7rem; padding: 0.35rem 2rem 0.55rem; }
+
+/* THE BID LANDS. A new standing figure drops in slightly large and settles,
+   and the holder's underline flashes once in the holder's colour. */
+.sd-bid .gf-bid[data-reduced-motion="false"][data-swapping="true"] .gf-bid-value {
+  animation: sd-bid-slam 460ms cubic-bezier(0.2, 1.2, 0.35, 1) both;
+}
+@keyframes sd-bid-slam {
+  0%   { opacity: 0.35; transform: scale(1.12); }
+  55%  { opacity: 1; transform: scale(0.975); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.sd-bid:has(.gf-bid[data-reduced-motion="false"][data-swapping="true"]) {
+  animation: sd-bid-rule 620ms var(--gf-ease) both;
+}
+@keyframes sd-bid-rule {
+  0%   { box-shadow: 0 2px 0 0 transparent; }
+  25%  { box-shadow: 0 12px 14px -12px color-mix(in srgb, var(--v2-color-accent) 85%, transparent); }
+  100% { box-shadow: 0 2px 0 0 transparent; }
+}
+.sd-bid[data-holder="bot"]:has(.gf-bid[data-swapping="true"]),
+.sd-bid[data-holder="rival"]:has(.gf-bid[data-swapping="true"]) {
+  animation-name: sd-bid-rule-them;
+}
+@keyframes sd-bid-rule-them {
+  0%   { box-shadow: 0 2px 0 0 transparent; }
+  25%  { box-shadow: 0 12px 14px -12px color-mix(in srgb, var(--v2-text-secondary) 85%, transparent); }
+  100% { box-shadow: 0 2px 0 0 transparent; }
+}
+
+/* --- the paddle dock ----------------------------------------------------- */
+.sd-dock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  margin-top: 0.5rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid color-mix(in srgb, var(--v2-border-subtle) 80%, transparent);
+}
+.sd-dock .sd-clock { margin-top: 0; min-height: 4.25rem; }
+.sd-dock .sd-controls-wrap { margin-top: 0.5rem; }
+
+/* --- the opponent deliberates ----------------------------------------------
+   While a bot holds the clock the stage's top edge carries a slow sweep and
+   the bot's bench breathes. Nothing moves on a timer of its own: both key off
+   `data-bot-thinking`, which follows the server's active seat. */
+.sd-room[data-bot-thinking="true"] .sd-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--v2-text-secondary) 85%, transparent) 50%, transparent 100%);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: sd-think-sweep 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes sd-think-sweep {
+  0%   { background-position: -40% 0; }
+  100% { background-position: 140% 0; }
+}
+.sd-room[data-bot-thinking="true"] .sd-side-them .sd-lineup[data-gf-seat="active"] {
+  animation: sd-think-breathe 1.8s ease-in-out infinite;
+}
+@keyframes sd-think-breathe {
+  0%, 100% { box-shadow: 0 20px 48px -34px color-mix(in srgb, var(--v2-text-secondary) 40%, transparent); }
+  50%      { box-shadow: 0 20px 52px -28px color-mix(in srgb, var(--v2-text-secondary) 75%, transparent); }
+}
+.sd-clock[data-thinking="true"] .gf-clock-label { color: var(--v2-text-primary); }
+
+/* --- benches, quieter ---------------------------------------------------- */
+.sd-lineup { gap: 0.7rem; padding: 0.8rem 0.85rem 0.85rem; }
+/* "$20 for 5 open spots" restated the budget meter and the spots count right
+   beside it; the bench keeps only the figure it adds -- your own bid ceiling. */
+.sd-bench-reach > span:first-child { display: none; }
+.sd-bench-reach:not(:has(> span + span)) { display: none; }
+.sd-bench-reach[data-align="start"] { justify-content: flex-end; }
+
+/* --- the SOLD beat: a hammer ---------------------------------------------- */
+.sd-sold { overflow: hidden; }
+@keyframes sd-hammer {
+  0%   { opacity: 0; transform: scale(1.7) rotate(-5deg); }
+  55%  { opacity: 1; transform: scale(0.93) rotate(0deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+.sd-sold-flash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(60% 120% at 50% 0%, color-mix(in srgb, var(--v2-color-accent) 30%, transparent), transparent 70%);
+  opacity: 0;
+  animation: sd-sold-flash 900ms var(--gf-ease) both;
+  pointer-events: none;
+}
+.sd-sold[data-outcome="yours"] .sd-sold-flash { background: radial-gradient(60% 120% at 50% 0%, color-mix(in srgb, var(--v2-color-positive) 30%, transparent), transparent 70%); }
+.sd-sold[data-outcome="unsold"] .sd-sold-flash { display: none; }
+@keyframes sd-sold-flash {
+  0%   { opacity: 0; }
+  20%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.sd-sold > :not(.sd-sold-flash) { position: relative; }
+/* The next lot enters after the hammer has landed. */
+.sd-room[data-sold-beat="true"] .sd-lot-card.gf-arrival[data-reduced-motion="false"] { animation-delay: 420ms; }
+
+/* --- desktop: the SOLD banner clears the next lot ----------------------- */
+/* The banner hangs over the stage's top strip, and on a desktop screen its
+   two-to-three-line stack (verdict, then name and score) reached down over the
+   next lot's eyebrow and avatar -- up to 38px into the avatar at 1280x720.
+   Here the verdict and the sold line share one wrapping row at a slightly
+   smaller size, so the banner stays inside the strip and eyebrow band. Same
+   content, same 2.8 s hold, same animations; presentation only. */
+@media (min-width: 1024px) {
+  .sd-sold {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: baseline;
+    column-gap: 0.75rem;
+    row-gap: 0;
+    padding: 0.25rem 0.9rem 0.3rem;
+    width: min(40rem, calc(100% - 1rem));
+  }
+  .sd-sold-headline { font-size: 1.35rem; }
+  .sd-sold-price { font-size: 1.05rem; }
+  .sd-sold-line { font-size: 0.75rem; }
+  .sd-sold-name { font-size: 0.9375rem; }
+  .sd-sold-score { font-size: 0.875rem; }
+}
+
+/* --- phones: the hands above the fold -------------------------------------- */
+@media (max-width: 1023px) {
+  .sd-lot { padding-top: 0.6rem; }
+  .sd-bid { margin-top: 0.5rem; padding-block: 0.2rem 0.45rem; }
+  .sd-bid .gf-bid-figure { font-size: 2.75rem; }
+  .sd-bid-news { min-height: 1.9rem; margin-top: 0.2rem; }
+  .sd-dock { margin-top: 0.5rem; padding-top: 0.6rem; }
+  .sd-dock .sd-clock { min-height: 3.9rem; }
+  /* The sealed-score tag is said by the SOLD beat on a phone; its row is
+     worth more to the hands. */
+  .sd-sealed { display: none; }
+  /* A compact SOLD banner: verdict and price on one line, the name under it,
+     so it sits over the possession strip and the eyebrow rather than the
+     next player's name. */
+  .sd-sold { padding: 0.3rem 0.75rem 0.4rem; gap: 0.05rem; }
+  .sd-sold-headline { font-size: 1.35rem; }
+  .sd-sold-price { font-size: 1.05rem; }
+  .sd-sold-line { font-size: 0.75rem; }
+  .sd-sold-name { font-size: 0.875rem; }
+  .sd-sold-score-label { display: none; }
+}
+@media (max-width: 640px) {
+  /* The initials medallion sits above a name that already says who it is:
+     on a phone that row is the difference between the Bid button being on
+     screen or below it. */
+  .sd-lot-identity > :nth-child(2) { display: none; }
+  .sd-lot-name { font-size: 1.5rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sd-lot-eyebrow[data-next="true"],
+  .sd-bid .gf-bid-value,
+  .sd-bid,
+  .sd-sold-headline,
+  .sd-sold-price,
+  .sd-sold-flash,
+  .sd-room[data-bot-thinking="true"] .sd-stage::after,
+  .sd-room[data-bot-thinking="true"] .sd-side-them .sd-lineup[data-gf-seat="active"] {
+    animation: none !important;
+  }
+  .sd-sold-flash { display: none; }
+  /* Reduced motion still says the bot is deliberating: a steady top rule. */
+  .sd-room[data-bot-thinking="true"] .sd-stage::after {
+    background: color-mix(in srgb, var(--v2-text-secondary) 60%, transparent);
+    background-size: 100% 100%;
+  }
+}

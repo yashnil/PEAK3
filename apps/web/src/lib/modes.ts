@@ -178,7 +178,10 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
   },
   "three-man-weave": {
     id: "three-man-weave",
-    href: "/arena/lobby?game=three_man_weave",
+    // THE FAMILY, not its Classic ruleset: the Play menu nests Classic,
+    // Franchise Draft and Decade Draft beneath this row, each at its own
+    // `?game=`, and the lobby highlights the whole family card for `?family=`.
+    href: "/arena/lobby?family=three_man_weave",
     eyebrow: "Multiplayer",
     title: "Three-Man Weave",
     description:

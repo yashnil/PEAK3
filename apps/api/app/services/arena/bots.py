@@ -462,6 +462,9 @@ async def drive_bot_seat(
 #: exactly the lazy discipline `clock.enforce` uses.
 BOT_THINK_SECONDS = 1.2
 
+#: The most any mode's think hook may ask for. See `bot_think_seconds_for`.
+BOT_THINK_SECONDS_CEILING = 12.0
+
 
 def _hook_accepts_snapshot(hook) -> bool:
     """Does this mode's think hook take the match snapshot?
@@ -480,11 +483,11 @@ def _hook_accepts_snapshot(hook) -> bool:
 def bot_think_seconds_for(mode, match, turn) -> float:
     """How long THIS bot takes on THIS turn.
 
-    A mode may vary it -- Three-Man Weave draws 1-5 seconds per (seat, turn)
-    from the match seed, so three bot seats do not all move on the same
-    metronome, which is what made a draft feel like a script rather than a
-    room; The $20 Showdown draws from a range keyed to the KIND of decision
-    the board presents. Deterministic from stored state, so every poller
+    A mode may vary it -- Three-Man Weave shapes it by how hard the pick on the
+    board looks (a lone star lands fast, a toss-up takes a while), so three bot
+    seats do not move on the same metronome, which is what made a draft feel
+    like a script rather than a room; The $20 Showdown draws from a range keyed
+    to the KIND of decision the board presents. Deterministic from stored state, so every poller
     computes the same answer and a fast client cannot hurry a bot along.
     """
     hook = getattr(mode, "bot_think_seconds", None)
@@ -500,7 +503,10 @@ def bot_think_seconds_for(mode, match, turn) -> float:
     except Exception:  # pragma: no cover - a broken hook must not wedge a turn
         return BOT_THINK_SECONDS
     # Clamped so a mode cannot accidentally park a bot past the human clock.
-    return max(0.0, min(seconds, 10.0))
+    # 12 s (from 10, game-feel pass 5): Three-Man Weave's closest calls run to
+    # ~11 s against a 45 s human clock; The $20 Showdown's 25 s clock is far
+    # above its own ranges.
+    return max(0.0, min(seconds, BOT_THINK_SECONDS_CEILING))
 
 
 def bot_reply_in_seconds(mode, match, turn, seats, now: datetime) -> Optional[float]:

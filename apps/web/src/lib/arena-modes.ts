@@ -79,6 +79,17 @@ export interface ArenaModeMeta {
    *  route). Franchise Draft and Decade Draft are Three-Man Weave with one
    *  constraint for the whole draft -- the same room, not a new game. */
   variantOf?: string;
+  /** The ruleset's short name INSIDE its family ("Classic", "Franchise
+   *  Draft"), for surfaces that already name the family above it. */
+  variantLabel?: string;
+  /** One menu-sized line (<= 8 words) saying how this ruleset differs. */
+  variantSummary?: string;
+  /** Set on a family's parent: how the family introduces itself when it is
+   *  shown as one game with several rulesets rather than as one ruleset. */
+  family?: {
+    tagline: string;
+    description: string;
+  };
 }
 
 export const ARENA_MODES: readonly ArenaModeMeta[] = [
@@ -91,6 +102,13 @@ export const ARENA_MODES: readonly ArenaModeMeta[] = [
     duration: "10–15 min",
     kindBadge: "Multiplayer",
     matchPath: (matchId) => `/arena/three-man-weave/${matchId}`,
+    variantLabel: "Classic",
+    variantSummary: "A new franchise × decade every round",
+    family: {
+      tagline: "Three drafters · three ways to draft",
+      description:
+        "A three-seat snake draft for the six-man lineup PEAK3 rates highest. Every name taken is gone for everyone — the format decides how the pool is drawn.",
+    },
     rules: [
       "Three drafters share one board.",
       "Six rounds. Each opens a franchise × decade roll that every seat drafts from.",
@@ -111,6 +129,8 @@ export const ARENA_MODES: readonly ArenaModeMeta[] = [
     kindBadge: "Multiplayer",
     matchPath: (matchId) => `/arena/three-man-weave/${matchId}`,
     variantOf: "three_man_weave",
+    variantLabel: "Franchise Draft",
+    variantSummary: "One franchise for all 18 picks",
     rules: [
       "Three drafters, one franchise, drawn once before round one.",
       "All eighteen picks come from that franchise's players, in any decade.",
@@ -132,6 +152,8 @@ export const ARENA_MODES: readonly ArenaModeMeta[] = [
     kindBadge: "Multiplayer",
     matchPath: (matchId) => `/arena/three-man-weave/${matchId}`,
     variantOf: "three_man_weave",
+    variantLabel: "Decade Draft",
+    variantSummary: "One decade for all 18 picks",
     rules: [
       "Three drafters, one decade, drawn once before round one.",
       "All eighteen picks come from players of that decade, on any franchise.",
@@ -210,6 +232,75 @@ export interface OfferableMode extends ArenaModeMeta {
 
 export function modeMeta(modeId: string): ArenaModeMeta | undefined {
   return ARENA_MODES.find((m) => m.id === modeId);
+}
+
+// ---------------------------------------------------------------------------
+// Families: one game, several rulesets
+// ---------------------------------------------------------------------------
+
+/**
+ * A game as a player chooses it: one family, and the rulesets it is played
+ * under. A mode with no `variantOf` and no variants is a family of one.
+ *
+ * WHY THIS EXISTS. Franchise Draft and Decade Draft used to render as two more
+ * sibling cards beside Three-Man Weave, so the lobby read as three unrelated
+ * games instead of one game with three ways to draft. Every surface that lists
+ * games (lobby, Play menu, hub) now groups through this, from `variantOf`
+ * alone -- no surface names a mode id.
+ */
+export interface ModeFamily<T extends ArenaModeMeta = ArenaModeMeta> {
+  /** The parent mode's id, whether or not the parent itself is in `variants`. */
+  id: string;
+  /** The parent's name ("Three-Man Weave"). */
+  name: string;
+  /** The parent's catalogue entry, when this build knows it. */
+  parent: ArenaModeMeta | undefined;
+  /** The family's rulesets present in the input, parent first, then the
+   *  variants in catalogue order. Never empty. */
+  variants: T[];
+}
+
+/** The family id a mode belongs to. */
+export function familyIdOf(mode: Pick<ArenaModeMeta, "id" | "variantOf">): string {
+  return mode.variantOf ?? mode.id;
+}
+
+/**
+ * Groups `modes` into families, in the order each family first appears.
+ *
+ * Only what is in `modes` is kept: pass the offerable list and a ruleset the
+ * server does not serve simply is not a variant here. A family whose parent is
+ * not offerable but whose variants are still forms (named after the parent).
+ */
+export function groupModeFamilies<T extends ArenaModeMeta>(modes: readonly T[]): ModeFamily<T>[] {
+  const order: string[] = [];
+  const members = new Map<string, T[]>();
+  for (const mode of modes) {
+    const id = familyIdOf(mode);
+    if (!members.has(id)) {
+      order.push(id);
+      members.set(id, []);
+    }
+    members.get(id)!.push(mode);
+  }
+  return order.map((id) => {
+    const parent = modeMeta(id);
+    const list = members.get(id)!;
+    // Parent first, then catalogue order (which `modes` already follows).
+    list.sort((a, b) => Number(Boolean(a.variantOf)) - Number(Boolean(b.variantOf)));
+    return { id, name: parent?.name ?? list[0].name, parent, variants: list };
+  });
+}
+
+/** Every catalogued ruleset of a family, parent first. A mode with no
+ *  variants returns just itself; an unknown id returns nothing. */
+export function familyRulesets(familyId: string): ArenaModeMeta[] {
+  return groupModeFamilies(ARENA_MODES.filter((m) => familyIdOf(m) === familyId))[0]?.variants ?? [];
+}
+
+/** A ruleset's name inside its family, falling back to its full name. */
+export function variantLabelOf(mode: ArenaModeMeta): string {
+  return mode.variantLabel ?? mode.name;
 }
 
 /**

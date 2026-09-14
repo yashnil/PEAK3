@@ -207,7 +207,12 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
     if (prev && source !== "command" && !prev.view.private_state.is_your_turn && next.private_state.is_your_turn) {
       handoffSince.current = typeof performance !== "undefined" ? performance.now() : null;
     }
-    const nextRoom = roomFrom(next, moment ?? prev?.moment ?? null);
+    // THE PLAYER'S OWN PRESS SUPERSEDES WHATEVER WAS BEING ANNOUNCED. Carrying
+    // the previous moment across a command left "Finisher opens at $1 · Your
+    // move" on the news row for the whole of the bot's deliberation that
+    // followed -- a line telling the player it was their move while the room
+    // said the other bench was thinking.
+    const nextRoom = roomFrom(next, moment ?? (source === "command" ? null : (prev?.moment ?? null)));
     latest.current = nextRoom;
     setRoom(nextRoom);
     setLocallyExpired(false);

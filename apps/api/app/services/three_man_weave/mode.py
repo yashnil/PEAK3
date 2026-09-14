@@ -177,7 +177,30 @@ PHASE_REVEAL = "reveal"
 #: round's pick order -- with reels that lock by 0.86 s and resolve at 1.0 s,
 #: and half a second of the settled pair before this deadline opens the pick
 #: (`PeakV2TMWReveal`, `TMW_REVEAL_SECONDS`, which mirrors this value).
-REVEAL_SECONDS = 1.5
+#:
+#: 3.8, FROM 1.5 (game-feel pass 5). Pass 4 fixed the LATENCY, and the reveal
+#: was shortened alongside it; played end to end, a 1.5 s roll read as a flash
+#: rather than a draw -- "blink and it's gone" -- and the one moment of
+#: anticipation a round has was lost. Latency stays fixed (nothing here waits
+#: on a round trip, and the pick window still opens with its full 45 s once
+#: the reveal ends). The client spends the window as: slate ~0.45 s, an armed
+#: beat, a franchise reel that lands first, a decade reel that keeps turning
+#: ~0.65 s longer, a lock, and half a second of the settled pair
+#: (`PeakV2TMWReveal`).
+REVEAL_SECONDS = 3.8
+
+#: THE BREATHING BEAT BEFORE A ROUND'S ROLL, in seconds (game-feel pass 5).
+#: The last pick of a round used to open the next reveal in the same response,
+#: so the ceremony scrim covered the board in the frame that landed the pick
+#: and nobody at the table saw where it went. A reveal opened BY A PICK now
+#: carries this lead ahead of the ceremony: the client shows the board with
+#: the drafted card locking in for `PICK_SETTLE_SECONDS`, then rolls. Part of
+#: the same server turn, so every seat sees the same beat and a reconnect lands
+#: on it correctly; the opening reveal (no pick before it) carries none.
+PICK_SETTLE_SECONDS = 1.4
+
+#: The whole window a pick-opened reveal turn runs for.
+ROUND_REVEAL_SECONDS = PICK_SETTLE_SECONDS + REVEAL_SECONDS
 
 #: Round one's ceremony window. It used to carry the matchup card as well and
 #: so ran longer; the matchup card is now the briefing phase's own
@@ -376,8 +399,18 @@ class ThreeManWeaveMode:
         """
         return human_seat_index(seed, PARTICIPANT_COUNT)
 
-    def bot_think_seconds(self, seed: int, seat_index: int, turn_seq: int) -> float:
-        """How long a bot seat appears to deliberate. Seeded, 4-10 seconds.
+    def bot_think_seconds(
+        self, seed: int, seat_index: int, turn_seq: int, snapshot: Optional[dict] = None
+    ) -> float:
+        """How long a bot seat appears to deliberate, SHAPED BY THE DECISION.
+
+        Game-feel pass 5: `snapshot` is the match's stored state, passed by the
+        foundation's driver (`bots.bot_think_seconds_for`) because this hook
+        accepts it. From it the bot seat's own board is rebuilt and scored by
+        `ThreeManWeaveBot.deliberation` -- a lone star lands in ~2-3 s, a real
+        toss-up takes ~8-11 s (`config.bot_think_seconds`). Without a snapshot
+        a typical pick's timing applies. Memoized per (variant, seed, seat,
+        turn, board), because the foundation asks on every read of a bot turn.
 
         Presentation only, and the foundation enforces it against the turn's
         stored `opened_at`. Never the human turn clock: three seats at 45
@@ -390,7 +423,8 @@ class ThreeManWeaveMode:
         without ever rendering the seat on the clock -- the deliberation the
         turn-status surface is built around was, in practice, unobservable.
         """
-        return bot_think_seconds(seed, seat_index, turn_seq)
+        deliberation = _bot_deliberation(self, snapshot, seat_index) if snapshot else None
+        return bot_think_seconds(seed, seat_index, turn_seq, deliberation)
 
     def bot_display_names(self, seed: int, count: int) -> tuple[str, ...]:
         """Distinct, human-facing names for this match's bot seats.
@@ -834,7 +868,8 @@ class ThreeManWeaveMode:
                 open_turn=TurnDraft(
                     phase=PHASE_REVEAL,
                     seat_index=None,
-                    deadline_at=data.now + timedelta(seconds=REVEAL_SECONDS),
+                    # The settle beat leads the ceremony (`PICK_SETTLE_SECONDS`).
+                    deadline_at=data.now + timedelta(seconds=ROUND_REVEAL_SECONDS),
                 ),
                 status=MATCH_STATUS_ACTIVE,
             )
@@ -1493,6 +1528,71 @@ class ThreeManWeaveMode:
         snapshot["eligibility_index_version"] = ELIGIBILITY_INDEX_VERSION
         snapshot["formula_version"] = FORMULA_VERSION
         return snapshot
+
+
+#: `_bot_deliberation`'s memo. Bounded LRU of floats.
+_DELIBERATION_CACHE: "OrderedDict[tuple, Optional[float]]" = OrderedDict()
+_DELIBERATION_CACHE_SIZE = 1024
+
+
+def _bot_deliberation(mode_obj: "ThreeManWeaveMode", snapshot: dict, seat_index: int) -> Optional[float]:
+    """How hard the board in `snapshot` looks to the bot seat on the clock.
+
+    Rebuilds exactly the fields `ThreeManWeaveBot.options` reads from `project`
+    (the roll and its undrafted candidates, the constraint, this seat's open
+    slots, assignment and candidate fits) straight from the draft state --
+    `project` itself needs the match row and seats, which this hook is not
+    given. None when the seat is not the one on the clock or nothing can be
+    read; the think time then falls back to a typical pick.
+    """
+    try:
+        state = D.DraftState.from_dict(snapshot)
+    except (KeyError, TypeError, ValueError):
+        return None
+    roll = state.current_roll
+    if roll is None or state.is_complete or state.current_seat != seat_index:
+        return None
+    roster = state.roster(seat_index)
+    key = (
+        mode_obj.variant,
+        state.match_seed,
+        seat_index,
+        state.turn_index,
+        roll.roll_id,
+        # WHO HOLDS WHICH SLOT, per seat -- not merely who is drafted. Two
+        # boards with the same drafted set but different owners or slots have
+        # different candidate fits, so they must not share a think time.
+        tuple(
+            (r.seat_index, tuple(sorted((slot, pick.player_slug) for slot, pick in r.slots.items() if pick)))
+            for r in state.rosters
+        ),
+    )
+    if key in _DELIBERATION_CACHE:
+        _DELIBERATION_CACHE.move_to_end(key)
+        return _DELIBERATION_CACHE[key]
+    try:
+        drafted = state.drafted_identities()
+        fits = D.candidate_fits(state, get_index(), seat_index)
+        public = {
+            "current_roll": {
+                **roll.as_dict(),
+                "candidates": [{"player_slug": slug} for slug in roll.eligible_slugs if slug not in drafted],
+            },
+            "constraint": state.constraint.public_dict() if state.constraint is not None else None,
+        }
+        private = {
+            "seat_index": seat_index,
+            "open_slots": list(roster.open_slots()),
+            "assignment": {slot: (pick.player_slug if pick else None) for slot, pick in roster.slots.items()},
+            "candidate_fits": {slug: fit.as_dict() for slug, fit in sorted(fits.items())},
+        }
+        value: Optional[float] = bot.deliberation(public, private)
+    except Exception:  # pragma: no cover - presentation must never wedge a turn
+        value = None
+    _DELIBERATION_CACHE[key] = value
+    while len(_DELIBERATION_CACHE) > _DELIBERATION_CACHE_SIZE:
+        _DELIBERATION_CACHE.popitem(last=False)
+    return value
 
 
 #: `ThreeManWeaveMode._current_edge`'s memo: (seed, picks) -> bands. Bounded

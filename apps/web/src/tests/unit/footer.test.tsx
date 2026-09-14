@@ -37,6 +37,8 @@ const EXPECTED_LINKS: Record<string, readonly [string, string][]> = {
     ["Data Sources", "/data-sources"],
     ["About", "/about"],
     ["Accessibility", "/accessibility"],
+    // The homepage feedback form, by its anchor.
+    ["Send feedback", "/#feedback"],
   ],
   Legal: [
     ["Terms of Use", "/terms"],
@@ -109,7 +111,9 @@ describe("Footer links", () => {
   it("every footer href resolves to a real route", () => {
     for (const column of FOOTER_COLUMNS) {
       for (const item of column.links) {
-        const segments = item.href.split("/").filter(Boolean);
+        // The route is the path: an anchor or query (`/#feedback`) points into
+        // a page, it does not name one.
+        const segments = item.href.split(/[?#]/)[0].split("/").filter(Boolean);
         const dir = path.join(APP_DIR, ...segments);
         expect(
           fs.existsSync(path.join(dir, "page.tsx")),

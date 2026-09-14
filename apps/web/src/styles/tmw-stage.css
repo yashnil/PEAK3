@@ -352,29 +352,6 @@
   display: none;
 }
 
-@media (max-width: 640px) {
-  /* Standings on a phone: rank, name and score on one line, bar beneath. */
-  .tmw-final .tmw-podium-row {
-    grid-template-columns: 2.8rem minmax(0, 1fr) auto;
-    grid-template-areas:
-      "rank name score"
-      "bar  bar  bar";
-    row-gap: 0.35rem;
-  }
-  .tmw-final .tmw-podium-rank {
-    grid-area: rank;
-  }
-  .tmw-final .tmw-podium-name {
-    grid-area: name;
-  }
-  .tmw-final .tmw-podium-score {
-    grid-area: score;
-  }
-  .tmw-final .tmw-podium-bar {
-    grid-area: bar;
-  }
-}
-
 /* -- the roll: a draft-lottery slate --------------------------------------- */
 
 .tmw-stage-scrim {
@@ -751,407 +728,288 @@
   }
 }
 
-/* =============================================================================
-   THE FINAL: who won, why, what you built
-   ============================================================================= */
 
-.tmw-final-label {
-  margin: 0;
-  font-family: var(--v2-font-mono);
-  font-feature-settings: var(--v2-mono-feature);
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--v2-text-secondary);
-}
+/* -- the roll, pass 5: anticipation, then two releases ---------------------
+   Stages come from `PeakV2TMWReveal` on the server's clock: round -> armed
+   (windows pulse) -> spinning (a light sweeps the card) -> landing (the
+   franchise window lands and flashes while the decade keeps turning) ->
+   locked (the decade lands, the pair flashes, the × pops) -> resolved.
+   Transform, opacity, filter and box-shadow only; nothing reflows, and the
+   reduced-motion block at the end removes every animation. */
 
-.tmw-final-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-  gap: var(--v2-space-6, 1.5rem);
-  align-items: start;
-}
-
-.tmw-final-verdict {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
-  padding: var(--v2-space-5, 1.25rem) var(--v2-space-6, 1.5rem) var(--v2-space-6, 1.5rem);
-  border: 1px solid var(--v2-border-subtle);
-  border-radius: var(--v2-radius-control);
-  background: var(--v2-bg-plane);
-  overflow: hidden;
-}
-
-.tmw-final-light {
+.tmw-lottery::after {
+  content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 32%,
+    color-mix(in srgb, var(--v2-color-accent) 9%, transparent) 50%,
+    transparent 68%
+  );
+  transform: translateX(-100%);
 }
 
-.tmw-final-verdict > :not(.tmw-final-light) {
-  position: relative;
+.tmw-lottery[data-stage="spinning"]::after,
+.tmw-lottery[data-stage="landing"]::after {
+  opacity: 1;
+  animation: tmw-sweep 1.15s linear infinite;
 }
 
-.tmw-final-placement {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.35rem 1.1rem;
+@keyframes tmw-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
 }
 
-.tmw-final-placement-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  min-width: 0;
-  padding-bottom: 0.35rem;
+[data-ui-version="v2"] .tmw-lottery[data-stage="armed"] .v2-spin-axis {
+  animation: tmw-aperture-pulse 260ms ease-in-out infinite alternate;
 }
 
-.tmw-final-outcome {
-  margin: 0;
-  font-family: var(--v2-font-ui);
-  font-size: 0.9375rem;
-  font-weight: 600;
+@keyframes tmw-aperture-pulse {
+  from {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  to {
+    box-shadow: 0 0 24px 2px color-mix(in srgb, var(--v2-color-accent) 32%, transparent);
+  }
+}
+
+[data-ui-version="v2"] .tmw-lottery[data-stage="spinning"] .v2-spin-axis,
+[data-ui-version="v2"] .tmw-lottery[data-stage="landing"] .v2-spin-axis {
+  box-shadow: 0 0 20px -4px color-mix(in srgb, var(--v2-color-accent) 30%, transparent);
+}
+
+/* The first release: the franchise lands with the decade still turning. */
+[data-ui-version="v2"] .tmw-lottery[data-stage="landing"] .v2-spin-axis:first-child {
+  border-color: var(--v2-color-accent);
+  background: var(--v2-color-accent-bg);
+  animation: tmw-window-land 440ms cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+}
+
+[data-ui-version="v2"] .tmw-lottery[data-stage="landing"] .v2-spin-axis:first-child::after {
+  transform: scaleX(1);
+}
+
+/* The second release: the last window lands, the pair locks. */
+[data-ui-version="v2"] .tmw-lottery[data-stage="locked"] .v2-spin-axis:last-child {
+  animation: tmw-window-land 440ms cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+}
+
+@keyframes tmw-window-land {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--v2-color-accent) 60%, transparent);
+  }
+  40% {
+    transform: scale(1.04);
+    box-shadow: 0 0 36px 6px color-mix(in srgb, var(--v2-color-accent) 42%, transparent);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 18px 0 color-mix(in srgb, var(--v2-color-accent) 18%, transparent);
+  }
+}
+
+[data-ui-version="v2"] .tmw-lottery[data-stage="locked"] .v2-spin-axes::after {
+  animation: tmw-x-pop 380ms cubic-bezier(0.2, 0.9, 0.3, 1.3) both;
+}
+
+@keyframes tmw-x-pop {
+  0% {
+    transform: translate(-50%, -30%) scale(1);
+  }
+  45% {
+    transform: translate(-50%, -30%) scale(1.55);
+  }
+  100% {
+    transform: translate(-50%, -30%) scale(1);
+  }
+}
+
+.tmw-lottery[data-stage="locked"] {
+  animation: tmw-card-thunk 280ms ease-out;
+}
+
+@keyframes tmw-card-thunk {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.012);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* The anticipation, in words: the status line leans in while it rolls. */
+.tmw-lottery-status[data-stage="armed"],
+.tmw-lottery-status[data-stage="spinning"] {
   color: var(--v2-text-primary);
+  animation: tmw-breathe 700ms ease-in-out infinite alternate;
 }
 
-.tmw-final-margin {
-  margin: 0;
-  font-family: var(--v2-font-ui);
-  font-size: 0.8125rem;
-  color: var(--v2-text-secondary);
-}
-
-.tmw-final-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem;
-  margin-top: 0.2rem;
-}
-
-.tmw-final-board {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  min-width: 0;
-}
-
-.tmw-final-why {
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-  margin-top: 0.4rem;
-  padding: 0.9rem 1rem;
-  border-left: 2px solid var(--v2-color-accent);
-  border-radius: 0 var(--v2-radius-control) var(--v2-radius-control) 0;
-  background: var(--v2-bg-plane);
-}
-
-.tmw-final-why-title {
-  margin: 0;
+.tmw-lottery-status[data-stage="landing"] {
   font-family: var(--v2-font-display);
-  font-size: 1.375rem;
-  font-weight: 400;
-  line-height: 1.15;
+  font-size: 1.15rem;
   color: var(--v2-text-primary);
+  animation: tmw-slate-in 220ms var(--v2-ease-out, ease-out) both;
 }
 
-.tmw-final-why-line {
+@keyframes tmw-breathe {
+  from {
+    opacity: 0.62;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmw-lottery,
+  .tmw-lottery::after,
+  .tmw-lottery-status,
+  [data-ui-version="v2"] .tmw-lottery .v2-spin-axis,
+  [data-ui-version="v2"] .tmw-lottery .v2-spin-axes::after {
+    animation: none !important;
+  }
+  .tmw-lottery::after {
+    opacity: 0 !important;
+  }
+}
+
+/* -- the pick surface, pass 5: a bubble over the teams ---------------------
+   The courts and the decision share ONE grid cell (`PeakV2TMWCourts`). The
+   surface sits on top, the courts dim and stop taking presses beneath it, and
+   the cell is as tall as the taller of the two, so the PAGE scrolls a long
+   pool -- no fixed modal, no nested scroll pane. The roster tab bar stays
+   outside the cell and live. Opacity-only entrance: nothing the player presses
+   moves under the pointer while it arrives. */
+
+.tmw-stage {
+  position: relative;
   display: grid;
-  grid-template-columns: 9.5rem minmax(0, 1fr);
-  gap: 0.2rem 0.8rem;
-  margin: 0;
-  font-family: var(--v2-font-ui);
-  font-size: 0.8125rem;
-  line-height: 1.45;
-  color: var(--v2-text-secondary);
+  grid-template-areas: "stack";
 }
 
-.tmw-final-why-line strong {
-  color: var(--v2-text-primary);
-}
-
-.tmw-final-why-key {
-  padding-top: 0.1rem;
-  font-family: var(--v2-font-mono);
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--v2-text-secondary);
-}
-
-.tmw-final-why-num {
-  font-family: var(--v2-font-mono);
-  font-feature-settings: var(--v2-mono-feature);
-  font-weight: 700;
-  color: var(--v2-text-primary);
-}
-
-.tmw-final-compare {
-  display: grid;
-  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
-  gap: var(--v2-space-6, 1.5rem);
-  align-items: start;
-  margin-top: var(--v2-space-6, 1.5rem);
-}
-
-.tmw-final-compare > :only-child {
-  grid-column: 1 / -1;
-}
-
-/* -- head to head ---------------------------------------------------------- */
-
-.tmw-h2h-table {
-  display: flex;
-  flex-direction: column;
-  margin-top: 0.6rem;
-}
-
-.tmw-h2h-row {
-  display: grid;
-  grid-template-columns: 10rem repeat(var(--tmw-cols, 3), minmax(0, 1fr));
-  align-items: center;
-  gap: 0.35rem 0.9rem;
-  padding: 0.45rem 0;
-  border-bottom: 1px solid var(--v2-border-subtle);
-}
-
-.tmw-h2h-row--head {
-  align-items: end;
-  padding-top: 0;
-}
-
-.tmw-h2h-metric {
-  font-family: var(--v2-font-ui);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--v2-text-primary);
-}
-
-.tmw-h2h-row--head .tmw-h2h-metric {
-  font-family: var(--v2-font-mono);
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--v2-text-secondary);
-}
-
-.tmw-h2h-seat,
-.tmw-h2h-cell {
-  --seat-fill: var(--seat-1-fill);
-}
-
-.tmw-h2h-seat[data-seat-accent="2"],
-.tmw-h2h-cell[data-seat-accent="2"] {
-  --seat-fill: var(--seat-2-fill);
-}
-
-.tmw-h2h-seat[data-seat-accent="3"],
-.tmw-h2h-cell[data-seat-accent="3"] {
-  --seat-fill: var(--seat-3-fill);
-}
-
-.tmw-h2h-seat {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  min-width: 0;
-  padding-top: 0.35rem;
-  border-top: 3px solid var(--seat-fill);
-  font-family: var(--v2-font-ui);
-  font-size: 0.8125rem;
-  font-weight: 700;
-  color: var(--v2-text-primary);
-}
-
-.tmw-h2h-seat-place {
-  font-family: var(--v2-font-mono);
-  font-size: 0.6875rem;
-  color: var(--v2-text-secondary);
-}
-
-.tmw-h2h-seat[data-winner="true"] .tmw-h2h-seat-place {
-  color: var(--v2-color-accent);
-}
-
-.tmw-h2h-seat-name {
-  overflow-wrap: anywhere;
-}
-
-.tmw-h2h-cell {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  grid-template-areas:
-    "value lead"
-    "bar   bar";
-  align-items: baseline;
-  gap: 0.2rem 0.4rem;
+.tmw-stage > .tmw-courts,
+.tmw-stage > .tmw-decision {
+  grid-area: stack;
   min-width: 0;
 }
 
-.tmw-h2h-value {
-  grid-area: value;
-  font-family: var(--v2-font-mono);
-  font-feature-settings: var(--v2-mono-feature);
-  font-size: 0.9375rem;
-  font-weight: 700;
-  color: var(--v2-text-primary);
+.tmw-stage > .tmw-courts {
+  transition:
+    filter 240ms var(--v2-ease-standard, ease),
+    opacity 240ms var(--v2-ease-standard, ease);
 }
 
-.tmw-h2h-lead {
-  grid-area: lead;
-  justify-self: start;
-  font-family: var(--v2-font-mono);
-  font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--v2-color-accent);
+.tmw-stage[data-decision-open="true"] > .tmw-courts {
+  filter: saturate(0.5) brightness(0.45);
+  opacity: 0.9;
+  pointer-events: none;
+  user-select: none;
 }
 
-.tmw-h2h-bar {
-  grid-area: bar;
-  display: block;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--v2-border-subtle);
-  overflow: hidden;
+.tmw-stage > .tmw-decision {
+  position: relative;
+  z-index: 8;
+  align-self: start;
+  justify-self: center;
+  width: min(74rem, 100%);
+  margin-top: 1.25rem;
+  padding-inline: clamp(0rem, 2.5vw, 2rem);
 }
 
-.tmw-h2h-fill {
-  display: block;
-  width: calc(var(--tmw-fill, 0) * 100%);
-  height: 100%;
-  background: var(--seat-fill);
+.tmw-stage > .tmw-decision:empty {
+  display: none;
 }
 
-.tmw-h2h-cell--text {
-  display: flex;
-  flex-direction: column;
-  gap: 0.05rem;
+.tmw-stage .tmw-overlay,
+[data-ui-version="v2"] .tmw-stage .tmw-overlay {
+  box-shadow:
+    0 36px 90px -28px rgba(0, 0, 0, 0.92),
+    0 0 0 1px color-mix(in srgb, var(--v2-color-accent) 20%, transparent),
+    0 0 70px -34px color-mix(in srgb, var(--v2-color-accent) 70%, transparent);
+  animation: tmw-bubble-in 200ms var(--v2-ease-out, ease-out) both;
 }
 
-.tmw-h2h-name {
-  font-family: var(--v2-font-ui);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--v2-text-primary);
-  overflow-wrap: anywhere;
-}
-
-.tmw-h2h-note {
-  font-family: var(--v2-font-mono);
-  font-size: 0.6875rem;
-  color: var(--v2-text-secondary);
-}
-
-/* -- what you built ------------------------------------------------------- */
-
-.tmw-build-list {
-  margin: 0.6rem 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.tmw-build-row {
-  display: grid;
-  grid-template-columns: 2.4rem minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.4rem 0;
-  border-bottom: 1px solid var(--v2-border-subtle);
-}
-
-.tmw-build-slot {
-  font-family: var(--v2-font-mono);
-  font-size: 0.6875rem;
-  font-weight: 700;
-  color: var(--v2-text-secondary);
-}
-
-.tmw-build-player {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.tmw-build-name {
-  font-family: var(--v2-font-ui);
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--v2-text-primary);
-}
-
-.tmw-build-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.4rem;
-  font-family: var(--v2-font-ui);
-  font-size: 0.75rem;
-  color: var(--v2-text-secondary);
-}
-
-.tmw-build-tag {
-  padding: 0.05rem 0.4rem;
-  border-radius: 999px;
-  background: var(--v2-color-accent);
-  color: var(--v2-text-inverse);
-  font-family: var(--v2-font-mono);
-  font-size: 0.5625rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.tmw-build-tag--quiet {
-  border: 1px solid var(--v2-border-emphasis);
-  background: none;
-  color: var(--v2-text-secondary);
-}
-
-.tmw-build-value {
-  font-family: var(--v2-font-mono);
-  font-feature-settings: var(--v2-mono-feature);
-  font-size: 0.875rem;
-  font-weight: 700;
-  color: var(--v2-text-primary);
-}
-
-.tmw-final-rosters {
-  margin-top: var(--v2-space-10, 2.5rem);
-}
-
-@media (max-width: 1023px) {
-  .tmw-final-hero,
-  .tmw-final-compare {
-    grid-template-columns: minmax(0, 1fr);
+@keyframes tmw-bubble-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 
-@media (max-width: 640px) {
-  .tmw-final-verdict {
-    padding: var(--v2-space-4, 1rem);
+@media (max-width: 760px) {
+  .tmw-stage > .tmw-decision {
+    width: 100%;
+    margin-top: 0.5rem;
+    padding-inline: 0;
   }
-  .tmw-final-actions > * {
-    flex: 1 1 auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmw-stage > .tmw-courts {
+    transition: none;
   }
-  .tmw-final-why-line {
-    grid-template-columns: minmax(0, 1fr);
+  .tmw-stage .tmw-overlay,
+  [data-ui-version="v2"] .tmw-stage .tmw-overlay {
+    animation: none;
   }
-  .tmw-h2h-row {
-    grid-template-columns: repeat(var(--tmw-cols, 3), minmax(0, 1fr));
+}
+
+/* -- the pick landing ------------------------------------------------------
+   A drafted card used to arrive on a 260 ms opacity paint -- correct, and too
+   quiet to notice from across three courts. On the Weave board it now drops
+   in and rings gold once (a Weave card may move, so a transform is allowed
+   here, unlike 82-0's fixed court). During a pick-opened reveal's settle lead
+   (`data-beat="settle"`) the board is the whole show, so the ring holds a
+   little longer. Paint-only under reduced motion. */
+.tmw-board [data-gf-lock="arrived"] > * {
+  animation:
+    tmw-card-drop 420ms cubic-bezier(0.2, 0.9, 0.3, 1.2) 1,
+    tmw-card-ring 900ms var(--v2-ease-out, ease-out) 1;
+}
+
+.tmw-room[data-beat="settle"] .tmw-board [data-gf-lock="arrived"] > * {
+  animation-duration: 420ms, 1400ms;
+}
+
+@keyframes tmw-card-drop {
+  0% {
+    transform: translateY(-10px) scale(0.96);
+    opacity: 0.35;
   }
-  .tmw-h2h-row > .tmw-h2h-metric {
-    grid-column: 1 / -1;
+  60% {
+    transform: translateY(0) scale(1.02);
+    opacity: 1;
   }
-  .tmw-h2h-row--head > .tmw-h2h-metric {
-    display: none;
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes tmw-card-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--v2-color-accent) 75%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 10px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmw-board [data-gf-lock="arrived"] > * {
+    animation: none;
   }
 }

@@ -208,8 +208,17 @@ export const TMW_TURN_PHASE_PICK = "pick";
  * always the server's, never one of these numbers.
  */
 export const TMW_INTRO_SECONDS = 4.0;
-export const TMW_REVEAL_SECONDS = 1.5;
+export const TMW_REVEAL_SECONDS = 3.8;
 export const TMW_OPENING_REVEAL_SECONDS = TMW_REVEAL_SECONDS;
+/**
+ * The breathing beat that LEADS a reveal opened by a pick, mirroring
+ * `PICK_SETTLE_SECONDS` (game-feel pass 5). Such a turn runs
+ * `TMW_PICK_SETTLE_SECONDS + TMW_REVEAL_SECONDS`; the room shows the board
+ * with the last pick locking in for the lead, then rolls. The lead is always
+ * derived from the server's own `turn_total_seconds` (see `revealLeadMs`), so
+ * a server without it simply has no lead.
+ */
+export const TMW_PICK_SETTLE_SECONDS = 1.4;
 /** The human decision window, mirroring `TURN_SECONDS`. A denominator only. */
 export const TMW_TURN_SECONDS = 45;
 

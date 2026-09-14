@@ -40,6 +40,7 @@ from app.services.three_man_weave import mode as tmw_module
 from app.services.twenty_dollar import mode as td_module
 
 from nba_peak.three_man_weave.config import BOT_THINK_SECONDS_MAX, ROUNDS
+from nba_peak.twenty_dollar import config as td_config
 
 TMW = "three_man_weave"
 TWENTY = "twenty_dollar"
@@ -102,10 +103,10 @@ def _real_modes_registered():
 
 #: How much of a bot's think time ONE `_poll` lets elapse, in seconds.
 #:
-#: Three-Man Weave draws its think time from 1.2-3.0 seconds per (seat, turn)
-#: (`nba_peak.three_man_weave.config.bot_think_seconds`), so under this driver
-#: a bot pick legitimately costs `ceil(think / 1.5)` polls: one when the draw is
-#: at most 1.5 seconds, two otherwise. A test that budgets polls per bot turn
+#: Three-Man Weave shapes its think time by how hard the pick looks, 2.0-11.5
+#: seconds (`nba_peak.three_man_weave.config.bot_think_seconds`), so under this
+#: driver a bot pick legitimately costs `ceil(think / 1.5)` polls -- two for an
+#: obvious pick, up to eight for a toss-up. A test that budgets polls per bot turn
 #: must budget from THIS number and the reply the server publishes, never from
 #: a flat "one poll per pick" -- see
 #: `test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock`.
@@ -398,8 +399,13 @@ def test_the_human_gets_the_full_window_when_their_turn_opens():
     # END THE INTRO FIRST. It is a real turn belonging to no seat, so no
     # auction clock exists until it closes -- which is the whole point of it.
     view = _poll(client, view["match_id"])
-    if view["your_seat_index"] != view["public_state"]["active_seat"]:
-        # The bot opens. Poll until the clock comes back to the human.
+    # The bot opens: poll until the clock comes back to the human. Bounded by
+    # the longest think the Showdown can draw (game-feel pass 5 lengthened the
+    # ranges past one `_poll`'s aging), so a stalled bot still fails here.
+    longest_think = max(high for _low, high in td_config.BOT_THINK_RANGES.values()) + 1.5
+    for _ in range(math.ceil(longest_think / BOT_AGE_PER_POLL_SECONDS) + 1):
+        if view["your_seat_index"] == view["public_state"]["active_seat"]:
+            break
         view = _poll(client, view["match_id"])
     assert view["current_turn_seat_index"] == view["your_seat_index"]
     assert view["seconds_remaining"] is not None
@@ -545,8 +551,10 @@ def test_the_weaves_snake_order_is_exactly_the_published_one():
     assert order == expected
 
 
-#: Practice seeds whose TWELVE bot picks ALL draw a think time above
-#: `BOT_AGE_PER_POLL_SECONDS`, one per human seat (`config.human_seat_index`).
+#: Practice seeds, one per human seat (`config.human_seat_index`). Originally
+#: pinned because their twelve bot draws ALL sat above
+#: `BOT_AGE_PER_POLL_SECONDS` under a flat range; since game-feel pass 5 every
+#: draw does (the floor is 2.0 s), so they now simply pin one match per seat.
 #: Found by an offline scan of `bot_think_seconds(seed, seat, turn_seq)` over
 #: the draft's turn schedule (arrival = turn 0, intro = turn 1, then per round one ceremony turn
 #: and three picks in snake order); every draw is at least 1.8 s so none sits
@@ -675,14 +683,14 @@ def test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock(monkeypatch, seed
     ceiling = ROUNDS * 2 * polls_per_pick_at_most
     assert polls_waiting_on_bots <= ceiling, (polls_waiting_on_bots, ceiling)
     if seed is not None:
-        # The pinned seeds are the worst case by construction: every reply
-        # is longer than one poll's aging, so every pick costs the maximum
-        # and the total lands exactly on the ceiling -- neither above it
-        # (a stalled bot) nor below it (the seed is not the case it claims).
+        # Every reply is longer than one poll's aging, so no bot pick is ever
+        # read on the poll that opened it -- the seat on the clock is always
+        # observable. And the total is exactly what the published replies
+        # imply, turn by turn: never a poll more (a stalled bot).
         assert all(t["reply"] > BOT_AGE_PER_POLL_SECONDS for t in bot_turns), (
             [t["reply"] for t in bot_turns]
         )
-        assert polls_waiting_on_bots == ceiling, (polls_waiting_on_bots, ceiling)
+        assert all(t["polls"] > 1 for t in bot_turns), [t["polls"] for t in bot_turns]
     # Six rounds, six ceremonies. Each costs the poll that expires it plus the
     # one that sees the pick turn; anything beyond that would mean a reveal was
     # being re-entered rather than resolved once.
@@ -716,12 +724,13 @@ def test_the_seeds_that_used_to_hang_the_weave_now_finish(monkeypatch, seed):
         if view["current_turn_seat_index"] != you:
             before = view["state_version"]
             view = _poll(client, match_id)
-            # A bot turn or a seatless phase must MOVE under polling. Two
-            # consecutive unchanged polls on a seated bot turn (each ages the
-            # bot's think time by `BOT_AGE_PER_POLL_SECONDS`, half the longest
-            # draw, so two of them cover any think) is the old hang.
+            # A bot turn or a seatless phase must MOVE under polling. Each poll
+            # ages the bot's think time by `BOT_AGE_PER_POLL_SECONDS`, so more
+            # unchanged polls than the longest think needs is the old hang.
             stalled_polls = stalled_polls + 1 if view["state_version"] == before else 0
-            assert stalled_polls <= 2, f"seed {seed}: the match stopped moving at version {before}"
+            assert stalled_polls <= math.ceil(BOT_THINK_SECONDS_MAX / BOT_AGE_PER_POLL_SECONDS), (
+                f"seed {seed}: the match stopped moving at version {before}"
+            )
             continue
         stalled_polls = 0
         result = _command(client, match_id, view, "tmw_pick", _human_pick(view))

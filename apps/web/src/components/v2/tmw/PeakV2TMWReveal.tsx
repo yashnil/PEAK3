@@ -27,19 +27,24 @@
  * per-round pair, because the other half is not rolled at all.
  *
  * THE TIMELINE (absolute ms from the turn's start, laid out for the server's
- * 1.5 s `REVEAL_SECONDS` window, and resolved with half a second of that window
- * still to run):
+ * 3.8 s `REVEAL_SECONDS` window, and resolved with half a second of that window
+ * still to run). Game-feel pass 5 re-laid it from 1.5 s: the roll read as a
+ * flash. It is now built as anticipation -> release, in two releases:
  *
  *     0      SLATE    "ROUND 2 OF 6 · PICKS 4–6" lands, rule draws; the
  *                     apertures are on screen, empty
- *     200    ARMED    apertures lit -- anticipation, 60 ms
- *     260    SPINNING reels travel (360 / 460 ms, staggered so the pair reads
- *                     as one constraint arriving, not two facts)
- *     860    LOCKED   the last reel has settled (+140 ms); accent wash and
- *                     baseline, "Locked in"
- *     1000   RESOLVED the result holds, the order row marks who opens, and the
+ *     450    ARMED    apertures light and pulse -- "here it comes", 250 ms
+ *     700    SPINNING both reels travel and decelerate; a light sweeps the card
+ *     2440   LANDING  the FRANCHISE reel has landed (1.6 s + settle) and flashes;
+ *                     the decade keeps turning -- "Chicago Bulls… and the decade?"
+ *     3090   LOCKED   the decade lands (2.25 s + settle); both windows flash
+ *                     gold, the × pops, "Locked in"
+ *     3300   RESOLVED the result holds, the order row marks who opens, and the
  *                     handoff reads "You're up" / "<Seat> is up" for the last
  *                     500 ms of the window and until the poll lands the pick
+ *
+ * A one-constraint draft has one aperture, so it has no LANDING stage: its
+ * single reel takes the long 2.25 s travel.
  *
  * A SHORTER published window compresses every beat by the same ratio, so the
  * reels are never still turning when the server ends the phase; a LONGER one
@@ -80,22 +85,26 @@ const FRANCHISE_FILLER = [
  *  table at once. */
 export const TMW_CEREMONY = {
   /** The slate lands: round, picks, rule. Apertures already on screen. */
-  roundCardMs: 200,
-  /** The armed beat: apertures lit, still empty. */
-  armedMs: 60,
-  primaryReelMs: 360,
-  secondaryReelMs: 460,
+  roundCardMs: 450,
+  /** The armed beat: apertures lit and pulsing, still empty. */
+  armedMs: 250,
+  /** The franchise reel: lands first, with the decade still turning. */
+  primaryReelMs: 1600,
+  /** The decade reel (or a one-constraint draft's only reel). */
+  secondaryReelMs: 2250,
   /** Reel settle after its travel, before the lock begins. The shared reel's
    *  own overshoot (`SpinReel` SETTLE_MS, 220 ms) finishes inside the lock. */
   settleMs: 140,
-  lockMs: 140,
+  lockMs: 210,
 } as const;
 /** The server window these beats were laid out for (`REVEAL_SECONDS`). */
-export const TMW_CEREMONY_NOMINAL_MS = 1500;
+export const TMW_CEREMONY_NOMINAL_MS = 3800;
 
 export interface TmwCeremonyMarks {
   armed: number;
   spinning: number;
+  /** The first reel has landed (two-axis rolls only; equals `locked` otherwise). */
+  landing: number;
   locked: number;
   resolved: number;
   primaryReelMs: number;
@@ -105,7 +114,7 @@ export interface TmwCeremonyMarks {
 /**
  * Absolute marks on the turn's timeline, for a window of `totalMs`.
  *
- * Compresses proportionally for a window SHORTER than the nominal 1.5 s, so
+ * Compresses proportionally for a window SHORTER than the nominal 3.8 s, so
  * the result is always locked before the server opens the pick turn. A longer
  * window is not stretched: the beats keep their nominal length and only the
  * resolved hold grows.
@@ -115,29 +124,39 @@ export function ceremonyMarks(totalMs: number = TMW_CEREMONY_NOMINAL_MS): TmwCer
   const armed = Math.round(TMW_CEREMONY.roundCardMs * k);
   const spinning = armed + Math.round(TMW_CEREMONY.armedMs * k);
   const secondaryReelMs = Math.round(TMW_CEREMONY.secondaryReelMs * k);
+  const primaryReelMs = Math.round(TMW_CEREMONY.primaryReelMs * k);
   const locked = spinning + secondaryReelMs + Math.round(TMW_CEREMONY.settleMs * k);
+  const landing = Math.min(locked, spinning + primaryReelMs + Math.round(TMW_CEREMONY.settleMs * k));
   const resolved = locked + Math.round(TMW_CEREMONY.lockMs * k);
   return {
     armed,
     spinning,
+    landing,
     locked,
     resolved,
-    primaryReelMs: Math.round(TMW_CEREMONY.primaryReelMs * k),
+    primaryReelMs,
     secondaryReelMs,
   };
 }
 /** The nominal marks, for callers and tests that reason about the design. */
 export const TMW_CEREMONY_MARKS = ceremonyMarks();
 
-type Stage = "intro" | "round" | "armed" | "spinning" | "locked" | "resolved";
+type Stage = "intro" | "round" | "armed" | "spinning" | "landing" | "locked" | "resolved";
 
-function stageAt(phase: "intro" | "reveal", elapsedMs: number, reduced: boolean, marks: TmwCeremonyMarks): Stage {
+function stageAt(
+  phase: "intro" | "reveal",
+  elapsedMs: number,
+  reduced: boolean,
+  marks: TmwCeremonyMarks,
+  twoAxes: boolean,
+): Stage {
   if (phase === "intro") return "intro";
   // Reduced motion: an immediate lock. The result is simply there.
   if (reduced) return "resolved";
   if (elapsedMs < marks.armed) return "round";
   if (elapsedMs < marks.spinning) return "armed";
-  if (elapsedMs < marks.locked) return "spinning";
+  if (elapsedMs < marks.landing) return "spinning";
+  if (elapsedMs < marks.locked) return twoAxes ? "landing" : "spinning";
   if (elapsedMs < marks.resolved) return "locked";
   return "resolved";
 }
@@ -148,13 +167,17 @@ const SHARED_STAGE: Record<Stage, PeakV2SpinStage> = {
   round: "idle",
   armed: "idle",
   spinning: "spinning",
+  landing: "spinning",
   locked: "locking",
   resolved: "revealed",
 };
 
-/** The status line under the order row, per stage. */
-function statusLine(stage: Stage, roll: TmwRoll | null): string {
+/** The status line under the order row, per stage: the anticipation, in words. */
+function statusLine(stage: Stage, roll: TmwRoll | null, oneConstraint: boolean): string {
   if (!roll) return "Rolling…";
+  if (stage === "armed") return "Here it comes…";
+  if (stage === "spinning") return oneConstraint ? "Drawing the whole draft's pool…" : "Rolling the franchise…";
+  if (stage === "landing") return `${roll.franchise_display_name}… and the decade?`;
   if (stage === "locked") return "Locked in";
   if (stage !== "resolved") return "Rolling…";
   return `${roll.candidates.length} eligible ${roll.candidates.length === 1 ? "player" : "players"} still undrafted`;
@@ -230,12 +253,17 @@ export default function PeakV2TMWReveal({
     if (startedAt !== null && startedAt !== undefined) return Math.max(0, now - startedAt);
     if (deadlineAt !== null && deadlineAt !== undefined) return Math.max(0, total - (deadlineAt - now));
     return 0;
-    // Recomputed only when the turn changes -- not on every poll, which would
-    // reset the local timeline it merely confirms.
+    // Recomputed when the turn changes, when the ceremony OPENS, or when the
+    // room moves its start (a pick-opened reveal's settle lead) -- never on an
+    // ordinary poll, which would reset the local timeline it merely confirms.
+    // Keying on `open` is what keeps a late-firing settle timer (a throttled
+    // background tab) from replaying the roll from zero while the server's
+    // clock has moved on (game-feel pass 5).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, open, startedAt]);
 
-  const [stage, setStage] = useState<Stage>(() => stageAt(resolvedPhase, elapsedAtMount, reduced, marks));
+  const twoAxes = !constraint;
+  const [stage, setStage] = useState<Stage>(() => stageAt(resolvedPhase, elapsedAtMount, reduced, marks, twoAxes));
   const armedFor = useRef<string | null>(null);
   const [still, setStill] = useState(false);
 
@@ -248,7 +276,7 @@ export default function PeakV2TMWReveal({
       // replay travel the server has already spent.
       setStill(reduced || (resolvedPhase === "reveal" && elapsed >= marks.locked));
     }
-    setStage(stageAt(resolvedPhase, elapsed, reduced, marks));
+    setStage(stageAt(resolvedPhase, elapsed, reduced, marks, twoAxes));
     if (resolvedPhase !== "reveal") return;
     const timers: number[] = [];
     const arm = (at: number, next: Stage) => {
@@ -258,6 +286,7 @@ export default function PeakV2TMWReveal({
     if (!reduced) {
       arm(marks.armed, "armed");
       arm(marks.spinning, "spinning");
+      if (twoAxes && marks.landing < marks.locked) arm(marks.landing, "landing");
       arm(marks.locked, "locked");
       arm(marks.resolved, "resolved");
     }
@@ -467,7 +496,7 @@ export default function PeakV2TMWReveal({
           ) : null}
 
           <p className="tmw-lottery-status" data-testid="tmw-ceremony-status" data-stage={stage}>
-            {statusLine(stage, roll)}
+            {statusLine(stage, roll, !!constraint)}
           </p>
           {/* THE HANDOFF: the moment drafting becomes actionable. Always
               mounted and reserved, never popping in. */}

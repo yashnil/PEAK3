@@ -20,23 +20,27 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import {
   ARENA_MODES,
   ENTRY_PATHS,
+  groupModeFamilies,
   modeMeta,
   offerableModes,
   seatLabel,
+  variantLabelOf,
 } from "@/lib/arena-modes";
 import { normaliseRoomCode, searchLabel } from "@/lib/arena-lobby-api";
 import { MODE_COPY, MULTIPLAYER_MODE_IDS } from "@/lib/modes";
 
 const push = vi.fn();
+/** The lobby's query string, per test (`?game=` / `?family=` highlighting). */
+let mockSearch = new URLSearchParams("");
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
-  useSearchParams: () => new URLSearchParams(""),
+  useSearchParams: () => mockSearch,
 }));
 vi.mock("@/lib/auth", () => ({ getAccessToken: async () => "token" }));
 
@@ -130,12 +134,18 @@ describe("every published match path resolves to a real route", () => {
     // card you came for. A typo there is a silent no-op — the lobby renders,
     // nothing is highlighted, and nobody notices — so the ids are checked
     // against the catalogue the server actually registers against.
+    // A game with several rulesets deep-links at its FAMILY (`?family=`), which
+    // highlights the whole card; the Play menu nests each ruleset's `?game=`.
     const served = new Set(ARENA_MODES.map((m) => m.id));
+    const families = new Set(ARENA_MODES.filter((m) => m.variantOf).map((m) => m.variantOf));
     for (const modeId of MULTIPLAYER_MODE_IDS) {
       const href = MODE_COPY[modeId].href;
-      const game = new URLSearchParams(href.split("?")[1] ?? "").get("game");
-      expect(game, `${modeId} deep-links at ${href}`).not.toBeNull();
-      expect(served.has(game as string)).toBe(true);
+      const params = new URLSearchParams(href.split("?")[1] ?? "");
+      const game = params.get("game");
+      const family = params.get("family");
+      expect(game ?? family, `${modeId} deep-links at ${href}`).not.toBeNull();
+      if (game !== null) expect(served.has(game)).toBe(true);
+      if (family !== null) expect(families.has(family)).toBe(true);
     }
   });
 });
@@ -212,23 +222,120 @@ describe("the catalogue is data, and the server decides what is offerable", () =
 // ---------------------------------------------------------------------------
 
 describe("the lobby shows both games at once", () => {
-  it("renders one card per offerable mode with its facts and actions", async () => {
+  afterEach(() => {
+    mockSearch = new URLSearchParams("");
+  });
+
+  it("renders one card per offerable GAME, with every ruleset's facts and actions on it", async () => {
     // The OPEN posture: the public queue is accepting joins, so all three
     // entry paths are real controls. See the closed-alpha block below for what
     // the same page looks like when it is not.
     render(<ArenaLobby />);
     await screen.findByTestId("lobby-mode-grid");
 
-    for (const mode of ARENA_MODES) {
-      const card = await screen.findByTestId(`lobby-mode-${mode.id}`);
-      expect(card).toHaveTextContent(mode.name);
-      expect(card).toHaveTextContent(mode.duration);
-      expect(card).toHaveTextContent(mode.kindBadge);
-      // All three actions on the card itself — no wizard step in between.
-      expect(screen.getByTestId(`lobby-${mode.id}-public_queue`)).toBeEnabled();
-      expect(screen.getByTestId(`lobby-${mode.id}-private_room`)).toBeEnabled();
-      expect(screen.getByTestId(`lobby-${mode.id}-practice`)).toBeEnabled();
+    for (const family of groupModeFamilies(ARENA_MODES)) {
+      const card = await screen.findByTestId(`lobby-mode-${family.id}`);
+      expect(card).toHaveTextContent(family.name);
+      expect(card).toHaveTextContent(family.variants[0].kindBadge);
+      for (const mode of family.variants) {
+        expect(card).toHaveTextContent(mode.duration);
+        // All three actions on the card itself — no wizard step in between,
+        // and no tab to switch before a ruleset's actions exist.
+        expect(within(card).getByTestId(`lobby-${mode.id}-public_queue`)).toBeEnabled();
+        expect(within(card).getByTestId(`lobby-${mode.id}-private_room`)).toBeEnabled();
+        expect(within(card).getByTestId(`lobby-${mode.id}-practice`)).toBeEnabled();
+      }
     }
+  });
+
+  it("shows a game's rulesets as formats INSIDE its one card, never as sibling cards", async () => {
+    render(<ArenaLobby />);
+    await screen.findByTestId("lobby-mode-grid");
+    const grouped = groupModeFamilies(ARENA_MODES).filter((f) => f.variants.length > 1);
+    expect(grouped.length).toBeGreaterThan(0);
+    for (const family of grouped) {
+      const card = screen.getByTestId(`lobby-mode-${family.id}`);
+      // The game is the card's heading; each ruleset is a subheading under it.
+      expect(within(card).getByRole("heading", { level: 2 })).toHaveTextContent(family.name);
+      expect(within(card).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(
+        family.variants.map(variantLabelOf),
+      );
+      expect(within(card).getByTestId(`lobby-family-${family.id}`).children).toHaveLength(
+        family.variants.length,
+      );
+      for (const variant of family.variants) {
+        expect(within(card).getByTestId(`lobby-variant-${variant.id}`)).toBeInTheDocument();
+        expect(within(card).getByTestId(`lobby-rules-${variant.id}`)).toBeInTheDocument();
+        if (variant.variantOf) expect(screen.queryByTestId(`lobby-mode-${variant.id}`)).toBeNull();
+      }
+    }
+    // Exactly one card per game in the grid.
+    expect(screen.getByTestId("lobby-mode-grid").children).toHaveLength(
+      groupModeFamilies(ARENA_MODES).length,
+    );
+  });
+
+  it("highlights the ruleset a `?game=` link names, inside its family", async () => {
+    mockSearch = new URLSearchParams("game=three_man_weave_franchise");
+    render(<ArenaLobby />);
+    await screen.findByTestId("lobby-mode-grid");
+    expect(screen.getByTestId("lobby-mode-three_man_weave")).toHaveAttribute("data-highlighted", "true");
+    expect(screen.getByTestId("lobby-variant-three_man_weave_franchise")).toHaveAttribute(
+      "data-highlighted",
+      "true",
+    );
+    for (const other of ["three_man_weave", "three_man_weave_decade"]) {
+      expect(screen.getByTestId(`lobby-variant-${other}`)).toHaveAttribute("data-highlighted", "false");
+    }
+  });
+
+  it("highlights the whole family for a `?family=` link, and no one ruleset", async () => {
+    mockSearch = new URLSearchParams("family=three_man_weave");
+    render(<ArenaLobby />);
+    await screen.findByTestId("lobby-mode-grid");
+    expect(screen.getByTestId("lobby-mode-three_man_weave")).toHaveAttribute("data-highlighted", "true");
+    const rows = within(screen.getByTestId("lobby-family-three_man_weave")).getAllByRole("listitem", {
+      current: false,
+    });
+    expect(rows.length).toBeGreaterThan(0);
+    expect(document.querySelectorAll('.ar-variant[data-highlighted="true"]')).toHaveLength(0);
+  });
+
+  it("keeps the family together when only its rulesets are served", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({ ...READY, modes: READY.modes.filter((m) => m.id !== "three_man_weave") }),
+    );
+    render(<ArenaLobby />);
+    await screen.findByTestId("lobby-mode-grid");
+    const card = screen.getByTestId("lobby-mode-three_man_weave");
+    expect(within(card).getByRole("heading", { level: 2 })).toHaveTextContent("Three-Man Weave");
+    expect(screen.queryByTestId("lobby-three_man_weave-practice")).toBeNull();
+    expect(within(card).getByTestId("lobby-three_man_weave_franchise-practice")).toBeEnabled();
+    expect(within(card).getByTestId("lobby-three_man_weave_decade-practice")).toBeEnabled();
+  });
+
+  it("starts the ruleset whose row was pressed, in the family's room", async () => {
+    const fetchMock = mockFetch(READY, { "/matches/practice": { match_id: "decade-1" } });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<ArenaLobby />);
+    await screen.findByTestId("lobby-mode-grid");
+    await user.click(screen.getByTestId("lobby-three_man_weave_decade-practice"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/arena/three-man-weave/decade-1"));
+    const started = fetchMock.mock.calls.find(([url]) => String(url).includes("/matches/practice"));
+    const init = (started as unknown as [string, RequestInit | undefined])?.[1];
+    expect(`${started?.[0]} ${String(init?.body ?? "")}`).toContain("three_man_weave_decade");
+  });
+
+  it("opens Play With Friends inside the ruleset's own row", async () => {
+    const user = userEvent.setup();
+    render(<ArenaLobby />);
+    await screen.findByTestId("lobby-mode-grid");
+    await user.click(screen.getByTestId("lobby-three_man_weave_franchise-private_room"));
+    const row = screen.getByTestId("lobby-variant-three_man_weave_franchise");
+    expect(within(row).getByTestId("lobby-three_man_weave_franchise-private")).toBeInTheDocument();
+    expect(screen.queryByTestId("lobby-three_man_weave-private")).toBeNull();
   });
 
   it("never renders a card for a catalogued mode the server does not publish", async () => {

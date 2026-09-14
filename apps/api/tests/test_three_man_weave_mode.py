@@ -57,7 +57,10 @@ from app.services.three_man_weave.mode import (
     REJECT_SHARED_TIMELINE,
     REJECT_UNKNOWN_COMMAND,
     REJECT_VERSION_MISMATCH,
+    PICK_SETTLE_SECONDS,
     REVEAL_SECONDS,
+    ROUND_REVEAL_SECONDS,
+    _bot_deliberation,
     TURN_SECONDS,
     ThreeManWeaveMode,
     mode,
@@ -645,7 +648,8 @@ def test_every_round_opens_on_the_ceremony_and_no_mid_round_pick_does(opening):
             reveals += 1
             assert out.open_turn.phase == PHASE_REVEAL, index
             assert out.open_turn.seat_index is None, index
-            assert out.open_turn.deadline_at == NOW + timedelta(seconds=REVEAL_SECONDS)
+            # A pick-opened reveal leads with the settle beat.
+            assert out.open_turn.deadline_at == NOW + timedelta(seconds=ROUND_REVEAL_SECONDS)
         else:
             # Mid-round, the clock hands straight to the next seat. The reveal
             # fires ONCE per round, not once per pick.
@@ -729,13 +733,19 @@ def test_the_ceremony_is_one_short_shared_beat_every_round(opening):
     the tenth match.
 
     1.0-2.0 s, FROM 2.0-4.0 (game-feel pass 4): the reveal is one slate whose
-    reels resolve at 1.0 s and hold the settled pair for half a second, so a
-    window shorter than 1.0 s cannot show it settled and one longer than 2.0 s
-    is the dead air in front of the pick this pass removed.
+    reels resolve at 1.0 s and hold the settled pair for half a second.
+
+    3.0-4.5 s, FROM 1.0-2.0 (game-feel pass 5): played end to end, 1.5 s read
+    as a flash rather than a draw. The reels now decelerate visibly, land one
+    after the other, lock, and hold -- still well short of a cinematic. A
+    reveal opened BY A PICK leads with a short settle beat so the pick is seen
+    landing first; the opening reveal has no pick before it and no lead.
     """
     assert mode.phase_seconds(PHASE_REVEAL) == OPENING_REVEAL_SECONDS
     assert OPENING_REVEAL_SECONDS == REVEAL_SECONDS
-    assert 1.0 <= REVEAL_SECONDS <= 2.0
+    assert 3.0 <= REVEAL_SECONDS <= 4.5
+    assert 0.8 <= PICK_SETTLE_SECONDS <= 2.0
+    assert ROUND_REVEAL_SECONDS == PICK_SETTLE_SECONDS + REVEAL_SECONDS
     # And the briefing is a short, timed phase in the same band: T0 -> ~3-5s.
     assert 3.0 <= INTRO_SECONDS <= 5.0
     assert mode.phase_seconds(PHASE_INTRO) == INTRO_SECONDS
@@ -1644,33 +1654,77 @@ def test_no_edge_is_published_once_the_match_is_over():
 
 def test_bot_think_time_is_seeded_inside_the_published_window():
     from nba_peak.three_man_weave.config import (
+        BOT_THINK_AGONISING_SECONDS,
+        BOT_THINK_OBVIOUS_SECONDS,
         BOT_THINK_SECONDS_MAX,
         BOT_THINK_SECONDS_MIN,
         bot_think_seconds,
     )
 
-    # THE WINDOW IS PINNED TO LITERALS, not only to its own constants.
-    # Asserting `MIN <= value <= MAX` is true for every window, so a literal is
-    # what makes a change deliberate. 1.2-3.0 s (game-feel pass 4, from 4-10): the
-    # floor used to have to clear the room's fixed poll interval or the bot's
-    # deliberation was never observed. The room now reads the bot's move at the
-    # instant the server publishes (`bot_reply_in_seconds`), so 1.2 seconds is
-    # watched in full, and the old window spent 50-120 s of every practice
-    # draft on bots that had already decided.
-    assert BOT_THINK_SECONDS_MIN == 1.2
-    assert BOT_THINK_SECONDS_MAX == 3.0
+    # THE WINDOW IS PINNED TO LITERALS, not only to its own constants, so a
+    # change is deliberate. Game-feel pass 5 (from a flat 1.2-3.0 s): the time
+    # is shaped by how hard the decision looks, from ~2.6 s for an obvious pick
+    # to ~10 s for a toss-up, with seeded noise and hard bounds of 2.0-11.5 s.
+    assert BOT_THINK_SECONDS_MIN == 2.0
+    assert BOT_THINK_SECONDS_MAX == 11.5
+    assert BOT_THINK_OBVIOUS_SECONDS == 2.6
+    assert BOT_THINK_AGONISING_SECONDS == 10.0
 
     seen = set()
     for seed in range(40):
         for seat in range(PARTICIPANT_COUNT):
             for turn in range(3):
-                value = bot_think_seconds(seed, seat, turn)
-                assert BOT_THINK_SECONDS_MIN <= value <= BOT_THINK_SECONDS_MAX
-                seen.add(value)
+                for deliberation in (None, 0.0, 0.5, 1.0):
+                    value = bot_think_seconds(seed, seat, turn, deliberation)
+                    assert BOT_THINK_SECONDS_MIN <= value <= BOT_THINK_SECONDS_MAX
+                    seen.add(value)
     # Variable rather than a constant dressed up as a range.
     assert len(seen) > 20
     # And deterministic.
-    assert bot_think_seconds(7, 1, 2) == bot_think_seconds(7, 1, 2)
+    assert bot_think_seconds(7, 1, 2, 0.4) == bot_think_seconds(7, 1, 2, 0.4)
+
+
+def test_bot_think_time_grows_with_how_hard_the_pick_looks():
+    """An obvious pick lands in about three seconds; a toss-up takes several
+    times longer. Compared on the SAME (seed, seat, turn), so the seeded noise
+    is identical and only the deliberation differs."""
+    from nba_peak.three_man_weave.config import bot_think_seconds
+
+    for seed in range(30):
+        obvious = bot_think_seconds(seed, 1, 5, 0.05)
+        middling = bot_think_seconds(seed, 1, 5, 0.5)
+        agonising = bot_think_seconds(seed, 1, 5, 1.0)
+        assert obvious < middling < agonising
+        assert 2.0 <= obvious <= 3.2, obvious
+        assert agonising >= 8.0, agonising
+
+
+def test_the_think_hook_reads_the_board_of_the_seat_on_the_clock():
+    """The foundation passes the stored snapshot; the hook rebuilds the bot
+    seat's own board and shapes the time by it. A seat not on the clock has no
+    board to read and gets a typical pick's timing, never an error."""
+    from nba_peak.three_man_weave.config import bot_think_seconds
+
+    snapshot = _through_arrival(mode.initial_snapshot(4242, _seats()))
+    for turn in range(4):
+        seat = snapshot["current_seat"]
+        slug, slot = _first_legal_pick(snapshot, seat)
+        out = _reduce(
+            snapshot,
+            _command(COMMAND_PICK, {"player_slug": slug, "slot_type": slot}, seat_index=seat, key=f"k{turn}"),
+            seed=4242,
+        )
+        assert out.accepted, out.rejection_code
+        snapshot = out.snapshot
+    on_clock = snapshot["current_seat"]
+    assert on_clock is not None
+    shaped = mode.bot_think_seconds(4242, on_clock, 9, snapshot=snapshot)
+    deliberation = _bot_deliberation(mode, snapshot, on_clock)
+    assert deliberation is not None and 0.0 <= deliberation <= 1.0
+    assert shaped == bot_think_seconds(4242, on_clock, 9, deliberation)
+    other = (on_clock + 1) % PARTICIPANT_COUNT
+    assert _bot_deliberation(mode, snapshot, other) is None
+    assert mode.bot_think_seconds(4242, other, 9, snapshot=snapshot) == bot_think_seconds(4242, other, 9)
 
 
 def test_bot_names_are_distinct_thematic_archetypes():

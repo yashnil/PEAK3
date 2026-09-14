@@ -131,48 +131,71 @@ TURN_SECONDS: Final[float] = 25.0
 #: the move is allowed to LAND, and that wait is a presentation choice whose
 #: only job is to read as another bidder rather than as a function call.
 #:
-#: THE PREVIOUS RANGE WAS 2.6-4.2s, chosen so a 2000ms client poll would
-#: always catch the opponent "thinking". Measured in play that produced
-#: 4-5 seconds of nothing between every human action and the bot's reply --
-#: not a tension beat, a frozen page. The client no longer relies on a fixed
-#: poll to catch the reply: the match view publishes `bot_reply_in_seconds`
-#: and the room reads the reply the instant it is due. So the floor can be
-#: what a person actually takes to answer an obvious raise.
+#: HISTORY. 2.6-4.2 s (pass 1) was chosen so a 2000 ms poll always caught the
+#: bot "thinking" and read as a frozen page. The client now reads the reply
+#: the instant it is due (`bot_reply_in_seconds`), so pass 2 and the final
+#: polish cut the ranges to 0.55-2.9 s. Played end to end that was too far the
+#: other way: a pass landed 0.6 s after the lot opened, a raise answered a
+#: raise inside a second, and whole lots sold between two glances -- an arcade
+#: machine, not an opponent (game-feel pass 5). Human presses are still
+#: acknowledged in their own frame; only the BOT's reply is paced.
 #:
-#: FOUR KINDS, so the rhythm carries information:
-#:   quick      an uninterested pass on an unopened lot, or a walk-away from a
-#:              price it was never going to pay -- near-instant.
+#: FIVE KINDS, so the rhythm carries information:
+#:   quick      an obvious move on clear value: opening a lot it plainly
+#:              wants, or raising well below its own ceiling.
+#:   pass       stepping away -- an uninterested pass, or a walk-away from a
+#:              price it was never going to pay. A pass is a decision too, so
+#:              it takes a considered beat rather than snapping.
 #:   ordinary   an ordinary open or raise.
-#:   contested  the standing bid is close to the bot's own ceiling: the one
-#:              decision that genuinely is a decision, occasionally slower.
+#:   contested  the standing bid is right at the bot's own ceiling: the one
+#:              decision that genuinely is a decision -- often, not always, a
+#:              long, visible deliberation.
 #:   war        several raises have already landed inside this lot; replies
-#:              accelerate rather than repeating a full beat.
+#:              come faster, and faster again the longer the war runs
+#:              (`war_depth`), so escalation has a rhythm.
 #:
 #: Each is a range, never a constant -- a constant delay is still a machine,
 #: just a slower one -- and every draw is seeded so a match replays exactly.
-BOT_THINK_SECONDS_MIN: Final[float] = 0.9
-BOT_THINK_SECONDS_MAX: Final[float] = 1.9
+BOT_THINK_SECONDS_MIN: Final[float] = 2.2
+BOT_THINK_SECONDS_MAX: Final[float] = 3.8
 
 BOT_THINK_KIND_QUICK: Final[str] = "quick"
+BOT_THINK_KIND_PASS: Final[str] = "pass"
 BOT_THINK_KIND_ORDINARY: Final[str] = "ordinary"
 BOT_THINK_KIND_CONTESTED: Final[str] = "contested"
 BOT_THINK_KIND_WAR: Final[str] = "war"
 
 BOT_THINK_RANGES: Final[dict[str, tuple[float, float]]] = {
-    BOT_THINK_KIND_QUICK: (0.55, 1.05),
+    BOT_THINK_KIND_QUICK: (1.3, 2.4),
+    BOT_THINK_KIND_PASS: (1.6, 2.8),
     BOT_THINK_KIND_ORDINARY: (BOT_THINK_SECONDS_MIN, BOT_THINK_SECONDS_MAX),
-    BOT_THINK_KIND_CONTESTED: (1.9, 2.9),
-    BOT_THINK_KIND_WAR: (0.55, 1.15),
+    BOT_THINK_KIND_CONTESTED: (3.8, 6.5),
+    BOT_THINK_KIND_WAR: (1.2, 2.4),
 }
 
 #: How often a `contested` decision actually takes the long beat. The rest of
 #: the time it uses the ordinary range, so the long beat stays rare enough to
 #: mean something.
-BOT_THINK_CONTESTED_LONG_CHANCE: Final[float] = 0.45
+BOT_THINK_CONTESTED_LONG_CHANCE: Final[float] = 0.55
+
+#: A bidding war TIGHTENS. `war_depth` is how many raises past the fourth have
+#: landed on this lot; each one takes this much off the top of the war range,
+#: down to `BOT_THINK_WAR_FLOOR_RANGE` -- still a beat, never a snap.
+BOT_THINK_WAR_STEP: Final[float] = 0.18
+BOT_THINK_WAR_FLOOR_RANGE: Final[tuple[float, float]] = (1.0, 1.5)
+
+#: ORDINARY SECOND THOUGHTS. A small share of ordinary decisions hesitate a
+#: little longer, so two ordinary raises in a row never share a rhythm.
+BOT_THINK_HESITATION_CHANCE: Final[float] = 0.15
+BOT_THINK_HESITATION_SECONDS: Final[tuple[float, float]] = (0.5, 1.2)
 
 
 def bot_think_seconds(
-    seed: int | str, seat_index: int, turn_seq: int, kind: str = BOT_THINK_KIND_ORDINARY
+    seed: int | str,
+    seat_index: int,
+    turn_seq: int,
+    kind: str = BOT_THINK_KIND_ORDINARY,
+    war_depth: int = 0,
 ) -> float:
     """How long THIS bot takes on THIS turn. Deterministic, never a sleep.
 
@@ -180,6 +203,7 @@ def bot_think_seconds(
     than metronomic, and derived from the match seed so a replay of the same
     match produces the same rhythm. `kind` picks the range (see
     `BOT_THINK_RANGES`); an unknown kind falls back to the ordinary one.
+    `war_depth` (raises past the fourth on this lot) narrows a war's range.
 
     Its own named RNG stream (`arena:{seed}:bot-think:...`), per this package's
     convention, so adding it cannot shift the draw sequence of the opening,
@@ -189,9 +213,18 @@ def bot_think_seconds(
     stream = random.Random(f"arena:{seed}:bot-think:{seat_index}:{turn_seq}")
     draw = stream.random()
     low, high = BOT_THINK_RANGES.get(kind, BOT_THINK_RANGES[BOT_THINK_KIND_ORDINARY])
+    extra = 0.0
     if kind == BOT_THINK_KIND_CONTESTED and stream.random() >= BOT_THINK_CONTESTED_LONG_CHANCE:
         low, high = BOT_THINK_RANGES[BOT_THINK_KIND_ORDINARY]
-    return round(low + draw * (high - low), 2)
+    elif kind == BOT_THINK_KIND_WAR and war_depth > 0:
+        floor_low, floor_high = BOT_THINK_WAR_FLOOR_RANGE
+        cut = BOT_THINK_WAR_STEP * war_depth
+        low = max(floor_low, low - cut / 2)
+        high = max(floor_high, high - cut)
+    elif kind not in BOT_THINK_RANGES or kind == BOT_THINK_KIND_ORDINARY:
+        if stream.random() < BOT_THINK_HESITATION_CHANCE:
+            extra = stream.uniform(*BOT_THINK_HESITATION_SECONDS)
+    return round(low + draw * (high - low) + extra, 2)
 
 
 #: What an expired turn does: the ACTIVE seat passes, and nothing else moves.

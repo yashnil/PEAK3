@@ -248,9 +248,9 @@ class TwentyDollarMode:
         waits to LAND, so it reads as another bidder and not as a function
         call. The wait is a function of the KIND of decision (see
         `TwentyDollarBot.decision_kind` and `config.BOT_THINK_RANGES`): an
-        uninterested pass lands almost at once, an ordinary raise takes a
-        short beat, a call right at the bot's ceiling occasionally takes a
-        long one, and a bidding war accelerates.
+        obvious raise lands after a short beat, a pass is considered rather
+        than snapped, a call right at the bot's ceiling often takes a long
+        one, and a bidding war accelerates the longer it runs.
 
         `snapshot` is the match's stored state, passed by the foundation's
         driver (`bots.bot_think_seconds_for`) when the hook accepts it. From it
@@ -263,14 +263,16 @@ class TwentyDollarMode:
         lands and a fast client cannot hurry it along.
         """
         kind = BOT_THINK_KIND_ORDINARY
+        war_depth = 0
         if snapshot:
             try:
                 public, private, _ = rules_state.project(snapshot, seat_index)
                 private = self._bot_private(snapshot, private)
                 kind = bot.decision_kind(public, private)
+                war_depth = bot.war_depth(public)
             except Exception:  # pragma: no cover - presentation must not wedge a turn
-                kind = BOT_THINK_KIND_ORDINARY
-        return bot_think_seconds(seed, seat_index, turn_seq, kind)
+                kind, war_depth = BOT_THINK_KIND_ORDINARY, 0
+        return bot_think_seconds(seed, seat_index, turn_seq, kind, war_depth=war_depth)
 
     @staticmethod
     def _bot_private(snapshot: dict, private: dict) -> dict:

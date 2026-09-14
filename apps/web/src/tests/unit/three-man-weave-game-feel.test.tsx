@@ -28,7 +28,14 @@ import type {
   TmwRoll,
   TmwRoster,
 } from "@/types/three-man-weave";
-import { TMW_REVEAL_SECONDS, TMW_TURN_PHASE_PICK, TMW_TURN_PHASE_REVEAL } from "@/types/three-man-weave";
+import {
+  TMW_PICK_SETTLE_SECONDS,
+  TMW_REVEAL_SECONDS,
+  TMW_TURN_PHASE_PICK,
+  TMW_TURN_PHASE_REVEAL,
+} from "@/types/three-man-weave";
+import { revealLeadMs } from "@/lib/three-man-weave-state";
+import PeakV2TMWReveal from "@/components/v2/tmw/PeakV2TMWReveal";
 import {
   TMW_CEREMONY,
   TMW_CEREMONY_MARKS,
@@ -752,21 +759,23 @@ describe("the round card", () => {
     });
   }
 
-  // Game-feel pass 5 re-laid the ceremony for the server's 1.5 s window: a
-  // 1.55 s round card no longer fits in it. These pinned the OLD card length
-  // (1.4-2.0 s) and the card vanishing at the armed mark; the round is now
-  // named on the slate for the whole ceremony. The behavioural rules they
-  // guarded are kept: the result is resolved with half a second of the window
-  // to spare, and every stage is read off the server's elapsed time.
+  // Pass 4 laid the ceremony out for a 1.5 s window, and played end to end it
+  // read as a flash. Pass 5 (3.8 s) builds anticipation and two releases: the
+  // franchise lands while the decade still turns, then the pair locks. The
+  // behavioural rules are kept: the result is resolved with half a second of
+  // the window to spare, and every stage is read off the server's elapsed time.
   it("resolves inside the server window with half a second of the result held, without flashing past", () => {
     expect(TMW_CEREMONY_NOMINAL_MS).toBe(TMW_REVEAL_SECONDS * 1000);
     // At least half a second of the result on screen before the server can
     // open the pick turn, on the nominal window.
     expect(TMW_CEREMONY_MARKS.resolved + 500).toBeLessThanOrEqual(TMW_REVEAL_SECONDS * 1000);
-    // ...and a real beat of anticipation before it, not a flash.
-    expect(TMW_CEREMONY_MARKS.resolved).toBeGreaterThanOrEqual(800);
-    expect(TMW_CEREMONY.roundCardMs).toBeGreaterThanOrEqual(150);
-    expect(TMW_CEREMONY.roundCardMs).toBeLessThanOrEqual(400);
+    // ...and real anticipation before it: the reels take seconds, not a blink.
+    expect(TMW_CEREMONY_MARKS.resolved).toBeGreaterThanOrEqual(2500);
+    expect(TMW_CEREMONY.roundCardMs).toBeGreaterThanOrEqual(300);
+    expect(TMW_CEREMONY.roundCardMs).toBeLessThanOrEqual(700);
+    expect(TMW_CEREMONY.armedMs).toBeGreaterThanOrEqual(150);
+    // Two releases: the franchise lands a readable beat before the decade.
+    expect(TMW_CEREMONY_MARKS.landing + 500).toBeLessThanOrEqual(TMW_CEREMONY_MARKS.locked);
     // The last reel lands before the lock begins.
     expect(TMW_CEREMONY_MARKS.spinning + TMW_CEREMONY_MARKS.secondaryReelMs).toBeLessThanOrEqual(TMW_CEREMONY_MARKS.locked);
   });
@@ -876,5 +885,209 @@ describe("arrival", () => {
     await waitFor(() => expect(submitCommand).toHaveBeenCalledTimes(2));
     expect(submitCommand.mock.calls.every((call) => call[1] === "tmw_intro_seen")).toBe(true);
     await waitFor(() => expect(screen.getByTestId("tmw-room")).toHaveAttribute("data-turn-phase", "intro"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Game-feel pass 5: pacing beats and the pick surface over the courts
+// ---------------------------------------------------------------------------
+
+describe("the roll's two releases", () => {
+  function rolling(elapsed: number, constraint: TmwPublicState["constraint"] = undefined): TmwMatchView {
+    return view({
+      turn_phase: TMW_TURN_PHASE_REVEAL,
+      current_turn_seat_index: null,
+      legal_commands: [],
+      turn_seq: 7,
+      turn_elapsed_seconds: elapsed,
+      turn_total_seconds: TMW_REVEAL_SECONDS,
+      turn_seconds_remaining: TMW_REVEAL_SECONDS - elapsed,
+      seconds_remaining: TMW_REVEAL_SECONDS - elapsed,
+      public_state: publicState(constraint ? { constraint } : {}),
+    });
+  }
+
+  it("lands the franchise first, with the decade still turning, and says so", () => {
+    const at = TMW_CEREMONY_MARKS.landing / 1000 + 0.02;
+    const landing = render(<ThreeManWeaveGame initialMatch={rolling(at)} />);
+    expect(landing.getByTestId("tmw-roll")).toHaveAttribute("data-stage", "landing");
+    expect(landing.getByTestId("tmw-ceremony-status")).toHaveTextContent("Utah Jazz… and the decade?");
+    expect(landing.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "false");
+    landing.unmount();
+  });
+
+  it("a one-constraint draft has a single reel, so no landing stage", () => {
+    const at = TMW_CEREMONY_MARKS.landing / 1000 + 0.02;
+    const single = render(
+      <ThreeManWeaveGame initialMatch={rolling(at, { kind: "franchise", value: "UTA", label: "Utah Jazz" })} />,
+    );
+    expect(single.getByTestId("tmw-roll")).toHaveAttribute("data-stage", "spinning");
+    single.unmount();
+  });
+});
+
+describe("the settle lead before a round's roll", () => {
+  const total = TMW_PICK_SETTLE_SECONDS + TMW_REVEAL_SECONDS;
+  function settleReveal(elapsed: number): TmwMatchView {
+    return view({
+      turn_phase: TMW_TURN_PHASE_REVEAL,
+      current_turn_seat_index: null,
+      legal_commands: [],
+      turn_seq: 9,
+      turn_elapsed_seconds: elapsed,
+      turn_total_seconds: total,
+      turn_seconds_remaining: total - elapsed,
+      seconds_remaining: total - elapsed,
+      public_state: publicState({
+        current_round: 2,
+        current_roll: { ...ROLL, round_number: 2, roll_id: "roll-2" },
+        rosters: [roster(0, { PG: pick("john-stockton", "John Stockton", "PG", 0, 1) }), roster(1), roster(2)],
+      }),
+    });
+  }
+
+  it("reads the lead off the server's own window, and never gives the opening reveal one", () => {
+    expect(revealLeadMs(settleReveal(0))).toBe(TMW_PICK_SETTLE_SECONDS * 1000);
+    // An API whose reveal carries no lead.
+    expect(revealLeadMs({ ...settleReveal(0), turn_total_seconds: TMW_REVEAL_SECONDS })).toBe(0);
+    // Round one: no pick came before it.
+    expect(
+      revealLeadMs({ ...settleReveal(0), public_state: publicState({ current_round: 1 }) }),
+    ).toBe(0);
+    // Not a reveal at all.
+    expect(revealLeadMs(view())).toBe(0);
+  });
+
+  it("keeps the board up while the pick settles, then rolls on the rest of the server's window", async () => {
+    vi.useFakeTimers();
+    try {
+      getMatch.mockImplementation(async () => settleReveal(0));
+      render(<ThreeManWeaveGame initialMatch={settleReveal(0)} />);
+      expect(screen.getByTestId("tmw-room")).toHaveAttribute("data-beat", "settle");
+      expect(screen.queryByTestId("tmw-ceremony-scrim")).toBeNull();
+      expect(within(screen.getAllByTestId("tmw-seat-court-0")[0]).getByText("John Stockton")).toBeInTheDocument();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(TMW_PICK_SETTLE_SECONDS * 1000 + 30);
+      });
+      expect(screen.getByTestId("tmw-room")).not.toHaveAttribute("data-beat");
+      expect(screen.getByTestId("tmw-ceremony-scrim")).toBeInTheDocument();
+      // The roll starts at its own beginning, not 1.4 s in.
+      expect(screen.getByTestId("tmw-roll")).toHaveAttribute("data-stage", "round");
+      expect(screen.getByTestId("tmw-round-reveal")).toHaveTextContent("Round 2");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a reconnect after the lead lands straight on the roll", () => {
+    const late = render(<ThreeManWeaveGame initialMatch={settleReveal(TMW_PICK_SETTLE_SECONDS + 0.1)} />);
+    expect(late.getByTestId("tmw-room")).not.toHaveAttribute("data-beat");
+    expect(late.getByTestId("tmw-roll")).toHaveAttribute("data-stage", "round");
+    late.unmount();
+  });
+});
+
+describe("the pick surface over the courts", () => {
+  it("layers the surface over the courts on your turn, and leaves them bare otherwise", () => {
+    const yours = render(<ThreeManWeaveGame initialMatch={view()} />);
+    const stage = yours.getByTestId("tmw-stage");
+    expect(stage).toHaveAttribute("data-decision-open", "true");
+    // One cell: the surface and the courts are both children of the stage.
+    expect(within(stage).getByTestId("tmw-pick-overlay")).toBeInTheDocument();
+    expect(within(stage).getByTestId("tmw-courts")).toBeInTheDocument();
+    yours.unmount();
+
+    const theirs = render(
+      <ThreeManWeaveGame
+        initialMatch={view({ current_turn_seat_index: 1, seconds_remaining: null, legal_commands: [], public_state: publicState({ current_seat: 1 }) })}
+      />,
+    );
+    expect(theirs.getByTestId("tmw-stage")).toHaveAttribute("data-decision-open", "false");
+    expect(theirs.queryByTestId("tmw-pick-overlay")).toBeNull();
+    theirs.unmount();
+  });
+});
+
+describe("the snake's edge in a one-constraint draft", () => {
+  const constraint = { kind: "franchise", value: "UTA", label: "Utah Jazz" } as const;
+
+  it("holds the surface for a beat when your own pick turns the round back to you, then opens it", async () => {
+    const mine = view({ public_state: publicState({ constraint }) });
+    const next = view({
+      state_version: 5,
+      turn_seq: 4,
+      public_state: publicState({
+        constraint,
+        current_round: 2,
+        current_seat: 0,
+        rosters: [roster(0, { PG: pick("john-stockton", "John Stockton", "PG", 0, 1) }), roster(1), roster(2)],
+        drafted_identities: ["john-stockton"],
+        current_roll: { ...ROLL, round_number: 2, roll_id: "roll-2", eligible_slugs: ["karl-malone"], candidates: [ROLL.candidates[1]] },
+      }),
+      private_state: {
+        seat_index: 0,
+        candidate_fits: {
+          "karl-malone": { player_slug: "karl-malone", state: "fits_now", direct_slots: ["PF"], plan: null, moves: [], reason: null },
+        },
+        legal_picks: { "karl-malone": ["PF"] },
+      },
+    });
+    submitCommand.mockImplementation(async () => accepted(next));
+    getMatch.mockImplementation(async () => next);
+    const user = userEvent.setup();
+    render(<ThreeManWeaveGame initialMatch={mine} />);
+    await act(async () => {});
+    await user.click(screen.getByTestId("tmw-candidate-john-stockton"));
+    await user.click(screen.getByTestId("tmw-confirm-pick"));
+
+    await waitFor(() => expect(screen.getByTestId("tmw-room")).toHaveAttribute("data-beat", "round-turn"));
+    expect(screen.getByTestId("tmw-previous-pick-beat")).toHaveTextContent("Round 2 · your pick again");
+    expect(screen.queryByTestId("tmw-pick-overlay")).toBeNull();
+    expect(screen.getByTestId("tmw-moment")).toHaveTextContent("Round 2 opens with you");
+
+    await waitFor(() => expect(screen.getByTestId("tmw-pick-overlay")).toBeInTheDocument(), {
+      timeout: TMW_PREVIOUS_PICK_BEAT_MS + 1500,
+    });
+  });
+});
+
+describe("review fixes", () => {
+  it("a roll that opens late starts from the server's elapsed time, not from zero", () => {
+    // The room mounts the ceremony shut during the settle lead; if its timer
+    // fires late, the roll must land where the server already is.
+    const props = {
+      roll: ROLL,
+      roundNumber: 2,
+      totalRounds: 6,
+      phase: "reveal" as const,
+      turnKey: "m-1:9:reveal",
+      seats: SEATS,
+      yourSeatIndex: 0,
+      totalSeconds: TMW_REVEAL_SECONDS,
+    };
+    const startedAt = performance.now();
+    const { rerender, queryByTestId, getByTestId } = render(
+      <PeakV2TMWReveal {...props} open={false} startedAt={startedAt} />,
+    );
+    expect(queryByTestId("tmw-roll")).toBeNull();
+    // Opened 2.6 s into the roll's own timeline.
+    rerender(
+      <PeakV2TMWReveal {...props} open startedAt={startedAt - (TMW_CEREMONY_MARKS.landing + 100)} />,
+    );
+    expect(getByTestId("tmw-roll")).toHaveAttribute("data-stage", "landing");
+  });
+
+  it("takes the covered courts out of the tab order while the pick surface is open", () => {
+    const yours = render(<ThreeManWeaveGame initialMatch={view()} />);
+    expect(yours.getByTestId("tmw-courts")).toHaveAttribute("inert");
+    yours.unmount();
+    const theirs = render(
+      <ThreeManWeaveGame
+        initialMatch={view({ current_turn_seat_index: 1, seconds_remaining: null, legal_commands: [], public_state: publicState({ current_seat: 1 }) })}
+      />,
+    );
+    expect(theirs.getByTestId("tmw-courts")).not.toHaveAttribute("inert");
+    theirs.unmount();
   });
 });

@@ -375,3 +375,71 @@ any `[data-arena="live"]` element is in the document, watched with a
 `MutationObserver`. The route list alone was not enough: TMW's start gate
 creates its practice match and sets it into state in place, so one URL is a
 gate for a second and a live draft for ten minutes.
+
+## Game-feel pass 5 — pacing, suspense and presentation (2026-09-14)
+
+Pass 4 made every human action register instantly. Played end to end, the
+Arena then felt instant in the wrong way: rolls flashed, bots answered in the
+same two seconds whatever the decision, and picks were covered by the next
+phase in the frame they landed. Pass 5 keeps the instant acknowledgment and
+adds pacing only where it is **deliberate and server-timed**. Nothing a player
+presses waits on a timer.
+
+### Three-Man Weave
+
+| Beat | Before | After | Where |
+|---|---|---|---|
+| Roll (reveal turn) | 1.5 s | 3.8 s: slate 0, armed 450, reels 700, franchise lands 2440, decade lands and locks 3090, resolved 3300, 500 ms hold | `mode.REVEAL_SECONDS`, `PeakV2TMWReveal` |
+| Settle before a round's roll | none (scrim covered the pick) | 1.4 s lead inside the same server turn; board shown with the card's lock-in | `PICK_SETTLE_SECONDS`, `revealLeadMs`, `Room.settleUntil` |
+| Previous-pick beat | 200 ms | 750 ms, press anywhere to skip | `TMW_PREVIOUS_PICK_BEAT_MS` |
+| Snake edge without a roll (Franchise/Decade) | surface re-opened in the same frame | same 750 ms beat, "Round N · your pick again" | `roundTurnedToYou` |
+| Bot think | flat 1.2–3.0 s | shaped by `ThreeManWeaveBot.deliberation`: forced ~2–3 s, typical 3–5 s, toss-up 8–11 s | `config.bot_think_seconds`, `_bot_deliberation` |
+
+- **Deliberation** (0..1) is RNG-free and presentation only: 0.05 when the
+  quality gate forces the pick, otherwise closeness of the top two players
+  (0.60), crowd of contenders (0.15), and how many slots the contenders span
+  (0.15), +0.08 if the best option needs a rearrangement. Seconds =
+  2.6 + 7.4 × d^1.3, × seeded noise 0.85–1.15, bounded 2.0–11.5. The
+  foundation clamp is 12 s. Measured over seeded drafts: standard p50 3.1 s /
+  p90 6.7 s; Franchise 5.2 / 7.1; Decade 6.2 / 7.8.
+- **Franchise/Decade bots (`tmw_bot_v3`)** add a small lean to utility: a player
+  whose natural group (guard/wing/big) the roster already holds twice is marked
+  down per extra body, a missing group is marked up after two picks, and a
+  recognition pull from the career-best card anywhere in the index. The
+  quality gate still runs on raw scores first, so no lean can reach a
+  catastrophic pick. Bands 82/13/5 instead of 90/8/2. Decade Draft rosters with
+  three or more bigs: 13/36 → 6/36 over 12 seeds. The standard game's policy is
+  unchanged.
+- **Pick surface over the teams.** The courts and the decision share one grid
+  cell (`.tmw-stage`); the surface floats over dimmed courts that stop taking
+  presses; the page still scrolls a long pool (no nested pane). The roster tab
+  bar stays outside and live. Opacity-only entrance, so nothing moves under a
+  press.
+- **Card landing.** A drafted card drops in and rings gold once (longer during
+  the settle lead).
+- **Results.** Verdict first, a 2-1-3 podium, confetti/sparks only on a win,
+  your score beside the rival's, at most two "why" insights, and the head to
+  head, rosters and receipt in closed folds (`PeakV2TMWResult`,
+  `tmw-result.css`).
+
+### $20 Showdown
+
+- Think ranges by decision kind: quick 1.3–2.4 s, a considered `pass`
+  1.6–2.8 s, ordinary 2.2–3.8 s (15% hesitate +0.5–1.2 s), contested 3.8–6.5 s
+  at 55%, bidding war 1.2–2.4 s tightening by 0.18 s per raise past the fourth
+  to a 1.0–1.5 s floor. Decisions unchanged (calibration 31/31).
+- SOLD hold 2.2 → 2.8 s with a hammer slam; the next lot arrives 420 ms later
+  under "Next on the block"; controls stay live.
+- A thinking bot sweeps the stage edge and breathes on its bench; a new
+  standing bid scales in. Narrower side columns, clock and controls docked
+  together, the Bid button above the fold on a phone.
+
+### Arena IA and feedback
+
+- One **Three-Man Weave** family everywhere: the lobby card lists Classic,
+  Franchise Draft and Decade Draft with their own actions
+  (`groupModeFamilies`, from `variantOf`); the Play menu and mobile drawer nest
+  the three formats; the hub cell links them.
+- Feedback: a "Help shape PEAK3 Arena" band under Your Arena with three quick
+  kinds that jump to the existing form (`#feedback`, `?feedback=<kind>`), plus
+  links from the lobby, hub and footer.

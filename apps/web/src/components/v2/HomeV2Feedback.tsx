@@ -83,6 +83,26 @@ function noticeFor(err: unknown): Notice {
   return { tone: "error", text: HOME_FEEDBACK_NETWORK_MESSAGE };
 }
 
+/** The anchor every "send feedback" link on the site points at (`/#feedback`). */
+export const HOME_FEEDBACK_ANCHOR = "feedback";
+const OPEN_EVENT = "peak3:open-feedback";
+
+function isFeedbackKind(value: string | null | undefined): value is ContactCategory {
+  return !!value && HOME_FEEDBACK_KINDS.some((kind) => kind.category === value);
+}
+
+/**
+ * Brings the form into view with `category` chosen and the cursor in the note.
+ *
+ * For callers ON the homepage (`HomeV2FeedbackPrompt`). From any other page,
+ * link to `/?feedback=<category>#feedback`, which this component reads on
+ * mount -- a query change on the homepage itself would re-request the page.
+ */
+export function openHomeFeedback(category?: ContactCategory) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: { category } }));
+}
+
 export default function HomeV2Feedback() {
   const { user } = useAuth();
   const uid = useId();
@@ -117,6 +137,42 @@ export default function HomeV2Feedback() {
       messageRef.current?.focus();
     }
   }, [phase]);
+
+  // THE WAYS IN. The homepage's prompt band dispatches an event (same page, no
+  // navigation); a link from anywhere else arrives as `?feedback=<kind>` plus
+  // `#feedback`. Either way the form comes into view with that kind chosen and
+  // the cursor in the note -- the only field that has to be filled.
+  const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const focusNote = (scroll: boolean) => {
+      if (scroll) sectionRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      messageRef.current?.focus({ preventScroll: scroll });
+    };
+    const onOpen = (event: Event) => {
+      const wanted = (event as CustomEvent<{ category?: string }>).detail?.category;
+      setCategory(isFeedbackKind(wanted) ? wanted : "general_feedback");
+      setNotice(null);
+      // A note already sent: open a fresh form rather than the receipt.
+      if (phase === "sent") {
+        focusNoteNext.current = true;
+        setPhase("idle");
+        sectionRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+        return;
+      }
+      focusNote(true);
+    };
+    window.addEventListener(OPEN_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_EVENT, onOpen);
+  }, [phase]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const wanted = params.get("feedback");
+    if (isFeedbackKind(wanted)) setCategory(wanted);
+    if (window.location.hash === `#${HOME_FEEDBACK_ANCHOR}` && params.has("feedback")) {
+      messageRef.current?.focus({ preventScroll: true });
+    }
+  }, []);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -166,7 +222,13 @@ export default function HomeV2Feedback() {
   const submitting = phase === "submitting";
 
   return (
-    <section aria-labelledby="v2-feedback-heading" className="v2-feedback" data-testid="home-feedback">
+    <section
+      ref={sectionRef}
+      id={HOME_FEEDBACK_ANCHOR}
+      aria-labelledby="v2-feedback-heading"
+      className="v2-feedback"
+      data-testid="home-feedback"
+    >
       <div className="v2-feedback-intro">
         <h2 id="v2-feedback-heading" className="v2-feedback-heading">
           Tell us what&apos;s off.

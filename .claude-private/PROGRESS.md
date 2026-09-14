@@ -1,3 +1,76 @@
+# Arena game-feel pass 5 — pacing, suspense, IA (2026-09-14, DONE, uncommitted)
+
+Branch `feature/arena-game-feel` on top of `94e6dd9`. UNCOMMITTED working tree (user did
+not ask for commits). Design note: `docs/design/GAME_FEEL.md` "Game-feel pass 5".
+
+## Done (main session)
+- TMW server: `REVEAL_SECONDS` 1.5 -> 3.8; `PICK_SETTLE_SECONDS` 1.4 leads a pick-opened
+  reveal (`ROUND_REVEAL_SECONDS`); bot think shaped by `ThreeManWeaveBot.deliberation`
+  (config.bot_think_seconds: 2.6 + 7.4*d^1.3 x noise 0.85-1.15, bounds 2.0-11.5) via
+  snapshot hook + LRU `_bot_deliberation`; foundation clamp 10 -> 12 (`BOT_THINK_SECONDS_CEILING`).
+- TMW bot `tmw_bot_v3`: variant-only `_drafter_lean` (natural group stacking/missing,
+  recognition from career-best card) + bands 82/13/5. Sweep config C chosen
+  (gap .20, contender regret .06, crowd /10, weights .60/.15/.15): think p50/p90
+  standard 3.1/6.7, franchise 5.2/7.1, decade 6.2/7.8; decade 3+ bigs 13/36 -> 6/36.
+- TMW client: ceremony re-laid (slate 450, armed 250, reels 1600/2250, landing stage,
+  locked 3090, resolved 3300); `revealLeadMs` + `Room.settleUntil` (data-beat="settle");
+  previous-pick beat 750 ms; round-turn beat for variants (data-beat="round-turn");
+  pick surface over courts in `.tmw-stage` grid cell (data-decision-open); card landing CSS.
+- Tests: mode think/reveal tests re-pinned, practice e2e stall guard + pinned seeds adapted,
+  new `tests/three_man_weave/test_bot_human_lean.py` (11), game-feel vitest +7 (27 pass).
+
+## Done (forks, reviewed by screenshots)
+- Results screen (PeakV2TMWResult + tmw-result.css, 14 tests), Showdown pacing/layout
+  (think kinds incl. `pass`, war depth; SOLD 2.8 s; calibration 31/31), IA family card +
+  nested nav + hub + feedback prompt band (2635 unit tests at their end).
+
+## QA so far
+- latency driver (dev build, lat 0) Classic full match: draft ack 33 / confirm 234 ms,
+  bot due->seen p50 217 ms, handoff 816 ms (= 750 beat). Scratch: `qa/timing`, `qa/shots-*`.
+
+## Review findings (independent agent)
+1. FIXED: `test_the_human_gets_the_full_window_when_their_turn_opens` flaked with longer Showdown
+   thinks -> bounded poll loop from `td_config.BOT_THINK_RANGES` (10/10).
+2. FIXED: PeakV2TMWReveal `elapsedAtMount` memo keyed on turn only -> a late settle
+   timer replays the roll from 0; recompute when `open` flips / startedAt changes.
+3. FIXED: `_bot_deliberation` cache key now per-seat slot->slug, not the drafted set.
+4. FIXED: courts under the open pick surface still tabbable -> `inert` when decisionOpen.
+5. KEPT (report to user): round-turn beat is a 750 ms pressable hold after your own pick.
+- API unit script before fixes: 2025 passed / 2 skipped / 1 failed (finding 1).
+- QA beats (browser): reveal 3.8-4.2 s, settle 1.2-1.3 s, previous-pick beat 770-820 ms,
+  bot thinking 3.3-11.6 s; all four modes played to completion via latency driver.
+
+## Prime Cut private-room e2e (reported failing, diagnosed 2026-09-14)
+- `prime-cut.spec.ts` "two players in a private room..." timed out at 180 s: last good action was
+  the guest's join-code fill; the Join click was intercepted for 175 s by `handle-onboarding-prompt`
+  (fixed bottom-right) and, on other scroll alignments, the sticky header (html is scroll-behavior
+  smooth, so centred retries saw an unstable element).
+- Cause: this branch's lobby reflow (TMW family card spans a full row) moved Prime Cut from the
+  left column (HEAD: Join x=550, click ok) to the right column (Join x=1092, under the prompt).
+  Prompt on the lobby is a pinned product decision (`handle-onboarding-prompt.test.tsx:197`).
+- Fix (test only): spec `signInAs` presets the "Skip for now" session dismissal before any lobby
+  load (precedent: showdown-two-tab `dismissHandlePrompt`). Isolated test passes (25.3 s).
+- UX follow-up for the owner: a real handle-less user can see the prompt over right-column lobby
+  controls at 1280x720 (true on HEAD for right-column cards too).
+
+## Handle prompt vs lobby controls (product fix, 2026-09-14)
+- `styles/v2/arena-lobby.css`: at >=1200px, while `handle-onboarding-prompt` is mounted
+  (`:root:has(...)`), `[data-testid="arena-lobby"]` gets
+  `padding-right: max(0px, calc(590px + 24rem - var(--v2-gutter) - 50vw))` so no lobby control
+  shares the prompt's horizontal band at any scroll. 286/206/126/0 px at 1280/1440/1600/1920;
+  37 px clearance; no overflow; phone unchanged. Prompt component untouched.
+- Test: arena-multiplayer.spec "the handle prompt never sits over a lobby control on a desktop
+  screen" (1280x720 + 1600x900, Prime Cut room panel open). Negative control without the rule:
+  8 controls in the band. Prime Cut private-room e2e still passes (pre-dismissal kept).
+
+## Final gates
+- model-tests.sh 2133 passed / 2 skipped / 1 xfailed; api-unit-tests.sh 2026 passed / 2 skipped.
+- frontend: typecheck + lint 0 warnings; vitest 2643/2644 (daily-grid-rollover timer test flakes
+  2/5 on clean HEAD too — baseline); production build OK.
+- e2e: chromium-multiplayer 33/34 then the fixed :416 passes alone; chromium-core play-routing +
+  accessibility 45/45; mobile-chrome multiplayer 3/3.
+- Not run: api-integration (Postgres), full e2e suite.
+
 # PRIME CUT + FIND THE PRIME — progress (2026-09-13)
 
 Branch `feature/prime-modes` from `main` @ `0f41077`. Plan:

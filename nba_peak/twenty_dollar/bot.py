@@ -127,9 +127,9 @@ other seat just did; it asks what the CURRENT board is worth to it. A human
 pass therefore leaves the bot free to open at $1 and take the player.
 
 `decision_kind` is the PRESENTATION hook: it classifies the decision the bot
-is about to make (a quick pass, an ordinary raise, a contested call, a bidding
-war) so the mode can pick a think time that reads like the decision. It never
-changes what the bot decides.
+is about to make (an obvious move on clear value, a considered pass, an
+ordinary raise, a contested call, a bidding war) so the mode can pick a think
+time that reads like the decision. It never changes what the bot decides.
 """
 from __future__ import annotations
 
@@ -142,6 +142,7 @@ from nba_peak.twenty_dollar.config import (
     BOT_POLICY_VERSION,
     BOT_THINK_KIND_CONTESTED,
     BOT_THINK_KIND_ORDINARY,
+    BOT_THINK_KIND_PASS,
     BOT_THINK_KIND_QUICK,
     BOT_THINK_KIND_WAR,
     HARD_MAX_LOTS,
@@ -279,6 +280,13 @@ _OPEN_TOLERANCE_FREE_FOLLOW = 4.0
 _STRETCH_CHANCE = 0.14   # one dollar past the ceiling
 _FLINCH_CHANCE = 0.12    # steps away one dollar early
 _JUMP_CHANCE = 0.18      # answers a raise with a two-dollar jump
+
+
+#: PRESENTATION ONLY (`decision_kind`). A move with at least this many dollars
+#: of headroom under the pre-jitter ceiling is an obvious one and lands quickly.
+_OBVIOUS_VALUE_MARGIN = 4
+#: The raise count on one lot at which the exchange reads as a bidding war.
+_WAR_RAISES = 4
 
 
 class TwentyDollarBot:
@@ -577,26 +585,44 @@ class TwentyDollarBot:
         """Which KIND of decision the bot is about to make -- presentation only.
 
         Read by the mode's think-time hook. Deterministic and RNG-free, so
-        every poller computes the same answer for the same turn.
+        every poller computes the same answer for the same turn. It mirrors
+        `decide`'s branches without their jitter: a price far past the
+        pre-jitter ceiling is a pass, a price at the ceiling is the contested
+        call, and a price well under it is an obvious raise.
         """
         if not private.get("is_your_turn") or not private.get("can_acquire_candidate"):
-            return BOT_THINK_KIND_QUICK
+            return BOT_THINK_KIND_PASS
         minimum = int(private.get("minimum_bid", 1))
         max_bid = int(private.get("max_bid", 0))
         if minimum > max_bid:
-            return BOT_THINK_KIND_QUICK
+            return BOT_THINK_KIND_PASS
         standing = int(public.get("current_bid") or 0)
         v = self.valuation(public, private)
         if standing <= 0:
-            return BOT_THINK_KIND_ORDINARY if self._wants_to_open(public, private) else BOT_THINK_KIND_QUICK
-        raises = sum(1 for a in (public.get("lot_actions") or []) if a.get("action") == COMMAND_BID)
+            if not self._wants_to_open(public, private):
+                return BOT_THINK_KIND_PASS
+            return BOT_THINK_KIND_QUICK if v["ceiling"] - minimum >= _OBVIOUS_VALUE_MARGIN else BOT_THINK_KIND_ORDINARY
         if minimum > v["ceiling"] + 1:
-            return BOT_THINK_KIND_QUICK  # a price it was never going to pay
+            return BOT_THINK_KIND_PASS  # a price it was never going to pay
         if v["ceiling"] >= 4 and abs(minimum - v["ceiling"]) <= 1:
             return BOT_THINK_KIND_CONTESTED
-        if raises >= 4:
+        if self.lot_raises(public) >= _WAR_RAISES:
             return BOT_THINK_KIND_WAR
+        if v["ceiling"] - minimum >= _OBVIOUS_VALUE_MARGIN:
+            return BOT_THINK_KIND_QUICK
         return BOT_THINK_KIND_ORDINARY
+
+    @staticmethod
+    def lot_raises(public: dict) -> int:
+        """How many bids have landed on the current lot."""
+        return sum(1 for a in (public.get("lot_actions") or []) if a.get("action") == COMMAND_BID)
+
+    @classmethod
+    def war_depth(cls, public: dict) -> int:
+        """How far past the point a lot became a war it has run -- 0 at the
+        fourth raise, 1 at the fifth. Presentation only: the think time
+        tightens with it so an escalation accelerates."""
+        return max(0, cls.lot_raises(public) - _WAR_RAISES)
 
     @staticmethod
     def _decline(private: dict) -> tuple[str, dict]:

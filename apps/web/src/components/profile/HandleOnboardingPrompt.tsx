@@ -236,7 +236,7 @@ export default function HandleOnboardingPrompt() {
       aria-modal="false"
       aria-labelledby="handle-onboarding-title"
       data-testid="handle-onboarding-prompt"
-      className="fixed bottom-4 right-4 z-40 w-[min(22rem,calc(100vw-2rem))] rounded-xl p-4 shadow-lg flex flex-col gap-3"
+      className="pk-handle-prompt fixed bottom-4 right-4 z-40 w-[min(22rem,calc(100vw-2rem))] rounded-xl p-4 shadow-lg flex flex-col gap-3"
       style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-default)" }}
     >
       {phase === "saved" ? (

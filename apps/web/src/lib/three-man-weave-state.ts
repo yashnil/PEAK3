@@ -61,6 +61,8 @@ import {
   TMW_TURN_PHASE_ARRIVAL,
   TMW_TURN_PHASE_INTRO,
   TMW_TURN_PHASE_REVEAL,
+  TMW_PICK_SETTLE_SECONDS,
+  TMW_REVEAL_SECONDS,
 } from "@/types/three-man-weave";
 
 // ---------------------------------------------------------------------------
@@ -104,6 +106,24 @@ export function isArriving(match: TmwMatchView | null): boolean {
  * TRUE FOR EVERY SEAT, including the one that picks next: nobody drafts under
  * the ceremony, so there is no seat for which it is not running.
  */
+/**
+ * How much of the open reveal turn is the SETTLE LEAD, in ms (game-feel pass 5).
+ *
+ * A reveal opened by a pick runs `PICK_SETTLE_SECONDS + REVEAL_SECONDS` on the
+ * server: the board holds the pick locking in for the lead, then the roll
+ * plays in the remainder. Derived from the server's own `turn_total_seconds`
+ * rather than assumed, so a server that sends no lead yields 0. The opening
+ * reveal (round one) never has one: no pick precedes it.
+ */
+export function revealLeadMs(match: TmwMatchView | null): number {
+  if (!isRevealing(match) || !match) return 0;
+  if ((match.public_state.current_round ?? 1) <= 1) return 0;
+  const total = match.turn_total_seconds;
+  if (total === null || total === undefined) return 0;
+  const extra = Math.round(total * 1000 - TMW_REVEAL_SECONDS * 1000);
+  return Math.max(0, Math.min(TMW_PICK_SETTLE_SECONDS * 1000, extra));
+}
+
 export function isRevealing(match: TmwMatchView | null): boolean {
   return !!match && match.turn_phase === TMW_TURN_PHASE_REVEAL;
 }

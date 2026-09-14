@@ -790,3 +790,91 @@
     transition: none;
   }
 }
+
+/* ----------------------------------------------------------------
+   A game's rulesets, nested under the game
+   ----------------------------------------------------------------
+   Three-Man Weave is one game with three ways to draft. Its rulesets sit
+   indented beneath its row on a hairline rail, lighter than a game row (no
+   icon, label and one line side by side), so the menu reads as a parent and
+   its children rather than as three more games. Same 44px target. */
+.pk-playmenu-sublist {
+  display: grid;
+  gap: 0.0625rem;
+  margin: 0.125rem 0 0.25rem calc(var(--pk-space-2) + 0.875rem);
+  padding-left: calc(var(--pk-space-2) + 0.25rem);
+  border-left: 1px solid var(--border-default, var(--border-subtle));
+}
+
+.pk-playmenu-subrow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  column-gap: var(--pk-space-2);
+  row-gap: 0;
+  min-height: var(--pk-tap-min);
+  padding: 0.25rem var(--pk-space-2);
+  border: 1px solid transparent;
+  border-radius: var(--pk-r-md);
+  color: var(--text-primary);
+  transition:
+    background-color var(--pk-dur-fast) var(--pk-ease-standard),
+    border-color var(--pk-dur-fast) var(--pk-ease-standard);
+}
+
+.pk-playmenu-subrow:hover,
+.pk-playmenu-subrow:focus-visible {
+  background: var(--bg-surface);
+  border-color: var(--border-default);
+}
+
+.pk-playmenu-subrow:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.pk-playmenu-subrow[aria-current="page"] {
+  background: var(--bg-surface);
+  border-color: var(--border-emphasis);
+}
+
+.pk-playmenu-sublabel {
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.pk-playmenu-subblurb {
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
+.pk-nav-drawer-children {
+  margin: 0 0 var(--pk-space-1) var(--pk-space-3);
+  padding-left: var(--pk-space-2);
+  border-left: 1px solid var(--border-default, var(--border-subtle));
+}
+
+.pk-nav-drawer-row--nested {
+  font-size: 0.8125rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pk-playmenu-subrow {
+    transition: none;
+  }
+}
+
+/* A ruleset row: label over its one line, "Current" beside both. Stacked
+   always, so a short line never jumps up beside its label while its
+   neighbours wrap beneath theirs. */
+.pk-playmenu-subrow {
+  flex-wrap: nowrap;
+}
+
+.pk-playmenu-subtext {
+  display: grid;
+  gap: 0.0625rem;
+  min-width: 0;
+}
