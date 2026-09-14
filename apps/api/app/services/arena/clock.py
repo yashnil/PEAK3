@@ -63,6 +63,7 @@ from typing import Optional
 from app.repositories.arena_protocols import (
     COMMAND_TYPE_TIMEOUT,
     TURN_RESOLUTION_TIMEOUT,
+    ArenaMatch,
     ArenaRepository,
     CommandOutcome,
     CommandRequest,
@@ -164,12 +165,18 @@ def _simultaneous_grace(mode: object, phase: str) -> bool:
         return False
 
 
+#: "The caller did not say" -- distinct from `None`, which means "no open turn".
+_UNREAD = object()
+
+
 async def enforce(
     repo: ArenaRepository,
     match_id: str,
     reducer: Optional[MatchReducer],
     now: datetime,
     mode: Optional[object] = None,
+    match: Optional[ArenaMatch] = None,
+    turn: object = _UNREAD,
 ) -> Optional[CommandOutcome]:
     """Advance one match's clock. Call before serving or mutating it.
 
@@ -178,13 +185,22 @@ async def enforce(
     `mode` is optional and read only for the opt-in grace hook above; a caller
     that passes none gets exactly the behaviour this function always had.
 
+    `match` and `turn` are what the caller has ALREADY READ in this request
+    (a `MatchBundle`), so the common case -- nothing is overdue -- costs no
+    storage round trip at all. Omitted, they are read here as before. The
+    deciding write is unchanged either way: a timeout goes through
+    `apply_command` under the row lock with a deterministic key, so a stale
+    preloaded turn can only produce a replay or a `turn_already_resolved`
+    refusal, never a second resolution.
+
     `reducer` may be None when the caller has no mode module (an unregistered or
     retired mode). The match clock is still enforced in that case -- an expired
     match is expired regardless of whether anything can still interpret its
     rules -- but the turn timeout is skipped, because resolving a turn without
     the mode's own rules would produce a state the mode could not read back.
     """
-    match = await repo.get_match(match_id)
+    if match is None:
+        match = await repo.get_match(match_id)
     if match is None or not match.is_live():
         return None
 
@@ -199,7 +215,8 @@ async def enforce(
     # 2. The turn clock, plus the action grace window. See
     #    `ACTION_GRACE_SECONDS` for why a turn is not swept the instant its
     #    deadline passes, and why that is not slack in the rules.
-    turn = await repo.get_open_turn(match_id)
+    if turn is _UNREAD:
+        turn = await repo.get_open_turn(match_id)
     if turn is None or reducer is None:
         return None
     # THE GRACE WINDOW PROTECTS A LATE ACTION, so a turn that accepts no action

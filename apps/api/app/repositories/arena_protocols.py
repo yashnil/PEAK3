@@ -401,6 +401,69 @@ class CommandOutcome:
     events: tuple[ArenaEvent, ...] = ()
     rejection_code: Optional[str] = None
     rejection_message: Optional[str] = None
+    #: The turn left open once a FRESH acceptance was applied, so a caller can
+    #: build the next view without reading the turn back. `open_turn_known`
+    #: separates "no turn is open" (a completed match) from "not reported" (a
+    #: replay or a rejection, where the caller must read).
+    open_turn: Optional[ArenaTurn] = None
+    open_turn_known: bool = False
+
+
+@dataclass(frozen=True)
+class MatchBundle:
+    """Everything one request needs to serve a match, from ONE read.
+
+    WHY IT EXISTS (game-feel pass 4). Serving a poll used to read the match,
+    the caller's seat, the open turn, every seat and every visible event as
+    separate statements -- several of them twice, because the clock, the bot
+    driver and the view each re-read what the previous step had just read. On
+    local Postgres that was 34-48 round trips per request; against a hosted
+    database 25 ms away it made every command take more than a second. The
+    bundle is the same facts, read once, and handed from step to step.
+
+    `public_seq` and `seat_seqs` are the newest event sequence numbers by
+    visibility, so the view's `latest_event_seq` for any seat is derivable
+    without listing events.
+    """
+
+    match: ArenaMatch
+    seats: tuple[ArenaSeat, ...]
+    open_turn: Optional[ArenaTurn]
+    public_seq: int = -1
+    seat_seqs: dict = field(default_factory=dict)
+
+    def seat_for_sub(self, sub: str) -> Optional[ArenaSeat]:
+        return next((s for s in self.seats if s.occupant_sub == sub), None)
+
+    def latest_seq_for(self, seat_index: Optional[int]) -> int:
+        if seat_index is None:
+            return self.public_seq
+        return max(self.public_seq, int(self.seat_seqs.get(seat_index, -1)))
+
+    def after_command(self, outcome: "CommandOutcome") -> Optional["MatchBundle"]:
+        """The bundle as it stands after a FRESH accepted command, or None when
+        the outcome does not carry enough to know (the caller then re-reads).
+
+        Seats are unchanged by a command on a live match -- only seating
+        routes add seats -- so they carry over."""
+        if not (outcome.accepted and not outcome.replayed and outcome.open_turn_known):
+            return None
+        public_seq = self.public_seq
+        seat_seqs = dict(self.seat_seqs)
+        for event in outcome.events:
+            if event.visibility == VISIBILITY_PUBLIC:
+                public_seq = max(public_seq, event.seq)
+            elif event.visibility == VISIBILITY_SEAT and event.visible_to_seat is not None:
+                seat_seqs[event.visible_to_seat] = max(
+                    int(seat_seqs.get(event.visible_to_seat, -1)), event.seq
+                )
+        return MatchBundle(
+            match=outcome.match,
+            seats=self.seats,
+            open_turn=outcome.open_turn,
+            public_seq=public_seq,
+            seat_seqs=seat_seqs,
+        )
 
 
 class ArenaRepositoryError(RuntimeError):
@@ -840,6 +903,22 @@ class ArenaRepository(Protocol):
 
     async def get_open_turn(self, match_id: str) -> Optional[ArenaTurn]:
         """The currently-open turn, or None."""
+        ...
+
+    async def get_match_bundle(self, match_id: str) -> Optional[MatchBundle]:
+        """The match, its seats, its open turn and its newest event sequence
+        numbers by visibility, in one read. None when the match does not exist.
+
+        Must agree field for field with `get_match` + `get_seats` +
+        `get_open_turn` read at the same instant; the conformance suite asserts
+        it on both backends."""
+        ...
+
+    def session(self):
+        """An async context manager that pins one storage connection for the
+        duration of a request, so a route's reads do not each check a
+        connection out of the pool. A no-op for storage without connections.
+        Re-entrant: an inner `session()` reuses the outer one."""
         ...
 
     async def list_overdue_matches(

@@ -513,6 +513,57 @@ async def _assert_arena_repo_conforms(repo) -> None:
     server_view = await repo.list_events(match.match_id, for_seat=None)
     assert [e.seq for e in server_view] == list(range(len(server_view)))
 
+    # THE OUTCOME REPORTS WHAT IT WROTE (game-feel pass 4): routes build the
+    # response view from it without reading back, so it must equal a read.
+    reported = await repo.apply_command(cmd("conf-key-report"), _bump_reducer, now)
+    assert reported.accepted and reported.open_turn_known
+    assert reported.open_turn == await repo.get_open_turn(match.match_id)
+    read_back = await repo.get_match(match.match_id)
+    for column in ("state_version", "snapshot", "status", "turn_deadline_at", "current_turn_seq", "completed_at"):
+        assert getattr(reported.match, column) == getattr(read_back, column), column
+
+    # THE BUNDLE IS THE SEPARATE READS, IN ONE: match, seats, open turn, and
+    # the newest event seq each seat may see.
+    bundle = await repo.get_match_bundle(match.match_id)
+    assert bundle is not None
+    assert bundle.match == read_back
+    assert list(bundle.seats) == await repo.get_seats(match.match_id)
+    assert bundle.open_turn == await repo.get_open_turn(match.match_id)
+    for seat_index in (0, 1):
+        visible = await repo.list_events(match.match_id, for_seat=seat_index)
+        assert bundle.latest_seq_for(seat_index) == max(e.seq for e in visible)
+    assert bundle.seat_for_sub(seats[1].occupant_sub).seat_index == 1
+    assert bundle.seat_for_sub("nobody") is None
+    assert await repo.get_match_bundle(str(uuid.uuid4())) is None
+
+    # A turn opened by a command is reported exactly as a read returns it, and
+    # the bundle derived from the outcome agrees with a fresh bundle.
+    def _open_turn_reducer(data):
+        from app.repositories.arena_protocols import EventDraft, ReducerOutput, TurnDraft
+
+        return ReducerOutput(
+            accepted=True,
+            snapshot={"n": data.match.snapshot.get("n", 0) + 1},
+            events=(EventDraft(event_type="opened"),),
+            resolve_turn="action" if data.open_turn is not None else None,
+            open_turn=TurnDraft(phase="pick", deadline_at=now + timedelta(seconds=30), seat_index=1),
+        )
+
+    opened = await repo.apply_command(cmd("conf-key-open1"), _open_turn_reducer, now)
+    assert opened.accepted and opened.open_turn_known
+    assert opened.open_turn == await repo.get_open_turn(match.match_id)
+    derived = bundle.after_command(opened)
+    fresh = await repo.get_match_bundle(match.match_id)
+    assert derived.match == fresh.match
+    assert derived.open_turn == fresh.open_turn
+    for seat_index in (0, 1):
+        assert derived.latest_seq_for(seat_index) == fresh.latest_seq_for(seat_index)
+
+    # A session is re-entrant and changes no result.
+    async with repo.session():
+        async with repo.session():
+            assert (await repo.get_match_bundle(match.match_id)).match == fresh.match
+
     # expire_match is first-write-wins.
     assert await repo.expire_match(match.match_id, now) is True
     assert await repo.expire_match(match.match_id, now) is False

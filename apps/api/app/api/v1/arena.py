@@ -55,9 +55,11 @@ why lazy enforcement is sufficient and why the alternative was rejected.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
+import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response
@@ -92,6 +94,7 @@ from app.repositories.arena_protocols import (
     ArenaMatch,
     ArenaSeat,
     CommandRequest,
+    MatchBundle,
     MatchNotFound,
     SeatUnavailable,
     validate_client_command,
@@ -372,14 +375,86 @@ async def _display_name(profile_repo, sub: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _build_view(repo, mode, match: ArenaMatch, seat: Optional[ArenaSeat]):
-    """Project one match for one seat. The ONLY way a match reaches a client.
+def _repo_session(repo):
+    """Pin one storage connection for the request, when the repository has
+    connections to pin (see `PostgresArenaRepository.session`)."""
+    session = getattr(repo, "session", None)
+    return session() if session is not None else contextlib.nullcontext()
+
+
+async def _seat_bundle_or_403(repo, match_id: str, sub: str) -> tuple[MatchBundle, ArenaSeat]:
+    """`_seat_or_403`, from the ONE bundled read the rest of the request reuses.
+
+    The same two answers in the same order -- 404 when the match does not
+    exist, 403 when the caller holds no seat -- and the seat is still read off
+    the stored seat rows, never off the request."""
+    bundle = await repo.get_match_bundle(match_id)
+    if bundle is None:
+        raise HTTPException(
+            status_code=404, detail=_error("No such match.", "match_not_found")
+        )
+    seat = bundle.seat_for_sub(sub)
+    if seat is None:
+        raise HTTPException(
+            status_code=403,
+            detail=_error(
+                "You are not a participant in this match.", "not_a_participant"
+            ),
+        )
+    return bundle, seat
+
+
+class _RouteTiming:
+    """Where a request's time went, as a `Server-Timing` header and one log line.
+
+    Server-side stage durations only -- no identity, no payload, no state. The
+    header lets a browser's network panel (and the latency driver) split a slow
+    action into network versus server; the log line lets a deployment answer
+    "how long do commands take" without a tracing stack. Commands log at INFO,
+    polls at DEBUG, and anything over the p95 target at WARNING.
+    """
+
+    SLOW_MS = 800.0
+
+    def __init__(self) -> None:
+        self._start = time.perf_counter()
+        self._last = self._start
+        self._parts: list[tuple[str, float]] = []
+
+    def mark(self, name: str) -> None:
+        now = time.perf_counter()
+        self._parts.append((name, (now - self._last) * 1000.0))
+        self._last = now
+
+    def finish(self, response: Response, route: str, mode: str, command: Optional[str] = None) -> None:
+        total = (time.perf_counter() - self._start) * 1000.0
+        response.headers["Server-Timing"] = ", ".join(
+            [f"{name};dur={ms:.1f}" for name, ms in self._parts] + [f"total;dur={total:.1f}"]
+        )
+        level = logging.WARNING if total > self.SLOW_MS else (logging.INFO if route == "command" else logging.DEBUG)
+        logger.log(
+            level,
+            "arena.timing route=%s mode=%s command=%s total_ms=%.1f %s",
+            route, mode, command or "-", total,
+            " ".join(f"{name}_ms={ms:.1f}" for name, ms in self._parts),
+        )
+
+
+#: How stale a seat's `last_seen_at` may get before a poll refreshes it. It is
+#: advisory liveness that nothing forfeits on, so writing it on EVERY poll was a
+#: database write per poll for a value nobody reads at that resolution.
+_SEAT_TOUCH_INTERVAL = timedelta(seconds=15)
+
+
+def _view_from_bundle(mode, bundle: MatchBundle, seat: Optional[ArenaSeat]):
+    """Project one match for one seat, from a bundle already in hand.
 
     Note what is not read here: `match.snapshot` never reaches the response. The
     mode's `project` decides what a seat may see, and everything else stays on
     the server.
     """
-    seats = tuple(await repo.get_seats(match.match_id))
+    match = bundle.match
+    seats = bundle.seats
     seat_index = seat.seat_index if seat is not None else None
 
     public_state: dict = {}
@@ -388,7 +463,7 @@ async def _build_view(repo, mode, match: ArenaMatch, seat: Optional[ArenaSeat]):
     if seat_index is not None and mode is not None:
         public_state, private_state, legal = mode.project(match, seats, seat_index)
 
-    turn = await repo.get_open_turn(match.match_id)
+    turn = bundle.open_turn
     seconds_remaining = None
     turn_seconds_remaining = None
     turn_seq = None
@@ -430,8 +505,7 @@ async def _build_view(repo, mode, match: ArenaMatch, seat: Optional[ArenaSeat]):
                 mode, match, turn, seats, now
             )
 
-    visible = await repo.list_events(match.match_id, for_seat=seat_index)
-    latest_seq = max((e.seq for e in visible), default=-1)
+    latest_seq = bundle.latest_seq_for(seat_index)
 
     return ArenaMatchView(
         match_id=match.match_id,
@@ -477,7 +551,27 @@ async def _build_view(repo, mode, match: ArenaMatch, seat: Optional[ArenaSeat]):
     )
 
 
-async def _advance(repo, mode, match_id: str, rating_repo=None) -> ArenaMatch:
+async def _build_view(repo, mode, match: ArenaMatch, seat: Optional[ArenaSeat]):
+    """Project a match for one seat when the caller holds no bundle (the entry
+    routes, which have just created or joined it). One bundled read."""
+    bundle = await repo.get_match_bundle(match.match_id)
+    if bundle is None:  # pragma: no cover - the caller just wrote this match
+        raise HTTPException(
+            status_code=404, detail=_error("No such match.", "match_not_found")
+        )
+    return _view_from_bundle(mode, bundle, seat)
+
+
+async def _refetch(repo, match_id: str) -> MatchBundle:
+    bundle = await repo.get_match_bundle(match_id)
+    if bundle is None:
+        raise HTTPException(
+            status_code=404, detail=_error("No such match.", "match_not_found")
+        )
+    return bundle
+
+
+async def _advance(repo, mode, bundle: MatchBundle, rating_repo=None, timing: Optional[_RouteTiming] = None) -> MatchBundle:
     """Run the clock, then let any bots whose turn it is move.
 
     Called before serving a match and after a human's command, which is what
@@ -485,12 +579,37 @@ async def _advance(repo, mode, match_id: str, rating_repo=None) -> ArenaMatch:
     ARENA_BOTS_ENABLED so a miscalibrated bot can be stopped without taking the
     matches it is already seated in offline -- those simply stall until the
     clock forfeits, which is a defined outcome.
+
+    DECIDES FROM THE BUNDLE, READS ONLY WHEN SOMETHING MOVED. The clock and the
+    bot driver both used to begin by re-reading the match and the open turn the
+    route had just read; on an ordinary poll -- nothing overdue, no bot due --
+    that was four round trips to learn nothing. Now a state change (a timeout,
+    an expiry, a bot move) is the only thing that costs a read.
     """
     now = _now()
-    await clock.enforce(repo, match_id, mode.reduce if mode else None, now, mode=mode)
-    if mode is not None and settings.ARENA_BOTS_ENABLED:
-        await bot_service.drive_pending_bots(repo, mode, mode.reduce, match_id, now)
-    match = await _match_or_404(repo, match_id)
+    match_id = bundle.match.match_id
+    match = bundle.match
+    if match.is_live() and match.is_expired_at(now):
+        await clock.enforce(repo, match_id, mode.reduce if mode else None, now, mode=mode, match=match, turn=bundle.open_turn)
+        bundle = await _refetch(repo, match_id)
+    elif match.is_live():
+        fired = await clock.enforce(
+            repo, match_id, mode.reduce if mode else None, now,
+            mode=mode, match=match, turn=bundle.open_turn,
+        )
+        if fired is not None and (fired.accepted or fired.replayed):
+            bundle = bundle.after_command(fired) or await _refetch(repo, match_id)
+    if timing is not None:
+        timing.mark("clock")
+    if mode is not None and settings.ARENA_BOTS_ENABLED and bundle.match.is_live():
+        moved = await bot_service.drive_pending_bots(
+            repo, mode, mode.reduce, match_id, now, preloaded=bundle
+        )
+        if moved:
+            bundle = await _refetch(repo, match_id)
+    if timing is not None:
+        timing.mark("bots")
+    match = bundle.match
 
     # Rating is settled on the same lazy path as the clock, for the same reason:
     # no background runner exists in this application. `settle_match_rating` is
@@ -506,7 +625,7 @@ async def _advance(repo, mode, match_id: str, rating_repo=None) -> ArenaMatch:
             # match view. The result rows are already durable, so the next
             # request retries from the same input.
             logger.exception("arena: rating settlement failed for %s", match_id)
-    return match
+    return bundle
 
 
 # ---------------------------------------------------------------------------
@@ -1005,6 +1124,7 @@ async def list_matches(identity: ArenaAuth, repo: ArenaRepoDep) -> MatchHistoryR
 @router.get(f"{BASE}/matches/{{match_id}}", response_model=ArenaMatchView)
 async def get_match(
     match_id: str,
+    response: Response,
     identity: ArenaAuth,
     repo: ArenaRepoDep,
     rating_repo: ArenaRatingRepoDep,
@@ -1022,17 +1142,30 @@ async def get_match(
     regardless of what kind of identity they carry.
     """
     _require_practice_access(identity)
-    match, seat = await _seat_or_403(repo, match_id, identity.sub)
-    mode = mode_registry.get(match.mode) if mode_registry.has(match.mode) else None
-    match = await _advance(repo, mode, match_id, rating_repo)
-    await repo.touch_seat(match_id, seat.seat_index, _now())
-    return await _build_view(repo, mode, match, seat)
+    timing = _RouteTiming()
+    async with _repo_session(repo):
+        bundle, seat = await _seat_bundle_or_403(repo, match_id, identity.sub)
+        timing.mark("read")
+        mode = mode_registry.get(bundle.match.mode) if mode_registry.has(bundle.match.mode) else None
+        bundle = await _advance(repo, mode, bundle, rating_repo, timing)
+        now = _now()
+        if seat.last_seen_at is None or now - _utc_aware(seat.last_seen_at) > _SEAT_TOUCH_INTERVAL:
+            await repo.touch_seat(match_id, seat.seat_index, now)
+        view = _view_from_bundle(mode, bundle, seat)
+    timing.mark("view")
+    timing.finish(response, "poll", bundle.match.mode)
+    return view
+
+
+def _utc_aware(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
 @router.post(f"{BASE}/matches/{{match_id}}/commands", response_model=SubmitCommandResponse)
 async def submit_command(
     match_id: str,
     body: SubmitCommandRequest,
+    response: Response,
     identity: ArenaAuth,
     repo: ArenaRepoDep,
     rating_repo: ArenaRatingRepoDep,
@@ -1052,45 +1185,65 @@ async def submit_command(
     on the poll: `actor_seat_index` comes off the seat row, never off the body.
     """
     _require_practice_access(identity)
-    match, seat = await _seat_or_403(repo, match_id, identity.sub)
+    timing = _RouteTiming()
+    async with _repo_session(repo):
+        bundle, seat = await _seat_bundle_or_403(repo, match_id, identity.sub)
+        timing.mark("read")
 
-    try:
-        validate_client_command(body.command_type)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=400, detail=_error(str(exc), "reserved_command")
+        try:
+            validate_client_command(body.command_type)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail=_error(str(exc), "reserved_command")
+            )
+
+        mode = _mode_or_404(bundle.match.mode)
+        now = _now()
+        # The clock runs FIRST, from the bundle: a command that arrives after
+        # its turn expired must lose to the timeout rather than beat it.
+        fired = await clock.enforce(
+            repo, match_id, mode.reduce, now, mode=mode,
+            match=bundle.match, turn=bundle.open_turn,
         )
+        swept = fired is not None or (bundle.match.is_live() and bundle.match.is_expired_at(now))
+        timing.mark("clock")
 
-    mode = _mode_or_404(match.mode)
-    now = _now()
-    await clock.enforce(repo, match_id, mode.reduce, now, mode=mode)
-
-    request = CommandRequest(
-        match_id=match_id,
-        idempotency_key=body.idempotency_key,
-        command_type=body.command_type,
-        payload=body.payload,
-        actor_sub=identity.sub,
-        # From the SEAT ROW, never from the request. There is no request field
-        # that can disagree.
-        actor_seat_index=seat.seat_index,
-        expected_state_version=body.expected_state_version,
-        issued_at=now,
-    )
-    try:
-        outcome = await repo.apply_command(request, mode.reduce, now)
-    except MatchNotFound:
-        raise HTTPException(
-            status_code=404, detail=_error("No such match.", "match_not_found")
+        request = CommandRequest(
+            match_id=match_id,
+            idempotency_key=body.idempotency_key,
+            command_type=body.command_type,
+            payload=body.payload,
+            actor_sub=identity.sub,
+            # From the SEAT ROW, never from the request. There is no request field
+            # that can disagree.
+            actor_seat_index=seat.seat_index,
+            expected_state_version=body.expected_state_version,
+            issued_at=now,
         )
+        try:
+            outcome = await repo.apply_command(request, mode.reduce, now)
+        except MatchNotFound:
+            raise HTTPException(
+                status_code=404, detail=_error("No such match.", "match_not_found")
+            )
+        timing.mark("apply")
 
-    updated = await _advance(repo, mode, match_id, rating_repo)
+        # THE RESPONSE VIEW WITHOUT A RE-READ when the repository reported the
+        # state it just wrote. A rejection, a replay, or a clock sweep that ran
+        # first leaves the bundle unknowable from here, and those read.
+        updated = None if swept else bundle.after_command(outcome)
+        if updated is None:
+            updated = await _refetch(repo, match_id)
+        updated = await _advance(repo, mode, updated, rating_repo, timing)
+        view = _view_from_bundle(mode, updated, seat)
+    timing.mark("view")
+    timing.finish(response, "command", bundle.match.mode, body.command_type)
     return SubmitCommandResponse(
         accepted=outcome.accepted,
         replayed=outcome.replayed,
         rejection_code=outcome.rejection_code,
         message=outcome.rejection_message,
-        match=await _build_view(repo, mode, updated, seat),
+        match=view,
     )
 
 

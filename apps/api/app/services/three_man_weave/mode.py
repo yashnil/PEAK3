@@ -46,6 +46,7 @@ waiting on.
 """
 from __future__ import annotations
 
+from collections import OrderedDict
 from datetime import timedelta
 from typing import Optional
 
@@ -1059,7 +1060,36 @@ class ThreeManWeaveMode:
             roster.seat_index: list(roster.picks()) for roster in state.rosters
         }
         depth = min((len(picks) for picks in picks_by_seat.values()), default=0)
-        bands = current_edges(picks_by_seat, get_index(), state.match_seed)
+        # MEMOIZED ON THE PICKS (game-feel pass 4). The bands are a pure
+        # function of the seed and every seat's picks, but computing them runs
+        # the lineup evaluator over each roster -- 97% of a 24-45 ms projection
+        # -- and a projection runs on every poll, every command response and
+        # every bot's view, while the picks change a few times a minute.
+        key = (
+            state.match_seed,
+            tuple(
+                sorted(
+                    (
+                        roster.seat_index,
+                        tuple(
+                            sorted(
+                                (p.round_number, p.slot_type, p.player_slug, p.franchise_id, p.decade)
+                                for p in roster.picks()
+                            )
+                        ),
+                    )
+                    for roster in state.rosters
+                )
+            ),
+        )
+        bands = _EDGE_CACHE.get(key)
+        if bands is None:
+            bands = current_edges(picks_by_seat, get_index(), state.match_seed)
+            _EDGE_CACHE[key] = bands
+            while len(_EDGE_CACHE) > _EDGE_CACHE_SIZE:
+                _EDGE_CACHE.popitem(last=False)
+        else:
+            _EDGE_CACHE.move_to_end(key)
         return {
             "is_live": True,
             "compared_after_picks": depth,
@@ -1260,6 +1290,12 @@ class ThreeManWeaveMode:
         snapshot["eligibility_index_version"] = ELIGIBILITY_INDEX_VERSION
         snapshot["formula_version"] = FORMULA_VERSION
         return snapshot
+
+
+#: `ThreeManWeaveMode._current_edge`'s memo: (seed, picks) -> bands. Bounded
+#: LRU; an entry is a handful of short strings.
+_EDGE_CACHE: "OrderedDict[tuple, dict]" = OrderedDict()
+_EDGE_CACHE_SIZE = 2048
 
 
 class _NoFeasibleRoll(RuntimeError):

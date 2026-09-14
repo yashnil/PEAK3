@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import datetime
 from typing import Optional, Sequence
@@ -52,6 +53,8 @@ from app.repositories.arena_protocols import (
     REJECT_MATCH_NOT_LIVE,
     REJECT_STALE_STATE_VERSION,
     TERMINAL_MATCH_STATUSES,
+    VISIBILITY_PUBLIC,
+    VISIBILITY_SEAT,
     ActiveQueueEntryExists,
     ArenaEvent,
     ArenaMatch,
@@ -62,6 +65,7 @@ from app.repositories.arena_protocols import (
     ArenaTurn,
     CommandOutcome,
     CommandRequest,
+    MatchBundle,
     MatchReducer,
     ReducerInput,
     SeatUnavailable,
@@ -175,6 +179,31 @@ class MemoryArenaRepository:
     async def get_match(self, match_id: str) -> Optional[ArenaMatch]:
         found = self._matches.get(match_id)
         return _clone_match(found) if found is not None else None
+
+    async def get_match_bundle(self, match_id: str) -> Optional[MatchBundle]:
+        found = self._matches.get(match_id)
+        if found is None:
+            return None
+        public_seq = -1
+        seat_seqs: dict[int, int] = {}
+        for event in self._events.get(match_id, []):
+            if event.visibility == VISIBILITY_PUBLIC:
+                public_seq = max(public_seq, event.seq)
+            elif event.visibility == VISIBILITY_SEAT and event.visible_to_seat is not None:
+                seat_seqs[event.visible_to_seat] = max(seat_seqs.get(event.visible_to_seat, -1), event.seq)
+        turn = self._open_turn(match_id)
+        return MatchBundle(
+            match=_clone_match(found),
+            seats=tuple(await self.get_seats(match_id)),
+            open_turn=_clone_turn(turn) if turn else None,
+            public_seq=public_seq,
+            seat_seqs=seat_seqs,
+        )
+
+    @asynccontextmanager
+    async def session(self):
+        """No connections to pin in memory; present so routes need no branch."""
+        yield
 
     async def find_match_by_room_code(self, room_code: str) -> Optional[ArenaMatch]:
         for m in self._matches.values():
@@ -420,11 +449,14 @@ class MemoryArenaRepository:
             self._commands[key] = _RecordedCommand(
                 True, None, None, tuple(e.seq for e in appended)
             )
+            left_open = self._open_turn(request.match_id)
             return CommandOutcome(
                 accepted=True,
                 replayed=False,
                 match=_clone_match(match),
                 events=tuple(_clone_event(e) for e in appended),
+                open_turn=_clone_turn(left_open) if left_open else None,
+                open_turn_known=True,
             )
 
     def _record_rejection(

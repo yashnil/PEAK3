@@ -56,6 +56,7 @@ from app.repositories.arena_protocols import (
     BotPolicy,
     CommandOutcome,
     CommandRequest,
+    MatchBundle,
     MatchReducer,
     SeatView,
     project_seat_view,
@@ -369,6 +370,8 @@ async def drive_bot_seat(
     now: datetime,
     turn_seq: int,
     idempotency_suffix: str = "",
+    seats: Optional[Sequence[ArenaSeat]] = None,
+    open_turn: Optional[object] = None,
 ) -> Optional[CommandOutcome]:
     """Let one bot seat act, once.
 
@@ -380,16 +383,23 @@ async def drive_bot_seat(
     bot's turn would otherwise each drive the bot, and the bot would move twice.
     Keyed on (match, seat, turn) so a bot moves at most once per turn no matter
     how many pollers notice.
+
+    `seats` and `open_turn` may be passed when the caller already holds them for
+    this match state; they are only read to build the bot's view, and the
+    command still goes through `apply_command`'s own locked checks.
     """
     if not seat.is_bot:
         return None
 
-    seats = tuple(await repo.get_seats(match.match_id))
+    if seats is None:
+        seats = tuple(await repo.get_seats(match.match_id))
+    seats = tuple(seats)
     public_state, private_state, legal = mode.project(match, seats, seat.seat_index)
     if not legal:
         return None
 
-    open_turn = await repo.get_open_turn(match.match_id)
+    if open_turn is None:
+        open_turn = await repo.get_open_turn(match.match_id)
     view = project_seat_view(
         match=match,
         seat=seat,
@@ -648,10 +658,17 @@ async def drive_pending_bots(
     match_id: str,
     now: datetime,
     max_steps: int = 12,
+    preloaded: Optional[MatchBundle] = None,
 ) -> int:
     """Advance every bot seat whose turn has come AND whose think time elapsed.
 
     Returns how many bot commands were accepted.
+
+    `preloaded` is the bundle the caller already read for this request. The
+    first pass decides from it without touching storage -- which is every poll
+    on which no bot is due, i.e. almost all of them -- and each accepted bot
+    command's outcome carries the state the next pass needs. Storage is read
+    only when neither is available.
 
     A bot whose think time has not elapsed is left alone and the loop STOPS
     rather than skipping to another seat: turns are sequential, so nothing
@@ -668,11 +685,19 @@ async def drive_pending_bots(
     uses, for the same reason (there is no background runner in this app).
     """
     steps = 0
+    known = preloaded
     for _ in range(max_steps):
-        match = await repo.get_match(match_id)
+        seats: Optional[Sequence[ArenaSeat]] = None
+        if known is not None:
+            match, turn, seats = known.match, known.open_turn, known.seats
+            known = None
+        else:
+            match = await repo.get_match(match_id)
+            if match is None or not match.is_live():
+                return steps
+            turn = await repo.get_open_turn(match_id)
         if match is None or not match.is_live():
             return steps
-        turn = await repo.get_open_turn(match_id)
         if turn is None:
             return steps
         if not phase_accepts_bot_action(mode, turn):
@@ -682,7 +707,8 @@ async def drive_pending_bots(
             return steps
         if not bot_may_act_at(turn, now, bot_think_seconds_for(mode, match, turn)):
             return steps
-        seats = await repo.get_seats(match_id)
+        if seats is None:
+            seats = await repo.get_seats(match_id)
         if turn.seat_index is None:
             # A simultaneous turn: every bot seat that has not yet acted plays.
             #
@@ -737,7 +763,11 @@ async def drive_pending_bots(
         outcome = await drive_bot_seat(
             repo, mode, reducer, match, seat,
             registry.default_for(match.mode), now, turn.turn_seq,
+            seats=seats, open_turn=turn,
         )
+        if outcome is not None and outcome.accepted and not outcome.replayed and outcome.open_turn_known:
+            # The next pass decides from what this command just wrote.
+            known = MatchBundle(match=outcome.match, seats=tuple(seats), open_turn=outcome.open_turn)
         if outcome is None or not outcome.accepted:
             if outcome is not None and outcome.replayed:
                 return steps  # already moved this turn; nothing further to do.
