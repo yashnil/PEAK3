@@ -1,0 +1,376 @@
+{
+  "label": "final",
+  "mode": "tmw",
+  "latency": 0,
+  "viewport": "mobile",
+  "samples": {
+    "tmw.intro_elapsed_at_first_read_s": [
+      0
+    ],
+    "tmw.intro_elapsed_when_intro_first_seen_s": [
+      0.012091
+    ],
+    "tmw.handoff_read_to_actionable_ms_upper": [
+      226.89999961853027,
+      101.90000057220459,
+      304.4000005722046,
+      107.70000076293945,
+      213,
+      3.6999998092651367
+    ],
+    "tmw.select_stage": [
+      {
+        "ackMs": 3.6999998092651367,
+        "confirmMs": null,
+        "dispatchMs": null,
+        "responseMs": null,
+        "accepted": null,
+        "version": null
+      },
+      {
+        "ackMs": 5.40000057220459,
+        "confirmMs": null,
+        "dispatchMs": null,
+        "responseMs": null,
+        "accepted": null,
+        "version": null
+      },
+      {
+        "ackMs": 5.600000381469727,
+        "confirmMs": null,
+        "dispatchMs": null,
+        "responseMs": null,
+        "accepted": null,
+        "version": null
+      },
+      {
+        "ackMs": 3.5,
+        "confirmMs": 619.3999996185303,
+        "dispatchMs": 601.0999994277954,
+        "responseMs": 618.1999998092651,
+        "accepted": true,
+        "version": 20
+      },
+      {
+        "ackMs": 3.6999998092651367,
+        "confirmMs": 635.5999994277954,
+        "dispatchMs": 602.3999996185303,
+        "responseMs": 628.6999998092651,
+        "accepted": false,
+        "version": 27
+      },
+      {
+        "ackMs": 9.09999942779541,
+        "confirmMs": 624.7999992370605,
+        "dispatchMs": 601.1999998092651,
+        "responseMs": 623.1999998092651,
+        "accepted": true,
+        "version": 30
+      }
+    ],
+    "tmw.draft": [
+      {
+        "ackMs": 6.700000762939453,
+        "confirmMs": 44.5,
+        "dispatchMs": 1.8000001907348633,
+        "responseMs": 38.40000057220459,
+        "accepted": true,
+        "version": 7
+      },
+      {
+        "ackMs": 7.600000381469727,
+        "confirmMs": 41.10000038146973,
+        "dispatchMs": 2,
+        "responseMs": 32.5,
+        "accepted": true,
+        "version": 10
+      },
+      {
+        "ackMs": 4.5,
+        "confirmMs": 72.60000038146973,
+        "dispatchMs": 1.8999996185302734,
+        "responseMs": 65.89999961853027,
+        "accepted": true,
+        "version": 17
+      },
+      {
+        "ackMs": 6.300000190734863,
+        "confirmMs": 57.69999980926514,
+        "dispatchMs": 1.5999994277954102,
+        "responseMs": 51.59999942779541,
+        "accepted": true,
+        "version": 21
+      },
+      {
+        "ackMs": 9,
+        "confirmMs": 91.80000019073486,
+        "dispatchMs": 2,
+        "responseMs": 84.89999961853027,
+        "accepted": true,
+        "version": 28
+      },
+      {
+        "ackMs": 8.100000381469727,
+        "confirmMs": 90.69999980926514,
+        "dispatchMs": 1.6999998092651367,
+        "responseMs": 85.5,
+        "accepted": true,
+        "version": 31
+      }
+    ],
+    "tmw.after_confirm_next_turn_visible_ms": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "tmw.rearrange": [
+      {
+        "ackMs": 4.199999809265137,
+        "confirmMs": 38.39999961853027,
+        "dispatchMs": 1.7999992370605469,
+        "responseMs": 31.5,
+        "accepted": true,
+        "version": 9
+      },
+      {
+        "ackMs": 3.5,
+        "confirmMs": 58.5,
+        "dispatchMs": 1.8000001907348633,
+        "responseMs": 53.80000019073486,
+        "accepted": true,
+        "version": 16
+      },
+      {
+        "ackMs": 4.299999237060547,
+        "confirmMs": 77.89999961853027,
+        "dispatchMs": 2.3999996185302734,
+        "responseMs": 74.19999980926514,
+        "accepted": true,
+        "version": 19
+      },
+      {
+        "ackMs": 5.199999809265137,
+        "confirmMs": 78.80000019073486,
+        "dispatchMs": 3.1000003814697266,
+        "responseMs": 73.19999980926514,
+        "accepted": true,
+        "version": 27
+      }
+    ],
+    "tmw.bot_due_to_client_seen_ms": [
+      84,
+      102,
+      100.80000019073486,
+      114.39999961853027,
+      119.29999923706055,
+      118.80000019073486,
+      118.60000038146973,
+      135.69999980926514,
+      135,
+      138.0999994277954,
+      154.10000038146973,
+      409.0999994277954
+    ],
+    "tmw.poll_request_ms": [
+      7.40000057220459,
+      9.399999618530273,
+      10.399999618530273,
+      10.800000190734863,
+      11.399999618530273,
+      10.800000190734863,
+      12,
+      9.800000190734863,
+      10.59999942779541,
+      10.40000057220459,
+      17.09999942779541,
+      6.399999618530273,
+      7.5,
+      7.399999618530273,
+      21.600000381469727,
+      19.300000190734863,
+      38.80000019073486,
+      11.300000190734863,
+      9.300000190734863,
+      9.799999237060547,
+      10.899999618530273,
+      11.799999237060547,
+      13.199999809265137,
+      13.199999809265137,
+      20.699999809265137,
+      11.5,
+      7.699999809265137,
+      10.5,
+      11.699999809265137,
+      36.60000038146973,
+      52.29999923706055,
+      8.700000762939453,
+      11.5,
+      13.299999237060547,
+      22.40000057220459,
+      57.19999980926514,
+      55.80000019073486,
+      11.700000762939453,
+      10.90000057220459,
+      9.699999809265137,
+      10.399999618530273,
+      10.40000057220459,
+      19.5,
+      11.600000381469727,
+      18.09999942779541,
+      55.10000038146973,
+      73.69999980926514,
+      7.09999942779541,
+      5.699999809265137,
+      15,
+      16.100000381469727,
+      73.10000038146973,
+      75.69999980926514,
+      12.299999237060547,
+      8.399999618530273,
+      11.699999809265137,
+      21.5,
+      91.40000057220459,
+      346.8999996185303
+    ]
+  },
+  "notes": [
+    {
+      "arrival": {
+        "phase": "arrival",
+        "firstRead": {
+          "phase": "arrival",
+          "elapsed": 0.082853,
+          "total": 20
+        }
+      },
+      "msFromCreateToRender": 72
+    },
+    {
+      "firstReadPhase": "arrival"
+    },
+    {
+      "gets": 59,
+      "commands": 14,
+      "humanTurns": 6
+    }
+  ],
+  "summary": {
+    "tmw.intro_elapsed_at_first_read_s": {
+      "n": 1,
+      "p50": 0,
+      "p95": 0,
+      "max": 0
+    },
+    "tmw.intro_elapsed_when_intro_first_seen_s": {
+      "n": 1,
+      "p50": 0,
+      "p95": 0,
+      "max": 0
+    },
+    "tmw.handoff_read_to_actionable_ms_upper": {
+      "n": 6,
+      "p50": 213,
+      "p95": 304,
+      "max": 304
+    },
+    "tmw.select_stage": {
+      "ackMs": {
+        "n": 6,
+        "p50": 5,
+        "p95": 9,
+        "max": 9
+      },
+      "dispatchMs": {
+        "n": 6,
+        "p50": 601,
+        "p95": 602,
+        "max": 602
+      },
+      "responseMs": {
+        "n": 6,
+        "p50": 623,
+        "p95": 629,
+        "max": 629
+      },
+      "confirmMs": {
+        "n": 6,
+        "p50": 625,
+        "p95": 636,
+        "max": 636
+      }
+    },
+    "tmw.draft": {
+      "ackMs": {
+        "n": 6,
+        "p50": 8,
+        "p95": 9,
+        "max": 9
+      },
+      "dispatchMs": {
+        "n": 6,
+        "p50": 2,
+        "p95": 2,
+        "max": 2
+      },
+      "responseMs": {
+        "n": 6,
+        "p50": 66,
+        "p95": 86,
+        "max": 86
+      },
+      "confirmMs": {
+        "n": 6,
+        "p50": 73,
+        "p95": 92,
+        "max": 92
+      }
+    },
+    "tmw.after_confirm_next_turn_visible_ms": {
+      "n": 6,
+      "p50": 0,
+      "p95": 0,
+      "max": 0
+    },
+    "tmw.rearrange": {
+      "ackMs": {
+        "n": 4,
+        "p50": 4,
+        "p95": 5,
+        "max": 5
+      },
+      "dispatchMs": {
+        "n": 4,
+        "p50": 2,
+        "p95": 3,
+        "max": 3
+      },
+      "responseMs": {
+        "n": 4,
+        "p50": 73,
+        "p95": 74,
+        "max": 74
+      },
+      "confirmMs": {
+        "n": 4,
+        "p50": 78,
+        "p95": 79,
+        "max": 79
+      }
+    },
+    "tmw.bot_due_to_client_seen_ms": {
+      "n": 12,
+      "p50": 119,
+      "p95": 154,
+      "max": 409
+    },
+    "tmw.poll_request_ms": {
+      "n": 59,
+      "p50": 12,
+      "p95": 74,
+      "max": 347
+    }
+  }
+}
