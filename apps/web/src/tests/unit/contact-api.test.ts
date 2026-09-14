@@ -105,7 +105,7 @@ describe("contact-api client", () => {
       expect.unreachable();
     } catch (e) {
       expect(e).toBeInstanceOf(ContactAPIError);
-      expect((e as ContactAPIError).message).toMatch(/cannot be blank/);
+      expect((e as ContactAPIError).message).toBe("This field cannot be blank.");
     }
   });
 

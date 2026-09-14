@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { getAccessToken } from "@/lib/auth";
 import {
   CONTACT_CATEGORY_LABELS,
+  CONTACT_PAGE_CATEGORIES,
   CONTACT_RELEVANT_AREA_LABELS,
   ContactAPIError,
   ContactCategory,
@@ -12,7 +13,7 @@ import {
   submitContact,
 } from "@/lib/contact-api";
 
-const CATEGORIES = Object.keys(CONTACT_CATEGORY_LABELS) as ContactCategory[];
+const CATEGORIES = CONTACT_PAGE_CATEGORIES;
 const RELEVANT_AREAS = Object.keys(CONTACT_RELEVANT_AREA_LABELS) as ContactRelevantArea[];
 
 type Phase = "idle" | "submitting" | "submitted" | "error";
