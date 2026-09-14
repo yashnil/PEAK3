@@ -191,6 +191,37 @@ def _command(client: TestClient, match_id: str, view: dict, command: str, payloa
     return response.json()
 
 
+def _human_pick(view: dict) -> dict:
+    """A pick payload a REAL player could press, from the seat's own projection.
+
+    THE OLD DRIVER TOOK `sorted(legal_picks)[0]` AND CRASHED WHEN IT WAS EMPTY.
+    `legal_picks` answers "who fits an OPEN slot right now". A late-draft seat
+    can legitimately have none -- one open slot (say PG) and nobody on the roll
+    who plays there directly -- while `candidate_fits` still offers a player who
+    fits once the seat's own roster is rearranged. The pick surface
+    (`PickOverlay`) sends exactly that: the candidate, the slot the server's
+    plan lands them on, and the plan itself as `placements`. So does this.
+
+    A seat with NO selectable candidate at all is the hang tmw_ruleset_v3 made
+    unreachable (`draft.round_keepers`); it fails here loudly by name.
+    """
+    private = view["private_state"]
+    legal = private.get("legal_picks") or {}
+    if legal:
+        slug = sorted(legal)[0]
+        return {"player_slug": slug, "slot_type": legal[slug][0]}
+    fits = private.get("candidate_fits") or {}
+    for slug in sorted(fits):
+        fit = fits[slug]
+        if fit["state"] == "fits_after_rearrangement" and fit.get("plan"):
+            landed = next(slot for slot, placed in fit["plan"].items() if placed == slug)
+            return {"player_slug": slug, "slot_type": landed, "placements": fit["plan"]}
+    raise AssertionError(
+        "the seat on the clock has no selectable candidate: "
+        f"open={private.get('open_slots')} fits={ {k: v['state'] for k, v in fits.items()} }"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Seating and naming
 # ---------------------------------------------------------------------------
@@ -451,13 +482,7 @@ def test_a_three_man_weave_bot_practice_match_completes_six_rounds():
         if view["current_turn_seat_index"] != you:
             view = _poll(client, match_id)
             continue
-        legal = view["private_state"].get("legal_picks") or {}
-        assert legal, "the human seat was given a turn with no legal pick"
-        slug = sorted(legal)[0]
-        result = _command(
-            client, match_id, view, "tmw_pick",
-            {"player_slug": slug, "slot_type": legal[slug][0]},
-        )
+        result = _command(client, match_id, view, "tmw_pick", _human_pick(view))
         assert result["accepted"], result
         view = result["match"]
 
@@ -505,12 +530,7 @@ def test_the_weaves_snake_order_is_exactly_the_published_one():
         if seat != you:
             view = _poll(client, match_id)
             continue
-        legal = view["private_state"].get("legal_picks") or {}
-        slug = sorted(legal)[0]
-        view = _command(
-            client, match_id, view, "tmw_pick",
-            {"player_slug": slug, "slot_type": legal[slug][0]},
-        )["match"]
+        view = _command(client, match_id, view, "tmw_pick", _human_pick(view))["match"]
 
     expected: list[int] = []
     for round_number in range(6):
@@ -634,12 +654,7 @@ def test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock(monkeypatch, seed
             view = _poll(client, match_id)
             continue
         waiting = None
-        legal = view["private_state"].get("legal_picks") or {}
-        slug = sorted(legal)[0]
-        view = _command(
-            client, match_id, view, "tmw_pick",
-            {"player_slug": slug, "slot_type": legal[slug][0]},
-        )["match"]
+        view = _command(client, match_id, view, "tmw_pick", _human_pick(view))["match"]
 
     assert view["public_state"]["is_complete"]
     # The briefing is one seatless turn and `_poll` expires it on sight.
@@ -669,6 +684,48 @@ def test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock(monkeypatch, seed
         f"only {polls_waiting_on_ceremony} ceremony polls -- every round must "
         "open on a reveal, including the ones the human leads"
     )
+
+
+#: Practice seeds that HUNG the match under tmw_ruleset_v2 with this exact
+#: driver: a later drafter in a round was stranded with nothing selectable, its
+#: timeout found no auto-pick, and the timeout was refused on every read. 2037
+#: stranded the human seat (open slot PG only); 666 stranded a bot seat.
+WEAVE_FORMERLY_HUNG_SEEDS = (2037, 666)
+
+
+@pytest.mark.parametrize("seed", WEAVE_FORMERLY_HUNG_SEEDS)
+def test_the_seeds_that_used_to_hang_the_weave_now_finish(monkeypatch, seed):
+    monkeypatch.setattr(mm, "_new_seed", lambda: seed)
+    client = _client_as("user-a")
+    view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
+    match_id = view["match_id"]
+    you = view["your_seat_index"]
+    assert _memory_arena_repo._matches[match_id].seed == seed
+
+    stalled_polls = 0
+    for _ in range(400):
+        if view["public_state"]["is_complete"]:
+            break
+        if view["current_turn_seat_index"] != you:
+            before = view["state_version"]
+            view = _poll(client, match_id)
+            # A bot turn or a seatless phase must MOVE under polling. Two
+            # consecutive unchanged polls on a seated bot turn (each ages the
+            # bot's think time by `BOT_AGE_PER_POLL_SECONDS`, more than half the
+            # longest draw) is the old hang.
+            stalled_polls = stalled_polls + 1 if view["state_version"] == before else 0
+            assert stalled_polls <= 2, f"seed {seed}: the match stopped moving at version {before}"
+            continue
+        stalled_polls = 0
+        result = _command(client, match_id, view, "tmw_pick", _human_pick(view))
+        assert result["accepted"], result
+        view = result["match"]
+
+    assert view["public_state"]["is_complete"], f"seed {seed} did not finish"
+    rosters = view["public_state"]["rosters"]
+    assert all(roster["complete"] for roster in rosters)
+    drafted = [pick["player_slug"] for roster in rosters for pick in roster["slots"].values() if pick]
+    assert len(drafted) == len(set(drafted)) == ROUNDS * 3
 
 
 def test_no_reachable_state_has_an_open_turn_with_no_seat_no_command_and_no_deadline():
@@ -730,20 +787,10 @@ def test_no_reachable_state_has_an_open_turn_with_no_seat_no_command_and_no_dead
 
             if turn.seat_index == you:
                 # (A) THE HUMAN'S OWN TURN MUST BE ACTIONABLE, not merely
-                # open. `legal_picks` is the strict, already-computed answer
-                # to "can this seat act right now" -- an empty dict here,
-                # with the turn genuinely seated on this human, is the
-                # deadlock itself.
-                legal = view["private_state"].get("legal_picks") or {}
-                assert legal, (
-                    f"seat {target_seat}: the human's own open turn offered "
-                    "no legal pick"
-                )
-                slug = sorted(legal)[0]
-                view = _command(
-                    client, match_id, view, "tmw_pick",
-                    {"player_slug": slug, "slot_type": legal[slug][0]},
-                )["match"]
+                # open: at least one SELECTABLE candidate, directly or by
+                # rearranging (`_human_pick` raises by name when there is
+                # none -- that is the deadlock itself).
+                view = _command(client, match_id, view, "tmw_pick", _human_pick(view))["match"]
                 continue
 
             # (B) EITHER A BOT'S TURN OR A SEATLESS PHASE (the briefing or the
@@ -829,12 +876,7 @@ def test_every_weave_round_opens_on_a_ceremony_that_belongs_to_no_seat():
         if view["current_turn_seat_index"] != you:
             view = _poll(client, match_id)
             continue
-        legal = view["private_state"].get("legal_picks") or {}
-        slug = sorted(legal)[0]
-        view = _command(
-            client, match_id, view, "tmw_pick",
-            {"player_slug": slug, "slot_type": legal[slug][0]},
-        )["match"]
+        view = _command(client, match_id, view, "tmw_pick", _human_pick(view))["match"]
 
     assert view["public_state"]["is_complete"]
     assert rounds_that_opened_on_a_ceremony == set(range(1, ROUNDS + 1))

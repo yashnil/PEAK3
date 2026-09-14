@@ -53,6 +53,8 @@ import {
   TMW_FITS_AFTER_REARRANGEMENT,
   TMW_FITS_NOW,
   TMW_NO_LEGAL_ARRANGEMENT,
+  TMW_STRANDS_ROUND,
+  isSelectableFit,
   TMW_SLOT_LABELS,
   TMW_SLOT_TYPES,
   TMW_STARTER_SLOTS,
@@ -326,7 +328,7 @@ export function candidatesForSeat(match: TmwMatchView | null): TmwCandidate[] {
     return {
       ...player,
       fit,
-      selectable: fit.state !== TMW_NO_LEGAL_ARRANGEMENT,
+      selectable: isSelectableFit(fit.state),
     };
   });
 }
@@ -397,6 +399,8 @@ export function fitLabel(candidate: TmwCandidate): string {
       return "Fits now";
     case TMW_FITS_AFTER_REARRANGEMENT:
       return "Fits after rearrangement";
+    case TMW_STRANDS_ROUND:
+      return "Needed by a later drafter";
     default:
       return "No legal arrangement";
   }

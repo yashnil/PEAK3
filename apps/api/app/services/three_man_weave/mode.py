@@ -71,9 +71,10 @@ from nba_peak.perfect_season.career_positions import career_positions
 from nba_peak.perfect_season.exact_season import TEAM_ID_TO_NAME
 from nba_peak.three_man_weave import draft as D
 from nba_peak.three_man_weave import feasibility as F
-from nba_peak.three_man_weave.autopick import auto_pick
+from nba_peak.three_man_weave.autopick import auto_pick_options
 from nba_peak.three_man_weave.bot import ThreeManWeaveBot, archetype_names
 from nba_peak.three_man_weave.config import (
+    COMPATIBLE_RULESET_VERSIONS,
     ELIGIBILITY_INDEX_VERSION,
     FORMULA_VERSION,
     PARTICIPANT_COUNT,
@@ -360,7 +361,7 @@ class ThreeManWeaveMode:
         snapshot = data.match.snapshot or {}
 
         stored_version = snapshot.get("ruleset_version")
-        if stored_version and stored_version != RULESET_VERSION:
+        if stored_version and stored_version not in COMPATIBLE_RULESET_VERSIONS:
             # Refused rather than reinterpreted -- the same call
             # `run_the_table.state.assert_version_compatible` makes.
             return _reject(
@@ -568,19 +569,32 @@ class ThreeManWeaveMode:
 
         staged = state.staged_pick
         if staged is not None and D.staged_pick_is_still_legal(state, get_index(), staged):
-            return self._commit(
+            committed = self._commit(
                 data, state, seat_index, staged.player_slug, staged.slot_type, timed_out=True
             )
+            if committed.accepted:
+                return committed
 
-        choice = auto_pick(state, get_index())
-        if choice is None:
-            return _reject(
-                REJECT_NO_LEGAL_PICK,
-                f"seat {seat_index} has no legal selection -- roll feasibility should "
-                "have made this unreachable",
+        # EVERY FALLBACK, IN ORDER, UNTIL THE RULES ACCEPT ONE. A timeout that
+        # tried a single choice and was refused (the last pick of a round must
+        # leave the next round a feasible roll) was refused again on every
+        # read, and the match never moved again. The first accepted choice is
+        # still the deterministic v1-shaped auto-pick whenever that one is legal.
+        refused: Optional[ReducerOutput] = None
+        for choice in auto_pick_options(state, get_index()):
+            committed = self._commit(
+                data, state, seat_index, choice.player_slug, choice.slot_type,
+                timed_out=True, placements=choice.placements,
             )
-        return self._commit(
-            data, state, seat_index, choice.player_slug, choice.slot_type, timed_out=True
+            if committed.accepted:
+                return committed
+            refused = refused or committed
+        if refused is not None:
+            return refused
+        return _reject(
+            REJECT_NO_LEGAL_PICK,
+            f"seat {seat_index} has no legal selection -- roll feasibility and the "
+            "round-keeper rule should have made this unreachable",
         )
 
     def _reduce_stage_pick(self, data: ReducerInput, state: D.DraftState) -> ReducerOutput:

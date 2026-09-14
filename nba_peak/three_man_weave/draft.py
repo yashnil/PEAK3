@@ -33,6 +33,10 @@ from dataclasses import dataclass, replace
 from typing import Mapping, Optional, Sequence
 
 from nba_peak.three_man_weave.arrangement import (
+    REASON_STRANDS_ROUND,
+    STRANDS_ROUND,
+    CandidateFit,
+    candidate_fit,
     CandidateFit,
     fits_for_candidates,
     validate_arrangement,
@@ -47,6 +51,7 @@ from nba_peak.three_man_weave.config import (
     SNAKE_REVERSE,
 )
 from nba_peak.three_man_weave.eligibility import EligibilityIndex, rights_for_cards
+from nba_peak.three_man_weave.matching import find_assignment
 from nba_peak.three_man_weave.positions import (
     IllegalPlacement,
     SlotRights,
@@ -265,6 +270,82 @@ def set_roll(state: DraftState, roll: Roll) -> DraftState:
     return replace(state, current_roll=roll, used_roll_ids=used)
 
 
+#: A pick refused because it would leave a later drafter this round with no
+#: selectable player on the roll. See `round_keepers`.
+REJECT_STRANDS_ROUND = "strands_round"
+
+
+def seats_still_to_pick_this_round(state: DraftState) -> tuple[int, ...]:
+    """The seats that draft AFTER the one on the clock, in the current round."""
+    if state.is_complete:
+        return ()
+    round_number = state.current_round
+    return tuple(seat for rnd, seat in state.order[state.turn_index + 1 :] if rnd == round_number)
+
+
+def round_keepers(
+    state: DraftState, index: EligibilityIndex, rights: Optional[SlotRights] = None
+) -> Optional[frozenset[str]]:
+    """Which undrafted candidates on the roll the seat on the clock may take
+    without leaving a later drafter THIS ROUND with nobody to take. None when
+    nobody picks after this seat in the round (no restriction applies).
+
+    WHY THIS IS A RULE, AND WHY IT IS THE EXISTING RULE (game-feel pass 4).
+    Roll feasibility (`feasibility.evaluate_roll`) only reveals a roll if every
+    seat can be dealt a DISTINCT legal player from it. It checks that when the
+    round OPENS. Nothing re-checked it as the round was played, so an earlier
+    drafter could take the one player a later drafter needed -- a bench pick of
+    the roll's only point guard, with the next seat holding nothing but an open
+    PG slot. That seat then had no legal pick, its timeout found no auto-pick,
+    and the timeout was refused on every read: the match hung for good. Seeds
+    2037 and 666 reproduced it in real practice matches.
+
+    This keeps the invariant the roll was revealed under true for the whole
+    round: while every later seat can be matched to a distinct candidate it can
+    SELECT (directly or by rearranging its own roster), a candidate is a keeper
+    iff that is still true with them gone. By induction from the roll's own check the
+    seat on the clock always has at least one keeper, so this can never leave
+    the current drafter without a move. It only forbids the picks that would
+    have hung the match.
+    """
+    later = seats_still_to_pick_this_round(state)
+    if not later or state.current_roll is None:
+        return None
+    if rights is None:
+        rights = state.slot_rights(index)
+    drafted = state.drafted_identities()
+    pool = [slug for slug in state.current_roll.eligible_slugs if slug not in drafted]
+    usable = {
+        seat: tuple(
+            slug
+            for slug in pool
+            if candidate_fit(state.roster(seat).assignment(), slug, rights).selectable
+        )
+        for seat in later
+    }
+    # A pick is refused only if it turns a PLAYABLE round unplayable. A round
+    # the later seats could not finish even with every candidate available is
+    # not one a revealed roll can produce (feasibility checked it at reveal),
+    # and restricting the seat on the clock there would only take away its
+    # moves -- including the timeout's -- without saving anybody.
+    if find_assignment(list(later), usable) is None:
+        return None
+    keepers: set[str] = set()
+    for slug in pool:
+        adjacency = {seat: tuple(c for c in usable[seat] if c != slug) for seat in later}
+        if find_assignment(list(later), adjacency) is not None:
+            keepers.add(slug)
+    return frozenset(keepers)
+
+
+def _refuse_stranding(
+    state: DraftState, index: EligibilityIndex, player_slug: str, rights: SlotRights
+) -> None:
+    keepers = round_keepers(state, index, rights)
+    if keepers is not None and player_slug not in keepers:
+        raise DraftError(REJECT_STRANDS_ROUND, REASON_STRANDS_ROUND)
+
+
 def legal_slots_for_pick(
     state: DraftState, seat_index: int, player_slug: str, rights: SlotRights
 ) -> tuple[str, ...]:
@@ -295,6 +376,10 @@ def legal_picks(
         slots = legal_slots_for_pick(state, seat, slug, rights)
         if slots:
             out[slug] = slots
+    if seat == state.current_seat:
+        keepers = round_keepers(state, index, rights)
+        if keepers is not None:
+            out = {slug: slots for slug, slots in out.items() if slug in keepers}
     return out
 
 
@@ -319,11 +404,25 @@ def candidate_fits(
         return {}
     drafted = state.drafted_identities()
     assignment = state.roster(seat).assignment()
-    return fits_for_candidates(
+    rights = state.slot_rights(index)
+    fits = fits_for_candidates(
         assignment,
         [slug for slug in state.current_roll.eligible_slugs if slug not in drafted],
-        state.slot_rights(index),
+        rights,
     )
+    if seat != state.current_seat:
+        return fits
+    keepers = round_keepers(state, index, rights)
+    if keepers is None:
+        return fits
+    return {
+        slug: (
+            CandidateFit(player_slug=slug, state=STRANDS_ROUND, reason=REASON_STRANDS_ROUND)
+            if fit.selectable and slug not in keepers
+            else fit
+        )
+        for slug, fit in fits.items()
+    }
 
 
 def apply_pick(
@@ -393,6 +492,7 @@ def apply_pick(
 
     roster = state.roster(seat)
     rights = state.slot_rights(index)
+    _refuse_stranding(state, index, player_slug, rights)
 
     if placements is not None:
         return _apply_pick_with_arrangement(
@@ -627,8 +727,10 @@ def stage_pick(
     roster = state.roster(seat_index)
     if roster.slots.get(slot_type) is not None:
         raise DraftError("slot_filled", f"Slot {slot_type} is already filled")
-    if not is_legal(player_slug, slot_type, state.slot_rights(index)):
+    rights = state.slot_rights(index)
+    if not is_legal(player_slug, slot_type, rights):
         raise DraftError("illegal_slot", f"'{player_slug}' cannot play {slot_type}")
+    _refuse_stranding(state, index, player_slug, rights)
 
     return replace(state, staged_pick=StagedPick(player_slug=player_slug, slot_type=slot_type))
 
@@ -660,9 +762,11 @@ def staged_pick_is_still_legal(
     seat = state.current_seat
     if seat is None:
         return False
-    return staged.slot_type in legal_slots_for_pick(
-        state, seat, staged.player_slug, state.slot_rights(index)
-    )
+    rights = state.slot_rights(index)
+    keepers = round_keepers(state, index, rights)
+    if keepers is not None and staged.player_slug not in keepers:
+        return False
+    return staged.slot_type in legal_slots_for_pick(state, seat, staged.player_slug, rights)
 
 
 def reposition(

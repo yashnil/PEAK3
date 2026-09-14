@@ -34,7 +34,18 @@ ENGINE_VERSION: Final[str] = "three_man_weave_v1"
 # franchise as well as the rolled decade, which also narrows who is eligible
 # for a roll at all. An in-flight v1 snapshot is refused rather than replayed
 # under rules its players never agreed to.
-RULESET_VERSION: Final[str] = "tmw_ruleset_v2"
+#
+# v3 (game-feel pass 4): A PICK MUST LEAVE EVERY LATER DRAFTER THIS ROUND A
+# SELECTABLE PLAYER ON THE ROLL (`draft.round_keepers`). v2 checked that only
+# when a roll was revealed, so an earlier pick could strand a later seat and
+# hang the match. v2 snapshots are still ACCEPTED (see
+# COMPATIBLE_RULESET_VERSIONS): v3 only refuses the picks that could not have
+# finished under v2, so a v2 match in flight at deploy continues correctly.
+RULESET_VERSION: Final[str] = "tmw_ruleset_v3"
+
+#: Snapshot ruleset versions this build will continue. A version NOT listed is
+#: refused rather than reinterpreted.
+COMPATIBLE_RULESET_VERSIONS: Final[tuple[str, ...]] = ("tmw_ruleset_v2", RULESET_VERSION)
 
 # Bumped whenever the franchise x decade eligibility index changes in a way
 # that could change WHO is eligible for a given roll: a different source file,
@@ -64,7 +75,11 @@ TMW_ADAPTER_VERSION: Final[str] = "tmw_six_player_adapter_v2"
 # an unchanged (state, seed). Separate constant because a change here silently
 # alters recorded match history, which is exactly the kind of change that must
 # be greppable.
-AUTOPICK_VERSION: Final[str] = "tmw_autopick_v1"
+#
+# v2: excludes picks that strand a later drafter this round, falls back to
+# rearrangement fits when nothing fits directly, and publishes an ordered list
+# so a timeout refused by the reducer tries the next choice (autopick.py).
+AUTOPICK_VERSION: Final[str] = "tmw_autopick_v2"
 
 #: The bot policy shipped with this mode. Pinned onto a seat so a later
 #: recalibration cannot retroactively change what a settled rated match was
@@ -273,6 +288,7 @@ __all__ = [
     "BOT_POLICY_VERSION",
     "BOT_THINK_SECONDS_MAX",
     "BOT_THINK_SECONDS_MIN",
+    "COMPATIBLE_RULESET_VERSIONS",
     "bot_think_seconds",
     "human_seat_index",
     "BENCH_SLOT_TYPES",

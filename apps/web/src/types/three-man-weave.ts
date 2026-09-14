@@ -317,11 +317,21 @@ export interface TmwPick extends TmwPlayer {
 export const TMW_FITS_NOW = "fits_now";
 export const TMW_FITS_AFTER_REARRANGEMENT = "fits_after_rearrangement";
 export const TMW_NO_LEGAL_ARRANGEMENT = "no_legal_arrangement";
+/** Fits this roster, but taking them would leave a drafter still to pick this
+ *  round with no legal player on the roll. Not selectable; the server says why. */
+export const TMW_STRANDS_ROUND = "strands_round";
 
 export type TmwFitState =
   | typeof TMW_FITS_NOW
   | typeof TMW_FITS_AFTER_REARRANGEMENT
-  | typeof TMW_NO_LEGAL_ARRANGEMENT;
+  | typeof TMW_NO_LEGAL_ARRANGEMENT
+  | typeof TMW_STRANDS_ROUND;
+
+/** Can a candidate in this fit state be drafted right now? The server's two
+ *  selectable states, and nothing else -- an unknown future state is not. */
+export function isSelectableFit(state: TmwFitState | string | null | undefined): boolean {
+  return state === TMW_FITS_NOW || state === TMW_FITS_AFTER_REARRANGEMENT;
+}
 
 export interface TmwPlanMove {
   player_slug: string;

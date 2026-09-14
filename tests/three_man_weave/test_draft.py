@@ -199,8 +199,11 @@ def test_a_filled_slot_is_refused(index):
 
 def test_legal_picks_reports_the_slots_each_identity_could_fill(index):
     state = D.create_match(1)
+    # Three candidates, as every revealed roll has (`MIN_ELIGIBLE_FOR_ROLL`):
+    # with two, whichever the first seat took would strand a later seat, and
+    # tmw_ruleset_v3 refuses that pick (`draft.round_keepers`).
     state = D.set_roll(
-        state, _roll(1, ["shaquille-o-neal", "kobe-bryant"], "LAL", "2000s")
+        state, _roll(1, ["shaquille-o-neal", "kobe-bryant", "derek-fisher"], "LAL", "2000s")
     )
     options = D.legal_picks(state, index)
     # A true centre reaches exactly one starting slot; a wing reaches three.
@@ -252,8 +255,11 @@ def test_a_legal_swap_of_two_filled_slots_is_allowed(index):
     state = D.apply_pick(state, index, "ron-harper", "PG")
     state = D.apply_pick(state, index, "scottie-pippen", "SF")
     state = D.apply_pick(state, index, "dennis-rodman", "PF")
+    # Vernon Maxwell keeps round 2 playable for the seat still to pick after
+    # Olajuwon and Smith: without him, Olajuwon's pick would strand seat 0, and
+    # tmw_ruleset_v3 refuses that (`draft.round_keepers`).
     state = D.set_roll(
-        state, _roll(2, ["michael-jordan", "kenny-smith", "hakeem-olajuwon"], "HOU")
+        state, _roll(2, ["michael-jordan", "kenny-smith", "hakeem-olajuwon", "vernon-maxwell"], "HOU")
     )
     state = D.apply_pick(state, index, "hakeem-olajuwon", "C")  # seat 2
     state = D.apply_pick(state, index, "kenny-smith", "PG")  # seat 1
@@ -360,7 +366,8 @@ def test_staged_pick_is_still_legal_reflects_a_slot_a_same_seat_rearrange_has_si
     state = D.apply_pick(state, index, "scottie-pippen", "SF")  # seat 1
     state = D.apply_pick(state, index, "dennis-rodman", "PF")  # seat 2
 
-    state = D.set_roll(state, _roll(2, ["hakeem-olajuwon", "kenny-smith"], "HOU"))
+    # A third candidate, as every revealed roll has; see the swap test above.
+    state = D.set_roll(state, _roll(2, ["hakeem-olajuwon", "kenny-smith", "vernon-maxwell"], "HOU"))
     state = D.apply_pick(state, index, "hakeem-olajuwon", "C")  # seat 2
     state = D.apply_pick(state, index, "kenny-smith", "PG")  # seat 1
 

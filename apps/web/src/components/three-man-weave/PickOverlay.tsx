@@ -10,7 +10,6 @@ import type {
 } from "@/types/three-man-weave";
 import {
   TMW_FITS_AFTER_REARRANGEMENT,
-  TMW_NO_LEGAL_ARRANGEMENT,
   TMW_SLOT_LABELS,
   TMW_SLOT_TYPES,
 } from "@/types/three-man-weave";
@@ -665,8 +664,7 @@ export default function PickOverlay({
 
             <ul className="tmw-overlay-list" data-testid="tmw-candidate-list">
               {shown.map((candidate) => {
-                const disabled =
-                  expired || candidate.fit.state === TMW_NO_LEGAL_ARRANGEMENT;
+                const disabled = expired || !candidate.selectable;
                 const isSelected = selected === candidate.player_slug;
                 return (
                   <li key={candidate.player_slug}>
@@ -727,8 +725,7 @@ export default function PickOverlay({
                             {fitLabel(candidate)}
                           </span>
                         </span>
-                        {candidate.fit.state === TMW_NO_LEGAL_ARRANGEMENT &&
-                        candidate.fit.reason ? (
+                        {!candidate.selectable && candidate.fit.reason ? (
                           <span className="tmw-candidate-reason">
                             {candidate.fit.reason}
                           </span>
