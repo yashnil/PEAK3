@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { takeMatchView } from "@/lib/game-feel/match-handoff";
 import type { ArenaReadiness, TmwMatchView } from "@/types/three-man-weave";
 import { TMW_MODE } from "@/types/three-man-weave";
 import {
@@ -41,7 +42,10 @@ import { StatusChip } from "@/components/ui/StatusChip";
  */
 export default function ThreeManWeaveLoader({ matchId }: { matchId?: string }) {
   const [readiness, setReadiness] = useState<ArenaReadiness | null>(null);
-  const [match, setMatch] = useState<TmwMatchView | null>(null);
+  // A match the lobby just started arrives with its view (see match-handoff).
+  const [match, setMatch] = useState<TmwMatchView | null>(() =>
+    matchId ? takeMatchView<TmwMatchView>(matchId) : null,
+  );
   const [loadError, setLoadError] = useState<ArenaAPIError | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -68,8 +72,13 @@ export default function ThreeManWeaveLoader({ matchId }: { matchId?: string }) {
     // next match's id; nothing from the finished match may survive into it,
     // so the previous match is dropped before the new one is read and the
     // game below is keyed by match id (a fresh mount, fresh state).
-    setMatch(null);
     setLoadError(null);
+    const handedOff = takeMatchView<TmwMatchView>(matchId);
+    if (handedOff) {
+      setMatch(handedOff);
+      return;
+    }
+    setMatch((current) => (current?.match_id === matchId ? current : null));
     getMatch(matchId)
       .then((value) => {
         if (!cancelled) setMatch(value as TmwMatchView);

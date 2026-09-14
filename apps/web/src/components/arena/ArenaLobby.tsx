@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { reportMatchmakingWait } from "@/lib/game-feel/action-timing";
+import { primeMatchView } from "@/lib/game-feel/match-handoff";
 
 import {
   arenaLobbyApi,
@@ -203,6 +204,8 @@ export default function ArenaLobby() {
       try {
         if (path === "practice") {
           const match = await arenaLobbyApi.startPractice(mode.id);
+          // The room mounts on this authoritative view instead of reading it again.
+          primeMatchView(match);
           go(mode, match.match_id);
         } else if (path === "private_room") {
           const match = await arenaLobbyApi.createPrivate(mode.id);

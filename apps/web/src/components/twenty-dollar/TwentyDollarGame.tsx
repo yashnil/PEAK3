@@ -1,5 +1,6 @@
 "use client";
 
+import { takeMatchView } from "@/lib/game-feel/match-handoff";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -260,8 +261,16 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
   const loadRef = useRef(load);
   loadRef.current = load;
   useEffect(() => {
+    // A match the lobby just started arrives with its view (see match-handoff):
+    // mount on it now, and let the normal polling read from there.
+    const handedOff = takeMatchView<TwentyDollarMatchView>(matchId);
+    if (handedOff && !latest.current) {
+      applyView(handedOff, "load");
+      setPollEpoch((n) => n + 1);
+      return;
+    }
     void loadRef.current();
-  }, [matchId]);
+  }, [matchId, applyView]);
 
   const view = room?.view ?? null;
   const complete = view?.public_state?.phase === "complete";
