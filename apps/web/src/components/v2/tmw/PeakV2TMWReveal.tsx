@@ -3,54 +3,70 @@
 /**
  * PeakV2TMWReveal — Three-Man Weave's two seatless phases, on the server's clock.
  *
- * THE BRIEFING (`phase="intro"`) and THE CEREMONY (`phase="reveal"`) are
- * both short server turns that every seat watches at once. This component
- * renders whichever is open and derives everything it animates from ONE
- * fact the server published: how far into the turn the server was when the
- * snapshot landed (`startedAt` + `totalSeconds`, converted by the room the
- * instant the response arrived). It never decides when a phase ends and it
- * offers no way to end one. A client that joins mid-phase computes the same
- * elapsed time as everyone else and lands on the same stage; one that joins
- * after the reel has settled renders the settled pair without replaying the
- * travel (`still`).
+ * THE BRIEFING (`phase="intro"`) and THE ROLL (`phase="reveal"`) are both
+ * short server turns that every seat watches at once. This component renders
+ * whichever is open and derives everything it animates from ONE fact the
+ * server published: how far into the turn the server was when the snapshot
+ * landed (`startedAt` + `totalSeconds`, converted by the room the instant the
+ * response arrived). It never decides when a phase ends and it offers no way
+ * to end one. A client that joins mid-phase computes the same elapsed time as
+ * everyone else and lands on the same stage; one that joins after the reels
+ * have settled renders the settled result without replaying the travel
+ * (`still`).
  *
- * THE CEREMONY'S OWN TIMELINE (absolute milliseconds from the turn's start,
- * inside the server's `REVEAL_SECONDS` = 4.0 s window):
+ * THE ROLL, AS A DRAFT-LOTTERY SLATE (game-feel pass 5). One card, laid out
+ * from the first frame so nothing pops in: the round and the picks it owns
+ * across the top, scoreboard apertures for FRANCHISE × DECADE, the round's
+ * draft order beneath, and the handoff line that says when drafting becomes
+ * actionable. Restrained on purpose -- a slate being filled in, not a slot
+ * machine: no flashing, one gold rule and one gold baseline.
  *
- *     0        ROUND card lands, board dims             (RoundReveal, Level 2)
- *     1550     card clears; the reel shell is ARMED     (anticipation: the
- *                                                        two empty windows)
- *     1750     reels accelerate                         (SpinReel, shared)
- *     2850     both reels have landed; LOCK beat        (accent wash + the
- *                                                        TMW lock pulse)
- *     3250     REVEALED: the pair holds, handoff line   (until the server
- *                                                        opens the pick turn,
- *                                                        ~0.75 s + the poll)
+ * A FRANCHISE OR DECADE DRAFT (`constraint` set) rolls ONCE, before round one,
+ * and the slate says so: "Franchise Draft · all 18 picks", one aperture for
+ * the one constraint, and the opening order. It is never presented as a
+ * per-round pair, because the other half is not rolled at all.
  *
- * Pre-deploy polish: the round card used to clear at 550 ms (measured
- * 370-510 ms on screen) and the lock was 300 ms; the card now holds ~1.5 s,
- * the reels get a short armed beat before they turn, the lock is 400 ms and
- * the pair holds before the pick turn opens. Reduced motion runs the
- * identical machine with the reel still: the pair is simply there, and the
- * beat is the state change.
+ * THE TIMELINE (absolute ms from the turn's start, laid out for the server's
+ * 1.5 s `REVEAL_SECONDS` window, and resolved with half a second of that window
+ * still to run):
  *
- * The roll renders through `PeakV2SpinReveal`, the same shared ceremony
- * 82-0's TEAM × SEASON roll uses — same shell, same geometry, same lock beat.
+ *     0      SLATE    "ROUND 2 OF 6 · PICKS 4–6" lands, rule draws; the
+ *                     apertures are on screen, empty
+ *     200    ARMED    apertures lit -- anticipation, 60 ms
+ *     260    SPINNING reels travel (360 / 460 ms, staggered so the pair reads
+ *                     as one constraint arriving, not two facts)
+ *     860    LOCKED   the last reel has settled (+140 ms); accent wash and
+ *                     baseline, "Locked in"
+ *     1000   RESOLVED the result holds, the order row marks who opens, and the
+ *                     handoff reads "You're up" / "<Seat> is up" for the last
+ *                     500 ms of the window and until the poll lands the pick
  *
- * GEOMETRY IS RESERVED. The intro block and the ceremony block are always
- * both mounted, stacked in the same grid cell, so this overlay's height is
- * the taller of the two at every stage and nothing recentres as a reel
- * settles. `absolute inset-0` against the caller's `position: relative`
- * shell, so the courts underneath stay the shell's only size contributor.
+ * A SHORTER published window compresses every beat by the same ratio, so the
+ * reels are never still turning when the server ends the phase; a LONGER one
+ * changes no beat and only lengthens the resolved hold. Every seat receives
+ * the same `turn_total_seconds`, so every seat stays in step.
+ *
+ * REDUCED MOTION runs the identical machine with nothing travelling: the
+ * settled result, the order row and the handoff are simply there, carrying the
+ * same information.
+ *
+ * GEOMETRY IS RESERVED. The briefing and the roll are both always mounted,
+ * stacked in one grid cell, so the card is the taller of the two at every
+ * stage. The scrim is fixed below the site header: a round can open while the
+ * player is scrolled anywhere on the board, and the roll must be in view.
+ *
+ * The reels render through the shared `PeakV2SpinReveal` (also 82-0's); every
+ * TMW-specific choice is a class on this card, never a change to that
+ * component.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePrefersReducedMotion } from "@/lib/a11y";
-import PeakV2SpinReveal, { type PeakV2SpinStage } from "../PeakV2SpinReveal";
+import PeakV2SpinReveal, { type PeakV2SpinAxis, type PeakV2SpinStage } from "../PeakV2SpinReveal";
 import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
 import PeakV2DisplayEmphasis from "../PeakV2DisplayEmphasis";
-import { RoundReveal } from "@/components/game-feel";
-import type { ArenaSeatPublic, TmwRoll } from "@/types/three-man-weave";
+import { roundPickOrder, seatAccent } from "@/lib/three-man-weave-state";
+import type { ArenaSeatPublic, TmwPublicState, TmwRoll } from "@/types/three-man-weave";
 
 const DECADES = ["1980s", "1990s", "2000s", "2010s", "2020s"] as const;
 const FRANCHISE_FILLER = [
@@ -59,20 +75,23 @@ const FRANCHISE_FILLER = [
   "Philadelphia 76ers", "Phoenix Suns", "San Antonio Spurs", "Utah Jazz",
 ];
 
-/** The ceremony's beats, in ms from the reveal turn's start. Every seat
- *  derives the same stage from the same server elapsed time, so changing a
- *  number here changes it for the whole table at once. */
+/** The roll's beats, in ms. Every seat derives the same stage from the same
+ *  server elapsed time, so changing a number here changes it for the whole
+ *  table at once. */
 export const TMW_CEREMONY = {
-  /** How long ROUND N holds over the dimmed board. */
-  roundCardMs: 1550,
-  /** The armed beat: the reel shell is on screen, both windows empty. */
-  armedMs: 200,
-  primaryReelMs: 800,
-  secondaryReelMs: 1100,
-  lockMs: 400,
+  /** The slate lands: round, picks, rule. Apertures already on screen. */
+  roundCardMs: 200,
+  /** The armed beat: apertures lit, still empty. */
+  armedMs: 60,
+  primaryReelMs: 360,
+  secondaryReelMs: 460,
+  /** Reel settle after its travel, before the lock begins. The shared reel's
+   *  own overshoot (`SpinReel` SETTLE_MS, 220 ms) finishes inside the lock. */
+  settleMs: 140,
+  lockMs: 140,
 } as const;
 /** The server window these beats were laid out for (`REVEAL_SECONDS`). */
-export const TMW_CEREMONY_NOMINAL_MS = 4000;
+export const TMW_CEREMONY_NOMINAL_MS = 1500;
 
 export interface TmwCeremonyMarks {
   armed: number;
@@ -86,19 +105,17 @@ export interface TmwCeremonyMarks {
 /**
  * Absolute marks on the turn's timeline, for a window of `totalMs`.
  *
- * Laid out for the nominal 4.0 s window. A SHORTER published window (an API
- * still serving an older `REVEAL_SECONDS`) compresses every beat by the same
- * ratio, so the pair is always locked and held before the server opens the
- * pick turn -- the reel must never still be turning when the phase ends.
- * Every seat receives the same `turn_total_seconds`, so every seat scales
- * identically and stays in sync. A longer window only lengthens the hold.
+ * Compresses proportionally for a window SHORTER than the nominal 1.5 s, so
+ * the result is always locked before the server opens the pick turn. A longer
+ * window is not stretched: the beats keep their nominal length and only the
+ * resolved hold grows.
  */
 export function ceremonyMarks(totalMs: number = TMW_CEREMONY_NOMINAL_MS): TmwCeremonyMarks {
   const k = totalMs > 0 && totalMs < TMW_CEREMONY_NOMINAL_MS ? totalMs / TMW_CEREMONY_NOMINAL_MS : 1;
   const armed = Math.round(TMW_CEREMONY.roundCardMs * k);
   const spinning = armed + Math.round(TMW_CEREMONY.armedMs * k);
   const secondaryReelMs = Math.round(TMW_CEREMONY.secondaryReelMs * k);
-  const locked = spinning + secondaryReelMs;
+  const locked = spinning + secondaryReelMs + Math.round(TMW_CEREMONY.settleMs * k);
   const resolved = locked + Math.round(TMW_CEREMONY.lockMs * k);
   return {
     armed,
@@ -116,7 +133,7 @@ type Stage = "intro" | "round" | "armed" | "spinning" | "locked" | "resolved";
 
 function stageAt(phase: "intro" | "reveal", elapsedMs: number, reduced: boolean, marks: TmwCeremonyMarks): Stage {
   if (phase === "intro") return "intro";
-  // Reduced motion: an immediate lock. The pair is simply there.
+  // Reduced motion: an immediate lock. The result is simply there.
   if (reduced) return "resolved";
   if (elapsedMs < marks.armed) return "round";
   if (elapsedMs < marks.spinning) return "armed";
@@ -135,13 +152,15 @@ const SHARED_STAGE: Record<Stage, PeakV2SpinStage> = {
   resolved: "revealed",
 };
 
-/** The status line under the reels, per stage. */
+/** The status line under the order row, per stage. */
 function statusLine(stage: Stage, roll: TmwRoll | null): string {
   if (!roll) return "Rolling…";
   if (stage === "locked") return "Locked in";
   if (stage !== "resolved") return "Rolling…";
   return `${roll.candidates.length} eligible ${roll.candidates.length === 1 ? "player" : "players"} still undrafted`;
 }
+
+type TmwConstraint = NonNullable<TmwPublicState["constraint"]>;
 
 export interface PeakV2TMWRevealProps {
   roll: TmwRoll | null;
@@ -157,7 +176,16 @@ export interface PeakV2TMWRevealProps {
   turnKey?: string;
   seats?: ArenaSeatPublic[];
   yourSeatIndex?: number | null;
+  /** "You're up" / "<Seat> is up" — said once the result has resolved. */
   handoffLabel?: string;
+  /** The seat the server will hand the pick to when this phase ends. Marks
+   *  that seat in the order row and styles the handoff for the viewer. */
+  upNextSeatIndex?: number | null;
+  /** Seats at the table, for the round's pick range. Defaults to `seats`. */
+  seatCount?: number;
+  /** A Franchise or Decade Draft's one constraint (`public_state.constraint`).
+   *  When set, the slate names it for the whole draft. */
+  constraint?: TmwConstraint | null;
   /** When the open turn began, on `performance.now()`'s clock. */
   startedAt?: number | null;
   /** The open turn's full length, in seconds. */
@@ -182,6 +210,9 @@ export default function PeakV2TMWReveal({
   seats,
   yourSeatIndex,
   handoffLabel,
+  upNextSeatIndex = null,
+  seatCount,
+  constraint = null,
   startedAt,
   totalSeconds,
   showIntro = false,
@@ -190,7 +221,7 @@ export default function PeakV2TMWReveal({
 }: PeakV2TMWRevealProps) {
   const reduced = usePrefersReducedMotion();
   const resolvedPhase: "intro" | "reveal" = phase ?? (showIntro ? "intro" : "reveal");
-  const total = (totalSeconds ?? revealSeconds ?? 4.0) * 1000;
+  const total = (totalSeconds ?? revealSeconds ?? TMW_CEREMONY_NOMINAL_MS / 1000) * 1000;
   const marks = useMemo(() => ceremonyMarks(total), [total]);
   const key = turnKey ?? `${resolvedPhase}:${roll?.roll_id ?? "none"}`;
   // Elapsed on the server's timeline, converted at mount/rearm time.
@@ -237,183 +268,218 @@ export default function PeakV2TMWReveal({
   }, [key, open, resolvedPhase, elapsedAtMount, reduced]);
 
   const franchisePool = useMemo(() => {
-    if (!roll) return FRANCHISE_FILLER;
-    return [...new Set([roll.franchise_display_name, ...FRANCHISE_FILLER])];
-  }, [roll]);
+    const landing = constraint?.kind === "franchise" ? constraint.label : roll?.franchise_display_name;
+    if (!landing) return FRANCHISE_FILLER;
+    return [...new Set([landing, ...FRANCHISE_FILLER])];
+  }, [roll, constraint]);
 
   if (!open) return null;
 
   const introUp = resolvedPhase === "intro";
   const resolved = stage === "resolved";
-  const roundCard = stage === "round";
+  const tableSize = seatCount ?? (seats?.length || 3);
+  const totalPicks = totalRounds * tableSize;
+  const nameOf = (seatIndex: number) =>
+    seatIndex === yourSeatIndex
+      ? "You"
+      : (seats?.find((seat) => seat.seat_index === seatIndex)?.display_name ?? `Seat ${seatIndex + 1}`);
+  const order = roundNumber ? roundPickOrder(roundNumber, tableSize) : [];
+  const openingOrder = roundPickOrder(1, tableSize);
+  const draftName = constraint ? (constraint.kind === "franchise" ? "Franchise Draft" : "Decade Draft") : null;
+  const pickRange = draftName
+    ? `All ${totalPicks} picks`
+    : order.length
+      ? `Picks ${order[0].pickNumber}–${order[order.length - 1].pickNumber}`
+      : null;
+  const handoffIsYou = upNextSeatIndex !== null && upNextSeatIndex === yourSeatIndex;
+  const showHandoff = !!roll && resolved && !!handoffLabel;
+
+  // THE APERTURES: the per-round pair, or the one whole-draft constraint.
+  const axes: PeakV2SpinAxis[] | null = !roll
+    ? null
+    : constraint
+      ? [
+          constraint.kind === "franchise"
+            ? { label: "Franchise", value: constraint.label, pool: franchisePool, spinMs: marks.secondaryReelMs, testId: "tmw-roll-franchise" }
+            : { label: "Decade", value: constraint.label, pool: DECADES, spinMs: marks.secondaryReelMs, testId: "tmw-roll-decade" },
+        ]
+      : [
+          { label: "Franchise", value: roll.franchise_display_name, pool: franchisePool, spinMs: marks.primaryReelMs, testId: "tmw-roll-franchise" },
+          { label: "Decade", value: roll.decade, pool: DECADES, spinMs: marks.secondaryReelMs, testId: "tmw-roll-decade" },
+        ];
 
   return (
     <div
-      className="absolute inset-0 z-40 flex items-center justify-center overflow-y-auto"
-      style={{ background: "color-mix(in srgb, var(--v2-bg-page) 88%, transparent)" }}
+      className="tmw-stage-scrim"
       data-ui-version="v2"
       data-testid="tmw-ceremony-scrim"
       data-stage={stage}
       data-phase={resolvedPhase}
     >
-      {/* ROUND N — the round card, over the whole dimmed board, for the first
-          beat of the ceremony only. The reels start underneath the instant
-          it clears. */}
-      <RoundReveal
-        open={!introUp && roundCard}
-        eyebrow="Three-Man Weave"
-        title={roundNumber ? `Round ${roundNumber}` : "Rolling"}
-        detail={roundNumber ? `of ${totalRounds} · one franchise, one decade, everyone drafts` : undefined}
-        testId="tmw-round-reveal"
-      />
-      <div className="mx-auto w-full max-w-2xl px-6 py-16 text-center flex flex-col items-center">
-        <div className="grid w-full" style={{ gridTemplateAreas: '"stack"' }}>
-          {/* THE BRIEFING: the match itself, before any roll. Server-timed;
-              nothing here can end it. */}
-          <div
-            data-testid="tmw-intro"
-            style={{
-              gridArea: "stack",
-              opacity: introUp ? 1 : 0,
-              visibility: introUp ? "visible" : "hidden",
-              pointerEvents: "none",
-            }}
-            aria-hidden={!introUp}
-          >
-            <p style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--v2-color-accent)" }}>
-              PEAK3 Arena · Multiplayer
-            </p>
-            <PeakV2ResultHeadline as="h1" scale="hero" className="mt-2">
-              Three-Man <PeakV2DisplayEmphasis>Weave</PeakV2DisplayEmphasis>
-            </PeakV2ResultHeadline>
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-4" data-testid="tmw-intro-seats">
-              {(seats ?? []).map((seat) => (
-                <span
-                  key={seat.seat_index}
+      <div
+        className="tmw-lottery"
+        data-stage={stage}
+        data-phase={resolvedPhase}
+        data-variant={constraint?.kind ?? "standard"}
+        data-reduced-motion={reduced ? "true" : "false"}
+      >
+        {/* THE BRIEFING: the match itself, before any roll. Server-timed;
+            nothing here can end it. */}
+        <div
+          data-testid="tmw-intro"
+          className="tmw-brief"
+          style={{
+            gridArea: "stack",
+            opacity: introUp ? 1 : 0,
+            visibility: introUp ? "visible" : "hidden",
+            pointerEvents: "none",
+          }}
+          aria-hidden={!introUp}
+        >
+          <p className="tmw-lottery-eyebrow">PEAK3 Arena · {draftName ?? "Draft room"}</p>
+          <PeakV2ResultHeadline as="h2" scale="hero" className="mt-2">
+            Three-Man <PeakV2DisplayEmphasis>Weave</PeakV2DisplayEmphasis>
+          </PeakV2ResultHeadline>
+          <p className="tmw-brief-rules">
+            {constraint
+              ? `${totalRounds} rounds · one ${constraint.kind} for all ${totalPicks} picks, drawn before round one`
+              : `${totalRounds} rounds · a new franchise × decade each round · one shared pool`}
+          </p>
+          {/* THE TABLE, IN THE ORDER IT OPENS. Round one runs forward. */}
+          <ol className="tmw-lottery-order tmw-brief-seats" data-testid="tmw-intro-seats" aria-label="Draft order, round 1">
+            {(seats?.length ? openingOrder : []).map(({ pickNumber, seatIndex }) => {
+              const seat = seats?.find((entry) => entry.seat_index === seatIndex);
+              if (!seat) return null;
+              const isYou = seatIndex === yourSeatIndex;
+              return (
+                <li
+                  key={seatIndex}
                   className="tmw-intro-seat-chip"
-                  data-you={seat.seat_index === yourSeatIndex ? "true" : "false"}
-                  style={{
-                    fontFamily: "var(--v2-font-ui)",
-                    fontWeight: 700,
-                    fontSize: "0.875rem",
-                    color: seat.seat_index === yourSeatIndex ? "var(--v2-color-accent)" : "var(--v2-text-secondary)",
-                  }}
+                  data-you={isYou ? "true" : "false"}
+                  data-seat-accent={seatAccent(seatIndex)}
                 >
-                  {seat.display_name}
-                  {seat.seat_index === yourSeatIndex ? " · You" : ""}
-                </span>
-              ))}
-            </div>
-            <p className="mt-4" style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.875rem", color: "var(--v2-text-secondary)" }}>
-              {totalRounds} franchise × decade rounds. Build the best legal five and a bench.
-            </p>
-            <p
-              className="mt-3"
-              data-testid="tmw-intro-countdown"
-              data-arriving={arriving ? "true" : "false"}
-              style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--v2-text-muted)" }}
-            >
-              {arriving ? "Taking seats" : "Entering the draft room"}
-            </p>
+                  <span className="tmw-lottery-order-num">{pickNumber}</span>
+                  <span className="tmw-lottery-order-name">
+                    {seat.display_name}
+                    {isYou ? " · You" : ""}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+          <p className="tmw-brief-objective">Build the best legal five and a bench. PEAK3 ranks the finished lineups.</p>
+          <p className="tmw-brief-countdown" data-testid="tmw-intro-countdown" data-arriving={arriving ? "true" : "false"}>
+            {arriving ? "Taking seats" : "Entering the draft room"}
+          </p>
+        </div>
+
+        {/* THE ROLL. Mounted throughout so the stack's height never changes;
+            before the first roll arrives it holds the same shape with empty
+            apertures. */}
+        <div
+          data-testid="tmw-roll"
+          data-roll-id={roll?.roll_id}
+          data-phase={resolved ? "revealed" : stage}
+          data-stage={stage}
+          data-revealed={resolved ? "true" : "false"}
+          data-reduced-motion={reduced ? "true" : "false"}
+          className="tmw-roll"
+          style={{
+            gridArea: "stack",
+            opacity: introUp ? 0 : 1,
+            visibility: introUp ? "hidden" : "visible",
+            pointerEvents: "none",
+          }}
+          aria-hidden={introUp}
+        >
+          {/* THE SLATE: which round this roll governs, and which picks. */}
+          <div className="tmw-lottery-head">
+            <span className="tmw-lottery-round" data-testid="tmw-round-reveal" role="status" aria-live="polite">
+              {draftName
+                ? `${draftName} · round ${roundNumber ?? 1} of ${totalRounds}`
+                : roundNumber
+                  ? `Round ${roundNumber} of ${totalRounds}`
+                  : "Next round"}
+            </span>
+            {pickRange ? <span className="tmw-lottery-picks">{pickRange}</span> : null}
+          </div>
+          <span className="tmw-lottery-rule" aria-hidden="true" />
+          <p className="tmw-lottery-kicker">
+            {!roll
+              ? "Rolling the next franchise and decade…"
+              : constraint
+                ? constraint.kind === "franchise"
+                  ? "One franchise for the whole draft — players from any decade"
+                  : "One decade for the whole draft — players from any franchise"
+                : "One franchise, one decade — every seat drafts from it"}
+          </p>
+
+          <div className="tmw-lottery-reels" data-stage={stage}>
+            {roll && axes ? (
+              <PeakV2SpinReveal
+                runKey={roll.roll_id}
+                stage={SHARED_STAGE[stage]}
+                still={still}
+                className="tmw-lottery-spin"
+                testId="tmw-roll-ceremony"
+                announcePrefix={draftName ? `${draftName}:` : roundNumber ? `Round ${roundNumber} rolled` : "Rolled"}
+                axes={axes}
+              />
+            ) : (
+              <div className="v2-spin tmw-lottery-spin">
+                <div className="v2-spin-axes" data-axis-count={2}>
+                  {["Franchise", "Decade"].map((label) => (
+                    <div className="v2-spin-axis" key={label} data-revealed="false">
+                      <span className="v2-spin-axis-label">{label}</span>
+                      <span className="v2-spin-axis-value" aria-hidden="true">
+                        <span className="v2-spin-axis-armed" />
+                      </span>
+                      <span className="v2-spin-axis-action" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* THE CEREMONY. Mounted throughout so the stack's height never
-              changes; before the first roll arrives it holds the same shape
-              with placeholders. */}
-          <div
-            data-testid="tmw-roll"
-            data-roll-id={roll?.roll_id}
-            data-phase={resolved ? "revealed" : stage}
-            data-stage={stage}
-            data-revealed={resolved ? "true" : "false"}
-            data-reduced-motion={reduced ? "true" : "false"}
-            className="relative"
-            style={{
-              gridArea: "stack",
-              opacity: introUp ? 0 : 1,
-              visibility: introUp ? "hidden" : "visible",
-              pointerEvents: "none",
-            }}
-            aria-hidden={introUp}
+          {/* WHO TAKES THIS ROUND'S PICKS, and -- once the result has resolved
+              -- who opens it. The order is the fixed snake; the mark is the
+              server's own next seat. Text carries both: the pick number and the
+              "on the clock" words, never the gold alone. */}
+          {order.length ? (
+            <ol className="tmw-lottery-order" aria-label={`Round ${roundNumber} draft order`}>
+              {order.map(({ pickNumber, seatIndex }) => {
+                const next = resolved && seatIndex === upNextSeatIndex;
+                return (
+                  <li
+                    key={seatIndex}
+                    data-you={seatIndex === yourSeatIndex ? "true" : "false"}
+                    data-next={next ? "true" : "false"}
+                    data-seat-accent={seatAccent(seatIndex)}
+                  >
+                    <span className="tmw-lottery-order-num">{pickNumber}</span>
+                    <span className="tmw-lottery-order-name">{nameOf(seatIndex)}</span>
+                    {next ? <span className="tmw-lottery-order-next">on the clock</span> : null}
+                  </li>
+                );
+              })}
+            </ol>
+          ) : null}
+
+          <p className="tmw-lottery-status" data-testid="tmw-ceremony-status" data-stage={stage}>
+            {statusLine(stage, roll)}
+          </p>
+          {/* THE HANDOFF: the moment drafting becomes actionable. Always
+              mounted and reserved, never popping in. */}
+          <p
+            className="tmw-lottery-handoff"
+            data-testid="tmw-handoff"
+            data-you={handoffIsYou ? "true" : "false"}
+            data-visible={showHandoff ? "true" : "false"}
+            style={{ visibility: showHandoff ? "visible" : "hidden" }}
           >
-            {/* Hidden outright while the round card is up (no fade OUT --
-                the card must land on a clean board); fades IN when the
-                reels take over. */}
-            <div style={{ opacity: roundCard ? 0 : 1, transition: roundCard ? "none" : "opacity var(--v2-dur-transition, 210ms) var(--v2-ease-out, ease-out)" }}>
-              <p style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.6875rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--v2-text-muted)" }}>
-                {roll ? <>Round {roundNumber ?? "—"} of {totalRounds} · everyone drafts from this</> : "Rolling the next franchise and decade…"}
-              </p>
-              <div className="tmw-ceremony mt-4" data-stage={stage}>
-                {roll ? (
-                  <PeakV2SpinReveal
-                    runKey={roll.roll_id}
-                    stage={SHARED_STAGE[stage]}
-                    still={still}
-                    testId="tmw-roll-ceremony"
-                    announcePrefix="Rolled"
-                    axes={[
-                      {
-                        label: "Franchise",
-                        value: roll.franchise_display_name,
-                        pool: franchisePool,
-                        spinMs: marks.primaryReelMs,
-                        testId: "tmw-roll-franchise",
-                      },
-                      {
-                        label: "Decade",
-                        value: roll.decade,
-                        pool: DECADES,
-                        spinMs: marks.secondaryReelMs,
-                        testId: "tmw-roll-decade",
-                      },
-                    ]}
-                  />
-                ) : (
-                  <div className="v2-spin">
-                    <div className="v2-spin-axes" data-axis-count={2}>
-                      {["Franchise", "Decade"].map((label) => (
-                        <div className="v2-spin-axis" key={label} data-revealed="false">
-                          <span className="v2-spin-axis-label">{label}</span>
-                          <span className="v2-spin-axis-value" aria-hidden="true">
-                            —
-                          </span>
-                          <span className="v2-spin-axis-action" />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <p
-                className="mt-4"
-                data-testid="tmw-ceremony-status"
-                style={{
-                  fontFamily: "var(--v2-font-ui)",
-                  fontSize: "0.8125rem",
-                  fontWeight: stage === "locked" ? 700 : undefined,
-                  letterSpacing: stage === "locked" ? "0.08em" : undefined,
-                  textTransform: stage === "locked" ? "uppercase" : undefined,
-                  color: stage === "locked" ? "var(--v2-color-accent)" : "var(--v2-text-secondary)",
-                }}
-              >
-                {statusLine(stage, roll)}
-              </p>
-              {/* Always mounted and reserved, never popping in. */}
-              <p
-                className="mt-2"
-                data-testid="tmw-handoff"
-                style={{
-                  fontFamily: "var(--v2-font-ui)",
-                  fontWeight: 700,
-                  fontSize: "0.875rem",
-                  color: "var(--v2-color-accent)",
-                  visibility: roll && resolved && handoffLabel ? "visible" : "hidden",
-                }}
-              >
-                {handoffLabel || " "}
-              </p>
-            </div>
-          </div>
+            {handoffLabel || " "}
+          </p>
         </div>
       </div>
     </div>

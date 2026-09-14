@@ -1149,3 +1149,139 @@ export function ordinal(value: number): string {
   const suffix = value === 1 ? "st" : value === 2 ? "nd" : value === 3 ? "rd" : "th";
   return `${value}${suffix}`;
 }
+
+// ---------------------------------------------------------------------------
+// One round's picks, for the ceremony
+// ---------------------------------------------------------------------------
+
+export interface TmwRoundPick {
+  /** 1-based pick number across the whole match. */
+  pickNumber: number;
+  seatIndex: number;
+}
+
+/**
+ * The picks ONE round owns, in the order they are taken.
+ *
+ * The same fixed snake `turnOrder` walks (odd rounds forward, even rounds
+ * reversed, mirroring `snake_turn_order` in `nba_peak/three_man_weave/
+ * draft.py`) -- restated for a single round because the ceremony needs to say
+ * "round 2 is picks 4-6, and this is who takes them" before any of those picks
+ * exist. A rule, not state; nothing here guesses who is next.
+ */
+export function roundPickOrder(roundNumber: number, seatCount = 3): TmwRoundPick[] {
+  if (!Number.isInteger(roundNumber) || roundNumber < 1 || seatCount < 1) return [];
+  const seats = Array.from({ length: seatCount }, (_, index) => index);
+  const order = roundNumber % 2 === 1 ? seats : [...seats].reverse();
+  const first = (roundNumber - 1) * seatCount + 1;
+  return order.map((seatIndex, index) => ({ pickNumber: first + index, seatIndex }));
+}
+
+// ---------------------------------------------------------------------------
+// Result comparison: what the evaluator itself reported, side by side
+// ---------------------------------------------------------------------------
+
+/**
+ * The fit measures a result screen compares, labelled as `LineupInsightPanel`
+ * already labels them.
+ *
+ * These four are the evaluator's own `fit_components` that TMW's
+ * `_tmw_lineup_quality` actually reads (`nba_peak/three_man_weave/
+ * evaluation.py`). `talent_core` and `bench_strength` are deliberately NOT
+ * here: TMW replaces that pair with its own flat six-card talent term, so the
+ * values the payload still carries under those names are not the ones that
+ * decided the match, and putting them in a head-to-head would explain a win
+ * with numbers the ranking did not use.
+ */
+export const TMW_FIT_MEASURES = [
+  { key: "positional_fit", label: "Positional fit" },
+  { key: "creation_coverage", label: "Creation coverage" },
+  { key: "scoring_coverage", label: "Scoring coverage" },
+  { key: "postseason_pedigree", label: "Postseason pedigree" },
+] as const;
+
+export type TmwFitMeasureKey = (typeof TMW_FIT_MEASURES)[number]["key"];
+
+/** One roster's reported value for a measure, or null when it was not sent. */
+export function fitValue(row: TmwPodiumRow, key: TmwFitMeasureKey): number | null {
+  const value = row.result.detail?.fit_components?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** A measure on which the sole winner finished clear of every other roster. */
+export interface TmwSeparation {
+  key: TmwFitMeasureKey;
+  label: string;
+  winnerValue: number;
+  /** The best value any OTHER roster reported. */
+  nextValue: number;
+  nextName: string;
+  gap: number;
+}
+
+/** A gap smaller than a full point on a 0-100 measure is not a separation. */
+export const TMW_SEPARATION_MIN_POINTS = 1;
+
+/**
+ * Where the winner pulled clear, strongest first.
+ *
+ * Pure comparison over numbers the server already reported: no weighting, no
+ * re-derived score, no claim about how much each measure was worth. Empty for
+ * a shared first place (there is no single winner to explain) and whenever no
+ * measure separated the winner by a full point.
+ */
+export function winnerSeparation(rows: TmwPodiumRow[], limit = 2): TmwSeparation[] {
+  const leaders = rows.filter((row) => row.result.placement === 1);
+  if (leaders.length !== 1) return [];
+  const winner = leaders[0];
+  if (winner.score.kind !== "scored") return [];
+  const others = rows.filter((row) => row !== winner);
+  const out: TmwSeparation[] = [];
+  for (const measure of TMW_FIT_MEASURES) {
+    const winnerValue = fitValue(winner, measure.key);
+    if (winnerValue === null) continue;
+    let next: { value: number; name: string } | null = null;
+    for (const other of others) {
+      const value = fitValue(other, measure.key);
+      if (value === null) continue;
+      if (!next || value > next.value) next = { value, name: other.result.display_name };
+    }
+    if (!next) continue;
+    const gap = winnerValue - next.value;
+    if (gap >= TMW_SEPARATION_MIN_POINTS) {
+      out.push({
+        key: measure.key,
+        label: measure.label,
+        winnerValue,
+        nextValue: next.value,
+        nextName: next.name,
+        gap,
+      });
+    }
+  }
+  return out.sort((a, b) => b.gap - a.gap).slice(0, Math.max(0, limit));
+}
+
+/**
+ * The one sentence that says where a win came from, phrased as the model's
+ * rating rather than as a fact about basketball.
+ */
+export function separationSentence(
+  winnerName: string,
+  winnerIsYou: boolean,
+  separations: TmwSeparation[],
+): string {
+  if (!separations.length) {
+    return (
+      `No single fit measure separated ${winnerIsYou ? "you" : winnerName} by a full point; ` +
+      "PEAK3's lineup score weighs the talent of all six cards most heavily."
+    );
+  }
+  const owner = winnerIsYou ? "your" : `${winnerName}'s`;
+  const parts = separations.map(
+    (entry) =>
+      `${entry.label.toLowerCase()} (${entry.winnerValue.toFixed(0)} vs ${entry.nextValue.toFixed(0)} for ${entry.nextName})`,
+  );
+  const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+  return `PEAK3 rates ${owner} six clear of the field on ${list}.`;
+}

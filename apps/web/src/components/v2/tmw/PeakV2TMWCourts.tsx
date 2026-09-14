@@ -1,14 +1,37 @@
 "use client";
 
 /**
- * PeakV2TMWCourts — the shared instrument strip + three courts (Pass 3),
- * verified against the reference (E2 page 20): active court fully lit,
- * siblings dimmed but legible, real round/pick/pool/clock instrumentation.
+ * PeakV2TMWCourts — the draft room's board: the turn strip, the decision
+ * surface when it is yours, and the three courts.
+ *
+ * ONE SCROLL, AND IT IS THE PAGE'S (game-feel pass 5).
+ *
+ * This used to be a flex column capped to a `--tmw-viewport-cap` the room
+ * measured and published, with a pinned header and an inner `overflow-y:
+ * auto` region holding the courts -- and the pick surface was a fixed modal
+ * with two more scroll panes inside it. Three scrollbars on one screen is an
+ * app embedded in another app, and the cap existed only to keep the header on
+ * screen. `position: sticky` does that job without owning any scrolling, so
+ * the cap, the measured header height and the inner region (plus the
+ * `tabIndex`/`role="region"` axe needed for a scrollable box) are gone. The
+ * page scrolls; nothing inside it does.
+ *
+ * WHAT THE STRIP SAYS, IN ORDER OF WHAT A DRAFTER NEEDS:
+ *   1. the constraint -- franchise × decade, the largest type on the strip,
+ *      under the round/pick counter it applies to;
+ *   2. the turn -- whose pick it is, beside the clock running on it;
+ * and it stays under the site header while the candidate list or the courts
+ * scroll beneath it, on an opaque ground so nothing shows through.
+ *
+ * The strip publishes its own rendered height as `--tmw-strip-h` on the board
+ * so anything that sticks BELOW it (the placement column) sits flush, whether
+ * or not a move notice or an edge qualifier has added a line. Written to the
+ * DOM directly by a `ResizeObserver`: it is a layout fact, not React state,
+ * and re-rendering the board to learn it would be the wrong trade.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import PeakV2Shell from "../PeakV2Shell";
-import PeakV2LiveHeader from "../PeakV2LiveHeader";
 import PeakV2GameStatus from "../PeakV2GameStatus";
 import PeakV2Timer from "../PeakV2Timer";
 import PeakV2TMWCourt from "./PeakV2TMWCourt";
@@ -31,7 +54,7 @@ export interface PeakV2TMWCourtsProps {
   currentTurnSeatIndex: number | null;
   deadlineAt: number | null;
   /** The OPEN TURN's clock, published by the server to every seat (see
-   *  `ThreeManWeaveGame`'s own note). This is what the header counts down,
+   *  `ThreeManWeaveGame`'s own note). This is what the strip counts down,
    *  so all three competitors watch the same number — `deadlineAt` above is
    *  only "your" clock and is null on somebody else's turn. */
   turnDeadlineAt?: number | null;
@@ -42,12 +65,9 @@ export interface PeakV2TMWCourtsProps {
    * Whether the round's roll has actually been REVEALED yet.
    *
    * The server knows the franchise and decade before the ceremony starts —
-   * it has to, the reel spins to them — but knowing is not showing. This
-   * board used to print "Detroit Pistons · 2000s" the moment
-   * `state.current_roll` existed, which meant the round-one roll was
-   * legible on the page BEHIND the intro overlay before anything had spun
-   * (design-review/13). The spinner was then animating toward a conclusion
-   * already printed underneath it.
+   * it has to, the reel spins to them — but knowing is not showing. The strip
+   * must not print "Detroit Pistons × 2000s" behind a ceremony that is still
+   * animating toward it (design-review/13).
    *
    * Defaults to `true` so a caller that has no ceremony (a finished match,
    * a spectator view) still shows the roll.
@@ -55,6 +75,10 @@ export interface PeakV2TMWCourtsProps {
   rollRevealed?: boolean;
   picksMade: number;
   totalPicks: number;
+  /** The decision surface (the pick panel), placed directly under the strip
+   *  and above the courts: while it is your pick it is the task, and the
+   *  courts are context. Renders nothing when the caller's node does. */
+  decision?: ReactNode;
   children?: React.ReactNode;
   /**
    * Between-turn rearrangement (Pass 4, TMW-10 ported to V2 — see
@@ -86,6 +110,7 @@ export default function PeakV2TMWCourts({
   rollRevealed = true,
   picksMade,
   totalPicks,
+  decision,
   children,
   onMove,
   busy = false,
@@ -95,30 +120,22 @@ export default function PeakV2TMWCourts({
   // viewer's own only if an older API build does not send it.
   const remaining = useRemainingSeconds(turnDeadlineAt ?? deadlineAt);
   const qualifier = edgeQualifier(state);
-  // TMW viewport containment: the header block (title/status/instrument,
-  // the roll+on-clock line, the move notice, the mobile roster tabs) stays
-  // pinned and never scrolls out of reach; only the court content below it
-  // scrolls, capped to whatever's left of `--tmw-viewport-cap` (set by the
-  // ancestor `tmw-v2-arena-shell` in `ThreeManWeaveGame.tsx`) once the
-  // header's own real height is subtracted. `ResizeObserver`, not a one-time
-  // measurement, because the header's height can legitimately change (a
-  // move notice appearing/disappearing) and the scroll cap must track it.
-  const headerRef = useRef<HTMLDivElement>(null);
-  const [headerHeight, setHeaderHeight] = useState(0);
-  useLayoutEffect(() => {
-    const el = headerRef.current;
-    if (!el) return;
-    // Measured synchronously here (not left to wait for the observer's
-    // first, inherently-async callback) so the scroll cap below is correct
-    // from the very first paint, rather than briefly using the full,
-    // uncapped-by-header value for one frame.
-    setHeaderHeight(el.getBoundingClientRect().height);
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry) setHeaderHeight(entry.contentRect.height);
-    });
-    observer.observe(el);
+
+  // THE STRIP'S HEIGHT, AS A CSS FACT (see the module docstring).
+  const boardRef = useRef<HTMLDivElement>(null);
+  const stripRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const board = boardRef.current;
+    const strip = stripRef.current;
+    if (!board || !strip) return;
+    const publish = (height: number) => board.style.setProperty("--tmw-strip-h", `${Math.round(height)}px`);
+    publish(strip.getBoundingClientRect().height);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => publish(strip.getBoundingClientRect().height));
+    observer.observe(strip);
     return () => observer.disconnect();
   }, []);
+
   // Mobile-only: "deliberate access between YOUR COURT / OTHER COURTS"
   // (brief) rather than three courts crushed into one column. Desktop
   // ignores this entirely and shows the real three-column grid.
@@ -160,11 +177,9 @@ export default function PeakV2TMWCourts({
         setNotice({ tone: "error", text: rejection });
         return;
       }
-      // THE MOVE'S RESULT IS ANNOUNCED BY THE SNAPSHOT THAT CONTAINS IT.
-      // This used to write "X and Y swapped." here, before the server had
-      // answered, so the message could sit over a roster still showing them
-      // un-swapped. The room derives the swap moment from the response
-      // itself (`describeTransition`), in the same render as the rosters.
+      // THE MOVE'S RESULT IS ANNOUNCED BY THE SNAPSHOT THAT CONTAINS IT. The
+      // room derives the swap moment from the response itself
+      // (`describeTransition`), in the same render as the rosters.
       void onMove?.(placementsAfterMove(yourRoster, pickedUp, slot));
       setPickedUp(null);
     },
@@ -187,14 +202,10 @@ export default function PeakV2TMWCourts({
     if (state.is_complete || currentTurnSeatIndex === null) return "idle";
     return currentTurnSeatIndex === seatIndex ? "active" : "receded";
   };
+  const stripOwner: ActiveSeatOwner = currentTurnSeatIndex === null ? "none" : ownerOf(currentTurnSeatIndex);
 
-  // Pass 7 (human acceptance testing, task §11): "who is picking, how much
-  // time is left, what was rolled, what pick/round are we on" must all read
-  // in under a second from ONE always-visible strip. Every value here is
-  // already-computed real state (`state.current_roll`, the same server
-  // field `PickOverlay`'s own header reads; `currentTurnSeatIndex`/`seats`,
-  // the same identity `PeakV2TMWCourt`'s "On the clock" suffix already
-  // uses) — nothing invented.
+  // Who is on the clock, from real state only: `currentTurnSeatIndex` and the
+  // seat's own display name, the same identity every court header uses.
   const onClockSeat = state.rosters.find((r) => r.seat_index === currentTurnSeatIndex);
   const onClockName = state.is_complete
     ? null
@@ -202,264 +213,163 @@ export default function PeakV2TMWCourts({
       ? "You"
       : (seats.find((s) => s.seat_index === currentTurnSeatIndex)?.display_name ??
         (onClockSeat ? `Seat ${currentTurnSeatIndex! + 1}` : null));
-  const rollLine =
-    state.current_roll && rollRevealed
-      ? `${state.current_roll.franchise_display_name} · ${state.current_roll.decade}`
-      : null;
+  const roll = state.current_roll && rollRevealed ? state.current_roll : null;
+  // A Franchise or Decade Draft's one constraint, for the whole draft.
+  const constraint = state.constraint ?? null;
+
   // THE EDGE BAND ONLY EARNS ITS LINE WHEN IT DIFFERENTIATES.
   //
   // `edgeBandFor` is real server data — a seat's competitive standing band —
   // but for most of a draft every seat is in the SAME band, and three courts
   // each captioned "Level with the field" is one fact stated three times
   // that distinguishes nobody (design-review/14, /15). It is suppressed
-  // while the bands agree and appears the moment they diverge, which is the
-  // only moment it changes a decision. Nothing is invented and nothing is
-  // permanently hidden.
+  // while the bands agree and appears the moment they diverge.
   const seatBands = state.rosters.map((r) => edgeBandFor(state, r.seat_index));
   const distinctBands = new Set(seatBands.filter(Boolean));
   const bandsDiffer = distinctBands.size > 1;
 
-  // The reserved-width placeholder that used to sit here is gone with the
-  // line it protected: the roll line no longer restates "On the clock — X"
-  // (the instrument strip beside the countdown says it, and the active court
-  // says it on its own header), so there is no longer a span whose presence
-  // or absence could change where that row wraps.
-
   return (
-    <PeakV2Shell width="live-wide">
-      {/* TMW viewport containment (final closure pass): this outer block is
-          a flex column capped to whatever the ancestor published as
-          `--tmw-viewport-cap` -- the real remaining space below the nav (and
-          anything else already above this component), reserved up front
-          rather than left to natural content flow, which was what pushed the
-          bottom of the active task surface below the viewport at 1280x800
-          and 390x844. `100dvh` in that ancestor calc already accounts for a
-          mobile browser's address bar; the `100dvh` fallback here is only
-          for the first paint before the ancestor's effect has run. Falls
-          back to natural (uncapped) height wherever the real content is
-          already shorter than the cap (1440x900's existing presentation),
-          so nothing changes there. */}
-      <div className="py-6 flex flex-col" style={{ maxHeight: "var(--tmw-viewport-cap, 100dvh)" }}>
-        <div ref={headerRef} className="shrink-0" data-testid="tmw-turnbar">
-        <PeakV2LiveHeader
-          as="h1"
-          title="Three-Man Weave"
-          subtitle={qualifier ?? undefined}
-          status={<PeakV2GameStatus label={`Round ${state.current_round ?? "—"} of ${state.total_rounds} · pick ${picksMade + 1} of ${totalPicks}`} state="active" labelTestId="tmw-turnbar-round" />}
-          instrument={
-            <div className="flex items-center gap-4">
-              {/* WHO IS ON THE CLOCK, not how many players are left.
-                  "N undrafted" was the most prominent instrument in this
-                  strip and it is a number nobody plays on — the pool is
-                  hundreds deep and shrinking it by one per pick changes no
-                  decision. It is replaced by the one fact this row was
-                  missing: whose pick it is, beside the countdown for it.
-                  Not replaced by another metric. */}
+    <div ref={boardRef} className="tmw-board">
+      {/* THE STRIP: constraint first, turn second. Sticky under the site
+          header, opaque, full-bleed so the courts scroll cleanly beneath. */}
+      <div ref={stripRef} className="tmw-strip" data-testid="tmw-turnbar" data-turn-owner={stripOwner}>
+        <PeakV2Shell width="live-wide">
+          <div className="tmw-strip-row">
+            <div className="tmw-strip-round">
+              <PeakV2GameStatus
+                label={`Round ${state.current_round ?? "—"} of ${state.total_rounds} · pick ${picksMade + 1} of ${totalPicks}`}
+                state="active"
+                labelTestId="tmw-turnbar-round"
+              />
+            </div>
+
+            {/* WHAT WAS ROLLED — only once the ceremony has shown it. A
+                Franchise or Decade Draft names its ONE constraint for the
+                whole draft instead of a per-round pair (the per-round roll's
+                other half is a placeholder: "All decades"). */}
+            <p className="tmw-strip-roll" data-testid="tmw-turnbar-roll" data-revealed={roll ? "true" : "false"}>
+              {roll && constraint ? (
+                <>
+                  <span className="tmw-strip-scope">
+                    {constraint.kind === "franchise" ? "Franchise Draft" : "Decade Draft"}
+                  </span>
+                  <span className={constraint.kind === "franchise" ? "tmw-strip-franchise" : "tmw-strip-decade"}>
+                    {constraint.label}
+                  </span>
+                  <span className="tmw-strip-scope-note">· all {totalPicks} picks</span>
+                </>
+              ) : roll ? (
+                <>
+                  <span className="tmw-strip-franchise">{roll.franchise_display_name}</span>
+                  <span className="tmw-strip-x" aria-hidden="true">
+                    ×
+                  </span>
+                  <span className="sr-only"> in the </span>
+                  <span className="tmw-strip-decade">{roll.decade}</span>
+                </>
+              ) : (
+                <span className="tmw-strip-pending">
+                  {state.is_complete ? "Draft complete" : "Rolling the next franchise and decade"}
+                </span>
+              )}
+            </p>
+
+            {qualifier ? <p className="tmw-strip-qualifier">{qualifier}</p> : null}
+
+            {/* WHOSE PICK, beside the clock running on it. */}
+            <div className="tmw-strip-owner">
               {onClockName ? (
-                <span
-                  data-testid="tmw-on-the-clock"
-                  style={{
-                    fontFamily: "var(--v2-font-mono)",
-                    fontSize: "0.6875rem",
-                    fontWeight: 700,
-                    letterSpacing: "0.08em",
-                    textTransform: "uppercase",
-                    color: "var(--v2-color-accent)",
-                  }}
-                >
+                <span className="tmw-on-clock" data-testid="tmw-on-the-clock">
                   {onClockName === "You" ? "Your pick" : `On the clock · ${onClockName}`}
                 </span>
               ) : null}
-              {/* Final closure pass, task §5: gated on a seat actually being
-                  on the clock, not merely on `deadlineAt` existing. During
-                  `PHASE_INTRO`/`PHASE_REVEAL` (seatless turns) the server
-                  publishes the viewer's own `seconds_remaining` as the
-                  ~30-minute intro backstop, and `PeakV2Timer` renders raw
-                  seconds with no MM:SS formatting -- without this gate that
-                  is a real, literal 4-digit number (confirmed by a
-                  deterministic test: `deadlineAt` ~1798s out with no seat on
-                  the clock rendered "1798"). Legacy `TurnStatus` has always
-                  had the equivalent gate (`yourTurn`/`activeSeat`); this
-                  mirrors it rather than inventing a new rule. Changes
-                  nothing about timer values or authority -- only whether
-                  this header chooses to display a countdown outside an
-                  actual pick turn.
+            </div>
 
-                  RESERVED WHEN HIDDEN (final closure pass, task §1): the
-                  gate above is correct, but it means this row's own
-                  available width -- and therefore whether it wraps at
-                  narrow (390px) viewports -- differs between the seatless
-                  reveal window and the instant a real turn starts, which
-                  measured as a real outer-shell height change at that exact
-                  transition. Reserving the timer's own worst-case width
-                  (two digits, its real range during a turn is 0-45) with an
-                  invisible, `aria-hidden` placeholder keeps this row's wrap
-                  point constant regardless of whose turn it is -- no
-                  fabricated number is ever shown to a user. */}
+            {/* Gated on a seat actually being on the clock, not merely on a
+                deadline existing: during the seatless intro/reveal turns the
+                server publishes the viewer's own ~30-minute intro backstop,
+                which would otherwise render as a literal four-digit number.
+                RESERVED WHEN HIDDEN, so the strip's wrap point -- and its
+                height -- is the same on either side of a turn opening. */}
+            <div className="tmw-strip-clock">
               {remaining !== null && currentTurnSeatIndex !== null ? (
                 <PeakV2Timer secondsRemaining={remaining} urgentAtSeconds={5} />
               ) : (
-                <span
-                  aria-hidden="true"
-                  style={{
-                    visibility: "hidden",
-                    fontFamily: "var(--v2-font-mono)",
-                    fontVariantNumeric: "tabular-nums",
-                    fontWeight: 600,
-                    fontSize: "1.125rem",
-                  }}
-                >
+                <span className="tmw-strip-clock-reserve" aria-hidden="true">
                   88
                 </span>
               )}
             </div>
-          }
-        />
+          </div>
 
-        {/* WHAT WAS ROLLED. Nothing else — this line used to end with
-            "On the clock — Glue Guy", which the instrument strip directly
-            above already says beside the actual countdown, and which the
-            active court itself says a third time on its own header. One
-            fact, one home: WHOSE pick it is belongs next to the clock that
-            is running on it. The line keeps its exact position across every
-            phase so it never jumps. */}
-        {rollLine ? (
-          <p
-            className="mt-2"
-            style={{ fontFamily: "var(--v2-font-ui)", fontSize: "0.8125rem", color: "var(--v2-text-secondary)" }}
-          >
-            {rollLine}
-          </p>
-        ) : null}
+          {/* THE RESULT OF A MOVE, SAID ONCE — `role="status"` rather than an
+              alert, since a refused drag is a correction, not an emergency. */}
+          {notice ? (
+            <p role="status" aria-live="polite" className="tmw-strip-notice">
+              {notice.text}
+            </p>
+          ) : null}
+        </PeakV2Shell>
+      </div>
 
-        {/* THE RESULT OF A MOVE, SAID ONCE — `role="status"` rather than an
-            alert, since a refused drag is a correction, not an emergency. */}
-        {notice ? (
-          <p
-            role="status"
-            aria-live="polite"
-            className="mt-2"
-            style={{
-              fontFamily: "var(--v2-font-ui)",
-              fontSize: "0.75rem",
-              fontWeight: 600,
-              color: "var(--v2-color-negative)",
-            }}
-          >
-            {notice.text}
-          </p>
-        ) : null}
+      <PeakV2Shell width="live-wide">
+        {decision ? <div className="tmw-decision">{decision}</div> : null}
 
         {/* Mobile tab bar — one court at a time, every one a tap away. */}
-        <div className="mt-4 flex gap-1 lg:hidden" role="tablist" aria-label="Rosters">
+        <div className="tmw-roster-tabs mt-4 flex gap-1 lg:hidden" role="tablist" aria-label="Rosters">
           {state.rosters.map((roster) => {
             const isYou = roster.seat_index === yourSeatIndex;
             const seat = seats.find((s) => s.seat_index === roster.seat_index);
             const filled = Object.values(roster.slots).filter(Boolean).length;
+            const selected = mobileSeat === roster.seat_index;
             return (
               <button
                 key={roster.seat_index}
                 type="button"
                 role="tab"
                 data-testid={`tmw-roster-tab-${roster.seat_index}`}
-                aria-selected={mobileSeat === roster.seat_index}
+                aria-selected={selected}
                 onClick={() => setMobileSeat(roster.seat_index)}
                 className="flex-1 rounded-t px-2 py-2 text-left"
                 style={{
-                  borderBottom: `2px solid ${mobileSeat === roster.seat_index ? "var(--v2-color-accent)" : "var(--v2-border-subtle)"}`,
-                  opacity: mobileSeat === roster.seat_index ? 1 : 0.6,
+                  borderBottom: `2px solid ${selected ? "var(--v2-color-accent)" : "var(--v2-border-subtle)"}`,
                 }}
               >
-                <span style={{ fontFamily: "var(--v2-font-ui)", fontWeight: 700, fontSize: "0.75rem", color: "var(--v2-text-primary)" }}>
+                {/* No whole-element opacity on an unselected tab: dimming the
+                    element also dims its small text below AA. The selected
+                    tab is marked by its rule and its primary ink instead. */}
+                <span
+                  style={{
+                    fontFamily: "var(--v2-font-ui)",
+                    fontWeight: 700,
+                    fontSize: "0.75rem",
+                    color: selected ? "var(--v2-text-primary)" : "var(--v2-text-secondary)",
+                  }}
+                >
                   {isYou ? "You" : (seat?.display_name ?? `Seat ${roster.seat_index + 1}`)}
                 </span>
-                <span className="block" style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.625rem", color: "var(--v2-text-muted)" }}>
+                <span className="block" style={{ fontFamily: "var(--v2-font-mono)", fontSize: "0.625rem", color: "var(--v2-text-secondary)" }}>
                   {filled}/6
                 </span>
               </button>
             );
           })}
         </div>
-        </div>
-        {/* Scrollable body: capped to whatever's left of the viewport once
-            the pinned header above is accounted for. Content that fits does
-            not scroll at all (`overflow-y: auto`, not `scroll`); content that
-            doesn't fit scrolls INSIDE this region only -- the header, and
-            the outer shell's own dimensions, never move.
 
-            `tabIndex={0}` + `role="region"` + `aria-label`: axe's
-            `scrollable-region-focusable` (serious) — a scrollable container
-            with no way for a keyboard user to focus it has no way to scroll
-            it either, since arrow keys only scroll whatever currently has
-            focus. The interactive content inside (candidate buttons, roster
-            tabs) remains independently focusable and tabbing through it is
-            unaffected; this only adds the container itself as one more real
-            stop so `PageDown`/arrow keys can act on it directly. */}
-        <div
-          className="min-h-0 overflow-y-auto"
-          style={{ maxHeight: `calc(var(--tmw-viewport-cap, 100dvh) - ${headerHeight}px)` }}
-          tabIndex={0}
-          role="region"
-          aria-label="Three-Man Weave courts"
-        >
         {/* `tmw-courts`: one container for both responsive renderings below.
             DESKTOP FIRST, MOBILE SECOND in source order — CSS (`lg:hidden` /
-            `hidden lg:grid`) decides which is actually painted at a given
-            viewport, so this ordering has no visual effect either way (only
-            one of the two is ever non-`display:none`). It does, however,
-            decide which element a `data-testid="tmw-seat-court-N"` query
-            resolves to when both are mounted for the seat currently shown on
-            mobile: `.first()` (desktop tests, e.g. "all three seats visible")
-            always lands on the always-present desktop instance, and `.last()`
-            (the phone test, after switching tabs) always lands on the
-            mobile-only instance that is actually visible there. */}
-        <div data-testid="tmw-courts" aria-label="All three rosters">
-        {/* Desktop: the real three-column grid, always. */}
-        <div className="mt-4 hidden gap-4 lg:grid lg:grid-cols-3">
-          {state.rosters.map((roster) => {
-            // Bug fix (mission §9): the PRIMARY highlight is whoever is
-            // actually on the clock, never "whichever court belongs to
-            // you". "YOU" stays visible as a secondary identity badge
-            // inside `PeakV2TMWCourt`'s own status line (the `isYou` prop,
-            // unchanged below) -- it is no longer what decides `lit`. When
-            // a bot is on the clock, the bot's court is the active one and
-            // the viewer's own court stays legible-but-dimmed; when no seat
-            // is on the clock (a seatless reveal turn), nothing is lit
-            // rather than falsely lighting a seat that isn't actually
-            // deciding anything right now.
-            const isOnTurn = !state.is_complete && currentTurnSeatIndex === roster.seat_index;
-            return (
-              <ActiveSeat
-                key={roster.seat_index}
-                state={seatStateOf(roster.seat_index)}
-                owner={ownerOf(roster.seat_index)}
-                complete={roster.complete}
-              >
-                <PeakV2TMWCourt
-                  roster={roster}
-                  seat={seats.find((s) => s.seat_index === roster.seat_index)}
-                  isYou={roster.seat_index === yourSeatIndex}
-                  isOnTurn={isOnTurn}
-                  edge={bandsDiffer ? edgeBandFor(state, roster.seat_index) : null}
-                  lit={isOnTurn}
-                  clock={isOnTurn ? { deadlineAt: clockDeadline, totalSeconds: clockTotal } : null}
-                  interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
-                  rearrangeEligible={canRearrange && roster.seat_index === yourSeatIndex}
-                  pendingSlots={roster.seat_index === yourSeatIndex ? pendingSlots : []}
-                  pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
-                  legalTargets={roster.seat_index === yourSeatIndex ? legalTargets : []}
-                  onPickUp={roster.seat_index === yourSeatIndex ? pickUp : undefined}
-                  onDropOn={roster.seat_index === yourSeatIndex ? dropOn : undefined}
-                />
-              </ActiveSeat>
-            );
-          })}
-        </div>
-
-        <div className="mt-2 lg:hidden">
-          {state.rosters
-            .filter((roster) => roster.seat_index === mobileSeat)
-            .map((roster) => {
+            `hidden lg:grid`) decides which is actually painted, so the order
+            has no visual effect. It does decide which element a
+            `data-testid="tmw-seat-court-N"` query resolves to when both are
+            mounted for the seat shown on mobile: `.first()` lands on the
+            always-present desktop instance, `.last()` on the mobile one. */}
+        <div data-testid="tmw-courts" aria-label="All three rosters" className="tmw-courts">
+          {/* Desktop: the real three-column grid, always. */}
+          <div className="mt-4 hidden gap-4 lg:grid lg:grid-cols-3">
+            {state.rosters.map((roster) => {
+              // The PRIMARY highlight is whoever is actually on the clock,
+              // never "whichever court belongs to you". When no seat is on the
+              // clock (a seatless reveal turn), nothing is lit.
               const isOnTurn = !state.is_complete && currentTurnSeatIndex === roster.seat_index;
               return (
                 <ActiveSeat
@@ -474,12 +384,12 @@ export default function PeakV2TMWCourts({
                     isYou={roster.seat_index === yourSeatIndex}
                     isOnTurn={isOnTurn}
                     edge={bandsDiffer ? edgeBandFor(state, roster.seat_index) : null}
-                    lit
+                    lit={isOnTurn}
                     clock={isOnTurn ? { deadlineAt: clockDeadline, totalSeconds: clockTotal } : null}
                     interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
                     rearrangeEligible={canRearrange && roster.seat_index === yourSeatIndex}
                     pendingSlots={roster.seat_index === yourSeatIndex ? pendingSlots : []}
-                  pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
+                    pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
                     legalTargets={roster.seat_index === yourSeatIndex ? legalTargets : []}
                     onPickUp={roster.seat_index === yourSeatIndex ? pickUp : undefined}
                     onDropOn={roster.seat_index === yourSeatIndex ? dropOn : undefined}
@@ -487,12 +397,44 @@ export default function PeakV2TMWCourts({
                 </ActiveSeat>
               );
             })}
-        </div>
+          </div>
+
+          <div className="mt-2 lg:hidden">
+            {state.rosters
+              .filter((roster) => roster.seat_index === mobileSeat)
+              .map((roster) => {
+                const isOnTurn = !state.is_complete && currentTurnSeatIndex === roster.seat_index;
+                return (
+                  <ActiveSeat
+                    key={roster.seat_index}
+                    state={seatStateOf(roster.seat_index)}
+                    owner={ownerOf(roster.seat_index)}
+                    complete={roster.complete}
+                  >
+                    <PeakV2TMWCourt
+                      roster={roster}
+                      seat={seats.find((s) => s.seat_index === roster.seat_index)}
+                      isYou={roster.seat_index === yourSeatIndex}
+                      isOnTurn={isOnTurn}
+                      edge={bandsDiffer ? edgeBandFor(state, roster.seat_index) : null}
+                      lit
+                      clock={isOnTurn ? { deadlineAt: clockDeadline, totalSeconds: clockTotal } : null}
+                      interactive={canRearrange && roster.seat_index === yourSeatIndex && !busy}
+                      rearrangeEligible={canRearrange && roster.seat_index === yourSeatIndex}
+                      pendingSlots={roster.seat_index === yourSeatIndex ? pendingSlots : []}
+                      pickedUpSlot={roster.seat_index === yourSeatIndex ? pickedUp : null}
+                      legalTargets={roster.seat_index === yourSeatIndex ? legalTargets : []}
+                      onPickUp={roster.seat_index === yourSeatIndex ? pickUp : undefined}
+                      onDropOn={roster.seat_index === yourSeatIndex ? dropOn : undefined}
+                    />
+                  </ActiveSeat>
+                );
+              })}
+          </div>
         </div>
 
         {children}
-        </div>
-      </div>
-    </PeakV2Shell>
+      </PeakV2Shell>
+    </div>
   );
 }

@@ -24,6 +24,8 @@
 @import "./arena.css";
 @import "./twenty-dollar.css";
 @import "./three-man-weave.css";
+/* After three-man-weave.css: re-sets its pick-surface and ceremony rules. */
+@import "./tmw-stage.css";
 /* `daily-grid-result.css` owns the Daily Grid completion screen (`.dg-*`). */
 @import "./daily-grid-result.css";
 

@@ -1,52 +1,53 @@
 "use client";
 
 /**
- * PeakV2TMWResult — the V2 "Broadcast Arena" result screen for Three-Man
- * Weave (TMW's counterpart to `PodiumReceipt.tsx`, following the same
- * CINEMATIC → LIVE restyle `PeakV2ShowdownResult.tsx` and
- * `PeakV2CourtResult.tsx` already established in this pass).
+ * PeakV2TMWResult — the end of a Three-Man Weave draft.
  *
- * SAME REAL DATA, SAME TWO PRODUCT RULES `PodiumReceipt.tsx` ENFORCES — see
- * that file's own docstring and `@/lib/three-man-weave-state`'s module
- * comment for the full reasoning. Repeated here only as a checklist, never
- * re-derived:
+ * ABOVE THE FOLD IT ANSWERS THREE QUESTIONS (game-feel pass 5):
+ *
+ *   WHO WON?        The verdict: your placement, the response line, who won and
+ *                   by how much, your own lineup score, and the way back in
+ *                   (Play again / Back to Arena). Beside it, the standings with
+ *                   a bar per roster.
+ *   WHY?            The winner's decisive pick (the evaluator's own
+ *                   leave-one-out result) and the fit measures on which the
+ *                   winner finished clear of the field, then a head-to-head of
+ *                   those measures for all three rosters with every value
+ *                   printed beside its bar.
+ *   WHAT DID I BUILD?  Your six, compact, with the decisive and top-rated cards
+ *                   marked.
+ *
+ * The three full courts and the itemised receipt follow, secondary. Before this
+ * pass nearly all of the "why" lived inside the `<details>` receipt, and the
+ * screen's first 900px were a single centred placement and three bars.
+ *
+ * THE RULES THIS SCREEN KEEPS, unchanged (see `PodiumReceipt.tsx` and
+ * `@/lib/three-man-weave-state`'s module comment):
  *
  *   1. THE RANKING BASIS IS NAMED WHEREVER A WINNER IS DECLARED, AND THERE IS
- *      NO PROJECTED RECORD. `rankingBasisLabel()`/`RANKING_BASIS_LABEL` are
- *      reused verbatim. Three-Man Weave plays six rounds, not eight, so
- *      there is no 82-0-style win/loss headline anywhere on this screen.
- *   2. AN UNSCOREABLE ROSTER HAS A REAL STATE, NOT A BLANK OR A ZERO.
- *      `podium()` already returns the discriminated `TmwScoreDisplay` union;
- *      every score render below switches on `.kind` and shows `.text` for
- *      the `"unrankable"` case rather than inventing a number.
+ *      NO PROJECTED RECORD. Six rounds, not eight: no 82-0-style W/L anywhere.
+ *   2. AN UNSCOREABLE ROSTER HAS A REAL STATE, NOT A BLANK OR A ZERO. Every
+ *      score render switches on `podium()`'s discriminated `.kind`.
+ *   3. NOTHING IS RE-SCORED HERE. Every number is one the server reported:
+ *      `score`, `detail.fit_components`, `detail.decisive_pick`,
+ *      `detail.best_pick`. The only arithmetic is a subtraction (the margin),
+ *      a share of the winner's score (the podium bar) and a comparison (which
+ *      roster reported the highest value) — never a weighting.
+ *   4. THE MODEL RATES; IT DOES NOT DECREE. Copy says "PEAK3 rates…".
+ *   5. COLOUR IS NEVER THE ONLY SIGNAL. Placement is an ordinal word, the
+ *      winner is marked "winner", your rows say "you", a leading value says
+ *      "best", and every bar has its number beside it.
  *
- * CINEMATIC → LIVE: a brief hero (`PeakV2CinematicStage`) carries the
- * placement badge, the deterministic `resultLine()` sentence (the real
- * response-bank copy, reused verbatim — never rewritten), the outcome
- * headline, and the winner's lineup score as the one hero number. Everything
- * else — the three complete final rosters, the unrankable note, and the
- * itemised receipt (mean season score, decisive pick, best value, positional
- * fit, traded-score-source notes) — reads LIVE/plain, hairline-divided
- * (`PeakV2Rule`) rather than boxed into three side-by-side cards. The
- * receipt stays behind a native `<details>`, same convention as the legacy
- * screen and both sibling V2 result screens.
- *
- * COLOUR IS NEVER THE ONLY SIGNAL. First place gets the one legitimate gold
- * moment (the hero headline, the placement numeral, the winner's score) —
- * every row still prints its rank numeral AND its ordinal word in full, so a
- * reader who cannot perceive colour reads the same podium.
- *
- * No player photographs — matching `PeakV2CourtResult.tsx`'s `ResultSlotCard`
- * choice (and CLAUDE.md's no-photos/no-logos principle) over legacy's
- * `PlayerAvatar` headshots: identity is carried by name + team/season text
- * alone, via `PeakV2PlayerIdentity`.
+ * No player photographs: identity is name + season + team text alone.
  */
 
-import type { CSSProperties } from "react";
+import { useId, type CSSProperties } from "react";
 import type { ArenaResultView, TmwRoster } from "@/types/three-man-weave";
 import { TMW_SLOT_TYPES } from "@/types/three-man-weave";
 import {
   RANKING_BASIS_LABEL,
+  TMW_FIT_MEASURES,
+  fitValue,
   ordinal,
   outcomeHeadline,
   podium,
@@ -55,12 +56,15 @@ import {
   resultLine,
   scoreSourceNote,
   marginText,
+  seatAccent,
+  separationSentence,
+  slotAbbrev,
+  winnerSeparation,
   winningMargin,
 } from "@/lib/three-man-weave-state";
 import PeakV2Shell from "../PeakV2Shell";
-import PeakV2CinematicStage from "../PeakV2CinematicStage";
+import PeakV2ArenaLight from "../PeakV2ArenaLight";
 import PeakV2ResultHeadline from "../PeakV2ResultHeadline";
-import PeakV2Rule from "../PeakV2Rule";
 import PeakV2Score from "../PeakV2Score";
 import { GameActionButton, ScoreTransition } from "@/components/game-feel";
 import PeakV2SecondaryAction from "../PeakV2SecondaryAction";
@@ -74,10 +78,8 @@ const LABEL_STYLE: CSSProperties = {
   fontWeight: 700,
   letterSpacing: "0.06em",
   textTransform: "uppercase",
-  color: "var(--v2-text-muted)",
+  color: "var(--v2-text-secondary)",
 };
-
-const SECTION_HEAD_STYLE: CSSProperties = LABEL_STYLE;
 
 const bodyTextStyle: CSSProperties = {
   fontFamily: "var(--v2-font-ui)",
@@ -85,30 +87,15 @@ const bodyTextStyle: CSSProperties = {
   color: "var(--v2-text-secondary)",
 };
 
-const mutedTextStyle: CSSProperties = {
-  fontFamily: "var(--v2-font-ui)",
-  fontSize: "0.75rem",
-  color: "var(--v2-text-muted)",
-};
-
 type TmwPodiumRow = ReturnType<typeof podium>[number];
 
 /**
- * One competitor's ending: identity, placement, lineup score, and their
- * finished roster ON THE COMPACT COURT — the same court the draft was played
- * on, the same floor, the same tiles, the same typography.
- *
- * WHAT THIS REPLACES. A flat `<ul>` of six hairline-divided rows per seat,
- * three of them stacked, which made the conclusion of a competitive game read
- * as three transaction ledgers roughly three thousand pixels tall
- * (design-review/17). The data was all there; none of it looked like
- * basketball.
+ * One competitor's finished roster ON THE COMPACT COURT — the same court the
+ * draft was played on.
  *
  * PROMINENCE IS EARNED TWICE, INDEPENDENTLY. The WINNER's court is lit and
- * their ordinal is gold. The VIEWER's court is outlined and explicitly
- * marked "YOU" whether they won or lost — so a player who came third can
- * still find themselves instantly, which a winner-only treatment does not
- * give them.
+ * their ordinal is gold. The VIEWER's court is outlined and explicitly marked
+ * "Your seat" whether they won or lost.
  */
 function SeatResultBlock({
   row,
@@ -129,10 +116,6 @@ function SeatResultBlock({
       data-winner={isFirst ? "true" : undefined}
       data-yours={isYou ? "true" : undefined}
     >
-      {/* YOUR SEAT, IN GOLD, WHATEVER THE PLACEMENT. The winner keeps the lit
-          ground and the gold ordinal; your own court gets a gold edge and
-          this tab so 2nd and 3rd can find themselves at once. Both can be
-          true on one card: "1st" says winner, the tab says yours. */}
       {isYou ? (
         <span className="tmw-result-seat-yours" data-testid={`tmw-result-${row.result.seat_index}-yours`} aria-hidden="true">
           {isFirst ? "Your seat · Winner" : "Your seat"}
@@ -140,9 +123,7 @@ function SeatResultBlock({
       ) : null}
       <div className="tmw-result-seat-head">
         <div className="min-w-0">
-          {/* ONE ORDINAL PER SEAT, same rule as the hero: the ordinal WORD
-              carries placement, so it needs neither a numeral repeating it
-              nor colour to be readable. */}
+          {/* ONE ORDINAL PER SEAT: the ordinal WORD carries placement. */}
           <span
             className="tmw-result-seat-place"
             style={{ color: isFirst ? "var(--v2-color-accent)" : "var(--v2-text-primary)" }}
@@ -160,7 +141,7 @@ function SeatResultBlock({
             size="md"
           />
         ) : (
-          <span data-testid={`tmw-result-${row.result.seat_index}-unranked`} style={mutedTextStyle}>
+          <span data-testid={`tmw-result-${row.result.seat_index}-unranked`} style={bodyTextStyle}>
             {row.score.text}
           </span>
         )}
@@ -168,22 +149,173 @@ function SeatResultBlock({
 
       {roster ? (
         <div className="mt-3" data-testid={`tmw-result-${row.result.seat_index}-roster`}>
-          {/* The draft's own court, finished and inert. `interactive={false}`
-              and `isOnTurn={false}`: a result is not a turn. Every tile still
-              carries the exact season, the team, the positions and the PEAK3
-              value — bench included, because in this mode the bench counts
-              equally in the score. */}
+          {/* The draft's own court, finished and inert: a result is not a turn. */}
           <PeakV2TMWCourt
             roster={roster}
             isYou={isYou}
             isOnTurn={false}
             edge={null}
-            lit={isFirst || isYou}
+            lit={row.result.placement === 1 || isYou}
             interactive={false}
             hideHeader
           />
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * THE HEAD-TO-HEAD. One row per fit measure the lineup score reads, one column
+ * per roster in podium order; each cell is the reported value, a bar on the
+ * measure's own 0–100 scale, and "best" on the highest value in the row.
+ * Then each roster's decisive pick and top-rated card, as text.
+ */
+function HeadToHead({ rows, yourSeatIndex }: { rows: TmwPodiumRow[]; yourSeatIndex: number | null }) {
+  const headingId = useId();
+  const columns = { ["--tmw-cols" as string]: rows.length } as CSSProperties;
+  return (
+    <div className="tmw-h2h" data-testid="tmw-compare">
+      <p className="tmw-final-label" id={headingId}>
+        Head to head · how PEAK3 rates each six
+      </p>
+      <div role="table" aria-labelledby={headingId} className="tmw-h2h-table" style={columns}>
+        <div role="row" className="tmw-h2h-row tmw-h2h-row--head">
+          <span role="columnheader" className="tmw-h2h-metric">
+            Measure
+          </span>
+          {rows.map((row) => {
+            const isYou = row.result.seat_index === yourSeatIndex;
+            return (
+              <span
+                role="columnheader"
+                key={row.result.seat_index}
+                className="tmw-h2h-seat"
+                data-winner={row.result.placement === 1 ? "true" : undefined}
+                data-yours={isYou ? "true" : undefined}
+                data-seat-accent={seatAccent(row.result.seat_index)}
+              >
+                <span className="tmw-h2h-seat-place">{ordinal(row.result.placement)}</span>
+                <span className="tmw-h2h-seat-name">
+                  {row.result.display_name}
+                  {isYou ? " (you)" : ""}
+                </span>
+              </span>
+            );
+          })}
+        </div>
+
+        {TMW_FIT_MEASURES.map((measure) => {
+          const values = rows.map((row) => fitValue(row, measure.key));
+          const reported = values.filter((value): value is number => value !== null);
+          const best = reported.length > 1 ? Math.max(...reported) : null;
+          return (
+            <div role="row" className="tmw-h2h-row" key={measure.key} data-testid={`tmw-compare-${measure.key}`}>
+              <span role="rowheader" className="tmw-h2h-metric">
+                {measure.label}
+              </span>
+              {rows.map((row, index) => {
+                const value = values[index];
+                const lead = best !== null && value !== null && value === best;
+                const share = value === null ? 0 : Math.max(0, Math.min(1, value / 100));
+                return (
+                  <span
+                    role="cell"
+                    key={row.result.seat_index}
+                    className="tmw-h2h-cell"
+                    data-lead={lead ? "true" : undefined}
+                    data-seat-accent={seatAccent(row.result.seat_index)}
+                    style={{ ["--tmw-fill" as string]: share } as CSSProperties}
+                  >
+                    <span className="sr-only">{row.result.display_name}: </span>
+                    <span className="tmw-h2h-value">{value === null ? "—" : value.toFixed(0)}</span>
+                    {lead ? <span className="tmw-h2h-lead">best</span> : null}
+                    <span className="tmw-h2h-bar" aria-hidden="true">
+                      <span className="tmw-h2h-fill" />
+                    </span>
+                  </span>
+                );
+              })}
+            </div>
+          );
+        })}
+
+        <div role="row" className="tmw-h2h-row tmw-h2h-row--text" data-testid="tmw-compare-decisive">
+          <span role="rowheader" className="tmw-h2h-metric">
+            Decisive pick
+          </span>
+          {rows.map((row) => {
+            const decisive = row.result.detail?.decisive_pick ?? null;
+            return (
+              <span role="cell" key={row.result.seat_index} className="tmw-h2h-cell tmw-h2h-cell--text">
+                <span className="sr-only">{row.result.display_name}: </span>
+                {decisive ? (
+                  <>
+                    <span className="tmw-h2h-name">{decisive.player_name}</span>
+                    <span className="tmw-h2h-note">−{decisive.lineup_quality_drop.toFixed(2)} without</span>
+                  </>
+                ) : (
+                  <span className="tmw-h2h-note">Not reported</span>
+                )}
+              </span>
+            );
+          })}
+        </div>
+
+        <div role="row" className="tmw-h2h-row tmw-h2h-row--text" data-testid="tmw-compare-top-card">
+          <span role="rowheader" className="tmw-h2h-metric">
+            Top-rated card
+          </span>
+          {rows.map((row) => (
+            <span role="cell" key={row.result.seat_index} className="tmw-h2h-cell tmw-h2h-cell--text">
+              <span className="sr-only">{row.result.display_name}: </span>
+              <span className="tmw-h2h-name">{row.result.detail?.best_pick ?? "Not reported"}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** WHAT YOU BUILT: the six, compact, with the two cards the evaluator named. */
+function BuildList({
+  row,
+  roster,
+  isYou,
+}: {
+  row: TmwPodiumRow;
+  roster: TmwRoster;
+  isYou: boolean;
+}) {
+  const decisiveSlug = row.result.detail?.decisive_pick?.player_slug ?? null;
+  const topName = row.result.detail?.best_pick ?? null;
+  return (
+    <div className="tmw-build" data-testid="tmw-your-build">
+      <p className="tmw-final-label">{isYou ? "What you built" : `${row.result.display_name}'s six`}</p>
+      <ol className="tmw-build-list">
+        {TMW_SLOT_TYPES.map((slot) => {
+          const pick = roster.slots[slot] ?? null;
+          const decisive = !!pick && pick.player_slug === decisiveSlug;
+          const top = !!pick && !!topName && pick.player_name === topName;
+          return (
+            <li key={slot} className="tmw-build-row" data-decisive={decisive ? "true" : undefined}>
+              <span className="tmw-build-slot">{slotAbbrev(slot)}</span>
+              <span className="tmw-build-player">
+                <span className="tmw-build-name">{pick ? pick.player_name : "Open"}</span>
+                <span className="tmw-build-meta">
+                  {pick?.scoring_card ? `${pick.scoring_card.season} ${pick.scoring_card.team_id}` : ""}
+                  {decisive ? <span className="tmw-build-tag">decisive</span> : null}
+                  {top ? <span className="tmw-build-tag tmw-build-tag--quiet">top card</span> : null}
+                </span>
+              </span>
+              <span className="tmw-build-value">
+                {pick?.scoring_card ? pick.scoring_card.prime_score.toFixed(1) : "—"}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
@@ -196,7 +328,10 @@ export default function PeakV2TMWResult({
   onPlayAgain,
   playAgainPending = false,
   multiplayer = false,
+  modeName = "Three-Man Weave",
 }: {
+  /** The ruleset's name ("Three-Man Weave: Franchise Draft"), for the eyebrow. */
+  modeName?: string;
   results: ArenaResultView[];
   rosters: TmwRoster[];
   yourSeatIndex: number | null;
@@ -235,26 +370,28 @@ export default function PeakV2TMWResult({
   const placement = yours?.result.placement ?? null;
   const won = placement === 1;
   const band = resultBand(rows, yourSeatIndex);
-  const winner = rows.find((row) => row.result.placement === 1) ?? null;
-  // Bug fix (mission §13, score-ownership correctness): the hero number
-  // directly beneath `outcomeHeadline` (e.g. "Rim Runner wins") is the
-  // WINNER's score by design (see this module's docstring) -- which is a
-  // DIFFERENT seat from `yourSeatIndex` whenever the viewer did not win.
-  // A bare "PEAK3 lineup score" caption on that number, sitting right below
-  // the viewer's OWN placement badge, left whose score it was ambiguous —
-  // a losing viewer could misread it as their own result. Naming the seat
-  // explicitly removes that ambiguity without changing which number is
-  // shown or where (no redesign): "Your ..." when the viewer won, the real
-  // display name otherwise.
+  const leaders = rows.filter((row) => row.result.placement === 1);
+  const winner = leaders[0] ?? null;
+  const soleWinner = leaders.length === 1 ? winner : null;
   const winnerIsYou = winner !== null && winner.result.seat_index === yourSeatIndex;
   const winnerScoreLabel = winner
     ? `${winnerIsYou ? "Your" : `${winner.result.display_name}'s`} ${RANKING_BASIS_LABEL}`
     : RANKING_BASIS_LABEL;
 
-  // Same outcome→ambient-light convention `PeakV2ShowdownResult`/
-  // `PeakV2CourtResult` already use: gold reserved for the win, a losing
-  // band reads negative, a draw or an unranked/no-seat viewer reads neutral
-  // accent rather than either status color.
+  // WHY — only from what the evaluator reported.
+  const measuresReported = rows.some((row) => !!row.result.detail?.fit_components);
+  const separations = winnerSeparation(rows);
+  const winnerDecisive = soleWinner?.result.detail?.decisive_pick ?? null;
+  const soleWinnerIsYou = soleWinner !== null && soleWinner.result.seat_index === yourSeatIndex;
+  const whyAvailable = soleWinner !== null && soleWinner.score.kind === "scored" && (!!winnerDecisive || measuresReported);
+
+  // WHAT YOU BUILT — yours, or the winner's for a viewer with no seat.
+  const buildRow = yours ?? winner;
+  const buildRoster = buildRow ? rosters.find((entry) => entry.seat_index === buildRow.result.seat_index) : undefined;
+
+  // Same outcome→ambient-light convention the sibling V2 result screens use:
+  // gold reserved for the win, a losing band reads negative, a draw or an
+  // unranked/no-seat viewer reads neutral accent.
   const lightTone: V2Tone =
     band === "won_clear" || band === "won_close"
       ? "positive"
@@ -263,208 +400,197 @@ export default function PeakV2TMWResult({
         : "accent";
 
   return (
-    <PeakV2Shell width="live">
-      <div className="pb-16 pt-6" data-testid="tmw-podium" data-your-placement={placement ?? "none"} data-band={band}>
-        {/* Decoration over a decided result: `pointer-events: none`, absent
-            entirely under reduced motion, and nothing below waits on it —
-            same real win-only gate `PodiumReceipt.tsx`/`PeakV2ShowdownResult`
-            already use. */}
+    <PeakV2Shell width="live-wide">
+      <div className="tmw-final pb-16 pt-6" data-testid="tmw-podium" data-your-placement={placement ?? "none"} data-band={band}>
+        {/* Decoration over a decided result: absent under reduced motion,
+            and nothing below waits on it. */}
         <Celebration active={won} testId="tmw-celebration" />
 
-        <PeakV2CinematicStage light={{ tone: lightTone }}>
-          <span style={LABEL_STYLE}>Three-Man Weave · Draft complete</span>
-
-          {/* ONE ORDINAL. This used to render a mono numeral "3" immediately
-              beside the display "3rd" — the same fact twice, a hand's width
-              apart, which read as a rendering bug rather than as emphasis
-              (design-review/16). It also pushed the headline off the stage's
-              centre axis, because the pair was centred, not the ordinal.
-              The numeral was there to keep placement from being carried by
-              colour alone; the ORDINAL WORD itself already does that, in
-              every case, for every reader. */}
-          <div className="mt-2" data-testid="tmw-your-placement">
-            <PeakV2ResultHeadline as="h1" scale="hero" tone={won ? "accent" : "primary"}>
-              {placement === null ? "Complete" : ordinal(placement)}
-            </PeakV2ResultHeadline>
-          </div>
-
-          <div data-testid="tmw-result-line">
-            <PeakV2ResultHeadline as="h2" scale="line" tone="primary" className="mt-3">
-              {resultLine(band, seed || String(placement ?? "none"))}
-            </PeakV2ResultHeadline>
-          </div>
-
-          <p className="mt-2 max-w-md" data-testid="tmw-outcome" style={bodyTextStyle}>
-            {outcomeHeadline(rows)}
-          </p>
-
-          {/* HOW CLOSE IT WAS, as the number rather than only as a word.
-              `resultLine` above already says "close" or "clear"; the gap
-              itself was nowhere on the screen, so a one-point win and a
-              fifteen-point win read identically above the standings. This is
-              subtraction over two scores already on this page -- no new
-              analytics, and it disappears entirely when the comparison would
-              be a claim (a drawn first place, fewer than two scored
-              rosters). */}
-          {margin ? (
-            <p className="mt-1 max-w-md" data-testid="tmw-margin" style={mutedTextStyle}>
-              {margin.winnerName} by {marginText(margin.points)} over {margin.runnerUpName}
-              {margin.yourGap !== null
-                ? ` · you finished ${marginText(margin.yourGap)} back`
-                : ""}
-            </p>
-          ) : null}
-
-          {/* THE VIEWER'S OWN SCORE, not the winner's.
-              The hero used to print the WINNER's number under the viewer's
-              own placement badge — so a player who came third read "3rd"
-              and then, directly beneath it, 64.3, a number belonging to
-              somebody else. Naming the seat (which a previous pass did) made
-              it unambiguous but not useful: the one number a player wants
-              from their own result is their own. The winner's score is still
-              on screen, in the standings immediately below, where it is
-              comparable rather than confusable. Falls back to the winner's —
-              still explicitly labelled — for a viewer with no scored seat
-              (a spectator, or an unscoreable roster). */}
-          {yours && yours.score.kind === "scored" ? (
-            <div className="mt-5" data-testid="tmw-your-score">
-              <PeakV2Score
-                value={<ScoreTransition value={yours.score.value} from={0} durationMs={1100} format={(n) => n.toFixed(1)} testId="tmw-hero-score-value" />}
-                label={`Your ${RANKING_BASIS_LABEL}`}
-                tone="accent"
-                role="moment"
-                size="lg"
-                align="center"
-              />
+        <section className="tmw-final-hero">
+          {/* WHO WON — and the way back in. */}
+          <div className="tmw-final-verdict">
+            <div className="tmw-final-light" aria-hidden="true">
+              <PeakV2ArenaLight tone={lightTone} x="28%" y="0%" />
             </div>
-          ) : winner && winner.score.kind === "scored" ? (
-            <div className="mt-5" data-testid="tmw-winner-score" data-winner-is-you={winnerIsYou}>
-              <PeakV2Score
-                value={<ScoreTransition value={winner.score.value} from={0} durationMs={1100} format={(n) => n.toFixed(1)} testId="tmw-hero-score-value" />}
-                label={winnerScoreLabel}
-                tone="accent"
-                role="moment"
-                size="lg"
-                align="center"
-              />
+            <p className="tmw-final-label">{modeName} · Final</p>
+
+            <div className="tmw-final-placement">
+              {/* ONE ORDINAL — the word already carries placement for every
+                  reader, so no numeral repeats it (design-review/16). */}
+              <div data-testid="tmw-your-placement">
+                <PeakV2ResultHeadline as="h2" scale="hero" tone={won ? "accent" : "primary"}>
+                  {placement === null ? "Complete" : ordinal(placement)}
+                </PeakV2ResultHeadline>
+              </div>
+              <div className="tmw-final-placement-copy">
+                <div data-testid="tmw-result-line">
+                  <PeakV2ResultHeadline as="p" scale="line" tone="primary">
+                    {resultLine(band, seed || String(placement ?? "none"))}
+                  </PeakV2ResultHeadline>
+                </div>
+                <p className="tmw-final-outcome" data-testid="tmw-outcome">
+                  {outcomeHeadline(rows)}
+                </p>
+                {/* HOW CLOSE IT WAS, as the number. Subtraction over two scores
+                    already on this page; absent when the comparison would be a
+                    claim (a drawn first place, fewer than two scored rosters). */}
+                {margin ? (
+                  <p className="tmw-final-margin" data-testid="tmw-margin">
+                    {margin.winnerName} by {marginText(margin.points)} over {margin.runnerUpName}
+                    {margin.yourGap !== null ? ` · you finished ${marginText(margin.yourGap)} back` : ""}
+                  </p>
+                ) : null}
+              </div>
             </div>
-          ) : null}
-        </PeakV2CinematicStage>
 
-        <PeakV2Rule spacing="lg" />
-
-        {/* Pass 7 (human acceptance testing, task §14): a compact standings
-            strip bridges the hero (which only carried the WINNER's number)
-            and the full per-seat roster breakdown below — "who won, by how
-            much, and what each team looked like" should read in one glance,
-            not only after scrolling into six-row-deep receipts. Same `rows`
-            data the detailed blocks below already use; nothing invented. */}
-        {/* THE PODIUM, not a list of three lines.
-            Each row carries a bar whose length is the seat's score as a
-            fraction of the winner's -- arithmetic over two numbers already
-            printed on the row, so it states nothing the text does not. The
-            bars are what make "won by a mile" and "won by a point" look
-            different at a glance, which three right-aligned decimals never
-            did. The winner is marked with a word ("winner"), never with gold
-            alone, and the viewer's own row is outlined whether they came
-            first or last. Rows reveal in placement order, transform and
-            opacity only, capped and neutralised under reduced motion by the
-            shared `.pk-reveal` primitive. */}
-        <ol className="tmw-podium" data-testid="tmw-standings">
-          {rows.map((row, index) => {
-            const isFirst = row.result.placement === 1;
-            const isYou = row.result.seat_index === yourSeatIndex;
-            const share =
-              row.score.kind === "scored" && topScore > 0
-                ? Math.max(0.06, Math.min(1, row.score.value / topScore))
-                : 0;
-            return (
-              <li
-                key={row.result.seat_index}
-                className="tmw-podium-row pk-reveal"
-                data-testid={`tmw-standing-${row.result.seat_index}`}
-                data-winner={isFirst ? "true" : undefined}
-                data-yours={isYou ? "true" : undefined}
-                style={{ ["--pk-reveal-index" as string]: index, ["--tmw-share" as string]: share }}
-              >
-                <span className="tmw-podium-rank pk-numeral">{ordinal(row.result.placement)}</span>
-                <span className="tmw-podium-name">
-                  {row.result.display_name}
-                  {isYou ? <span className="tmw-podium-you">you</span> : null}
-                  {isFirst ? <span className="tmw-podium-crown">winner</span> : null}
-                  {row.tied ? <span className="tmw-podium-you">drawn</span> : null}
-                </span>
-                <span className="tmw-podium-bar" aria-hidden="true">
-                  <span className="tmw-podium-fill" />
-                </span>
-                <span className="tmw-podium-score pk-numeral">
-                  {row.score.kind === "scored" ? row.score.value.toFixed(1) : row.score.text}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
-
-        <PeakV2Rule spacing="lg" />
-
-        {/* THREE COMPETITORS, SIDE BY SIDE — winner first, on the court the
-            draft was played on. Stacked vertically these were three ~1000px
-            ledgers; abreast they are one comparable composition that fits a
-            desktop viewport, and they stack (still winner-first) below the
-            breakpoint where three columns would stop being readable. */}
-        <div>
-          <span style={SECTION_HEAD_STYLE}>Final rosters</span>
-          <div className="tmw-result-grid" data-testid="tmw-result-rows">
-            {rows.map((row) => {
-              const roster = rosters.find((entry) => entry.seat_index === row.result.seat_index);
-              const isYou = row.result.seat_index === yourSeatIndex;
-              return (
-                <SeatResultBlock
-                  key={row.result.seat_index}
-                  row={row}
-                  roster={roster}
-                  isYou={isYou}
+            {/* THE VIEWER'S OWN SCORE, not the winner's — the winner's is in
+                the standings, where it is comparable rather than confusable.
+                Falls back to the winner's, explicitly labelled, for a viewer
+                with no scored seat. */}
+            {yours && yours.score.kind === "scored" ? (
+              <div className="tmw-final-score" data-testid="tmw-your-score">
+                <PeakV2Score
+                  value={<ScoreTransition value={yours.score.value} from={0} durationMs={1100} format={(n) => n.toFixed(1)} testId="tmw-hero-score-value" />}
+                  label={`Your ${RANKING_BASIS_LABEL}`}
+                  tone="accent"
+                  role="moment"
+                  size="lg"
                 />
-              );
-            })}
+              </div>
+            ) : winner && winner.score.kind === "scored" ? (
+              <div className="tmw-final-score" data-testid="tmw-winner-score" data-winner-is-you={winnerIsYou}>
+                <PeakV2Score
+                  value={<ScoreTransition value={winner.score.value} from={0} durationMs={1100} format={(n) => n.toFixed(1)} testId="tmw-hero-score-value" />}
+                  label={winnerScoreLabel}
+                  tone="accent"
+                  role="moment"
+                  size="lg"
+                />
+              </div>
+            ) : null}
+
+            {/* PLAY AGAIN IS ANOTHER GAME, and it is on the first screen. */}
+            <div className="tmw-final-actions">
+              <GameActionButton
+                onAction={onPlayAgain}
+                pending={playAgainPending}
+                pendingLabel={multiplayer ? "Opening the lobby…" : "Dealing a new draft…"}
+                data-testid="tmw-play-again"
+              >
+                {multiplayer ? "Play again · rematch lobby" : "Play again"}
+              </GameActionButton>
+              <PeakV2SecondaryAction href="/arena" data-testid="tmw-back-to-arena">
+                Back to Arena
+              </PeakV2SecondaryAction>
+              <PeakV2SecondaryAction href="/arena/three-man-weave" data-testid="tmw-back-to-mode" size="sm">
+                Three-Man Weave home
+              </PeakV2SecondaryAction>
+            </div>
           </div>
-        </div>
+
+          <div className="tmw-final-board">
+            {/* THE PODIUM. Each bar is the seat's score as a share of the
+                winner's -- arithmetic over two numbers printed on the row. */}
+            <p className="tmw-final-label">Final standings · {RANKING_BASIS_LABEL}</p>
+            <ol className="tmw-podium" data-testid="tmw-standings">
+              {rows.map((row, index) => {
+                const isFirst = row.result.placement === 1;
+                const isYou = row.result.seat_index === yourSeatIndex;
+                const share =
+                  row.score.kind === "scored" && topScore > 0
+                    ? Math.max(0.06, Math.min(1, row.score.value / topScore))
+                    : 0;
+                return (
+                  <li
+                    key={row.result.seat_index}
+                    className="tmw-podium-row pk-reveal"
+                    data-testid={`tmw-standing-${row.result.seat_index}`}
+                    data-winner={isFirst ? "true" : undefined}
+                    data-yours={isYou ? "true" : undefined}
+                    style={{ ["--pk-reveal-index" as string]: index, ["--tmw-share" as string]: share }}
+                  >
+                    <span className="tmw-podium-rank pk-numeral">{ordinal(row.result.placement)}</span>
+                    <span className="tmw-podium-name">
+                      {row.result.display_name}
+                      {isYou ? <span className="tmw-podium-you">you</span> : null}
+                      {isFirst ? <span className="tmw-podium-crown">winner</span> : null}
+                      {row.tied ? <span className="tmw-podium-you">drawn</span> : null}
+                    </span>
+                    <span className="tmw-podium-bar" aria-hidden="true">
+                      <span className="tmw-podium-fill" />
+                    </span>
+                    <span className="tmw-podium-score pk-numeral">
+                      {row.score.kind === "scored" ? row.score.value.toFixed(1) : row.score.text}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+
+            {/* WHY THE WINNER WON — at a useful level, from the payload. */}
+            {whyAvailable && soleWinner ? (
+              <div className="tmw-final-why" data-testid="tmw-why">
+                <h3 className="tmw-final-why-title">
+                  {soleWinnerIsYou ? "Why you won" : `Why ${soleWinner.result.display_name} won`}
+                </h3>
+                {winnerDecisive ? (
+                  <p className="tmw-final-why-line" data-testid="tmw-why-decisive">
+                    <span className="tmw-final-why-key">Decisive pick</span>
+                    <span>
+                      <strong>{winnerDecisive.player_name}</strong> ({winnerDecisive.season} {winnerDecisive.team_id}, round{" "}
+                      {winnerDecisive.round_number}) — without that card PEAK3&apos;s lineup score for this six drops{" "}
+                      <span className="tmw-final-why-num">{winnerDecisive.lineup_quality_drop.toFixed(2)}</span>, the most
+                      of any pick.
+                    </span>
+                  </p>
+                ) : null}
+                {measuresReported ? (
+                  <p className="tmw-final-why-line" data-testid="tmw-why-edge">
+                    <span className="tmw-final-why-key">Where it separated</span>
+                    <span>{separationSentence(soleWinner.result.display_name, soleWinnerIsYou, separations)}</span>
+                  </p>
+                ) : null}
+              </div>
+            ) : leaders.length > 1 ? (
+              <p className="tmw-final-why-line" data-testid="tmw-why-drawn">
+                First place is shared, so there is no single winning roster to explain.
+              </p>
+            ) : null}
+          </div>
+        </section>
+
+        {measuresReported || (buildRow && buildRoster) ? (
+          <section className="tmw-final-compare">
+            {measuresReported ? <HeadToHead rows={rows} yourSeatIndex={yourSeatIndex} /> : null}
+            {buildRow && buildRoster ? (
+              <BuildList row={buildRow} roster={buildRoster} isYou={buildRow === yours} />
+            ) : null}
+          </section>
+        ) : null}
 
         {unrankableReason ? (
-          <p className="mt-4" data-testid="tmw-unranked-reason" style={mutedTextStyle}>
+          <p className="mt-4" data-testid="tmw-unranked-reason" style={bodyTextStyle}>
             {unrankableReason}
           </p>
         ) : null}
 
-        <PeakV2Rule spacing="lg" />
+        {/* THREE COMPETITORS, SIDE BY SIDE — winner first, on the court the
+            draft was played on. */}
+        <section className="tmw-final-rosters">
+          <p className="tmw-final-label">Final rosters</p>
+          <div className="tmw-result-grid" data-testid="tmw-result-rows">
+            {rows.map((row) => {
+              const roster = rosters.find((entry) => entry.seat_index === row.result.seat_index);
+              const isYou = row.result.seat_index === yourSeatIndex;
+              return <SeatResultBlock key={row.result.seat_index} row={row} roster={roster} isYou={isYou} />;
+            })}
+          </div>
+        </section>
 
-        {/* PLAY AGAIN IS ANOTHER GAME. Against bots it creates the next match
-            and enters it directly -- intro, first roll, first pick -- rather
-            than returning to the mode's landing page; that page is one
-            explicit click away instead. */}
-        <div className="flex flex-wrap items-center gap-3">
-          <GameActionButton
-            onAction={onPlayAgain}
-            pending={playAgainPending}
-            pendingLabel={multiplayer ? "Opening the lobby…" : "Dealing a new draft…"}
-            data-testid="tmw-play-again"
-          >
-            {multiplayer ? "Play again · rematch lobby" : "Play again"}
-          </GameActionButton>
-          <PeakV2SecondaryAction href="/arena/three-man-weave" data-testid="tmw-back-to-mode">
-            Back to Three-Man Weave
-          </PeakV2SecondaryAction>
-          <PeakV2SecondaryAction href="/arena" data-testid="tmw-back-to-arena">
-            Back to Arena
-          </PeakV2SecondaryAction>
-        </div>
-
-        {/* THE RECEIPT, ONE CLICK AWAY. Same convention as `PodiumReceipt`'s
-            "Full receipt" disclosure and both sibling V2 result screens'
-            `<details>`: the basis sentence, the leave-one-out decisive pick,
-            the evaluator's own fit components, the mean season score with
-            its "this decides nothing" label, and the traded-score-source
-            notes — none of it invented, all of it the server's own numbers. */}
+        {/* THE RECEIPT, SECONDARY: the basis sentence, the leave-one-out
+            decisive pick, the evaluator's own fit components, the mean season
+            score with its "this decides nothing" label, and the traded-score
+            notes — all of it the server's own numbers. */}
         <details className="mt-10" data-testid="tmw-receipt">
           <summary
             data-testid="tmw-receipt-toggle"
@@ -541,7 +667,7 @@ export default function PeakV2TMWResult({
                   {notes.length ? (
                     <ul className="mt-2 flex flex-col gap-1">
                       {notes.map((note) => (
-                        <li key={note} style={mutedTextStyle}>
+                        <li key={note} style={bodyTextStyle}>
                           {note}
                         </li>
                       ))}

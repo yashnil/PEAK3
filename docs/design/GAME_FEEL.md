@@ -319,6 +319,41 @@ three-court board says *which* seat signed someone without a name being read.
 that class was renamed; they are marked as such. `.tmw-slot[data-beat]` in
 `three-man-weave.css` is the live consumer of the same keyframes.
 
+#### Three-Man Weave, game-feel pass 5 (supersedes the ceremony marks above)
+
+- **One scroll, the page's.** The `--tmw-viewport-cap` measurement, the pinned
+  header and the inner `overflow-y: auto` courts region (with its axe-driven
+  `role="region" tabIndex=0`) are gone. The turn strip (`tmw-turnbar`) is
+  `position: sticky` under the site header (`--tmw-nav-h`, the nav's `h-14`),
+  opaque and full-bleed: constraint first (round/pick, then franchise ×
+  decade in display type), turn second (whose pick, beside the clock). It
+  publishes its own height as `--tmw-strip-h` for anything that sticks below.
+- **The pick surface is in the page.** `PickOverlay` renders through
+  `PeakV2TMWCourts`' `decision` slot, between the strip and the courts, as a
+  labelled region rather than a fixed modal. The candidate list is as long as
+  the pool and the page scrolls it; on desktop the roster column is sticky
+  beside it (only where the viewport can hold it, `min-height: 760px`); on a
+  phone the actions dock at the bottom of the viewport and a multi-slot pick
+  offers "Choose slot" to jump to the board. Moments and the previous-pick
+  beat are viewport-fixed so they announce wherever the player has scrolled.
+- **The roll is a draft-lottery slate** (`PeakV2TMWReveal`), fixed below the
+  site header: round and picks it owns, scoreboard apertures for FRANCHISE ×
+  DECADE, the round's snake order (`roundPickOrder`), and the handoff. Laid
+  out for the server's **1.5 s** `REVEAL_SECONDS` (`TMW_CEREMONY`, ms):
+  slate 0–200, armed 200–260, reels 260 (360 / 460 ms travel), locked 860,
+  resolved 1000, handoff held for the last 500 ms. Shorter windows compress
+  proportionally; longer windows only lengthen the hold. A Franchise or
+  Decade Draft (`public_state.constraint`) rolls one aperture, named for the
+  whole draft ("Franchise Draft · all 18 picks"), and the strip says the same.
+- **The final answers who won, why, and what you built above the fold**
+  (`PeakV2TMWResult`): verdict + your score + Play again / Back to Arena;
+  standings with bars; "Why <winner> won" from the winner's `decisive_pick`
+  and the fit measures it led by ≥ 1 point (`winnerSeparation`, comparison
+  only, no weighting); a head-to-head of the four fit measures the lineup
+  score reads plus each roster's decisive pick and top-rated card (values
+  printed, "best" in words); your six with the decisive and top cards marked.
+  The three courts and the itemised receipt follow, secondary.
+
 ### Audio
 
 `lib/arena-audio` — eight cues, synthesised from the Web Audio API, no assets,

@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
   ArenaResultView,
@@ -916,26 +916,9 @@ export default function ThreeManWeaveGame({
         ? "You're up"
         : `${seatLabel(match.seats, upNextSeat)} is up`;
 
-  // Viewport containment: publish the real remaining height as a CSS
-  // variable the courts cap themselves to (see PeakV2TMWCourts).
-  const arenaShellRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const el = arenaShellRef.current;
-    if (!el) return;
-    const BOTTOM_SAFE_MARGIN_PX = 16;
-    function updateCap() {
-      if (!el) return;
-      const top = el.getBoundingClientRect().top;
-      el.style.setProperty("--tmw-viewport-cap", `calc(100dvh - ${top}px - ${BOTTOM_SAFE_MARGIN_PX}px)`);
-    }
-    updateCap();
-    window.addEventListener("resize", updateCap);
-    window.addEventListener("orientationchange", updateCap);
-    return () => {
-      window.removeEventListener("resize", updateCap);
-      window.removeEventListener("orientationchange", updateCap);
-    };
-  }, []);
+  // No viewport containment any more: the page scrolls and the board's turn
+  // strip is `position: sticky` (see PeakV2TMWCourts), so nothing here needs
+  // to measure or publish a height.
 
   const clearMoment = useCallback((id: string) => {
     setRoom((current) => (current.moment?.id === id ? { ...current, moment: null } : current));
@@ -1012,11 +995,12 @@ export default function ThreeManWeaveGame({
           onPlayAgain={playAgain}
           playAgainPending={pendingKind === "replay"}
           multiplayer={!hasBots}
+          modeName={meta?.name}
         />
       ) : (
         // `relative` so the ceremony overlay and every moment are anchored to
         // THIS box: the courts stay mounted and are its only size contributor.
-        <div ref={arenaShellRef} className="relative" data-testid="tmw-v2-arena-shell">
+        <div className="relative" data-testid="tmw-v2-arena-shell">
           <PeakV2TMWCourts
             state={viewState}
             pendingSlots={pendingSlots}
@@ -1033,30 +1017,34 @@ export default function ThreeManWeaveGame({
             totalPicks={state.total_rounds * match.seat_count}
             onMove={rearrange}
             busy={busy}
+            // THE DECISION SURFACE sits under the turn strip, above the
+            // courts, in the page's own flow (see PickOverlay).
+            decision={
+              <PickOverlay
+                open={overlayOpen}
+                roll={state.current_roll}
+                roundNumber={state.current_round}
+                pickNumber={picksMade + 1}
+                totalRounds={state.total_rounds}
+                candidates={candidates}
+                roster={yourRoster}
+                seats={match.seats}
+                yourSeatIndex={match.your_seat_index}
+                lockedEntries={lockedEntries}
+                stagedPick={stagedPick}
+                deadlineAt={room.deadlineAt}
+                turnSeconds={room.turnTotalSeconds ?? TMW_TURN_SECONDS}
+                busy={busy}
+                pendingKind={pendingKind}
+                pendingSlots={pendingSlots}
+                onPick={pick}
+                onStage={stage}
+                onMove={rearrange}
+                onClose={() => setRejection(null)}
+              />
+            }
           >
             <IdentityLockPanel entries={lockedEntries} seats={match.seats} />
-            <PickOverlay
-              open={overlayOpen}
-              roll={state.current_roll}
-              roundNumber={state.current_round}
-              pickNumber={picksMade + 1}
-              totalRounds={state.total_rounds}
-              candidates={candidates}
-              roster={yourRoster}
-              seats={match.seats}
-              yourSeatIndex={match.your_seat_index}
-              lockedEntries={lockedEntries}
-              stagedPick={stagedPick}
-              deadlineAt={room.deadlineAt}
-              turnSeconds={room.turnTotalSeconds ?? TMW_TURN_SECONDS}
-              busy={busy}
-              pendingKind={pendingKind}
-              pendingSlots={pendingSlots}
-              onPick={pick}
-              onStage={stage}
-              onMove={rearrange}
-              onClose={() => setRejection(null)}
-            />
           </PeakV2TMWCourts>
           <PeakV2TMWReveal
             open={ceremonyOpen}
@@ -1067,6 +1055,9 @@ export default function ThreeManWeaveGame({
             totalRounds={state.total_rounds}
             seats={match.seats}
             yourSeatIndex={match.your_seat_index}
+            seatCount={match.seat_count}
+            constraint={state.constraint ?? null}
+            upNextSeatIndex={upNextSeat === null || complete ? null : upNextSeat}
             handoffLabel={nextUp ?? undefined}
             arriving={arriving}
             startedAt={room.turnStartedAt}

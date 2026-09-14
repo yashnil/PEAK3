@@ -208,7 +208,7 @@ export const TMW_TURN_PHASE_PICK = "pick";
  * always the server's, never one of these numbers.
  */
 export const TMW_INTRO_SECONDS = 4.0;
-export const TMW_REVEAL_SECONDS = 4.0;
+export const TMW_REVEAL_SECONDS = 1.5;
 export const TMW_OPENING_REVEAL_SECONDS = TMW_REVEAL_SECONDS;
 /** The human decision window, mirroring `TURN_SECONDS`. A denominator only. */
 export const TMW_TURN_SECONDS = 45;

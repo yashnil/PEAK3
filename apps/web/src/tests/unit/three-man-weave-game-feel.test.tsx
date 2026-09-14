@@ -29,7 +29,12 @@ import type {
   TmwRoster,
 } from "@/types/three-man-weave";
 import { TMW_REVEAL_SECONDS, TMW_TURN_PHASE_PICK, TMW_TURN_PHASE_REVEAL } from "@/types/three-man-weave";
-import { TMW_CEREMONY, TMW_CEREMONY_MARKS } from "@/components/v2/tmw/PeakV2TMWReveal";
+import {
+  TMW_CEREMONY,
+  TMW_CEREMONY_MARKS,
+  TMW_CEREMONY_NOMINAL_MS,
+  ceremonyMarks,
+} from "@/components/v2/tmw/PeakV2TMWReveal";
 import { TMW_PREVIOUS_PICK_BEAT_MS } from "@/components/three-man-weave/ThreeManWeaveGame";
 
 function mockMatchMedia(reduced: boolean) {
@@ -747,33 +752,61 @@ describe("the round card", () => {
     });
   }
 
-  it("holds between 1.4 and 2.0 seconds of the server window, and the whole ceremony resolves with a hold to spare", () => {
-    expect(TMW_CEREMONY.roundCardMs).toBeGreaterThanOrEqual(1400);
-    expect(TMW_CEREMONY.roundCardMs).toBeLessThanOrEqual(2000);
-    // At least half a second of the pair on screen before the server can
+  // Game-feel pass 5 re-laid the ceremony for the server's 1.5 s window: a
+  // 1.55 s round card no longer fits in it. These pinned the OLD card length
+  // (1.4-2.0 s) and the card vanishing at the armed mark; the round is now
+  // named on the slate for the whole ceremony. The behavioural rules they
+  // guarded are kept: the result is resolved with half a second of the window
+  // to spare, and every stage is read off the server's elapsed time.
+  it("resolves inside the server window with half a second of the result held, without flashing past", () => {
+    expect(TMW_CEREMONY_NOMINAL_MS).toBe(TMW_REVEAL_SECONDS * 1000);
+    // At least half a second of the result on screen before the server can
     // open the pick turn, on the nominal window.
     expect(TMW_CEREMONY_MARKS.resolved + 500).toBeLessThanOrEqual(TMW_REVEAL_SECONDS * 1000);
+    // ...and a real beat of anticipation before it, not a flash.
+    expect(TMW_CEREMONY_MARKS.resolved).toBeGreaterThanOrEqual(800);
+    expect(TMW_CEREMONY.roundCardMs).toBeGreaterThanOrEqual(150);
+    expect(TMW_CEREMONY.roundCardMs).toBeLessThanOrEqual(400);
+    // The last reel lands before the lock begins.
+    expect(TMW_CEREMONY_MARKS.spinning + TMW_CEREMONY_MARKS.secondaryReelMs).toBeLessThanOrEqual(TMW_CEREMONY_MARKS.locked);
   });
 
-  it("is on screen at 1.4 s and gone by the armed mark, on every round, from the server's elapsed time", () => {
+  it("names the round from the first frame and walks slate, armed, locked, resolved off the server's elapsed time", () => {
     const early = render(<ThreeManWeaveGame initialMatch={ceremony(0)} />);
     expect(early.getByTestId("tmw-round-reveal")).toHaveTextContent("Round 1");
+    expect(early.getByTestId("tmw-roll")).toHaveAttribute("data-stage", "round");
     early.unmount();
 
-    const late = render(<ThreeManWeaveGame initialMatch={ceremony(1.4)} />);
-    expect(late.getByTestId("tmw-round-reveal")).toHaveTextContent("Round 1");
-    expect(late.getByTestId("tmw-roll")).toHaveAttribute("data-stage", "round");
-    late.unmount();
-
-    const armed = render(<ThreeManWeaveGame initialMatch={ceremony(TMW_CEREMONY_MARKS.armed / 1000 + 0.05)} />);
-    expect(armed.queryByTestId("tmw-round-reveal")).toBeNull();
+    const armed = render(<ThreeManWeaveGame initialMatch={ceremony(TMW_CEREMONY_MARKS.armed / 1000 + 0.01)} />);
     expect(armed.getByTestId("tmw-roll")).toHaveAttribute("data-stage", "armed");
+    // The round stays named on the slate: it is what the roll applies to.
+    expect(armed.getByTestId("tmw-round-reveal")).toHaveTextContent("Round 1");
     armed.unmount();
 
-    const locked = render(<ThreeManWeaveGame initialMatch={ceremony(TMW_CEREMONY_MARKS.locked / 1000 + 0.05)} />);
+    const locked = render(<ThreeManWeaveGame initialMatch={ceremony(TMW_CEREMONY_MARKS.locked / 1000 + 0.02)} />);
     expect(locked.getByTestId("tmw-roll")).toHaveAttribute("data-stage", "locked");
     expect(locked.getByTestId("tmw-ceremony-status")).toHaveTextContent(/locked in/i);
     locked.unmount();
+
+    const resolved = render(<ThreeManWeaveGame initialMatch={ceremony(TMW_CEREMONY_MARKS.resolved / 1000 + 0.02)} />);
+    expect(resolved.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "true");
+    expect(resolved.queryByTestId("tmw-pick-overlay")).toBeNull();
+    resolved.unmount();
+  });
+
+  it("a longer published window changes no beat, it only lengthens the hold", () => {
+    expect(ceremonyMarks(4000)).toEqual(ceremonyMarks(TMW_CEREMONY_NOMINAL_MS));
+    const long = render(<ThreeManWeaveGame initialMatch={ceremony(TMW_CEREMONY_MARKS.resolved / 1000 + 0.02, 4.0)} />);
+    expect(long.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "true");
+    long.unmount();
+  });
+
+  it("compresses to a window shorter than 1.5 s so the reels are settled before it ends", () => {
+    const marks = ceremonyMarks(1000);
+    expect(marks.resolved).toBeLessThan(1000);
+    const short = render(<ThreeManWeaveGame initialMatch={ceremony(0.95, 1.0)} />);
+    expect(short.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "true");
+    short.unmount();
   });
 
   it("compresses to a shorter published window so the pair is never still turning when the server opens the pick turn", () => {
