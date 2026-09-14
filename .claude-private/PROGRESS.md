@@ -1712,3 +1712,47 @@ main working copy** reproduced the failure exactly. Use the same working copy.
 - The fact schedule's period is 93 days against a 187-fact bank, so roughly half
   the bank is reachable in a cycle. Pre-existing rotation behaviour, unchanged by
   this pass, and worth a look separately.
+
+---
+
+## Arena game-feel pass 4 (feature/arena-game-feel, in progress 2026-09-14)
+
+Plan: `.claude-private/ARENA_GAME_FEEL_PASS4_PLAN.md`. Measurement tools live in the session scratchpad
+(`server_timing.py`, `latency-driver.mjs`, `compare.py`); before = 720ebbd worktree build.
+
+Commits so far:
+- e88cc13 request round trips 34-48 -> 7-11 (MatchBundle, session conn, CTE apply, Server-Timing)
+- 0925cc8 round keepers + autopick options (seeds 2037/666 server hang; ruleset v3)
+- 0031a42 arrival phase for TMW + Showdown (intro timed from table arrival)
+- 3f9e498 chained polling, stage settle debounce, 200 ms previous-pick beat, action timing telemetry
+- c673f3b Server-Timing header read made optional (a headerless response threw)
+- b7279ca Franchise Draft / Decade Draft (variants.py, CompletionOracle, modes `three_man_weave_franchise|decade`)
+- 89e7ca9, 6377411 homepage feedback section (contact categories migration 20260914100000; CONTACT_ENABLED still false)
+- bae53b9, 57b573a skill bands, standings (Top Players / Around You), leaderboard page
+- f949126 lobby skill-range row, leaderboard link, queue wait telemetry
+
+Browser before/after (after4 = through 3f9e498), p50/p95 ms:
+- TMW bot pick seen by client lat0 620/855 -> 131/309; handoff read->actionable 924/1000 -> 221/299
+- TMW poll at 750ms injected 2173/5013 -> 760/765; draft confirm p95 at 750ms 1456 -> 771
+- TD/TMW intro elapsed at first read (750ms) 2s -> 0s
+- Stage (background save of a selection) now 600 ms debounced by design; Draft never waits on it.
+
+Open: TMW layout/reveal/results agent and Showdown visuals agent still running (worktrees);
+REVEAL_SECONDS -> 1.5 after the TMW UI merge; re-measure on final code; e2e + integration;
+manual acceptance (2x each: TMW, Franchise, Decade, Showdown; desktop + mobile); final report.
+
+Update (later 2026-09-14):
+- 5e5e119 TMW bot think 1.2-3.0 s (slow-bot seeds unchanged, re-verified by scan)
+- 9313241 two-tab / double-click / reload / late-press HTTP tests (TMW + Showdown)
+- c8cad90 docs/implementation/game-feel-pass4-review (tools + timing JSON)
+- cd64b3e Showdown broadcast benches + final scoreboard (fixes forfeit rendered as DREW)
+- Suites: model CI 2122 passed / 2 skipped / 1 xfailed; web vitest 133 files / 2572; Postgres integration 288 passed / 1 skipped.
+- Pending: TMW layout/reveal/results agent (asked to set TMW_REVEAL_SECONDS 1.5 + name variant constraint); then server REVEAL_SECONDS 1.5, API CI, frontend-verify, e2e, final re-measure, manual acceptance, report.
+
+Update 2 (2026-09-14, late):
+- Merged: 71be4de TMW layout/1.5 s reveal/results (agent), 1950251 Showdown review fixes (agent), 2b9c5c3 server REVEAL_SECONDS 1.5,
+  846679a practice creation 23-24 -> 14 queries, 9eeffbb/e5e7207/91f3aad lobby+rematch view handoff, 1f429e6 TMW toast under strip,
+  c18d70e e2e three-room convergence wait.
+- Suites: API unit 2020 passed / 2 skipped; Postgres integration 288 passed / 1 skipped; web vitest 135 files / 2595; model CI rerun in progress.
+- Acceptance (driver + screenshots): TMW standard desktop+mobile, Franchise desktop+mobile, Decade desktop+mobile, Showdown desktop+mobile all complete.
+- Remaining: frontend-verify (running), e2e, final prod re-measure (before mobile on :8001/:3101, after desktop+mobile on new prod build), final report.

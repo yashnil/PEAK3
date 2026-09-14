@@ -58,6 +58,12 @@ export async function getArenaCatalogue(): Promise<ArenaCatalogue> {
 
     const live = body.modes ?? [];
     const modes = ARENA_MODES.flatMap((meta) => {
+      // THE CATALOGUE LISTS GAMES, NOT RULESETS. Franchise Draft and Decade
+      // Draft are Three-Man Weave played under one constraint, in the Weave's
+      // room; the lobby shows them as their own named cards beside it. Listing
+      // them here made the homepage's two multiplayer cells Weave, Franchise
+      // Draft -- and the $20 Showdown fell off the page.
+      if (meta.variantOf) return [];
       const served = live.find((m) => m.id === meta.id);
       if (!served) return [];
       return [
