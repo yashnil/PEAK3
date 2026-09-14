@@ -390,8 +390,26 @@ class PostgresArenaRepository:
             async with conn.transaction():
                 try:
                     await self._insert_match(conn, match)
-                    for seat in seats:
-                        await self._insert_seat(conn, seat)
+                    # Every seat in ONE statement: a match is created with all
+                    # of its seats (practice, a filled queue) or with one (a
+                    # private room), and a round trip per seat bought nothing.
+                    await conn.execute(
+                        """
+                        INSERT INTO arena_match_seats (
+                            match_id, seat_index, occupant_kind, occupant_sub, bot_id,
+                            bot_rating, display_name, status, joined_at, last_seen_at
+                        )
+                        SELECT * FROM unnest(
+                            $1::uuid[], $2::int[], $3::text[], $4::text[], $5::text[],
+                            $6::float8[], $7::text[], $8::text[], $9::timestamptz[], $10::timestamptz[]
+                        )
+                        """,
+                        [s.match_id for s in seats], [s.seat_index for s in seats],
+                        [s.occupant_kind for s in seats], [s.occupant_sub for s in seats],
+                        [s.bot_id for s in seats], [s.bot_rating for s in seats],
+                        [s.display_name for s in seats], [s.status for s in seats],
+                        [s.joined_at for s in seats], [s.last_seen_at for s in seats],
+                    )
                 except asyncpg.UniqueViolationError as exc:
                     raise SeatUnavailable(str(exc)) from exc
         return match

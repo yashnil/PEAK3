@@ -663,11 +663,15 @@ async def _create_and_open(
     now: datetime,
 ) -> ArenaMatch:
     await repo.create_match(match, seats)
-    return await _open_play(repo, mode, match.match_id, now)
+    return await _open_play(repo, mode, match.match_id, now, seats=seats)
 
 
 async def _open_play(
-    repo: ArenaRepository, mode: ArenaMode, match_id: str, now: datetime
+    repo: ArenaRepository,
+    mode: ArenaMode,
+    match_id: str,
+    now: datetime,
+    seats: Optional[list[ArenaSeat]] = None,
 ) -> ArenaMatch:
     """Move a full match from `forming` to `active`, seed its snapshot, and open
     the first turn.
@@ -686,7 +690,9 @@ async def _open_play(
         TurnDraft,
     )
 
-    seats = tuple(await repo.get_seats(match_id))
+    # A caller that has just written the seats passes them instead of paying a
+    # read for rows it holds; the reducer below still reads them off `data`.
+    seats = tuple(seats) if seats is not None else tuple(await repo.get_seats(match_id))
 
     def _open(data: ReducerInput) -> ReducerOutput:
         if data.match.status != "forming":
@@ -725,7 +731,7 @@ async def _open_play(
             ),
         )
 
-    await repo.apply_command(
+    outcome = await repo.apply_command(
         CommandRequest(
             match_id=match_id,
             idempotency_key=f"open:{match_id}",
@@ -737,4 +743,8 @@ async def _open_play(
         _open,
         now,
     )
+    # The applied outcome already carries the opened match. Only a replay or a
+    # refusal (someone else opened it first) needs the stored row.
+    if outcome.accepted and not outcome.replayed:
+        return outcome.match
     return await repo.get_match(match_id)  # type: ignore[return-value]

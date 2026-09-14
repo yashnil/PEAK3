@@ -688,9 +688,13 @@ async def start_practice(
         )
     mode = _entry_mode_or_error(body.mode)
     name = await _display_name(profile_repo, identity.sub)
-    match = await mm.start_practice(repo, mode, identity.sub, name, _now())
-    seat = await repo.get_seat_for_sub(match.match_id, identity.sub)
-    return await _build_view(repo, mode, match, seat)
+    async with _repo_session(repo):
+        match = await mm.start_practice(repo, mode, identity.sub, name, _now())
+        # The seat comes off the stored rows in the one bundled read the view
+        # needs anyway, never off the request.
+        bundle = await _refetch(repo, match.match_id)
+        seat = bundle.seat_for_sub(identity.sub)
+        return _view_from_bundle(mode, bundle, seat)
 
 
 @router.post(f"{BASE}/matches/private", response_model=ArenaMatchView)
