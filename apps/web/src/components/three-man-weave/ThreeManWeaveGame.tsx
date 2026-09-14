@@ -1,4 +1,5 @@
 "use client";
+import { primeMatchView } from "@/lib/game-feel/match-handoff";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
@@ -851,6 +852,8 @@ export default function ThreeManWeaveGame({
       if (hasBots) {
         // The same ruleset again: a Franchise or Decade Draft rematches as one.
         const created = await createPracticeMatch(match.mode || TMW_MODE);
+        // The rematch's room mounts on this authoritative view (see match-handoff).
+        primeMatchView(created);
         router.replace(`/arena/three-man-weave/${created.match_id}`);
         return true;
       }
