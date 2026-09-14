@@ -90,7 +90,7 @@ async function arenaFetch<T>(path: string, options: RequestInit = {}): Promise<T
     throw new ArenaAPIError(res.status, message, code);
   }
   // The server's stage durations ride along, invisible to renderers.
-  return attachServerTiming((await res.json()) as T, res.headers.get("server-timing"));
+  return attachServerTiming((await res.json()) as T, res.headers?.get?.("server-timing"));
 }
 
 export async function getArenaReadiness(): Promise<ArenaReadiness> {

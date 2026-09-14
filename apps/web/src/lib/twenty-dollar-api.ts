@@ -100,7 +100,7 @@ async function arenaFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new TwentyDollarAPIError(res.status, message, code);
   }
   // The server's stage durations ride along, invisible to renderers.
-  return attachServerTiming(json as T, res.headers.get("server-timing"));
+  return attachServerTiming(json as T, res.headers?.get?.("server-timing"));
 }
 
 // ---------------------------------------------------------------------------
