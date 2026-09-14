@@ -1,6 +1,6 @@
 "use client";
 
-import { takeMatchView } from "@/lib/game-feel/match-handoff";
+import { primeMatchView, takeMatchView } from "@/lib/game-feel/match-handoff";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -495,6 +495,8 @@ function ShowdownRoom({ matchId }: { matchId: string }) {
     const result = await lane.run("replay", async () => {
       if (hasBots) {
         const created = await twentyDollarApi.startPractice();
+        // The rematch's room mounts on this authoritative view (see match-handoff).
+        primeMatchView(created);
         router.replace(`/arena/twenty-dollar/${created.match_id}`);
         return true;
       }
