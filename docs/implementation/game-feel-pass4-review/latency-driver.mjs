@@ -26,6 +26,8 @@ const MODE = argv.mode ?? "tmw";
 const LATENCY = Number(argv.latency ?? 0);
 const VIEWPORT = argv.viewport ?? "desktop";
 const LABEL = argv.label ?? "run";
+// three_man_weave | three_man_weave_franchise | three_man_weave_decade
+const TMW_MODE_ID = argv["tmw-mode"] ?? "three_man_weave";
 const MAX_HUMAN_TURNS = Number(argv["max-turns"] ?? 99);
 const SHOTS = argv.shots ?? null;
 const OUT = path.join(path.dirname(new URL(import.meta.url).pathname), "timing");
@@ -182,7 +184,7 @@ async function startPractice(_token, mode) {
 // ---------------------------------------------------------------- TMW
 async function runTmw() {
   const { browser, page, token } = await setup();
-  const created = await startPractice(token, "three_man_weave");
+  const created = await startPractice(token, TMW_MODE_ID);
   const createdAt = Date.now();
   await page.goto(`${WEB}/arena/three-man-weave/${created.match_id}`, { waitUntil: "domcontentloaded" });
   const introRendered = await waitFrames(page, () => !!document.querySelector('[data-testid="tmw-intro"], [data-testid="tmw-room"]'), 60000);
@@ -207,6 +209,7 @@ async function runTmw() {
 
   let humanTurns = 0;
   let lastBotSeen = null;
+  let revealShot = false;
   for (let guard = 0; guard < 4000; guard++) {
     const state = await page.evaluate(() => {
       const room = document.querySelector('[data-testid="tmw-room"]');
@@ -219,6 +222,12 @@ async function runTmw() {
       };
     });
     if (state.result) break;
+    // One settled capture of a later round's reveal (after its reels resolve).
+    if (SHOTS && state.phase === "reveal" && humanTurns >= 1 && !revealShot) {
+      revealShot = true;
+      await page.waitForTimeout(1100);
+      await page.screenshot({ path: path.join(SHOTS, `tmw-${LABEL}-reveal-settled.png`) });
+    }
     if (state.overlay && humanTurns < MAX_HUMAN_TURNS) {
       humanTurns += 1;
       // The overlay just opened: how long after the authoritative handoff?
@@ -352,6 +361,11 @@ async function runTmw() {
   lag.reqMs.forEach((v) => sample("tmw.poll_request_ms", v));
   results.notes.push({ gets: lag.gets, commands: lag.commands, humanTurns });
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `tmw-${LABEL}-end.png`), fullPage: true });
+  // The result screen stages its reveal; capture it again once it has settled.
+  if (SHOTS) {
+    await page.waitForTimeout(3000);
+    await page.screenshot({ path: path.join(SHOTS, `tmw-${LABEL}-end-settled.png`), fullPage: true });
+  }
   await browser.close();
 }
 
@@ -474,6 +488,11 @@ async function runTd(forfeit) {
   lag.reqMs.filter((x) => x.m === "GET").forEach((x) => sample("td.poll_request_ms", x.ms));
   lag.reqMs.filter((x) => x.m === "POST").forEach((x) => sample("td.command_request_ms", x.ms));
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `td-${LABEL}-end.png`), fullPage: true });
+  // The result screen stages its reveal; capture it again once it has settled.
+  if (SHOTS) {
+    await page.waitForTimeout(3000);
+    await page.screenshot({ path: path.join(SHOTS, `td-${LABEL}-end-settled.png`), fullPage: true });
+  }
   await browser.close();
 }
 
