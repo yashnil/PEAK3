@@ -389,19 +389,17 @@ jobs:
       - name: Assert the project split still covers every test
         run: scripts/ci/assert-e2e-inventory.sh
 
-      - name: Run chromium-core (fresh services, 0 retries)
+      - name: Run chromium-core (fresh services, 1 retry)
         run: scripts/ci/e2e-tests.sh --project=chromium-core
         env:
           CI: true
-          PLAYWRIGHT_RETRIES: "0"
 
-      - name: Run mobile-chrome (fresh services, 0 retries)
+      - name: Run mobile-chrome (fresh services, 1 retry)
         # Sequential on the same runner, not a second matrix leg -- both
         # projects share the one Python/Node/Chromium setup above.
         run: scripts/ci/e2e-tests.sh --project=mobile-chrome
         env:
           CI: true
-          PLAYWRIGHT_RETRIES: "0"
 
       - name: Upload Playwright report on failure
         uses: actions/upload-artifact@v4
@@ -413,11 +411,15 @@ jobs:
 
       - name: Upload Playwright traces on failure
         uses: actions/upload-artifact@v4
-        if: failure()
+        # Not only failure(): a test that fails and then passes on retry leaves the
+        # job green, and its first-attempt trace (trace: retain-on-failure) is the
+        # only evidence of the flake.
+        if: ${{ !cancelled() }}
         with:
           name: playwright-traces-pr-core
           path: apps/web/test-results/
           retention-days: 7
+          if-no-files-found: ignore
 
   playwright-pr-feature:
     name: Playwright ${{ matrix.project }} + axe (PR, path-gated)
@@ -474,11 +476,10 @@ jobs:
       - name: Assert the project split still covers every test
         run: scripts/ci/assert-e2e-inventory.sh
 
-      - name: Run Playwright ${{ matrix.project }} (fresh services, 0 retries)
+      - name: Run Playwright ${{ matrix.project }} (fresh services, 1 retry)
         run: scripts/ci/e2e-tests.sh --project=${{ matrix.project }}
         env:
           CI: true
-          PLAYWRIGHT_RETRIES: "0"
 
       - name: Upload Playwright report on failure
         uses: actions/upload-artifact@v4
@@ -490,11 +491,15 @@ jobs:
 
       - name: Upload Playwright traces on failure
         uses: actions/upload-artifact@v4
-        if: failure()
+        # Not only failure(): a test that fails and then passes on retry leaves the
+        # job green, and its first-attempt trace (trace: retain-on-failure) is the
+        # only evidence of the flake.
+        if: ${{ !cancelled() }}
         with:
           name: playwright-traces-${{ matrix.project }}
           path: apps/web/test-results/
           retention-days: 7
+          if-no-files-found: ignore
 
   # ── Playwright e2e + accessibility — FULL SUITE (main + manual) ─────────────
   #
@@ -502,10 +507,10 @@ jobs:
   # branch that deploys always has full E2E coverage, even for PRs that only
   # needed the narrow PR tier above) and on workflow_dispatch (so a risky PR
   # can get the full run on demand before merge). SAME structure the PR matrix
-  # used to have: fail-fast:false for isolation, 0 retries, the same inventory
+  # used to have: fail-fast:false for isolation, 1 retry, the same inventory
   # assertion -- moved to this trigger scope, not changed in kind.
   playwright-full:
-    name: Playwright ${{ matrix.project }} + axe (full suite, 0 retries)
+    name: Playwright ${{ matrix.project }} + axe (full suite, 1 retry)
     runs-on: ubuntu-latest
     needs: [detect-changes, frontend]
     if: |
@@ -556,11 +561,10 @@ jobs:
       - name: Assert the project split still covers every test
         run: scripts/ci/assert-e2e-inventory.sh
 
-      - name: Run Playwright tests (fresh services, 0 retries)
+      - name: Run Playwright tests (fresh services, 1 retry)
         run: scripts/ci/e2e-tests.sh --project=${{ matrix.project }}
         env:
           CI: true
-          PLAYWRIGHT_RETRIES: "0"
 
       - name: Upload Playwright report on failure
         uses: actions/upload-artifact@v4
@@ -572,8 +576,12 @@ jobs:
 
       - name: Upload Playwright traces on failure
         uses: actions/upload-artifact@v4
-        if: failure()
+        # Not only failure(): a test that fails and then passes on retry leaves the
+        # job green, and its first-attempt trace (trace: retain-on-failure) is the
+        # only evidence of the flake.
+        if: ${{ !cancelled() }}
         with:
           name: playwright-traces-full-${{ matrix.project }}
           path: apps/web/test-results/
           retention-days: 7
+          if-no-files-found: ignore

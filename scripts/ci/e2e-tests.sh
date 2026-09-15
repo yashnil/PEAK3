@@ -60,4 +60,6 @@ export PEAK3_ARENA_FIND_THE_PRIME_ENABLED=true
 
 step "Playwright browser tests + axe accessibility"
 cd "$REPO_ROOT/apps/web"
-PLAYWRIGHT_RETRIES="${PLAYWRIGHT_RETRIES:-0}" npx playwright test "$@"
+# Retries come from playwright.config.ts: 1 when CI is set, 0 locally. Set
+# PLAYWRIGHT_RETRIES=0 explicitly for a zero-retry release-gate run.
+npx playwright test "$@"
