@@ -81,10 +81,14 @@ are just not ranked.
 
 `/arena` is the catalogue. The navigation groups the modes as Flagship (Run
 the Table, 82-0 PEAK Season), Daily (Daily Grid, Peak Duel Daily),
-Multiplayer (Three-Man Weave, The $20 Showdown), Competitive (Ranked, the 82-0
-leaderboard, match history) and Explore (Peak Duel Endless, rankings,
-methodology). `/daily` is the hub for everything that resets once a day. The
-modes themselves are described in the next section.
+Multiplayer (Three-Man Weave, with its Classic, Franchise Draft and Decade
+Draft formats nested beneath it, and The $20 Showdown), Competitive (Ranked,
+the 82-0 leaderboard, match history) and Explore (Peak Duel Endless, rankings,
+methodology). Entries whose feature is off are left out of the menu rather
+than shown broken. `/daily` is the hub for everything that resets once a day.
+PRIME CUT and FIND THE PRIME are not in the menu; they appear only as lobby
+cards, and only when their flags are on. The modes themselves are described in
+the next section.
 
 ### Legacy Labs
 
@@ -156,6 +160,18 @@ order under a global identity lock: a name taken by anyone is gone for
 everyone. Rosters are five positions plus one bench slot. The lineup PEAK3
 rates highest wins. Bots fill empty seats in practice.
 
+Three-Man Weave is one game with three formats, grouped as a single family in
+the Play menu, the hub and the lobby:
+
+- **Classic** (`three_man_weave`): a new franchise and decade every round.
+- **Franchise Draft** (`three_man_weave_franchise`): one franchise for all 18
+  picks.
+- **Decade Draft** (`three_man_weave_decade`): one decade for all 18 picks.
+
+Because 18 picks share one small pool in the two constrained formats, a pick
+is legal only if every roster can still be completed. Bot think time is
+presentation only and scales with how contested the decision is.
+
 ### The $20 Showdown (multiplayer, closed alpha)
 
 Two seats, twenty dollars each, a five-slot roster. One player-season at a
@@ -166,19 +182,50 @@ roster fills. The lot's PEAK3 score is hidden until the hammer falls. The
 practice bot is calibrated to win roughly 55 to 75 percent of games against a
 reasonable proxy opponent.
 
-Both multiplayer modes share one Arena foundation. From `/arena/lobby` there
+### PRIME CUT and FIND THE PRIME (multiplayer, off by default)
+
+Two four-seat Arena modes built on multi-year peak windows, where every seat
+decides at the same time and other seats show only as locked or deciding.
+Each has its own flag, and both are off by default.
+
+- **PRIME CUT** (`/arena/prime-cut/[matchId]`): three heats, at 2-, 3- and
+  5-year windows. Each heat deals eight career windows one at a time, with the
+  PEAK3 score hidden, and you keep four and cut four with 12 seconds per card.
+  A heat scores 100 for keeping PEAK3's best four and 0 for its worst four;
+  the match score is the mean of the three heats.
+- **FIND THE PRIME** (`/arena/find-the-prime/[matchId]`): nine rounds, one
+  career each, three rounds apiece asking for a 2-, 3- or 5-year window. You
+  place a window on the career timeline within 20 seconds, and the reveal
+  shows PEAK3's highest-rated window and every seat's regret against it. The
+  match is scored out of 900.
+
+Bots come in four labelled tiers (Rotation, Starter, All-Star, MVP) and see
+only a noisy estimate of the current card or career, never future ones. Rules
+are in [`docs/game-design/PRIME_CUT.md`](docs/game-design/PRIME_CUT.md) and
+[`docs/game-design/FIND_THE_PRIME.md`](docs/game-design/FIND_THE_PRIME.md);
+the design record is
+[`ADR-006`](docs/architecture/ADR-006-prime-modes-additive.md).
+
+### Shared Arena foundation
+
+All the multiplayer modes share one Arena foundation. From `/arena/lobby` there
 are three entry paths: bot practice (immediate, unrated), a private room by
 code (unrated), and the public queue (rated). Sign-in is required for all of
 them: a seat in a shared match is a Supabase user. Match pages live at
-`/arena/three-man-weave/[matchId]` and `/arena/twenty-dollar/[matchId]`.
-Ratings and the per-mode leaderboard are separately flagged and off by
-default.
+`/arena/three-man-weave/[matchId]`, `/arena/twenty-dollar/[matchId]`,
+`/arena/prime-cut/[matchId]` and `/arena/find-the-prime/[matchId]`. Ratings
+and the per-mode leaderboard are separately flagged and off by default.
+`GET /api/v1/arena/modes/{mode}/me` returns the caller's own record for a
+mode (matches, wins, podiums, streaks, bests).
 
 ### Daily Grid
 
 `/daily/grid`. A 3x3 board of constraint pairs, the same for everyone that
 day. Fill nine squares with nine different exact player-seasons; picks are
-final. The answer key never leaves the server, search results mark
+final. Categories (constraint set v5) are basketball-native: teams, awards,
+eras, playoff runs, and draft, origin, size and career-journey attributes
+drawn from committed player reference data. Boards and saved results from
+before the v5 cutover are preserved. The answer key never leaves the server, search results mark
 ineligible players rather than hiding them, and the attempt clock starts on
 the server exactly once per day. Play is anonymous; saving an official result
 and appearing on the daily board need an account. `/daily/history` shows your
@@ -215,7 +262,8 @@ The unit of play is the player-season. A window ID such as
 `michael-jordan-1yr-199091` names one player, one duration and one anchor
 season. Run the Table uses three-year peak windows; the rankings and Peak Draft use
 windows of 1, 3 or 5 years (the exporter also builds 2-year boards); Peak
-Duel compares peak windows; 82-0, Three-Man Weave, The $20 Showdown and Daily
+Duel compares peak windows; PRIME CUT and FIND THE PRIME use 2-, 3- and
+5-year career windows; 82-0, Three-Man Weave, The $20 Showdown and Daily
 Grid resolve single exact seasons from real rosters.
 
 When a real roster player's season falls below the model's minutes threshold,
@@ -230,6 +278,11 @@ The shared card pool for the drafting games is *card profiles v3*
 (`data/game/profiles/card_profiles.v3.json`), which layers role eligibility
 and lineup dimensions onto each peak window using only fields present in the
 committed dataset. Roles are lineup archetypes, not NBA roster positions.
+The two Prime modes read a separate committed artifact,
+`data/game/prime_modes/career_windows.v1.json` (250 players, every legal 2-,
+3- and 5-year window), built deterministically by
+`scripts/build_prime_windows.py` from `peak3.n_year_windows` and
+`calibrate_score`.
 
 ---
 
@@ -285,9 +338,15 @@ The interaction layer shared by every mode is documented in
   overwrite a newer command result.
 - **Commands are serialized, never dropped.** A duplicate press of an
   exclusive action is refused before any handler runs.
+- **Human actions are instant; pacing is deliberate.** A pick or a bid is
+  acknowledged immediately. Rolls, reveals, post-pick beats and bot moves
+  are timed on the server as part of the presentation, never as a wait on a
+  command.
 - **The timeline is the server's.** Shared intros and reveals in the
   multiplayer modes are server-timed turns; a skip command is rejected with
-  `shared_timeline`, and both seats leave the intro on the same deadline.
+  `shared_timeline`, and every seat leaves the intro on the same deadline.
+  The Prime modes open in an `arrival` phase so the intro starts only once
+  every human seat has it on screen.
   Clocks arrive as durations and are converted to a local monotonic deadline
   on arrival; the timer decides nothing, the server owns timeouts.
 - **Bots feel like decisions.** The API publishes when the bot on the open
@@ -298,6 +357,11 @@ The interaction layer shared by every mode is documented in
   Daily Grid answer key is never sent.
 
 All "live" surfaces poll; Supabase Realtime is not used.
+
+An optional sound layer (`apps/web/src/lib/arena-audio.ts`, toggled from the
+navigation) synthesises a few short cues with the Web Audio API. It is off by
+default, uses no audio files, and never carries information that is not
+already on screen.
 
 ---
 
@@ -340,7 +404,7 @@ has row-level security. See
 | Web | Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS 4, `motion`; V2 design tokens in `apps/web/src/styles/v2/` |
 | API | FastAPI on Python 3.12, Pydantic v2, `asyncpg`, PyJWT with `cryptography` for JWKS |
 | Model | Python: pandas, numpy, scipy, pyarrow; the model is not a packaged distribution |
-| Database and auth | Supabase (Postgres with RLS, Supabase Auth); 45 SQL migrations in `supabase/migrations/` |
+| Database and auth | Supabase (Postgres with RLS, Supabase Auth); 46 SQL migrations in `supabase/migrations/` |
 | Hosting | Vercel for `apps/web`, Railway for the API from the root `Dockerfile` |
 | Frontend tests | Vitest with Testing Library, Playwright with `@axe-core/playwright`, ESLint, `tsc` |
 | Python tests | pytest, with a memory and a Postgres repository implementation for every domain |
@@ -355,10 +419,13 @@ CI pins Node 20 and Python 3.12.
 peak3.py               The model: OFFICIAL_WEIGHTS, component formulas, calibrate_score, CLI
 nba_peak/              Model package plus one engine per game mode:
                          perfect_season/ (82-0), run_the_table/, three_man_weave/,
-                         twenty_dollar/, daily_grid/, lineup/ (Peak Draft), nba_facts/
+                         twenty_dollar/, prime_cut/, find_the_prime/, prime_modes/,
+                         daily_grid/, lineup/ (Peak Draft), nba_facts/
 leaderboards/          Committed canonical rankings (CSV); the authoritative ranking source
 data/generated/        Committed candidate universe, award votes, season context (parquet)
 data/game/profiles/    Committed card profiles v3 (the shared draft pool)
+data/game/prime_modes/ Committed career windows for PRIME CUT and FIND THE PRIME
+data/reference/        Committed player bio and per-season box data (Daily Grid categories)
 data/game/assets/      URL manifests only; no images are committed
 data/facts/            Curated half of the NBA fact bank
 data/web/              GENERATED API dataset and fact bank (gitignored)
@@ -410,6 +477,8 @@ PEAK3_ARENA_ENABLED=true \
 PEAK3_ARENA_BOTS_ENABLED=true \
 PEAK3_ARENA_PUBLIC_QUEUE_ENABLED=true \
 PEAK3_ARENA_READINESS_LEVEL=closed_alpha \
+PEAK3_ARENA_PRIME_CUT_ENABLED=true \
+PEAK3_ARENA_FIND_THE_PRIME_ENABLED=true \
 make api
 ```
 
@@ -449,6 +518,7 @@ is off so the web app can fail closed.
 | `RUN_THE_TABLE_ENABLED`, `RUN_THE_TABLE_DAILY_ENABLED` | **on**, level `public_beta` | `disabled`, `internal_dev`, `internal_alpha`, `public_beta` |
 | `COURTBUILDER_ENABLED`, `COURTBUILDER_TEAM_SPIN_ENABLED`, `COURTBUILDER_LEADERBOARD_ENABLED` | off, level `disabled`; `COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED` on | `disabled`, `internal_dev`, `internal_alpha`, `public_beta` |
 | `ARENA_ENABLED`, `ARENA_BOTS_ENABLED`, `ARENA_PUBLIC_QUEUE_ENABLED`, `ARENA_RATINGS_ENABLED`, `ARENA_LEADERBOARD_ENABLED` | off, level `disabled` | `disabled`, `internal_dev`, `internal_alpha`, `closed_alpha`, `public_beta` |
+| `ARENA_PRIME_CUT_ENABLED`, `ARENA_FIND_THE_PRIME_ENABLED` | off; each requires `ARENA_ENABLED` | per-mode switches under the Arena's level; when off the mode is absent from `/arena/readiness` and entry returns 403 `mode_not_enabled` |
 | `RANKED_ENABLED`, `RANKED_MATCHMAKING_ENABLED`, `RANKED_RATING_WRITES_ENABLED`, `RANKED_PUBLIC_LEADERBOARD_ENABLED` | off, level `disabled` | `disabled`, `simulation_only`, `internal_alpha`, `closed_alpha`, `public_beta` |
 | `ENABLE_EXTERNAL_ASSET_URLS` | off (and off in CI) | serves third-party headshot and logo URLs; a licensing decision |
 | `TELEMETRY_ENABLED`, `CONTACT_ENABLED`, `DEV_TOOLS_ENABLED` | off | |
@@ -482,7 +552,7 @@ commands. Adding a check means editing a script, not the workflow YAML.
 | `make test-integration-local` | `scripts/ci/supabase-local-integration.sh` | RLS, migrations and auth flows against a local `supabase start` stack, no secrets |
 | `make validate-migrations` | `scripts/ci/migration-validate.sh` | Static migration checks and a drift check on the generated migration inventory |
 | `make verify-frontend` | `scripts/ci/frontend-verify.sh` | `tsc`, ESLint at zero warnings, Vitest, and a production build with `PEAK3_BUILD_VERIFY_ONLY=1` |
-| `make test-e2e` | `scripts/ci/e2e-tests.sh` | Playwright with axe; starts both services with the flag set the suite needs, 0 retries |
+| `make test-e2e` | `scripts/ci/e2e-tests.sh` | Playwright with axe; starts both services with the flag set the suite needs (including both Prime modes) |
 | `make build-game-data` | `scripts/ci/build-web-data.sh` | Generates and validates every data artifact with no network |
 
 Aggregates: `make test` (model, lineup, API, web unit), `make test-fast` (adds
@@ -492,17 +562,21 @@ test-accessibility` runs only the axe-tagged Playwright tests.
 Playwright is split into four projects that partition the suite:
 `chromium-core` (everything not listed below), `chromium-courtbuilder`,
 `chromium-multiplayer`, and `mobile-chrome` (Pixel 5, only `@mobile`-tagged
-tests). Playwright starts the API and web server itself.
+tests). Playwright starts the API and web server itself. Retries come from
+`playwright.config.ts`: one retry when `CI` is set, none locally; set
+`PLAYWRIGHT_RETRIES=0` for a zero-retry release-gate run.
+`scripts/ci/assert-e2e-inventory.sh` checks that the projects still
+partition the suite with nothing dropped or counted twice.
 
-Current counts from the last green run on `main`, all passing:
+Current counts on `main`:
 
 | Suite | Count |
 |---|---|
-| Python model and engines | 1857 (plus 9 skipped, 1 expected failure) |
+| Python model and engines | 2133 (plus 2 skipped, 1 expected failure) |
 | Peak Draft lineup | 43 |
-| API unit | 1832 (plus 3 skipped) |
-| Frontend unit (Vitest) | 2411 across 120 files |
-| Playwright | 297 core, 36 mobile, 99 CourtBuilder, 31 multiplayer |
+| API unit | 2026 (plus 2 skipped) |
+| Frontend unit (Vitest) | 2644 across 139 files |
+| Playwright | 297 core, 39 mobile, 99 CourtBuilder, 43 multiplayer |
 
 The GitHub workflow (`.github/workflows/ci.yml`) runs on pushes to `main`,
 pull requests into `main`, and manual dispatch. A scope-detection job reads
@@ -575,6 +649,17 @@ not gated on the CI workflow.
   scored parquets in `cache/processed/`.
 - **Card profiles v3** are committed under `data/game/profiles/` and rebuilt
   by `make build-card-profiles` from the exported peak windows.
+- **Prime career windows** (`data/game/prime_modes/career_windows.v1.json`)
+  are committed. The CI data build and the API image both run
+  `scripts/build_prime_windows.py --check`, which rebuilds the file and fails
+  if it differs by a single byte.
+- **Player reference data** (`data/reference/`: listed height and weight,
+  birth date and birth country, colleges, draft round and team, career span,
+  per-season per-game box lines) feeds
+  the Daily Grid's draft, origin, size and journey categories. It is fetched
+  offline from Basketball Reference by `scripts/fetch_player_reference_html.py`,
+  built by `scripts/build_player_reference_dataset.py`, and committed with a
+  manifest of its sources.
 - **NBA Fact of the Day.** `nba_peak/nba_facts/` combines curated editorial
   facts in `data/facts/` with facts derived from committed per-season data,
   filters and de-duplicates them, and refuses to publish a bank under 180
@@ -620,25 +705,31 @@ not gated on the CI workflow.
 ## Project status
 
 **Shipped on `main`.** Six modes in the catalogue: Run the Table (flagship),
-82-0 PEAK Season, Daily Grid, Peak Duel Daily and Endless, Three-Man Weave and
-The $20 Showdown, plus the rankings, player pages, methodology explorer,
-accounts, public handles, progression, saved runs, and the Fact of the Day.
-The game-feel reconstruction (command lane, newer-wins, server-timed shared
-reveals, decision-shaped bots) and the public-platform readiness work
+82-0 PEAK Season, Daily Grid, Peak Duel Daily and Endless, Three-Man Weave
+(Classic, Franchise Draft and Decade Draft) and The $20 Showdown, plus the
+rankings, player pages, methodology explorer, accounts, public handles,
+progression, saved runs, and the Fact of the Day. PRIME CUT and FIND THE
+PRIME are merged and tested but off by default. The game-feel reconstruction
+(command lane, newer-wins, server-timed shared reveals, decision-shaped bots,
+instant acknowledgement with deliberate server-timed pacing), the Daily Grid
+v5 category taxonomy, and the public-platform readiness work
 (row-level security on every durable table, the public data contract,
 concurrency-proven ranked and head-to-head settlement, fail-closed deploy
 guards on both sides, build-time data validation) are complete.
 
 **Flag-gated or closed.** 82-0 PEAK Season and the multiplayer Arena are off
 by default and are promoted per environment through their readiness levels;
-the multiplayer modes are badged closed alpha. Ranked Peak Draft lives in
+the multiplayer modes are badged closed alpha. PRIME CUT and FIND THE PRIME
+each have their own switch on top of the Arena's and are meant to be rolled
+out one at a time. Ranked Peak Draft lives in
 Legacy Labs. The Run the Table daily is served but not advertised.
 
 **Explicitly experimental.** The 82-0 season simulator (v0, uncalibrated) and
 the Peak Draft lineup model.
 
 **Open before a public launch**, from the founder checklist: apply the
-pending `20260901*` migrations to the production database, set the
+pending `20260901*` migrations to the production database (and any later
+ones not yet applied, such as `20260914100000_contact_feedback_categories`), set the
 production Site URL and redirect URLs in Supabase Auth, enable Google OAuth on
 the hosted project (the button reports an unsupported provider until then),
 and keep `PEAK3_DEBUG=false` on Railway.
@@ -682,12 +773,12 @@ form.
 
 | Directory or file | Contents |
 |---|---|
-| [`docs/model/`](docs/model/) | `SCORING_METHODOLOGY.md` (component reference, CLI, limitations), formula design and calibration audits, card profile provenance, lineup model notes |
+| [`docs/model/`](docs/model/) | `SCORING_METHODOLOGY.md` (component reference, CLI, limitations), formula design and calibration audits, card profile provenance, lineup model notes, `DAILY_GRID_TAXONOMY.md` |
 | [`METHODOLOGY.md`](METHODOLOGY.md) | The deepest per-metric derivation of the model |
 | [`DATA_SOURCES.md`](DATA_SOURCES.md) | Every external input, normalisation, coverage and fallback |
-| [`docs/game-design/`](docs/game-design/) | Daily Grid, Peak Duel and Peak Draft rules; the next-mode roadmap |
-| [`docs/design/`](docs/design/) | Design system, `GAME_FEEL.md`, visual rubric, route behaviour matrix |
-| [`docs/architecture/`](docs/architecture/) | ADRs 001 to 005 (board snapshots, durable identity, progression, ranked, the 82-0 pivot) and the web architecture |
+| [`docs/game-design/`](docs/game-design/) | Daily Grid, Peak Duel, Peak Draft, PRIME CUT and FIND THE PRIME rules; the next-mode roadmap |
+| [`docs/design/`](docs/design/) | Design system, `GAME_FEEL.md`, broadcast immersion plan, visual rubric, route behaviour matrix |
+| [`docs/architecture/`](docs/architecture/) | ADRs 001 to 006 (board snapshots, durable identity, progression, ranked, the 82-0 pivot, the additive Prime modes) and the web architecture |
 | [`docs/public-platform/`](docs/public-platform/) | Deployment architecture, founder and production checklists, public data contract, schema matrix, competitive state machine |
 | [`docs/implementation/`](docs/implementation/) | Local dev and auth configuration, staging deployment, CI data contract, telemetry, and the phase and feature reports with their review evidence |
 | [`docs/product/`](docs/product/) | The product blueprint and index, master plan, Arena overhaul spec |
