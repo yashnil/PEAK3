@@ -52,9 +52,20 @@ on five things a drafter actually weighs:
                    only they can fill, and for taking a one-position player
                    early when the roll is deep at that position.
 
-Then it CHOOSES PROBABILISTICALLY rather than taking the maximum: 90% the best
-legal option, 8% a near-equivalent, 2% a mild defensible deviation. The bands
-are measured in UTILITY REGRET, not in rank.
+Then it CHOOSES WITH OPINIONS rather than taking the maximum (tmw_bot_v4). Each
+surviving option gets a TASTE: its utility, plus a seeded drafting STYLE's
+weighting of roster need, plus a bounded game-only RECOGNITION lean (see
+`recognition.py` -- people reach for names they know), and one option is drawn
+by Gumbel-max at the style's temperature from the options within
+`_MILD_DEVIATION_REGRET` utility of the best. Strong options stay much more
+likely than weak ones, near-peers genuinely vary, and the same situation in a
+different match can produce a different pick -- while the same seed always
+produces the same one.
+
+WHY v4 REPLACED THE 90/8/2 BANDS. The bands made the bot a slightly blurred
+argmax: nine picks in ten were exactly "the best available player by PEAK3",
+so after a few matches a player could predict it from the numbers alone. The
+regret unit below is kept -- it is still what bounds every deviation.
 
 WHY REGRET AND NOT RANK, which is the correction this file exists to record.
 The bands used to be ordinal -- fractions of the ranked option list, sampled
@@ -79,7 +90,6 @@ one is enforced by ONE structural rule rather than left to the distribution:
 """
 from __future__ import annotations
 
-import functools
 import math
 import random
 from collections import Counter
@@ -95,6 +105,7 @@ from nba_peak.three_man_weave.config import (
     SLOT_TYPES,
     STARTER_SLOT_TYPES,
 )
+from nba_peak.three_man_weave.recognition import recognition
 
 COMMAND_PICK = "tmw_pick"
 
@@ -112,19 +123,47 @@ COMMAND_PICK = "tmw_pick"
 #: drafter who takes the second-best wing when the two are near-identical has
 #: made a defensible call; one who takes a role player over a superstar has
 #: made a different KIND of decision, and no rank-based band can tell those
-#: apart. These thresholds are in the same units as `_utility` returns, whose
-#: quality term is normalised to [0, 1] across the roll -- so `0.06` means
-#: "within six percent of this roll's whole quality spread".
-_NEAR_EQUIVALENT_REGRET = 0.06
+#: apart. This cap is in the same units as `_utility` returns, whose quality
+#: term is normalised to [0, 1] across the roll -- so `0.18` means "within
+#: eighteen percent of this roll's whole quality spread". v4 draws only inside
+#: it (`candidate_pool`); v3's separate 0.06 "near-equivalent" band is gone
+#: with the 90/8/2 band weights it served.
 _MILD_DEVIATION_REGRET = 0.18
 
-#: Calibration targets from the brief: 90% best legal choice, 8% second-best or
-#: strategically near-equivalent, 2% mild defensible deviation. Weights over the
-#: bands, not branches -- and an EMPTY band falls back to the best option rather
-#: than widening, which is the second half of the old bug (`_sample` used to
-#: fall through to "anything", so a short list turned a 5% mistake rate into a
-#: much larger one).
-_BAND_WEIGHTS = (0.90, 0.08, 0.02)
+# ---------------------------------------------------------------------------
+# DRAFTING STYLES (tmw_bot_v4)
+# ---------------------------------------------------------------------------
+#: Three internal personalities plus a neutral default. Never shown in the UI;
+#: they exist so two bots at one table do not share one deterministic taste.
+#:
+#:   peak        x on the utility itself (PEAK3 quality + positional terms)
+#:   need        extra weight on the ROSTER-NEED part of utility (replacement
+#:               gap, starter bonus, slot scarcity), on top of what utility has
+#:   star        weight of the game-only recognition lean
+#:   temperature Gumbel-max temperature over taste; lower = closer to argmax
+#:
+#: Every style samples only inside the regret cap, so a "fan" can prefer
+#: Worthy to a near-equal Marques Johnson but can never take a role player
+#: over a star (the QUALITY GATE runs first, on raw PEAK3 points).
+BOT_STYLES: dict[str, dict[str, float]] = {
+    "balanced": {"peak": 1.0, "need": 0.0, "star": 0.10, "temperature": 0.070},
+    "analyst": {"peak": 1.15, "need": 0.0, "star": 0.04, "temperature": 0.055},
+    "fan": {"peak": 1.0, "need": 0.0, "star": 0.20, "temperature": 0.075},
+    "builder": {"peak": 1.0, "need": 0.45, "star": 0.08, "temperature": 0.070},
+}
+#: The styles a bot SEAT can be dealt (the adapter's `bot_style`). "balanced"
+#: is only the fallback for a projection that names none.
+SEAT_STYLES: tuple[str, ...] = ("analyst", "fan", "builder")
+DEFAULT_STYLE = "balanced"
+
+
+def style_for_seat(seed: int | str, seat_index: int) -> str:
+    """The style a bot in this seat drafts with. Seeded, stable for the match."""
+    return random.Random(f"tmw:{seed}:bot-style:{seat_index}").choice(SEAT_STYLES)
+
+
+def _style(private: dict) -> dict[str, float]:
+    return BOT_STYLES.get(str(private.get("bot_style") or DEFAULT_STYLE), BOT_STYLES[DEFAULT_STYLE])
 
 #: THE QUALITY GATE, IN PEAK3 SCORE POINTS. The single rule that makes a
 #: catastrophic pick unreachable.
@@ -173,7 +212,7 @@ _MAX_QUALITY_REGRET_POINTS = 12.0
 _QUALITY_SPREAD_FLOOR = 20.0
 
 # ---------------------------------------------------------------------------
-# A FRANCHISE OR DECADE DRAFT'S HUMAN LEAN (tmw_bot_v3)
+# A FRANCHISE OR DECADE DRAFT'S ROSTER LEAN (tmw_bot_v3; recognition moved out in v4)
 # ---------------------------------------------------------------------------
 #: WHY THE ONE-CONSTRAINT DRAFTS NEED MORE THAN THE STANDARD POLICY. A standard
 #: round rolls a fresh, shallow franchise x decade cell, so "best for this
@@ -197,16 +236,21 @@ _QUALITY_SPREAD_FLOOR = 20.0
 #: Both are bounded by the QUALITY GATE, which runs on raw scores before any
 #: utility is compared: no lean can reach a player more than
 #: `_MAX_QUALITY_REGRET_POINTS` behind the best legal one.
+#:
+#: v4: RECOGNITION moved out of this variant-only lean into every draft's TASTE
+#: (see `BOT_STYLES`), and it is now the honors-based game-only signal in
+#: `recognition.py` rather than a career-best PEAK3 score -- a PEAK3 number is
+#: not fame, and using it made the "human" lean another read of the same model.
 POSITION_GROUPS: dict[str, str] = {"PG": "guard", "SG": "guard", "SF": "wing", "PF": "big", "C": "big"}
 _STACKED_GROUP_PENALTY = 0.07
 _MISSING_GROUP_BONUS = 0.05
-_RECOGNITION_WEIGHT = 0.10
-_RECOGNITION_FLOOR_POINTS = 55.0
-_RECOGNITION_SPAN_POINTS = 40.0
-#: A one-constraint draft samples its near-equivalent and mild bands a little
-#: more often than the standard game's 90/8/2: a deep shared pool is where a
-#: person's taste shows, and every draw is still inside the regret bands.
-_VARIANT_BAND_WEIGHTS = (0.82, 0.13, 0.05)
+#: A one-constraint draft deals all eighteen picks from ONE deep pool, so many
+#: more near-peers sit inside the regret cap than on a standard roll. At the
+#: standard temperature that diluted the bot (measured: best option 0.37 of
+#: decade picks, mean quality regret 3.1 points). Cooling it keeps the variant
+#: bot as strong as the standard one while near-peers still vary (measured at
+#: 0.4 over 10 seeds: franchise 0.70 / 1.5 pts, decade 0.56-0.60 / 1.6-1.7).
+_VARIANT_TEMPERATURE_SCALE = 0.4
 
 # ---------------------------------------------------------------------------
 # DELIBERATION -- how hard a decision LOOKS, for think time only
@@ -231,29 +275,6 @@ def natural_group(player_slug: str | None) -> Optional[str]:
     group, count = groups.most_common(1)[0]
     return group if count * 2 > sum(groups.values()) else None
 
-
-@functools.lru_cache(maxsize=1)
-def _career_best_scores() -> dict[str, float]:
-    """Every identity's best PEAK3 season card anywhere in the committed index."""
-    try:
-        from nba_peak.three_man_weave.eligibility import get_index
-
-        index = get_index()
-    except Exception:  # pragma: no cover - defensive
-        return {}
-    best: dict[str, float] = {}
-    for (slug, _franchise, _decade), card in index._scoring.items():  # noqa: SLF001 - read-only
-        if card.prime_score > best.get(slug, float("-inf")):
-            best[slug] = float(card.prime_score)
-    return best
-
-
-def recognition(player_slug: str) -> float:
-    """A 0..1 recognition proxy from the career-best card. See the block above."""
-    best = _career_best_scores().get(player_slug)
-    if best is None:
-        return 0.0
-    return min(1.0, max(0.0, (best - _RECOGNITION_FLOOR_POINTS) / _RECOGNITION_SPAN_POINTS))
 
 #: Basketball archetypes, never real player names. A drafted player's name has
 #: to be unambiguous on a board where every other label is also a person, and
@@ -382,6 +403,7 @@ class ThreeManWeaveBot:
             for slot in self._slots_of(fit, open_slots):
                 alternatives = by_slot_scores.get(slot, ())
                 replacement = alternatives[1] if len(alternatives) > 1 else worst_overall
+                replacement_gap = (score - replacement) / spread
                 out.append(
                     {
                         "player_slug": slug,
@@ -395,9 +417,16 @@ class ThreeManWeaveBot:
                         # looking like a chasm -- see `_DOMINANCE_SCORE_GAP`.
                         "quality": normalised,
                         "score": score,
+                        # The roster-NEED share of utility, carried so a
+                        # "builder" style can lean on it (`_taste`).
+                        "need": self._need(
+                            replacement_gap=replacement_gap,
+                            slot=slot,
+                            slot_supply=supply.get(slot, 1),
+                        ),
                         "utility": self._utility(
                             normalised=normalised,
-                            replacement_gap=(score - replacement) / spread,
+                            replacement_gap=replacement_gap,
                             slot=slot,
                             open_slots=open_slots,
                             slot_supply=supply.get(slot, 1),
@@ -413,8 +442,9 @@ class ThreeManWeaveBot:
 
     @staticmethod
     def _drafter_lean(player_slug: str, own_groups: Counter, picks_made: int) -> float:
-        """Roster construction and recognition, for a one-constraint draft."""
-        value = _RECOGNITION_WEIGHT * recognition(player_slug)
+        """Roster construction, for a one-constraint draft. (Recognition moved
+        to every draft's taste in v4 -- see `BOT_STYLES`.)"""
+        value = 0.0
         group = natural_group(player_slug)
         if group is not None:
             held = own_groups.get(group, 0)
@@ -447,6 +477,16 @@ class ThreeManWeaveBot:
                 if slot in supply:
                     supply[slot] += 1
         return supply
+
+    @staticmethod
+    def _need(*, replacement_gap: float, slot: str, slot_supply: int) -> float:
+        """The roster-need terms of `_utility`, on their own: the replacement
+        gap, the starter-vs-bench term and slot scarcity."""
+        return (
+            replacement_gap * 0.35
+            + (0.12 if slot in STARTER_SLOT_TYPES else -0.10)
+            + 0.25 / max(1, slot_supply)
+        )
 
     @staticmethod
     def _utility(
@@ -499,7 +539,7 @@ class ThreeManWeaveBot:
             return None
 
         variant = bool((public.get("constraint") or {}).get("kind"))
-        chosen = self._sample(options, rng, _VARIANT_BAND_WEIGHTS if variant else _BAND_WEIGHTS)
+        chosen = self._sample(options, rng, _style(private), variant=variant)
         payload: dict = {
             "player_slug": chosen["player_slug"],
             "slot_type": chosen["slot_type"],
@@ -572,53 +612,63 @@ class ThreeManWeaveBot:
         return ThreeManWeaveBot.dominant_option(options) is not None
 
     @staticmethod
+    def taste(option: dict, style: dict[str, float]) -> float:
+        """What this style thinks of one option: utility, the style's extra
+        weight on roster need, and the game-only recognition lean."""
+        return (
+            style["peak"] * option["utility"]
+            + style["need"] * option.get("need", 0.0)
+            + style["star"] * recognition(option["player_slug"])
+        )
+
+    @staticmethod
+    def candidate_pool(options: list[dict]) -> list[dict]:
+        """The options a draw may land on: viable (the quality gate) AND within
+        `_MILD_DEVIATION_REGRET` utility of the best viable option. Utility
+        order preserved; never empty when `options` is not."""
+        viable = ThreeManWeaveBot.viable_options(options)
+        if not viable:
+            return []
+        best = viable[0]
+        return [o for o in viable if best["utility"] - o["utility"] <= _MILD_DEVIATION_REGRET]
+
+    @staticmethod
     def _sample(
-        options: list[dict], rng: random.Random, band_weights: tuple[float, float, float] = _BAND_WEIGHTS
+        options: list[dict],
+        rng: random.Random,
+        style: Optional[dict[str, float]] = None,
+        *,
+        variant: bool = False,
     ) -> dict:
-        """Draw one option from the three calibration bands.
+        """Draw one option. THE ORDER OF THE THREE RULES BELOW IS THE POLICY.
 
-        THE ORDER OF THE THREE RULES BELOW IS THE POLICY.
-
-        1. THE QUALITY GATE FIRST, and everything after it operates on the
-           survivors only. When one candidate is decisively ahead of the board
-           they are the only survivor, so the pick is forced and no randomness
-           is consumed -- a bot that rolled dice on "superstar or role player"
-           would be broken however good its distribution looked in aggregate.
-        2. BANDS BY REGRET, NOT BY RANK. `near` is everything within
-           `_NEAR_EQUIVALENT_REGRET` of the best surviving option; `mild`
-           everything within `_MILD_DEVIATION_REGRET`. Because the gate has
-           already run, no draw from either band can be a catastrophic miss --
-           that is a property of the list, not of the thresholds.
-        3. AN EMPTY BAND FALLS BACK TO THE BEST OPTION, never to a wider one.
-           The previous implementation fell through to whatever was non-empty,
-           which turned a 5% mistake rate into a much larger one on short
-           rolls -- a bug that got worse exactly as the board got thinner and
-           the picks mattered more.
+        1. THE QUALITY GATE FIRST. When one candidate is decisively ahead of
+           the board they are the only survivor and the pick is forced: no
+           randomness is consumed -- a bot that rolled dice on "superstar or
+           role player" would be broken however good its distribution looked.
+        2. THE REGRET CAP. Only options within `_MILD_DEVIATION_REGRET` of the
+           best surviving utility are drawable, so no draw is a catastrophic
+           miss -- a property of the list, not of the noise.
+        3. GUMBEL-MAX OVER TASTE at the style's temperature: equivalent to a
+           softmax draw, so an option is chosen with probability proportional
+           to exp(taste / T). Clearly better options dominate, near-peers
+           vary, and a recognised name gets a modest pull. One uniform is drawn
+           per option in the list's fixed order, so a seed reproduces a pick.
         """
         if not options:  # pragma: no cover - callers check first
             raise ValueError("no options to sample from")
-
-        viable = ThreeManWeaveBot.viable_options(options)
-        best = viable[0]
-        if len(viable) == 1:
-            return best
-
-        def reachable(option: dict, regret_limit: float) -> bool:
-            if option is best:
-                return False
-            return (best["utility"] - option["utility"]) <= regret_limit
-
-        near = [o for o in viable if reachable(o, _NEAR_EQUIVALENT_REGRET)]
-        mild = [
-            o for o in viable if reachable(o, _MILD_DEVIATION_REGRET) and o not in near
-        ]
-
-        roll = rng.random()
-        if roll < band_weights[0]:
-            return best
-        if roll < band_weights[0] + band_weights[1]:
-            return near[rng.randrange(len(near))] if near else best
-        return mild[rng.randrange(len(mild))] if mild else best
+        style = style or BOT_STYLES[DEFAULT_STYLE]
+        pool = ThreeManWeaveBot.candidate_pool(options)
+        if len(pool) == 1:
+            return pool[0]
+        temperature = style["temperature"] * (_VARIANT_TEMPERATURE_SCALE if variant else 1.0)
+        best_option, best_key = pool[0], float("-inf")
+        for option in pool:
+            u = min(max(rng.random(), 1e-12), 1.0 - 1e-12)
+            key = ThreeManWeaveBot.taste(option, style) / temperature - math.log(-math.log(u))
+            if key > best_key:
+                best_option, best_key = option, key
+        return best_option
 
     # -- deliberation: presentation only ------------------------------------
 
@@ -745,6 +795,9 @@ __all__ = [
     "POSITION_GROUPS",
     "natural_group",
     "recognition",
+    "style_for_seat",
+    "BOT_STYLES",
+    "SEAT_STYLES",
     "ThreeManWeaveBot",
     "archetype_names",
 ]

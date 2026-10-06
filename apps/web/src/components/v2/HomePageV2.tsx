@@ -231,7 +231,6 @@ export default function HomePageV2({
     : [];
 
   const [daily1, daily2] = dailyModes;
-  const [mp1, mp2] = multiplayerModes;
 
   // Static, non-fabricated nav entry — a plain route this repository always
   // serves, not a data-dependent card. Kept alongside the other Competitive
@@ -244,6 +243,23 @@ export default function HomePageV2({
     // This entry is built here rather than sourced from MODE_COPY (it is a
     // board, not a game), so its menu-sized line is authored here too.
     blurb: "The best submitted 82-0 runs",
+  };
+  // Two more routes this repository always serves, which used to be reachable
+  // only from the Play menu. Authored here for the same reason as the board
+  // above: they have no catalogue entry, and their one-liners are menu-sized.
+  const endlessMode: HomePageV2Mode = {
+    id: "peak-duel-endless",
+    href: "/play/endless",
+    title: "Peak Duel Endless",
+    description: "Peak-versus-peak comparisons with no daily limit.",
+    blurb: "Unlimited comparisons, no daily limit",
+  };
+  const rankedMode: HomePageV2Mode = {
+    id: "ranked",
+    href: "/arena/ranked",
+    title: "Ranked",
+    description: "Paired with another player on the identical hidden board.",
+    blurb: "Seeded ladder play against the field",
   };
 
   const laneDescriptions: Record<string, string> = {};
@@ -355,15 +371,43 @@ export default function HomePageV2({
 
         <HomeV2ResumeRow mode={runTheTable} />
 
-        <div className="v2-arena-modes">
-          {daily1 ? <ModeSlateCell mode={daily1} /> : null}
-          {/* `home-daily-duel-card` predates `MODE_COPY["peak-duel"].id` and
-              stays literal — an e2e-observable identity, not presentation. */}
-          {daily2 ? <ModeSlateCell mode={daily2} testId="home-daily-duel-card" /> : null}
-          {peakSeason ? <ModeSlateCell mode={peakSeason} /> : null}
-          {mp1 ? <ModeSlateCell mode={mp1} live /> : null}
-          {mp2 ? <ModeSlateCell mode={mp2} live /> : null}
-          <ModeSlateCell mode={leaderboardMode} />
+        {/* EVERY PLAYABLE MODE, IN THREE LABELLED GROUPS. This slate used to
+            take the first TWO multiplayer games from the catalogue
+            (`const [mp1, mp2]`), so every game after the second -- Prime Cut,
+            Find the Prime, Shared Draft -- was silently left off the
+            homepage, and Peak Duel Endless and Ranked lived only in the Play
+            menu. Grouping keeps the slate compact cells under quiet labels
+            rather than one undifferentiated wall; the flagship above stays
+            the page's only featured card. */}
+        <div className="v2-play-index" data-testid="home-play-index">
+          <section className="v2-play-group" aria-labelledby="v2-play-daily">
+            <h3 id="v2-play-daily" className="v2-play-group-label">Daily · quick play</h3>
+            <div className="v2-arena-modes">
+              {daily1 ? <ModeSlateCell mode={daily1} /> : null}
+              {/* `home-daily-duel-card` predates `MODE_COPY["peak-duel"].id` and
+                  stays literal — an e2e-observable identity, not presentation. */}
+              {daily2 ? <ModeSlateCell mode={daily2} testId="home-daily-duel-card" /> : null}
+              <ModeSlateCell mode={endlessMode} />
+            </div>
+          </section>
+          {multiplayerModes.length > 0 ? (
+            <section className="v2-play-group" aria-labelledby="v2-play-multiplayer">
+              <h3 id="v2-play-multiplayer" className="v2-play-group-label">Multiplayer · live</h3>
+              <div className="v2-arena-modes" data-testid="home-multiplayer-modes">
+                {multiplayerModes.map((mode) => (
+                  <ModeSlateCell key={mode.id ?? mode.href} mode={mode} live />
+                ))}
+              </div>
+            </section>
+          ) : null}
+          <section className="v2-play-group" aria-labelledby="v2-play-solo">
+            <h3 id="v2-play-solo" className="v2-play-group-label">Solo · competitive</h3>
+            <div className="v2-arena-modes">
+              {peakSeason ? <ModeSlateCell mode={peakSeason} /> : null}
+              <ModeSlateCell mode={rankedMode} />
+              <ModeSlateCell mode={leaderboardMode} />
+            </div>
+          </section>
         </div>
 
         {/* ---- 3. THE WAY INTO FEEDBACK — one slim band under the games.

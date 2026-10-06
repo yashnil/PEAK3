@@ -1131,3 +1131,53 @@ test.describe("Rankings — the player analysis, and only on request", () => {
     }
   });
 });
+
+test.describe("Rankings — position filter on both boards", () => {
+  // REGRESSION: Single Seasons + PG rendered "No rows available for this board"
+  // while the board still reported 1,000 rows. `/api/v1/seasons` never sent
+  // `primary_position`, so every season row matched no position tab. The API
+  // contract is pinned in apps/api/tests/test_seasons_rankings.py; this is the
+  // same promise as a player sees it.
+  for (const position of ["PG", "SG", "SF", "PF", "C"] as const) {
+    test(`Single Seasons · ${position} lists qualifying seasons`, async ({ page }) => {
+      await gotoRankings(page);
+      await page.locator('[data-testid="pool-tab-seasons"]').click();
+      await page.locator('[data-testid="rankings-row"]').first().waitFor({ timeout: 20_000 });
+      await page.getByTestId(`rankings-position-filter-${position}`).click();
+      await expect(page.locator('[data-testid="rankings-row"]').first()).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByText("No rows available for this board.")).toHaveCount(0);
+    });
+  }
+
+  test("Single Seasons · PG is led by point guards, and switching boards keeps the filter working", async ({ page }) => {
+    await gotoRankings(page);
+    await page.locator('[data-testid="pool-tab-seasons"]').click();
+    await page.locator('[data-testid="rankings-row"]').first().waitFor({ timeout: 20_000 });
+    await page.getByTestId("rankings-position-filter-PG").click();
+    const rows = page.locator('[data-testid="rankings-row"]');
+    await expect(rows.first()).toBeVisible({ timeout: 15_000 });
+    const top = await rows.first().innerText();
+    expect(top).not.toMatch(/Michael Jordan|LeBron James/);
+
+    // Search composes with the position tab.
+    await page.locator('[data-testid="rankings-search"]').fill("Curry");
+    // Search is debounced server-side, so wait for the board to BE the search
+    // result rather than for "some rows" (the unsearched PG rows qualify).
+    await expect
+      .poll(async () => {
+        const texts = await rows.allInnerTexts();
+        return texts.length > 0 && texts.every((t) => t.includes("Curry"));
+      }, { timeout: 15_000 })
+      .toBe(true);
+
+    // A search that matches no PG names the filter in its empty state.
+    await page.locator('[data-testid="rankings-search"]').fill("Shaquille");
+    await expect(page.getByText('No rows at PG match "Shaquille".')).toBeVisible({ timeout: 15_000 });
+
+    // Back to Peak Windows: the same tab still filters.
+    await page.locator('[data-testid="rankings-search"]').fill("");
+    await page.locator('[data-testid="pool-tab-peak-windows"]').click();
+    await expect(rows.first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/No rows/)).toHaveCount(0);
+  });
+});

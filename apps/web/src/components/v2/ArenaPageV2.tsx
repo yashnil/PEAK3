@@ -144,10 +144,22 @@ export default function ArenaPageV2({
 
       <section aria-labelledby="v2-arena-daily">
         <PeakV2LiveHeader as="h2" title="Daily · quick play" subtitle="One board a day, identical for everyone, a few minutes each." rule={false} />
-        <div className="v2-arena-modes v2-arena-modes--pair">
+        <div className="v2-arena-modes">
           {cellsFor([
             { mode: { id: dailyGrid.id, href: dailyGrid.href, title: dailyGrid.title, description: dailyGrid.description }, testId: "arena-daily-grid-card", cta: "Play" },
             { mode: { id: peakDuel.id, href: peakDuel.href, title: peakDuel.title, description: peakDuel.description }, testId: "arena-daily-duel-card", cta: "Play" },
+            // Was reachable only from the Play menu. Not a daily board, but
+            // the same few-minute duel with no limit, so it sits with them.
+            {
+              mode: {
+                id: "peak-duel-endless",
+                href: "/play/endless",
+                title: "Peak Duel Endless",
+                description: "The same peak-versus-peak comparisons, as many as you like — no daily limit.",
+              },
+              testId: "arena-endless-duel-card",
+              cta: "Play",
+            },
           ])}
         </div>
       </section>
@@ -223,8 +235,20 @@ export default function ArenaPageV2({
 
       <section aria-labelledby="v2-arena-competitive" className="pb-10">
         <PeakV2LiveHeader as="h2" title="Competitive" subtitle="Measure a roster against other players, or against the model itself." rule={false} />
-        <div className="v2-arena-modes v2-arena-modes--pair">
+        <div className="v2-arena-modes">
           {cellsFor([
+            // A playable mode that used to be reachable only from the Play
+            // menu. The page itself says when Ranked is closed.
+            {
+              mode: {
+                id: "ranked",
+                href: "/arena/ranked",
+                title: "Ranked",
+                description: "Paired with another player on the identical hidden board; neither side sees the other's picks until both are done.",
+              },
+              testId: "arena-ranked-card",
+              cta: "Play ranked",
+            },
             {
               mode: {
                 id: "peak-index",

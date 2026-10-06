@@ -296,6 +296,7 @@ def _mode_or_404(mode: str):
 _MODE_ENABLE_FLAGS: dict[str, str] = {
     "prime_cut": "ARENA_PRIME_CUT_ENABLED",
     "find_the_prime": "ARENA_FIND_THE_PRIME_ENABLED",
+    "shared_draft": "ARENA_SHARED_DRAFT_ENABLED",
 }
 
 
@@ -849,6 +850,7 @@ _MODE_DETAIL_KEYS: dict[str, tuple[str, ...]] = {
     "twenty_dollar": ("budget_remaining", "peak3_per_dollar"),
     "prime_cut": ("heat_2y", "heat_3y", "heat_5y", "optimal_keeps"),
     "find_the_prime": ("exact_windows", "total_regret"),
+    "shared_draft": ("roster_total", "auto_picks"),
 }
 
 #: Rated matches before a rating stops being labelled provisional. Matches the

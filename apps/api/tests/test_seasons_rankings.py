@@ -591,3 +591,69 @@ def test_per_game_stats_are_null_rather_than_reconstructed(seasons_payload):
         assert stats["ppg"] is None and stats["rpg"] is None and stats["apg"] is None, season_id
         assert stats["pts_per_75"] is not None, season_id
         assert stats["games"] is not None and stats["mpg"] is not None, season_id
+
+
+# ---------------------------------------------------------------------------
+# Position tabs (regression: Single Seasons + PG rendered "No rows available")
+# ---------------------------------------------------------------------------
+#
+# THE DEFECT. The Rankings page files every row under ONE position tab by its
+# `primary_position` (client-side, both boards). `/api/v1/peaks` served that
+# field; this route served only the `positions` eligibility list, so every
+# Single Seasons row normalised to `primary_position: null` and every position
+# tab came back empty while the provenance line still reported 1,000 rows.
+# These tests pin the served contract at the layer that broke.
+
+POSITION_TABS = ("PG", "SG", "SF", "PF", "C")
+
+
+def test_every_season_row_carries_the_primary_position_its_tab_filters_on(served):
+    from nba_peak.perfect_season.career_positions import primary_position
+
+    for row in served["rows"]:
+        assert "primary_position" in row, f"rank {row['rank']} has no primary_position"
+        # The same source of truth as the Peak Windows board.
+        assert row["primary_position"] == primary_position(row["player_slug"])
+        if row["primary_position"] is not None:
+            assert row["primary_position"] in POSITION_TABS
+            # The tab position is always one the player is eligible at.
+            assert row["primary_position"] in row["positions"]
+
+
+@pytest.mark.parametrize("position", POSITION_TABS)
+def test_every_position_tab_on_the_seasons_board_is_populated_and_ordered(served, position):
+    rows = [r for r in served["rows"] if r["primary_position"] == position]
+    assert rows, f"the {position} tab of the Single Seasons board would be empty"
+    ranks = [r["rank"] for r in rows]
+    # Filtering never reorders the board: a tab is a subsequence of it.
+    assert ranks == sorted(ranks)
+
+
+def test_position_tabs_partition_the_seasons_board(served):
+    rows = served["rows"]
+    tabbed = sum(1 for r in rows if r["primary_position"] in POSITION_TABS)
+    untabbed = sum(1 for r in rows if r["primary_position"] is None)
+    assert tabbed + untabbed == len(rows)
+    # Measured: every served season resolves; a regression to null would make
+    # this collapse rather than drift.
+    assert tabbed >= 0.99 * len(rows)
+
+
+def test_seasons_and_peaks_agree_on_a_players_tab(client, served):
+    """Switching boards cannot move a player to a different tab."""
+    peaks = client.get("/api/v1/peaks", params={"window": "1y", "limit": 1000}).json()["rows"]
+    by_slug = {r["player_slug"]: r.get("primary_position") for r in peaks}
+    shared = [r for r in served["rows"] if r["player_slug"] in by_slug]
+    assert shared
+    for row in shared:
+        assert row["primary_position"] == by_slug[row["player_slug"]]
+
+
+def test_search_and_position_compose_on_the_seasons_board(client):
+    body = client.get("/api/v1/seasons", params={"search": "1990-91", "limit": 1000}).json()
+    rows = body["rows"]
+    assert rows and all("1990-91" in r["season"] for r in rows)
+    for position in POSITION_TABS:
+        subset = [r for r in rows if r["primary_position"] == position]
+        assert all(r["season"] == "1990-91" for r in subset)
+    assert any(r["primary_position"] for r in rows)

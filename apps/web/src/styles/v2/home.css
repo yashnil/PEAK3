@@ -1366,6 +1366,50 @@
   }
 }
 
+/* ---- The play index: every playable mode, in three quiet groups ---------
+   The slate used to be one grid holding only the first two multiplayer games.
+   Each group is the same compact `.v2-arena-modes` grid under a small mono
+   label -- the same eyebrow voice as `.v2-arena-heading`, one step quieter --
+   so the page gains a door per mode without a new card style. */
+.v2-play-index {
+  display: grid;
+  gap: var(--v2-space-5);
+  margin-top: var(--v2-space-6);
+}
+
+.v2-play-group .v2-arena-modes {
+  margin-top: var(--v2-space-2);
+}
+
+/* A row the modes do not fill would show the grid's hairline ground as an
+   empty slab; the last cell takes the leftover columns instead. Per column
+   count, matching `.v2-arena-modes`' own breakpoints (3 / 2 / 1). */
+@media (min-width: 901px) {
+  .v2-play-group .v2-arena-modes > :last-child:nth-child(3n + 1) {
+    grid-column: span 3;
+  }
+  .v2-play-group .v2-arena-modes > :last-child:nth-child(3n + 2) {
+    grid-column: span 2;
+  }
+}
+
+@media (min-width: 600px) and (max-width: 900px) {
+  .v2-play-group .v2-arena-modes > :last-child:nth-child(2n + 1) {
+    grid-column: span 2;
+  }
+}
+
+.v2-play-group-label {
+  margin: 0;
+  font-family: var(--v2-font-mono);
+  font-feature-settings: var(--v2-mono-feature);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-secondary);
+}
+
 /* ---- Shared mode cell: the two additions `/arena` needs ------------------
    The catalogue reuses `.v2-arena-mode` verbatim (see `ModeSlateCell`); these
    are the only two parts the homepage never needed. Both are deliberately
@@ -1417,6 +1461,14 @@
 @media (max-width: 640px) {
   .v2-arena-modes--pair {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* An odd count would leave the grid's hairline ground showing as an empty
+   cell beside the last mode (five multiplayer games on `/arena`). */
+@media (min-width: 641px) {
+  .v2-arena-modes--pair > :last-child:nth-child(2n + 1) {
+    grid-column: span 2;
   }
 }
 

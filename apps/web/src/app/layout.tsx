@@ -20,6 +20,7 @@ import "@/styles/v2/arena-lobby.css";
 import "@/styles/v2/prime-arena.css";
 import "@/styles/v2/prime-cut.css";
 import "@/styles/v2/find-the-prime.css";
+import "@/styles/v2/shared-draft.css";
 import "@/styles/v2/info-pages.css";
 import "@/styles/v2/duel.css";
 import "@/styles/game-feel.css";

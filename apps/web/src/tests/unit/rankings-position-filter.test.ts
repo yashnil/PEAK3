@@ -23,12 +23,18 @@
  */
 import { describe, expect, it } from "vitest";
 
+import {
+  filterRankingRowsByPosition,
+  rankingsEmptyMessage,
+  sortRankingRows,
+  type RankingPositionFilter,
+} from "@/components/rankings/board-model";
 import { normalizeRankingRow } from "@/lib/api";
 import type { RankingRow, RankingRowPayload } from "@/types";
 
-/** The page's own filter predicate, stated once here. */
+/** The page's own filter -- imported, not restated, so this suite tests it. */
 function filterByPosition(rows: RankingRow[], position: string): RankingRow[] {
-  return position === "all" ? rows : rows.filter((r) => r.primary_position === position);
+  return filterRankingRowsByPosition(rows, position as RankingPositionFilter);
 }
 
 function row(
@@ -139,5 +145,61 @@ describe("rankings position filter", () => {
     const hyphenated = row("Hyphen Guy", "PG-SG");
     expect(filterByPosition([hyphenated], "PG")).toHaveLength(0);
     expect(filterByPosition([hyphenated], "SG")).toHaveLength(0);
+  });
+});
+
+/**
+ * REGRESSION: Rankings -> Single Seasons -> PG showed "No rows available for
+ * this board" while the board reported 1,000 rows. `/api/v1/seasons` served
+ * `positions` but not `primary_position`, so every season row normalised to
+ * null and matched no tab. These rows are the two boards' real served shapes.
+ */
+describe("both boards' served rows filter by position", () => {
+  const seasonRow = (rank: number, name: string, primary: string | null, season: string): RankingRow =>
+    normalizeRankingRow({
+      rank,
+      season_id: `${name.toLowerCase().replace(/[^a-z]+/g, "-")}-1yr-${season.replace("-", "")}`,
+      row_id: `${name.toLowerCase().replace(/[^a-z]+/g, "-")}-1yr-${season.replace("-", "")}`,
+      player_slug: name.toLowerCase().replace(/[^a-z]+/g, "-"),
+      player_name: name,
+      season,
+      label: season,
+      prime_score: 98 - rank,
+      positions: ["PG", "SG"],
+      primary_position: primary,
+    } as unknown as RankingRowPayload);
+  const SEASONS: RankingRow[] = [
+    seasonRow(1, "Michael Jordan", "SG", "1990-91"),
+    seasonRow(2, "Magic Johnson", "PG", "1986-87"),
+    seasonRow(3, "Stephen Curry", "PG", "2015-16"),
+    seasonRow(4, "Shaquille ONeal", "C", "1999-00"),
+    seasonRow(5, "Michael Jordan", "SG", "1995-96"),
+    seasonRow(6, "Larry Bird", "SF", "1985-86"),
+    seasonRow(7, "Tim Duncan", "PF", "2001-02"),
+  ];
+
+  it("every position tab on Single Seasons returns its qualifying seasons", () => {
+    expect(names(filterByPosition(SEASONS, "PG"))).toEqual(["Magic Johnson", "Stephen Curry"]);
+    expect(names(filterByPosition(SEASONS, "SG"))).toEqual(["Michael Jordan", "Michael Jordan"]);
+    expect(names(filterByPosition(SEASONS, "SF"))).toEqual(["Larry Bird"]);
+    expect(names(filterByPosition(SEASONS, "PF"))).toEqual(["Tim Duncan"]);
+    expect(names(filterByPosition(SEASONS, "C"))).toEqual(["Shaquille ONeal"]);
+    expect(filterByPosition(SEASONS, "all")).toHaveLength(SEASONS.length);
+  });
+
+  it("filtering keeps the official order under every sort", () => {
+    const pg = filterByPosition(SEASONS, "PG");
+    expect(sortRankingRows(pg, "rank", "asc").map((r) => r.rank)).toEqual([2, 3]);
+    expect(sortRankingRows(pg, "total", "desc").map((r) => r.rank)).toEqual([2, 3]);
+    const sg = filterByPosition(sortRankingRows(SEASONS, "rank", "asc"), "SG");
+    expect(sg.map((r) => r.rank)).toEqual([1, 5]);
+  });
+
+  it("the empty state names the filter that emptied the board, and only then", () => {
+    expect(filterByPosition([seasonRow(1, "X", "SG", "1990-91")], "C")).toHaveLength(0);
+    expect(rankingsEmptyMessage("", "C")).toBe("No C rows on this board.");
+    expect(rankingsEmptyMessage("zzz", "PG")).toBe('No rows at PG match "zzz".');
+    expect(rankingsEmptyMessage("zzz", "all")).toBe('No rows match "zzz".');
+    expect(rankingsEmptyMessage("", "all")).toBe("No rows available for this board.");
   });
 });

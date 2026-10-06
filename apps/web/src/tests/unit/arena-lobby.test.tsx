@@ -62,6 +62,8 @@ const READY = {
     // server that serves fewer modes than the catalogue lists.
     { id: "prime_cut", seat_count: 4 },
     { id: "find_the_prime", seat_count: 4 },
+    // Shared Draft, likewise, when `ARENA_SHARED_DRAFT_ENABLED` is on.
+    { id: "shared_draft", seat_count: 2 },
   ],
 };
 
@@ -383,7 +385,11 @@ describe("the lobby shows both games at once", () => {
 
   it("never exposes a feature-flag name", async () => {
     render(<ArenaLobby />);
-    const lobby = await screen.findByTestId("arena-lobby");
+    // The LOADED lobby, not the page shell: `arena-lobby` renders while
+    // readiness is in flight, and a negative-text check against "Loading the
+    // Arena…" would pass without ever reading the cards.
+    await screen.findByTestId("lobby-mode-grid");
+    const lobby = screen.getByTestId("arena-lobby");
     expect(lobby.textContent ?? "").not.toMatch(
       /ARENA_|feature flag|allowlist|readiness_level/i,
     );
@@ -453,7 +459,14 @@ describe("closed alpha — bots on, public queue off", () => {
   it("shows neither a rating nor an arena leaderboard as available", async () => {
     vi.stubGlobal("fetch", mockFetch(CLOSED_ALPHA));
     render(<ArenaLobby />);
-    const lobby = await screen.findByTestId("arena-lobby");
+    // Wait for the LOADED lobby, as the tests above do. `arena-lobby` is the
+    // page shell and renders while readiness is still in flight ("Loading the
+    // Arena…", data-posture="loading"), so awaiting it alone asserted against
+    // the loading state whenever the readiness fetch settled a tick late --
+    // which is what CI hit.
+    await screen.findByTestId("lobby-mode-grid");
+    const lobby = screen.getByTestId("arena-lobby");
+    expect(lobby).toHaveAttribute("data-posture", "practice_only");
     // Every card says unrated, and the only mention of ratings or a board is
     // inside the "coming later" panel.
     expect(lobby).toHaveTextContent(/unrated in alpha/i);
@@ -487,7 +500,11 @@ describe("closed alpha — bots on, public queue off", () => {
   it("names no feature flag while explaining what is closed", async () => {
     vi.stubGlobal("fetch", mockFetch(CLOSED_ALPHA));
     render(<ArenaLobby />);
-    const lobby = await screen.findByTestId("arena-lobby");
+    // Wait for the loaded lobby AND its "coming later" explanation, so the
+    // negative check reads the copy it is about rather than the loading shell.
+    await screen.findByTestId("lobby-mode-grid");
+    expect(screen.getByTestId("lobby-coming-later")).toBeInTheDocument();
+    const lobby = screen.getByTestId("arena-lobby");
     expect(lobby.textContent ?? "").not.toMatch(
       /ARENA_|feature flag|allowlist|readiness_level|public_queue/i,
     );

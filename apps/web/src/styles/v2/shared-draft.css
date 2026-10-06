@@ -1,0 +1,699 @@
+/* ================================================================
+   PEAK3 — SHARED DRAFT
+   ================================================================
+   Two drafters, one board. The board is the stage.
+
+   THE COMPOSITION, PHONE FIRST (390 px):
+     head      pick N of 10, whose pick, the pick clock
+     order     the ten-pick snake rail
+     intro     (arrival / intro only)
+     main      the shared pool (five position columns, scrolled as rows
+               of two on a phone), then both rosters side by side
+     controls  the selected player + DRAFT, sticky to the viewport bottom
+     foot      how to play, concede
+   From 1024 px the rosters move beside the pool.
+
+   A card's state is never colour alone: yours prints a check and "Yours ·
+   pick N", theirs a lock and the opponent's name, a filled slot says so.
+
+   Mode accent: the house gold (`--v2-color-accent`). No new global token.
+   ================================================================ */
+
+.sdraft-room {
+  --sdraft-accent: var(--v2-color-accent);
+  --sdraft-accent-text: var(--v2-color-accent-text);
+  --sdraft-theirs: var(--v2-text-muted);
+
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "head"
+    "order"
+    "error"
+    "intro"
+    "main"
+    "controls"
+    "foot";
+  gap: var(--v2-space-4);
+  padding-block: var(--v2-space-6) var(--v2-space-10);
+}
+
+.sdraft-room > .parena-error,
+.sdraft-room > [data-testid="sdraft-error"] {
+  grid-area: error;
+}
+
+/* -- head ---------------------------------------------------------------- */
+
+.sdraft-head {
+  grid-area: head;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "title"
+    "clock";
+  align-items: end;
+  gap: var(--v2-space-3);
+  padding-bottom: var(--v2-space-3);
+  border-bottom: 1px solid var(--v2-border-subtle);
+}
+
+.sdraft-head-title {
+  grid-area: title;
+  min-width: 0;
+}
+
+.sdraft-heading {
+  margin: 4px 0 0;
+  font-family: var(--v2-font-display);
+  font-size: var(--v2-display-size-line);
+  font-weight: 400;
+  line-height: var(--v2-display-leading);
+  letter-spacing: var(--v2-display-track);
+  color: var(--v2-text-primary);
+}
+
+.sdraft-clock {
+  grid-area: clock;
+  min-width: 0;
+}
+
+.sdraft-clock > * {
+  width: 100%;
+}
+
+/* -- the snake rail ------------------------------------------------------ */
+
+.sdraft-order {
+  grid-area: order;
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sdraft-order-pip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 5px 0 4px;
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-instrument);
+  font-size: 0.75rem;
+  color: var(--v2-text-muted);
+}
+
+.sdraft-order-pip .pk-numeral {
+  font-weight: 700;
+  color: var(--v2-text-secondary);
+}
+
+.sdraft-order-who {
+  font-family: var(--v2-font-mono);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sdraft-order-pip[data-you="true"] {
+  border-color: color-mix(in srgb, var(--sdraft-accent) 30%, var(--v2-border-subtle));
+}
+
+.sdraft-order-pip[data-you="true"] .sdraft-order-who {
+  color: var(--sdraft-accent-text);
+}
+
+.sdraft-order-pip[data-state="done"] {
+  opacity: 0.55;
+}
+
+.sdraft-order-pip[data-state="live"] {
+  border-color: var(--sdraft-accent);
+  background: color-mix(in srgb, var(--sdraft-accent) 10%, transparent);
+}
+
+.sdraft-order-pip[data-state="live"] .pk-numeral {
+  color: var(--v2-text-primary);
+}
+
+/* -- intro --------------------------------------------------------------- */
+
+.sdraft-intro {
+  grid-area: intro;
+  padding: var(--v2-space-2) 0 var(--v2-space-4);
+}
+
+.sdraft-intro-title {
+  margin: var(--v2-space-2) 0;
+  font-family: var(--v2-font-display);
+  font-size: var(--v2-display-size-moment);
+  font-weight: 400;
+  line-height: var(--v2-display-leading);
+  color: var(--v2-text-primary);
+}
+
+.sdraft-intro-body {
+  margin: 0 0 var(--v2-space-2);
+  max-width: 38rem;
+  color: var(--v2-text-secondary);
+}
+
+.sdraft-intro-rules {
+  margin: var(--v2-space-2) 0 0;
+  padding-left: 1.1rem;
+  color: var(--v2-text-secondary);
+  font-size: 0.9375rem;
+}
+
+/* -- main: pool + rosters ------------------------------------------------ */
+
+.sdraft-main {
+  grid-area: main;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--v2-space-5);
+  min-width: 0;
+}
+
+.sdraft-side-title {
+  margin: 0;
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--v2-text-secondary);
+}
+
+.sdraft-pool-head,
+.sdraft-roster-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--v2-space-2);
+  margin-bottom: var(--v2-space-2);
+}
+
+.sdraft-pool-count,
+.sdraft-roster-count {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.8125rem;
+  color: var(--v2-text-muted);
+}
+
+.sdraft-pool-count .pk-numeral,
+.sdraft-roster-count .pk-numeral {
+  font-weight: 700;
+  color: var(--v2-text-primary);
+}
+
+/* Phone: each position is a labelled row of its cards. */
+.sdraft-columns {
+  display: grid;
+  gap: var(--v2-space-3);
+}
+
+.sdraft-column {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  align-items: start;
+  align-content: start;
+  gap: var(--v2-space-2);
+}
+
+.sdraft-column-label {
+  margin: 0;
+  padding-top: 12px;
+  font-family: var(--v2-font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--sdraft-accent-text);
+}
+
+.sdraft-column-cards {
+  display: grid;
+  align-content: start;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--v2-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sdraft-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: 64px;
+  padding: 9px 11px;
+  border: 1px solid var(--v2-border);
+  border-radius: var(--v2-radius-control);
+  background: var(--v2-bg-plane);
+  color: var(--v2-text-primary);
+  text-align: left;
+  font: inherit;
+  cursor: default;
+  transition:
+    border-color var(--v2-dur-control) var(--v2-ease-standard),
+    background-color var(--v2-dur-control) var(--v2-ease-standard),
+    opacity var(--v2-dur-transition) var(--v2-ease-standard);
+}
+
+.sdraft-card-name {
+  font-weight: 700;
+  font-size: 0.9375rem;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.sdraft-card-meta {
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary);
+}
+
+.sdraft-card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  margin-top: 2px;
+  font-family: var(--v2-font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+
+.sdraft-card-status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sdraft-card-status svg {
+  flex: 0 0 auto;
+}
+
+/* Pickable only on your pick: the room passes an empty legal list otherwise. */
+.sdraft-room[data-your-pick="true"] .sdraft-card[data-state="open"][aria-disabled="false"] {
+  cursor: pointer;
+  border-color: color-mix(in srgb, var(--sdraft-accent) 40%, var(--v2-border));
+}
+
+.sdraft-room[data-your-pick="true"] .sdraft-card[data-state="open"][aria-disabled="false"]:hover {
+  border-color: var(--sdraft-accent);
+}
+
+.sdraft-card[data-selected="true"] {
+  border-color: var(--sdraft-accent);
+  border-width: 2px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--sdraft-accent) 12%, var(--v2-bg-plane));
+}
+
+.sdraft-card:focus-visible {
+  outline: 2px solid var(--focus-ring, var(--sdraft-accent));
+  outline-offset: 2px;
+}
+
+.sdraft-card[data-state="mine"] {
+  border-color: color-mix(in srgb, var(--sdraft-accent) 55%, var(--v2-border));
+  background: color-mix(in srgb, var(--sdraft-accent) 6%, var(--v2-bg-plane));
+}
+
+.sdraft-card[data-state="mine"] .sdraft-card-status {
+  color: var(--sdraft-accent-text);
+}
+
+.sdraft-card[data-state="theirs"] {
+  border-style: dashed;
+  background: transparent;
+  opacity: 0.6;
+}
+
+.sdraft-card[data-state="theirs"] .sdraft-card-name {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--v2-text-muted) 70%, transparent);
+}
+
+.sdraft-card[data-state="filled"] {
+  opacity: 0.5;
+}
+
+/* -- rosters ------------------------------------------------------------- */
+
+.sdraft-rosters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--v2-space-3);
+  align-content: start;
+  min-width: 0;
+}
+
+.sdraft-roster {
+  min-width: 0;
+  padding: var(--v2-space-3);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-control);
+}
+
+.sdraft-roster[data-on-clock="true"] {
+  border-color: color-mix(in srgb, var(--sdraft-accent) 55%, var(--v2-border));
+}
+
+.sdraft-onclock {
+  font-family: var(--v2-font-mono);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sdraft-accent-text);
+}
+
+.sdraft-slots {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sdraft-slot {
+  display: grid;
+  grid-template-columns: 1.9rem minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 4px 0;
+  border-top: 1px solid var(--v2-border-subtle);
+}
+
+.sdraft-slot:first-child {
+  border-top: none;
+}
+
+.sdraft-slot-pos {
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--v2-text-muted);
+}
+
+.sdraft-slot[data-filled="true"] .sdraft-slot-pos {
+  color: var(--sdraft-accent-text);
+}
+
+.sdraft-slot-player {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sdraft-slot-name {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--v2-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sdraft-slot-season {
+  font-size: 0.6875rem;
+  color: var(--v2-text-muted);
+}
+
+.sdraft-slot-open {
+  font-size: 0.75rem;
+  color: var(--v2-text-muted);
+}
+
+/* -- controls ------------------------------------------------------------ */
+
+.sdraft-controls {
+  grid-area: controls;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v2-space-3);
+  padding-block: var(--v2-space-2) var(--v2-space-3);
+  background: linear-gradient(to top, var(--v2-bg-page) 72%, transparent);
+}
+
+.sdraft-controls-label {
+  margin: 0;
+  min-width: 0;
+  font-weight: 700;
+  color: var(--v2-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.sdraft-controls-pos {
+  margin-right: 6px;
+  font-family: var(--v2-font-mono);
+  font-size: 0.75rem;
+  color: var(--sdraft-accent-text);
+}
+
+.sdraft-controls > button {
+  flex: 0 0 auto;
+  min-width: 8.5rem;
+}
+
+.sdraft-foot {
+  grid-area: foot;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--v2-space-3);
+}
+
+/* -- result -------------------------------------------------------------- */
+
+.sdraft-result {
+  display: grid;
+  gap: var(--v2-space-6);
+  padding-block: var(--v2-space-6) var(--v2-space-10);
+}
+
+.sdraft-result-title {
+  margin: var(--v2-space-2) 0 var(--v2-space-4);
+  font-family: var(--v2-font-display);
+  font-size: var(--v2-display-size-hero);
+  font-weight: 400;
+  line-height: var(--v2-display-leading);
+  color: var(--v2-text-primary);
+}
+
+.sdraft-totals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--v2-space-3);
+  margin: 0;
+}
+
+.sdraft-totals > div {
+  padding: var(--v2-space-3) var(--v2-space-4);
+  border: 1px solid var(--v2-border);
+  border-radius: var(--v2-radius-control);
+  min-width: 0;
+}
+
+.sdraft-totals > div[data-you="true"] {
+  border-color: color-mix(in srgb, var(--v2-color-accent) 55%, var(--v2-border));
+}
+
+.sdraft-totals dt {
+  font-family: var(--v2-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sdraft-totals dd {
+  margin: 4px 0 0;
+  font-size: var(--v2-display-size-line);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--v2-text-primary);
+}
+
+.sdraft-totals > div[data-you="true"] dd {
+  color: var(--v2-color-accent-text);
+}
+
+.sdraft-result-caption {
+  margin: var(--v2-space-2) 0 0;
+  font-size: 0.875rem;
+  color: var(--v2-text-secondary);
+}
+
+.sdraft-h2h {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.sdraft-h2h th,
+.sdraft-h2h td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--v2-border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+
+.sdraft-h2h thead th {
+  font-family: var(--v2-font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v2-text-muted);
+}
+
+.sdraft-h2h tbody th {
+  font-family: var(--v2-font-mono);
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary);
+}
+
+.sdraft-h2h-name {
+  display: block;
+  font-weight: 700;
+  color: var(--v2-text-primary);
+}
+
+.sdraft-h2h-score {
+  font-size: 0.75rem;
+  color: var(--v2-text-secondary);
+}
+
+.sdraft-h2h .sdraft-h2h-edge {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sdraft-h2h tr[data-edge="you"] td.sdraft-h2h-edge {
+  color: var(--v2-color-accent-text);
+  font-weight: 700;
+}
+
+.sdraft-h2h tr[data-edge="them"] td.sdraft-h2h-edge {
+  color: var(--v2-text-muted);
+}
+
+.sdraft-components {
+  display: grid;
+  gap: 6px;
+  max-width: 34rem;
+  margin: 0 0 var(--v2-space-4);
+}
+
+.sdraft-component {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--v2-space-3);
+  padding: 6px 0 6px 10px;
+  border-left: 3px solid var(--sdraft-comp, var(--v2-border));
+}
+
+.sdraft-component dt {
+  font-size: 0.8125rem;
+  color: var(--v2-text-secondary);
+}
+
+.sdraft-component dd {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-weight: 700;
+  color: var(--v2-text-primary);
+}
+
+.sdraft-component-vs {
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--v2-text-muted);
+}
+
+.sdraft-leftover {
+  margin: 0 0 var(--v2-space-3);
+  font-size: 0.875rem;
+  color: var(--v2-text-secondary);
+}
+
+/* -- wide screens --------------------------------------------------------- */
+
+@media (min-width: 720px) {
+  .sdraft-columns {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: var(--v2-space-2);
+  }
+
+  .sdraft-column {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sdraft-column-label {
+    padding-top: 0;
+    padding-bottom: 2px;
+    border-bottom: 1px solid var(--v2-border-subtle);
+  }
+
+  .sdraft-column-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .sdraft-head {
+    grid-template-columns: minmax(0, 1fr) 15rem;
+    grid-template-areas: "title clock";
+  }
+
+  .sdraft-main {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
+    column-gap: var(--v2-space-8);
+  }
+
+  .sdraft-rosters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sdraft-controls {
+    position: static;
+    background: none;
+    justify-content: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sdraft-card {
+    transition: none;
+  }
+}

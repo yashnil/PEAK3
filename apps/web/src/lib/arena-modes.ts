@@ -69,6 +69,9 @@ export interface ArenaModeMeta {
   description: string;
   /** Approximate wall-clock length, for the card's fact row. */
   duration: string;
+  /** The AUTHORED menu-sized one-liner (<= 8 words) for compact tiles such as
+   *  the homepage's. Optional: a mode without one falls back to `description`. */
+  blurb?: string;
   /** "Multiplayer" / "Auction" — the badge that says what kind of game it is. */
   kindBadge: string;
   /** Where a live match of this mode is played. */
@@ -166,6 +169,25 @@ export const ARENA_MODES: readonly ArenaModeMeta[] = [
     ],
   },
   {
+    id: "shared_draft",
+    name: "Shared Draft",
+    tagline: "Two drafters · one board",
+    blurb: "Two drafters, one board of last season's players",
+    description:
+      "Twelve players from the latest completed NBA season on one shared board. Draft five, one at each position — every player you take is one your opponent can't.",
+    duration: "3–6 min",
+    kindBadge: "Draft",
+    matchPath: (matchId) => `/arena/shared-draft/${matchId}`,
+    rules: [
+      "Two drafters, one board of twelve players from the latest completed season: two or three at every position.",
+      "Snake order: one pick, then two each way, until both rosters have five.",
+      "Fill one player at each of PG, SG, SF, PF and C. A drafted player is gone for the other side.",
+      "Each card is the player's best completed 1-year PEAK3 season; scores stay hidden until the tenth pick.",
+      "If your clock runs out, the first open player in board order is drafted for you.",
+      "The higher roster total of five PEAK3 scores wins.",
+    ],
+  },
+  {
     id: "twenty_dollar",
     name: "The $20 Showdown",
     tagline: "Two bidders · $20 each",
@@ -189,6 +211,7 @@ export const ARENA_MODES: readonly ArenaModeMeta[] = [
     id: "prime_cut",
     name: "Prime Cut",
     tagline: "Four players · three heats",
+    blurb: "Eight peaks a heat, keep four",
     description:
       "Eight multi-year peaks arrive one at a time. Keep the four you think were greatest and cut the rest — every call is final, and you never see what is coming next.",
     duration: "3–6 min",
@@ -207,6 +230,7 @@ export const ARENA_MODES: readonly ArenaModeMeta[] = [
     id: "find_the_prime",
     name: "Find the Prime",
     tagline: "Four players · nine careers",
+    blurb: "Pick the stretch PEAK3 rates highest",
     description:
       "One player, one peak length, one career timeline. Pick the stretch PEAK3 rates highest — the closer your window, the more points you earn.",
     duration: "3–5 min",

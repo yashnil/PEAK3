@@ -26,6 +26,8 @@ export interface ArenaCatalogueMode {
   name: string;
   /** One sentence on what the game is. */
   description: string;
+  /** The catalogue's menu-sized one-liner, when it has one. */
+  blurb?: string;
   /** "3 players · 10–15 min", built from the SERVER's seat count. */
   facts: string[];
   /** "Multiplayer" / "Auction". */
@@ -88,6 +90,7 @@ export async function getArenaCatalogue(): Promise<ArenaCatalogue> {
         id: lead.variantOf ? lead.id : family.id,
         name: family.name,
         description: grouped ? (meta.family?.description ?? meta.description) : lead.description,
+        blurb: (grouped ? meta : lead).blurb,
         facts: [
           `${lead.seatCount} player${lead.seatCount === 1 ? "" : "s"}`,
           meta.duration,

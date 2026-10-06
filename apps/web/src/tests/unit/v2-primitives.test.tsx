@@ -203,7 +203,10 @@ describe("HomePageV2 — real data only, no fabricated stats", () => {
 
   it("omits the data-object slot entirely when no real top window is available — never a placeholder", () => {
     render(<HomePageV2 {...baseProps} topWindow={null} />);
-    expect(screen.queryByText(/Rank/)).not.toBeInTheDocument();
+    // The data object's label is "Rank N"; a placeholder would be "Rank" or
+    // "Rank —". Matched as a WORD so the homepage's Ranked mode tile (a real
+    // link to /arena/ranked) is not mistaken for a fabricated rank.
+    expect(screen.queryByText(/\bRank\b/)).not.toBeInTheDocument();
   });
 
   it("renders the real top window's own rank/name/score when provided", () => {

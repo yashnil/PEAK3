@@ -405,7 +405,8 @@ presses waits on a timer.
 - **Franchise/Decade bots (`tmw_bot_v3`)** add a small lean to utility: a player
   whose natural group (guard/wing/big) the roster already holds twice is marked
   down per extra body, a missing group is marked up after two picks, and a
-  recognition pull from the career-best card anywhere in the index. The
+  recognition pull from the career-best card anywhere in the index (superseded
+  in `tmw_bot_v4`, below). The
   quality gate still runs on raw scores first, so no lean can reach a
   catastrophic pick. Bands 82/13/5 instead of 90/8/2. Decade Draft rosters with
   three or more bigs: 13/36 → 6/36 over 12 seeds. The standard game's policy is
@@ -443,3 +444,37 @@ presses waits on a timer.
 - Feedback: a "Help shape PEAK3 Arena" band under Your Arena with three quick
   kinds that jump to the existing form (`#feedback`, `?feedback=<kind>`), plus
   links from the lobby, hub and footer.
+
+## Three-Man Weave bots with opinions (`tmw_bot_v4`, 2026-10-06)
+
+The v3 bot took the best option by utility ~96% of the time (measured 0.958
+over 120 seeded matches), so after a few games a player could call its pick
+from PEAK3 alone. v4 keeps every strength guard and replaces the 90/8/2 bands
+with a seeded TASTE draw:
+
+- **Quality gate and regret cap unchanged.** A candidate more than 12 PEAK3
+  points behind the best legal one is never drawable; nothing beyond 0.18
+  utility regret is drawable; a decisive roll is forced and consumes no
+  randomness.
+- **Taste** = `peak × utility + need × (roster-need share of utility) + star ×
+  recognition`, drawn by Gumbel-max at a style temperature (a softmax draw).
+- **Styles** (internal, never shown), seeded per match seat by the API adapter
+  as `private_state.bot_style`, bot seats only: analyst (peak 1.15, star 0.04,
+  T 0.055), fan (star 0.20, T 0.075), builder (need +0.45, star 0.08, T 0.070);
+  `balanced` (star 0.10, T 0.070) is the fallback. One-constraint drafts cool
+  the temperature ×0.4: their deep pools hold many more near-peers.
+- **Recognition** (`nba_peak/three_man_weave/recognition.py`) is a GAME-ONLY
+  familiarity signal from career honors in the scored parquet (MVP, Finals MVP,
+  All-NBA, All-Star, titles, scoring titles), saturating to 0..1. Not a
+  basketball metric; imported only by the TMW bot and its adapter (tested).
+  Worthy 0.68 vs Marques Johnson 0.37; Kareem 0.93 vs Stockton 0.85 (pre-1980
+  honors are outside the data and not counted).
+- **Measured (120 matches, standard):** best option 0.73–0.78 by style (v3
+  0.958); single highest raw-PEAK3 candidate on non-forced turns 0.62–0.67 (v3
+  0.725); situations that differ across seeds 0.64–0.69 (v3 0.31); mean quality
+  regret 1.0–1.4 points (v3 0.91); zero catastrophic picks or dominance
+  violations.
+- **The $20 Showdown bot is untouched**: `tests/twenty_dollar/
+  test_bot_policy_separation.py` pins a digest of 40 seeded bot-vs-bot decision
+  sequences captured before this change, and forbids any Showdown import of
+  the TMW bot or recognition.

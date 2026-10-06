@@ -3,8 +3,8 @@
   * DELIBERATION -- how hard a decision LOOKS, which shapes how long a bot seat
     appears to think. Presentation only: it must never change what is picked.
   * THE ONE-CONSTRAINT DRAFTER'S LEAN -- in a Franchise or Decade Draft the bot
-    weighs roster construction (no third big on a close call) and a mild
-    recognition pull, and samples its near-equivalent bands a little more.
+    weighs roster construction (no third big on a close call). (Recognition
+    moved to every draft's taste in tmw_bot_v4: see `test_bot_style.py`.)
 
 No player is named in the policy, and none is named here: the slugs these
 tests need are found from the committed index by position.
@@ -19,7 +19,8 @@ import pytest
 from nba_peak.three_man_weave import bot as B
 from nba_peak.three_man_weave import draft as D
 from nba_peak.three_man_weave import variants as V
-from nba_peak.three_man_weave.bot import ThreeManWeaveBot, natural_group, recognition
+from nba_peak.three_man_weave.bot import ThreeManWeaveBot, natural_group
+from nba_peak.three_man_weave.recognition import recognition
 
 
 def _projection(state: D.DraftState, index, seat: int) -> tuple[dict, dict]:
@@ -153,40 +154,48 @@ def test_a_third_big_is_marked_down_and_a_missing_group_marked_up(index):
     assert abs(ThreeManWeaveBot._drafter_lean(big, Counter({"big": 3}), 3)) < 0.25
 
 
-def test_recognition_is_bounded_and_follows_the_career_best_card(index):
-    best = B._career_best_scores()
-    ranked = sorted(best.items(), key=lambda item: item[1])
-    assert recognition(ranked[0][0]) == 0.0
-    assert recognition(ranked[-1][0]) == pytest.approx(1.0)
-    values = [recognition(slug) for slug, _score in ranked[:: max(1, len(ranked) // 50)]]
-    assert values == sorted(values)
+def test_recognition_is_bounded_and_unknown_players_read_zero(index):
+    ids = {slug for (slug, _f, _d) in index._scoring}  # noqa: SLF001 - read-only
+    values = [recognition(slug) for slug in ids]
+    assert all(0.0 <= value < 1.0 for value in values)
+    assert max(values) > 0.95
     assert recognition("not-a-player") == 0.0
+    assert recognition(None) == 0.0
 
 
 def test_the_lean_applies_only_to_a_one_constraint_draft(index, monkeypatch):
     """With the lean switched off, a variant's utilities move and a standard
-    roll's do not -- the standard game's calibrated policy is untouched."""
+    roll's do not -- the standard game's utility is untouched by it. Captured
+    after the drafter has two picks, when the roster-construction lean speaks."""
     from nba_peak.three_man_weave import feasibility as F
     from nba_peak.three_man_weave.config import stream_rng
 
     def utilities(public, private):
         return {(o["player_slug"], o["slot_type"]): o["utility"] for o in ThreeManWeaveBot().options(public, private)}
 
-    variant = D.create_match(5, constraint=V.choose_constraint(V.VARIANT_FRANCHISE, 5))
-    variant = D.set_roll(variant, V.constraint_roll(variant.constraint, 1, frozenset()))
-    variant_view = _projection(variant, index, variant.current_seat)
+    views: list = []
+
+    def capture(public, private, _payload):
+        if len([s for s in (private.get("assignment") or {}).values() if s]) >= 2:
+            views.append((public, private))
+
+    _drive_variant(index, V.VARIANT_DECADE, 5, ThreeManWeaveBot(), on_turn=capture)
+    assert views
 
     standard = D.create_match(5)
     roll = F.roll_next(index, standard.rosters, frozenset(), 1, stream_rng(5, "rolls"), frozenset())
     standard = D.set_roll(standard, roll)
     standard_view = _projection(standard, index, standard.current_seat)
 
-    leaning_variant, leaning_standard = utilities(*variant_view), utilities(*standard_view)
+    leaning = [utilities(*view) for view in views]
+    leaning_standard = utilities(*standard_view)
     monkeypatch.setattr(ThreeManWeaveBot, "_drafter_lean", staticmethod(lambda *_args: 0.0))
-    plain_variant, plain_standard = utilities(*variant_view), utilities(*standard_view)
+    plain = [utilities(*view) for view in views]
+    plain_standard = utilities(*standard_view)
 
-    assert leaning_variant.keys() == plain_variant.keys() and leaning_variant
-    assert any(abs(leaning_variant[key] - plain_variant[key]) > 1e-9 for key in leaning_variant)
+    assert any(
+        abs(lean[key] - flat[key]) > 1e-9 for lean, flat in zip(leaning, plain) for key in lean
+    )
     assert leaning_standard == plain_standard and leaning_standard
 
 
@@ -212,7 +221,9 @@ def test_a_leaning_variant_bot_is_still_never_a_catastrophe(index, kind):
         state = _drive_variant(index, kind, seed, bot, on_turn=check)
         assert all(roster.is_complete() for roster in state.rosters)
     assert worst <= B._MAX_QUALITY_REGRET_POINTS + 1e-9, worst
-    assert 0.7 <= top / turns <= 0.98, top / turns
+    # v4 (deliberately less predictable): the best option is still the single
+    # most likely pick, now ~0.6-0.7 of variant turns rather than ~0.85.
+    assert 0.5 <= top / turns <= 0.9, top / turns
 
 
 def test_the_lean_builds_fewer_stacked_frontcourts_in_a_decade_draft(index, monkeypatch):

@@ -157,18 +157,23 @@ def test_every_bot_pick_is_legal_and_every_match_completes(index):
         assert len(slugs) == len(set(slugs))
 
 
-def test_the_bot_takes_the_best_legal_option_about_ninety_percent_of_the_time(
+def test_the_bot_takes_the_best_legal_option_most_but_not_nine_tenths_of_the_time(
     calibration,
 ):
-    """PART 10's first calibration target.
+    """The calibration target, RETUNED ON PURPOSE in tmw_bot_v4.
 
-    The band is wide on the upper side because the dominance guard removes
-    randomness whenever the top option is decisive, and many rolls are decisive
-    -- an early roll with one clear star in it should not be a coin flip.
+    v1-v3 targeted ~90% best-option picks (measured 0.958 over 120 matches).
+    That made the bot predictable: anyone who knew which available player
+    PEAK3 valued most could call its pick. The product brief asked for a strong
+    bot "with opinions" instead, so v4 samples taste (utility + style +
+    game-only recognition) and the band moves to ~0.6-0.85 (measured 0.73 for
+    the default style). This is a deliberate behaviour change of a GAME bot,
+    not a relaxed model assertion: every strength guard below is unchanged --
+    bounded utility regret, no catastrophic quality miss, the dominance guard.
     """
     assert len(calibration) > 500
     optimal = sum(1 for pick in calibration if pick["optimal"]) / len(calibration)
-    assert 0.88 <= optimal <= 0.99, optimal
+    assert 0.60 <= optimal <= 0.85, optimal
 
 
 def test_the_bot_still_deviates(calibration):
