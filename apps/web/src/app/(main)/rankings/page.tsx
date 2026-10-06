@@ -17,7 +17,10 @@ import {
   RANKING_COMPONENT_KEYS,
   hasComponents,
   isDefaultSort,
+  filterRankingRowsByPosition,
+  rankingsEmptyMessage,
   sortRankingRows,
+  type RankingPositionFilter,
   type RankingSortKey,
   type SortDirection,
 } from "@/components/rankings/board-model";
@@ -144,8 +147,6 @@ const POSITION_OPTIONS: { id: RankingPositionFilter; label: string }[] = [
   { id: "PF", label: "PF" },
   { id: "C", label: "C" },
 ];
-
-type RankingPositionFilter = "all" | "PG" | "SG" | "SF" | "PF" | "C";
 
 function isPositionFilter(value: string | null): value is RankingPositionFilter {
   return POSITION_OPTIONS.some((o) => o.id === value);
@@ -303,7 +304,7 @@ export default function RankingsPage() {
   // whose primary position the model could not resolve matches no tab rather
   // than being guessed into one — it is still present under "All".
   const rows = useMemo(
-    () => (position === "all" ? allRows : allRows.filter((r) => r.primary_position === position)),
+    () => (position === "all" ? allRows : filterRankingRowsByPosition(allRows, position)),
     [allRows, position],
   );
   const showComponents = hasComponents(rows);
@@ -572,11 +573,7 @@ export default function RankingsPage() {
                 onSort={handleSort}
                 showComponents={showComponents}
                 caption={`${boardHeading} — ranked by PEAK3 score. Select a row to see how the score was built.`}
-                emptyMessage={
-                  debouncedSearch
-                    ? `No rows match "${debouncedSearch}".`
-                    : "No rows available for this board."
-                }
+                emptyMessage={rankingsEmptyMessage(debouncedSearch, position)}
                 labelHeading={board === "seasons" ? "Season" : "Window"}
                 selectedRowId={selectedRow?.row_id ?? null}
                 onSelectRow={openAnalysis}

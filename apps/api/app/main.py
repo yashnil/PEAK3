@@ -222,3 +222,5 @@ from app.services.twenty_dollar import mode as _twenty_dollar_mode  # noqa: E402
 # on (`ARENA_PRIME_CUT_ENABLED` / `ARENA_FIND_THE_PRIME_ENABLED`, arena.py).
 from app.services.prime_cut import mode as _prime_cut_mode  # noqa: E402,F401
 from app.services.find_the_prime import mode as _find_the_prime_mode  # noqa: E402,F401
+# SHARED DRAFT, offered while `ARENA_SHARED_DRAFT_ENABLED` is on (arena.py).
+from app.services.shared_draft import mode as _shared_draft_mode  # noqa: E402,F401

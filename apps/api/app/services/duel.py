@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import random
 from dataclasses import dataclass, field
+from typing import Optional
 
 
 DIFFICULTY_LABELS = {
@@ -31,6 +32,9 @@ class DuelPair:
     _correct_winner_id: str = field(repr=False)
     _left_prime_index: float = field(repr=False)
     _right_prime_index: float = field(repr=False)
+    # Which daily pairing produced this duel ("v1" | "v2"), its band and the
+    # relaxation rung used. Diagnostic only -- never serialised.
+    _pairing: Optional[dict] = field(default=None, repr=False)
 
 
 def _peak_public(record: dict) -> dict:
@@ -232,13 +236,81 @@ def daily_seed(date_str: str, years: int) -> int:
     return int(hashlib.sha256(raw.encode()).hexdigest(), 16) % (2 ** 31)
 
 
+def uses_pairing_v2(date_str: str, pairing_v2_from: Optional[str]) -> bool:
+    """Whether the daily board for `date_str` is built by pairing v2.
+
+    A DATED CUTOVER, NOT A SWITCH. A daily board is never stored -- it is
+    re-derived from `(date, years)` on every request, including archive
+    replays, and stored results reference its `duel_id`s. Changing the
+    generator for every date would silently rewrite every archived board and
+    orphan every stored answer. So boards dated before the cutover are built by
+    the v1 draw exactly as they always were, and only boards on or after it use
+    v2. Both are ISO `YYYY-MM-DD` daily keys, so string order is date order.
+    `None` means v1 for every date (the pure-function default).
+    """
+    return pairing_v2_from is not None and date_str >= pairing_v2_from
+
+
+def _duel_from_pair(a: dict, b: dict, seed: int, difficulty: str, pairing: dict) -> DuelPair:
+    """One v2 duel, assembled with v1's own winner, orientation and id rules."""
+    stronger, weaker = (a, b) if a["prime_index"] >= b["prime_index"] else (b, a)
+    if stronger_on_left(seed, a["id"], b["id"]):
+        left, right = stronger, weaker
+    else:
+        left, right = weaker, stronger
+    return DuelPair(
+        id=_duel_id(left["id"], right["id"]),
+        left=_peak_public(left),
+        right=_peak_public(right),
+        difficulty=difficulty,
+        _correct_winner_id=stronger["id"],
+        _left_prime_index=left["prime_index"],
+        _right_prime_index=right["prime_index"],
+        _pairing=pairing,
+    )
+
+
+def generate_daily_duels_v2(pool: list[dict], seed: int, count: int) -> list[DuelPair]:
+    """Pairing v2 (`duel_pairing`): debatable pairs in an easy -> close
+    progression. Tops up from the v1 draw -- over the players v2 did not use --
+    only if even the last relaxation rung could not fill the board, which the
+    committed pools never need."""
+    from app.services import duel_pairing as P
+
+    duels = [
+        _duel_from_pair(
+            plan.facts.a,
+            plan.facts.b,
+            seed,
+            P.difficulty_label(plan.band, plan.facts.gap),
+            {"version": P.PAIRING_VERSION, "band": plan.band, "rung": plan.rung, "gap": plan.facts.gap},
+        )
+        for plan in P.plan_pairs(pool, count, seed)
+    ]
+    if len(duels) < count:
+        used = {d.left["player_slug"] for d in duels} | {d.right["player_slug"] for d in duels}
+        rest = [r for r in pool if r.get("player_slug") not in used]
+        if len({r.get("player_id") for r in rest}) < 2:
+            # Nothing left to pair without repeating a player: a short board
+            # is a real answer for a pool this small, a repeat is not.
+            return duels
+        rng = random.Random(f"{P.PAIRING_NAMESPACE}:fallback:{seed}")
+        for duel in generate_duels(rest, count - len(duels), rng, seed=seed):
+            duel._pairing = {"version": "v1", "band": None, "rung": "v1_fallback", "gap": None}
+            duels.append(duel)
+    return duels
+
+
 def generate_daily_duels(
     pool: list[dict],
     years: int,
     date_str: str,
     count: int = 10,
+    pairing_v2_from: Optional[str] = None,
 ) -> list[DuelPair]:
     seed = daily_seed(date_str, years)
+    if uses_pairing_v2(date_str, pairing_v2_from):
+        return generate_daily_duels_v2(pool, seed, count)
     rng = random.Random(seed)
     # The SAME seed drives both the matchup draw and the orientation bit, so a
     # date and a duration together fix the whole board -- which two peaks, and

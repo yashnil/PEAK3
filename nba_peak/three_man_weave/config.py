@@ -90,7 +90,7 @@ AUTOPICK_VERSION: Final[str] = "tmw_autopick_v2"
 #: construction (it avoids stacking a third big on a close call) and a mild
 #: star-recognition lean, and samples its near-equivalent bands a little more
 #: often. The standard game's utility and bands are unchanged.
-BOT_POLICY_VERSION: Final[str] = "tmw_bot_v3"
+BOT_POLICY_VERSION: Final[str] = "tmw_bot_v4"
 
 #: HOW LONG A BOT SEAT APPEARS TO DELIBERATE, in seconds -- SHAPED BY THE
 #: DECISION, not drawn flat.

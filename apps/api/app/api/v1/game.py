@@ -154,7 +154,15 @@ async def get_daily_game(
     except KeyError:
         raise HTTPException(status_code=404, detail=f"No leaderboard data for years={years}")
 
-    duels = generate_daily_duels(pool, years, date, count=settings.DAILY_DUEL_COUNT)
+    duels = generate_daily_duels(
+        pool,
+        years,
+        date,
+        count=settings.DAILY_DUEL_COUNT,
+        # Boards dated before the cutover replay the v1 draw unchanged, so
+        # archived days and stored answers keep their duel ids.
+        pairing_v2_from=settings.PEAK_DUEL_PAIRING_V2_FROM,
+    )
     if not duels:
         raise HTTPException(status_code=500, detail="Could not generate duels — pool may be too small")
 

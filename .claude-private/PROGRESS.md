@@ -1,3 +1,40 @@
+# Shared Draft + Arena pass (2026-10-06, implemented, UNCOMMITTED)
+
+Branch `feature/shared-draft-arena-pass` off main@d8c9900. User did NOT ask to commit/push.
+Design: `docs/game-design/SHARED_DRAFT.md`, `docs/game-design/PEAK_DUEL_PAIRING.md`,
+`docs/design/GAME_FEEL.md` (tmw_bot_v4).
+
+## Done
+- D Rankings: `/api/v1/seasons` lacked `primary_position` -> every Single Seasons tab empty.
+  Fixed in seasons.py; filter+empty message moved to `board-model.ts`; API + vitest + e2e tests.
+- A Shared Draft: `nba_peak/shared_draft/` + adapter + flag `ARENA_SHARED_DRAFT_ENABLED`
+  (default off; on in start:api + e2e-tests.sh). Room `components/shared-draft/`, CSS
+  `styles/v2/shared-draft.css`, route `/arena/shared-draft/[matchId]`. Bot = greedy-rollout
+  margin + Gumbel T=2.0 (0.667 vs greedy, 0.20 non-argmax).
+- B Home play index (3 labelled groups, all modes, Endless+Ranked), Arena hub Endless+Ranked,
+  odd-count grid fill; lobby copy generalised.
+- C Peak Duel v2 pairing, cutover `PEAK_DUEL_PAIRING_V2_FROM=2026-10-08` (must be >= deploy day).
+- E/F TMW bot v4 (styles + honors recognition.py), Showdown digest pin.
+- G TMW arrival already on main (pass 4); verified, unchanged.
+
+## Final validation (pre-commit)
+- No current-roster source exists in the repo (all data ends 2025-26). Eligibility stays
+  "row in latest completed scored season"; pool API renamed latest_season_*; copy no longer
+  says "current" (guard test in mode-discoverability.test.tsx).
+- Deploy: PEAK3_ARENA_ENABLED=true + readiness != disabled + PEAK3_ARENA_SHARED_DRAFT_ENABLED=true;
+  PEAK3_PEAK_DUEL_PAIRING_V2_FROM=<deploy day or later>.
+
+## Gates
+- model-tests.sh: 2240 passed / 2 skipped / 1 xfailed.
+- api-unit-tests.sh: 2099 passed / 2 skipped.
+- typecheck + lint 0 warnings; production build OK.
+- e2e: chromium-multiplayer 47/47 (after handle-prompt precondition fix); mobile-chrome 39/39;
+  chromium-core 298/303 -- 5 daily-grid.spec failures = spec answer-finder dead end on 2026-10-06
+  (Daily Grid untouched).
+- vitest: all pass except peak-duel-v2-history (3) = PRE-EXISTING clock rot (seeds 2026-08-20,
+  35-day window from real today) -- fails on main too.
+
+
 # Arena game-feel pass 5 — pacing, suspense, IA (2026-09-14, DONE, uncommitted)
 
 Branch `feature/arena-game-feel` on top of `94e6dd9`. UNCOMMITTED working tree (user did

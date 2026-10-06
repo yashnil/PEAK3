@@ -545,7 +545,7 @@ function Unavailable({
         : {
             testId: "lobby-disabled",
             headline: "Multiplayer is not open yet",
-            body: "Three-Man Weave and The $20 Showdown are in closed alpha and this build is not serving them. Everything else in the Arena is playable now.",
+            body: "The live multiplayer games are in closed alpha and this build is not serving them. Everything else in the Arena is playable now.",
           };
   return (
     <section

@@ -7,7 +7,7 @@ import PeakV2Shell from "@/components/v2/PeakV2Shell";
 export const metadata: Metadata = {
   title: "Multiplayer · PEAK3 Arena",
   description:
-    "Three-Man Weave and The $20 Showdown. Play a public match, play with friends on a shared code, or start immediately against bots.",
+    "Live PEAK3 games — drafts, auctions and peak calls. Play a public match, play with friends on a shared code, or start immediately against bots.",
 };
 
 /**

@@ -133,3 +133,33 @@ export function formatPercentile(value: number | null | undefined): string | nul
             : "th";
   return `${rounded}${suffix}`;
 }
+
+/** The position tabs. "all" is the whole board. */
+export type RankingPositionFilter = "all" | "PG" | "SG" | "SF" | "PF" | "C";
+
+/**
+ * The page's position filter, the only copy of it.
+ *
+ * `=== position`, not `.includes(position)`: one player, one tab, keyed on the
+ * row's `primary_position` (the model's most-minutes position). A row whose
+ * primary position could not be resolved matches no tab and is still present
+ * under "All". Filtering never reorders: the result is a subsequence of `rows`.
+ *
+ * BOTH BOARDS DEPEND ON THE API SERVING `primary_position`. Single Seasons once
+ * did not (`/api/v1/seasons` sent only `positions`), so every tab on that board
+ * was empty while the board still reported 1,000 rows.
+ */
+export function filterRankingRowsByPosition(
+  rows: readonly RankingRow[],
+  position: RankingPositionFilter,
+): RankingRow[] {
+  return position === "all" ? [...rows] : rows.filter((r) => r.primary_position === position);
+}
+
+/** The empty state names whatever actually emptied the board. */
+export function rankingsEmptyMessage(search: string, position: RankingPositionFilter): string {
+  const where = position === "all" ? "" : ` at ${position}`;
+  if (search) return `No rows${where} match "${search}".`;
+  if (position !== "all") return `No ${position} rows on this board.`;
+  return "No rows available for this board.";
+}

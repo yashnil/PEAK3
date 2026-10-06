@@ -247,6 +247,13 @@ test.describe("the multiplayer lobby", () => {
         { width: 1600, height: 900 },
       ]) {
         await page.setViewportSize(size);
+        // The prompt deliberately steps aside while the footer is on screen
+        // (`HandleOnboardingPrompt` footerVisible). Opening a card's room
+        // panel scrolls that card into view, and with five games Prime Cut's
+        // card sits on the lobby's last row, so the footer can be in view.
+        // The band check below is horizontal and holds at any scroll; it
+        // needs only the prompt to be up, which it is at the top of the page.
+        await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }));
         await expect(prompt).toBeVisible();
         const overlaps = await page.evaluate(() => {
           const band = document.querySelector('[data-testid="handle-onboarding-prompt"]')!.getBoundingClientRect();

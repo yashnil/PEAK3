@@ -62,6 +62,8 @@ const READY = {
     // server that serves fewer modes than the catalogue lists.
     { id: "prime_cut", seat_count: 4 },
     { id: "find_the_prime", seat_count: 4 },
+    // Shared Draft, likewise, when `ARENA_SHARED_DRAFT_ENABLED` is on.
+    { id: "shared_draft", seat_count: 2 },
   ],
 };
 

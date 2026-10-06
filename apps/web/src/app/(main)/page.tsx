@@ -75,7 +75,9 @@ export default async function HomePage() {
               // and MODE_COPY with hyphens (`three-man-weave`); they are the
               // same modes, so the authored one-liner is reused rather than
               // the catalogue sentence being truncated at render time.
-              blurb: MODE_COPY[mode.id.replace(/_/g, "-") as ModeId]?.blurb,
+              // A mode with no MODE_COPY entry (Prime Cut, Find the Prime,
+              // Shared Draft) carries its own one-liner in the catalogue.
+              blurb: MODE_COPY[mode.id.replace(/_/g, "-") as ModeId]?.blurb ?? mode.blurb,
             }))
           : []
       }

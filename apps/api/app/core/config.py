@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     DATA_DIR: Path = Path(__file__).resolve().parent.parent.parent.parent.parent / "data" / "web"
     DAILY_DUEL_COUNT: int = 10
     ENDLESS_MAX_COUNT: int = 50
+    # The first daily key (YYYY-MM-DD, America/Los_Angeles day) whose Peak Duel
+    # Daily board is built by pairing v2 (app/services/duel_pairing.py). Earlier
+    # dates replay the v1 draw byte-for-byte so archived boards and stored
+    # answers keep their duel ids. MUST be on or after the day v2 deploys: a
+    # date already played under v1 must never be re-derived by v2.
+    PEAK_DUEL_PAIRING_V2_FROM: str = "2026-10-08"
 
     # ---------------------------------------------------------------------------
     # Phase 3.0 — durable persistence + auth
@@ -128,6 +134,22 @@ class Settings(BaseSettings):
     RANKED_READINESS_LEVEL: Literal[
         "disabled", "simulation_only", "internal_alpha", "closed_alpha", "public_beta"
     ] = "disabled"
+
+    @model_validator(mode="after")
+    def validate_peak_duel_pairing_cutover(self) -> "Settings":
+        from datetime import date as _date
+
+        value = self.PEAK_DUEL_PAIRING_V2_FROM
+        try:
+            parsed = _date.fromisoformat(value)
+        except ValueError:
+            parsed = None
+        if parsed is None or parsed.isoformat() != value:
+            raise ValueError(
+                "PEAK3_PEAK_DUEL_PAIRING_V2_FROM must be an ISO daily key "
+                f"(YYYY-MM-DD); got {value!r}."
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_ranked_readiness(self) -> "Settings":
@@ -455,6 +477,10 @@ class Settings(BaseSettings):
     # rollout switch is for. See docs/architecture/ADR-006-prime-modes-additive.md.
     ARENA_PRIME_CUT_ENABLED: bool = False
     ARENA_FIND_THE_PRIME_ENABLED: bool = False
+    # SHARED DRAFT (two seats, one shared board of latest-season players). The same
+    # kind of switch as the two above, for the same reason: a brand-new mode
+    # reaches a deployment only when someone turns it on.
+    ARENA_SHARED_DRAFT_ENABLED: bool = False
 
     # Human-facing readiness classification. Does not itself gate behavior --
     # the booleans above do -- but is surfaced on /api/v1/arena/readiness and
@@ -486,7 +512,7 @@ class Settings(BaseSettings):
             raise ValueError(
                 "PEAK3_ARENA_BOTS_ENABLED is set but PEAK3_ARENA_ENABLED is not."
             )
-        for flag in ("ARENA_PRIME_CUT_ENABLED", "ARENA_FIND_THE_PRIME_ENABLED"):
+        for flag in ("ARENA_PRIME_CUT_ENABLED", "ARENA_FIND_THE_PRIME_ENABLED", "ARENA_SHARED_DRAFT_ENABLED"):
             if getattr(self, flag) and not self.ARENA_ENABLED:
                 raise ValueError(
                     f"PEAK3_{flag} is set but PEAK3_ARENA_ENABLED is not. A mode "

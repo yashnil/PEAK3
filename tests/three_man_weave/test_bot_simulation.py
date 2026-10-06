@@ -240,7 +240,9 @@ def test_zero_catastrophic_quality_deviations(simulation_report):
 
 
 def test_calibration_is_in_the_briefed_range(simulation_report):
-    assert 0.88 <= simulation_report["optimal_rate"] <= 0.99
+    # tmw_bot_v4 retuned this on purpose (was 0.88-0.99, measured 0.958): see
+    # `test_bot.py::test_the_bot_takes_the_best_legal_option_most_but_not_nine_tenths_of_the_time`.
+    assert 0.60 <= simulation_report["optimal_rate"] <= 0.85
     # Every deviation is by construction within the mild bound, so near-optimal
     # is 1.0; asserted anyway, because a future band that reached past the
     # bound would show up here first.
@@ -249,7 +251,10 @@ def test_calibration_is_in_the_briefed_range(simulation_report):
 
 def test_regret_stays_small(simulation_report):
     assert simulation_report["max_utility_regret"] <= _MILD_DEVIATION_REGRET + 1e-9
-    assert simulation_report["mean_utility_regret"] <= 0.02
+    # v4 deviates more often (that is the point) but only inside the same
+    # cap: measured mean 0.017 for the default style (v3: 0.0025).
+    assert simulation_report["mean_utility_regret"] <= 0.03
+    assert simulation_report["mean_quality_regret_points"] <= 2.0
     assert simulation_report["max_quality_regret_points"] <= _MAX_QUALITY_REGRET_POINTS
 
 

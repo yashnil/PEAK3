@@ -73,7 +73,8 @@ from nba_peak.perfect_season.exact_season import TEAM_ID_TO_NAME
 from nba_peak.three_man_weave import draft as D
 from nba_peak.three_man_weave import feasibility as F
 from nba_peak.three_man_weave.autopick import auto_pick_options
-from nba_peak.three_man_weave.bot import ThreeManWeaveBot, archetype_names
+from nba_peak.three_man_weave.bot import ThreeManWeaveBot, archetype_names, style_for_seat
+from nba_peak.three_man_weave.recognition import warm as _warm_recognition
 from nba_peak.three_man_weave.config import (
     COMPATIBLE_RULESET_VERSIONS,
     ELIGIBILITY_INDEX_VERSION,
@@ -1209,6 +1210,11 @@ class ThreeManWeaveMode:
         private_state: dict = {"seat_index": seat_index}
         legal_commands: tuple[str, ...] = ()
         seat_row = next((s for s in seats if s.seat_index == seat_index), None)
+        if seat_row is not None and seat_row.is_bot:
+            # A BOT seat's drafting style (tmw_bot_v4): seeded per match and
+            # seat, read only by the bot policy. Not a secret, not shown, and
+            # never added to a human seat's projection.
+            private_state["bot_style"] = style_for_seat(match.seed, seat_index)
         if (
             match.is_live()
             and snapshot.get("arrival_open")
@@ -1735,6 +1741,9 @@ def warm_caches() -> None:
     # function actually populates rather than whatever it populated when this
     # line was written.
     career_positions("lebron-james")
+    # The bot's game-only recognition table (tmw_bot_v4) reads the scored
+    # parquet too; loaded here so a bot decision never does I/O.
+    _warm_recognition()
 
 
 # Import-time side effects, in this order: load the data, then announce the

@@ -44,7 +44,7 @@ if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
 from nba_peak import formula_version  # noqa: E402
-from nba_peak.perfect_season.career_positions import career_positions
+from nba_peak.perfect_season.career_positions import career_positions, primary_position
 
 router = APIRouter()
 
@@ -133,6 +133,12 @@ class SeasonRow(BaseModel):
     # rather than anything parsed out of a display string, and why an empty
     # list means "no information" rather than "played nowhere".
     positions: list[str] = []
+    # The ONE position a player's position tab files them under -- the same
+    # field, from the same source, as `PeakRow.primary_position`. The Rankings
+    # page filters BOTH boards on it; this board used to omit it, so every
+    # row normalised to `null` and every position tab on Single Seasons was
+    # empty while the board still reported its full row count.
+    primary_position: Optional[str] = None
     prime_score: Optional[float] = None
     prime_index: Optional[float] = None
     # Present on every served row so the minutes floor is verifiable per row,
@@ -226,7 +232,14 @@ async def get_seasons(
 
     total_available = len(rows)
     rows = rows[offset : offset + limit]
-    rows = [dict(r, positions=sorted(career_positions(r["player_slug"]))) for r in rows]
+    rows = [
+        dict(
+            r,
+            positions=sorted(career_positions(r["player_slug"])),
+            primary_position=primary_position(r["player_slug"]),
+        )
+        for r in rows
+    ]
 
     return SeasonsResponse(
         dataset_version=data["dataset_version"],
