@@ -26,6 +26,7 @@ import { test, expect, Page, APIRequestContext } from "@playwright/test";
 // "yesterday" means. See the comment in the streak test for what mixing two
 // calendars actually cost.
 import { shiftDailyKey, todayPacific } from "@/lib/daily-time";
+import { solveDailyGridBoard, type SolvedCell } from "./helpers/daily-grid-solver";
 import { mintTestAccessToken } from "./helpers/test-jwt";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -167,73 +168,17 @@ async function findFillableCell(request: APIRequestContext): Promise<FillTarget>
  * the UI would reach by nine clicks, which is what makes it legitimate to skip
  * the clicks. (The result route re-validates all nine server-side anyway, so a
  * fabricated board would simply be rejected.)
+ *
+ * The search-and-match work lives in `helpers/daily-grid-solver.ts`: this used
+ * to lock squares greedily from PROBE_NAMES alone and threw "no distinct-player
+ * answer found for square (2, 0) on 2026-10-06" on a valid board whose
+ * Undrafted squares no probe name fills. See that file's header.
  */
-interface SolvedCell {
-  row: number;
-  col: number;
-  player_season: { player_slug: string };
-  cell_score: { arena_points: number };
-}
-
 async function solveBoardViaApi(
   request: APIRequestContext,
   date: string = FIXED_DATE,
 ): Promise<SolvedCell[]> {
-  const filled: SolvedCell[] = [];
-  const used: string[] = [];
-
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 3; col++) {
-      let locked = false;
-      for (const playerName of PROBE_NAMES) {
-        // Built by hand rather than via `params`, because `used` is a REPEATED
-        // query parameter and Playwright's params object cannot express one.
-        const query = new URLSearchParams({
-          q: playerName,
-          date,
-          row: String(row),
-          col: String(col),
-          limit: "50",
-        });
-        // Passing `used` makes the server mark spent identities, so the
-        // distinct-player rule is enforced by the same code the UI uses.
-        for (const slug of used) query.append("used", slug);
-        const search = await request.get(
-          `${API_BASE}/api/v1/daily-grid/search?${query.toString()}`,
-        );
-        if (!search.ok()) continue;
-        const { results } = await search.json();
-        const fits = (results as { status: string; id: string }[]).find(
-          (r) => r.status === "available",
-        );
-        if (!fits) continue;
-
-        const answer = await request.post(`${API_BASE}/api/v1/daily-grid/answer`, {
-          data: {
-            date,
-            row,
-            col,
-            answer_id: fits.id,
-            used_player_slugs: used,
-            filled_cells: filled.map((c) => [c.row, c.col]),
-          },
-        });
-        const body = await answer.json();
-        if (!body.valid) continue;
-
-        used.push(body.player_season.player_slug);
-        filled.push({ row, col, player_season: body.player_season, cell_score: body.cell_score });
-        locked = true;
-        break;
-      }
-      if (!locked) {
-        throw new Error(
-          `no distinct-player answer found for square (${row}, ${col}) on ${date}`,
-        );
-      }
-    }
-  }
-  return filled;
+  return solveDailyGridBoard(request, API_BASE, date, PROBE_NAMES);
 }
 
 /** Mark Daily Grid onboarding as already seen, so a test that is not about
