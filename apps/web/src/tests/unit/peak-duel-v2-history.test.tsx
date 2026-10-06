@@ -25,6 +25,19 @@ import { getProgressRepository, __resetProgressRepositoryForTests } from "@/lib/
 
 const STORAGE_KEY = "peak3_arena_progress";
 
+/**
+ * "TODAY" IS PINNED, because the grid is a ROLLING window: the component
+ * renders the last `HISTORY_WINDOW_DAYS` (35) daily keys ending at
+ * `todayPacific()`, which reads the real clock. The fixtures below are dated
+ * 2026-08-19/20, so on the real clock these tests passed only until those
+ * days aged out of the window (from 2026-09-24 on, every completed-cell count
+ * read 0). Noon Pacific on 2026-08-21 puts both fixture days inside the
+ * window for good, whatever the wall clock says. Same mechanism as
+ * `daily-grid-retry.test.tsx`: fake timers that still advance, so the
+ * component's fetch chain and `findBy*` polling run normally.
+ */
+const FIXED_NOW = "2026-08-21T19:00:00Z";
+
 function seedLocalCompletion(date: string, overrides: Partial<Record<string, unknown>> = {}) {
   const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") ?? {
     schema_version: 1,
@@ -51,6 +64,8 @@ function seedLocalCompletion(date: string, overrides: Partial<Record<string, unk
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date(FIXED_NOW));
   localStorage.clear();
   getDailyHistoryMock.mockReset();
   getDailyHistoryMock.mockResolvedValue({ entries: [] });
@@ -63,6 +78,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
 });
 
 /** Flushes the `getDailyHistory().then(...)` microtask chain so the
